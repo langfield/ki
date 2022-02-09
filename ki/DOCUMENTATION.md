@@ -1,20 +1,42 @@
 # Version control
 
-When you 
 
+## Creating a new `ki` repository and setting up `ki`.
 ```
 $ ki clone ~/.local/share/Anki2/ decks
 Creating directory ~/.local/share/ki/
 Found `collection.anki2` file at ~/.local/share/Anki2/User\ 1/collection.anki2
-Cloning into ~/.local/share/ki/User\ 1/remote/
-Running `git init`
-Running `git add .`
-Running `git commit -m "ki clone"`
-Creating directory ./decks/
-Running `git clone ~/.local/share/ki/User\ 1/remote/.git decks`
-Moving directory `~/.local/share/ki/User\ 1/remote/` to `~/.local/share/ki/_private/User\ 1/remote/`
+Computed md5sum ~/.local/share/Anki2/User\ 1/collection.anki2: ad7ea6d486a327042cf0b09b54626b66
+Checking that there is not an existing git repo at ./decks/
+Cloning into ./decks/
 ```
 
+## Pulling changes from an Anki collection into an extant `ki` repository
+```
+$ ki pull
+Removing /tmp/ki/remote/
+Found `collection.anki2` file at ~/.local/share/Anki2/User\ 1/collection.anki2
+Computed md5sum ~/.local/share/Anki2/User\ 1/collection.anki2: ad7ea6d486a327042cf0b09b54626b66
+Updating md5sum in .ki/hashes
+Cloning into ephemeral repository at /tmp/ki/remote/
+Running `git remote add origin /tmp/ki/remote/ad7ea6d486a327042cf0b09b54626b66.git`
+Running `git pull`
+```
+
+At this point, if the pull fails, the user can take over and manage the merge themselves.
+
+## Pushing committed changes in a `ki` repository to an Anki collection
+```
+$ ki push
+Checking latest hash in `.ki/hashes` matches md5sum of `~/.local/share/Anki2/User\ 1/collection.anki2`
+Checking out latest commit in a temp directory
+Compiling to .anki2 file
+Backing up `~/.local/share/Anki2/User\ 1/collection.anki2` to `~/.local/share/Anki2/User\ 1/ki/backups/`
+Overwriting `~/.local/share/Anki2/User\ 1/collection.anki2`
+```
+We store 5 backups of the collection prior to a push.
+
+```
 Start anki
 Sync
 Close anki
@@ -33,6 +55,16 @@ So we pull the updated .anki2 file into another git repo.
 And we merge the two in git.
 Then we overwrite the .anki2 file.
 But how do we know it's safe to overwrite?
+We have `ki` hash the .anki2 file and save the hash as a file in the git repo.
+If the hashes match, then the collection hasn't changed since the last pull, and an overwrite is safe.
+Each pull operation updates the hash.
+```
+
+
+Thus it is not necessary to have a persistent "remote" copy of the repo to pull
+from. The remote can be ephemeral. It only exists when we `ki pull`, and then
+`ki` deletes it. This is safe because we're checking the `md5sum` of
+`collection.anki2`. Notably, it is not created when we `ki clone` or `ki push`.
 
 ```
 $ ki push
