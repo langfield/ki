@@ -1,5 +1,44 @@
-# Version control
+# Model
 
+```
+                 +-------------+          +--------------+
+                 |             |          |              |
+                 |   AnkiWeb  -------------  AnkiMobile  |
+                 |             |   sync   |              |
+                 +------|------+          +--------------+
+                        |
+                        | sync
+                        |
+                 +------|------+
+                 |             |
+                 |    Anki     |
+                 |   (local)   |
+                 |             |
+                 +------|------+
+                        |
+                        | deck edits
+                        |
+               +--------|--------+               +------------------+
+               |                 |    ki clone   |                  |
+               |                 ---------------->                  |
+               | Collection file |               |     ~/decks/     |
+               |    (.anki2)     |    ki push    | (git repository) |
+               |                 <----------------                  |
+               |                 |               |                  |
+               +--------|--------+               +---------^--------+
+                        |                                  |
+                        | ki pull                          |
+                        |                                  |
+                        |                                  |
+             +----------v----------+                       |
+             |                     |                       |
+             | /tmp/ki/remote/AAA  |           ki pull     |
+             |  (git repository)   -------------------------
+             |    [ephemeral]      |
+             |                     |
+             +---------------------+
+```
+# Version control
 
 ## Creating a new `ki` repository and setting up `ki`.
 ```
@@ -36,44 +75,10 @@ Overwriting `~/.local/share/Anki2/User\ 1/collection.anki2`
 ```
 We store 5 backups of the collection prior to a push.
 
-```
-Start anki
-Sync
-Close anki
-Start ki
-Ki converts the .anki2 file into a git repo.
-Ki puts the git repo where the user can see it.
-The user edits the git repo.
-Maybe the user pushes changes to ankiweb from another computer.
-The user also edits some cards in the local installation of Anki.
-We must merge three different branches.
-It is safe to assume the remote ankiweb changes are not notetype changes.
-So we can sync safely and we have our local and ankiweb branches in sync.
-Now we need only merge two branches.
-It does not make sense to overwrite the .anki2 file, because that is dangerous.
-So we pull the updated .anki2 file into another git repo.
-And we merge the two in git.
-Then we overwrite the .anki2 file.
-But how do we know it's safe to overwrite?
-We have `ki` hash the .anki2 file and save the hash as a file in the git repo.
-If the hashes match, then the collection hasn't changed since the last pull, and an overwrite is safe.
-Each pull operation updates the hash.
-```
-
-
-Thus it is not necessary to have a persistent "remote" copy of the repo to pull
+It is not necessary to have a persistent "remote" copy of the repo to pull
 from. The remote can be ephemeral. It only exists when we `ki pull`, and then
 `ki` deletes it. This is safe because we're checking the `md5sum` of
 `collection.anki2`. Notably, it is not created when we `ki clone` or `ki push`.
-
-```
-$ ki push
-Error: last `ki pull` was before latest commit
-(can't see remote because it's in `ki/_private/`)
-$ ki pull
-
-```
-
 
 # Generating html
 -----------------
@@ -176,16 +181,5 @@ function defined of the form `format(text: str) -> bs4.Tag`. If you have an
 addon implementation, you can import it here and use it in your `format()`
 implementation. you can add a `ki` attribute whose value is the base64 encoding
 of the code block, and a `implementation` attribute whose value is the name of
-a function. At import-time, `ki` will decode this and 
-
-Requirements
-------------
-```bash
-pip install -r requirements.txt
-```
-
-
-Gotchas
--------
-
-- c
+a function. At import-time, `ki` will decode this and write the human-readable
+source to the relevant markdown file instead.
