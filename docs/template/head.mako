@@ -23,4 +23,4 @@
 
 <style>${homelink()}</style>
 <link rel="canonical" href="${module.url()[:-len('index.html')] if module.is_package else module.url()}">
-<link rel="icon" href="1f95e.svg">
+<link rel="icon" href="u1F367-shavedice.svg">

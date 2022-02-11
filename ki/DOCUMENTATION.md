@@ -1,3 +1,38 @@
+---
+
+> **Internal note.** The structure of this documentation is as follows:
+
+> 1. The first paragraph is an elevator pitch. Say exactly what it does for
+the user.
+2. The second bit is a list of functions, so users can look and see if it
+supports what they need.
+3. The third bit is two or three short sentences about how it works.
+4. Then the actual sections-proper of the documentation start.
+
+---
+
+`ki` provides command-line functions to:
+
+1. **clone** a `.anki2` collection into a directory as as git repository,
+2. **pull** changes from the Anki desktop client (and AnkiWeb) into an existing
+   repository,
+3. **push** changes (safely!) back to Anki.
+
+It uses existing tooling implmented in `apy` to parse the Anki collection
+SQLite file and convert its contents to human-readable markdown files.  
+
+These files (one per Anki note) are then dumped to a configurable location in
+the filesystem as a git repository, whose structure mirrors that of the decks
+in the collection. In effect, `ki` treats the git repo it generates as a local
+copy of the collection, and the `.anki2` collection file as a remote. All
+operations like pulling updates to the collection into `ki` and pushing updates
+from `ki` into Anki are handled by git under the hood. This means merge
+conflicts can be handled in the usual, familiar way, and additional remotes
+(e.g. a human-readable backup of a collection on github) can be added easily.
+Users are free to pick the editor of their choice, perform batch editing with
+command line tools like `awk` or `sed`, and even add CI actions.
+
+
 # Model
 
 ```

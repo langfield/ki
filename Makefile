@@ -3,5 +3,7 @@ default:
 install:
 	pip install -r requirements.txt
 documentation:
-	pdoc --html ki --force
-	cp docs/1f95e.svg html/ki/
+	pdoc --html ki --template-dir docs/template/ --force
+	cp docs/u1F367-shavedice.svg html/ki/
+clean:
+	rm -rf html/

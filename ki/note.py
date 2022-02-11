@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A module containing a class for Anki notes."""
-import apy
+from apy.anki import Note
 
 
-class KiNote(apy.Note):
+class KiNote(Note):
     """
     A subclass of ``apy.Note`` for parsing syntax-highlighted code in note fields.
 
