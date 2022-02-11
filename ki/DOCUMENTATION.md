@@ -18,6 +18,104 @@ supports what they need.
    repository,
 3. **push** changes (safely!) back to Anki.
 
+# Installation
+
+# Usage
+
+## Cloning an Anki collection into a new `ki` repository
+
+The `ki clone` command takes one required argument (the path to a `.anki2`
+file) and one optional argument (a path to a target directory). The usage is
+meant to mirror that of `git clone`.
+
+> **INTERNAL.** Add `--help` output here.
+
+An example of the `clone` subcommand usage and its output is given below.
+
+```bash
+$ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
+```
+```bash
+Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
+Cloning into /home/lyra/decks/
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to /home/lyra/decks/.ki/hashes
+```
+
+## Pulling changes from an Anki collection into an existing `ki` repository
+
+Once an Anki collection has been cloned, we can `pull` changes made by the Anki
+desktop client into our repository.
+
+> **INTERNAL.** Add `--help` output here.
+
+An example of the `pull` subcommand usage and its output is given below.
+
+```bash
+$ ki pull
+```
+```bash
+Removing /tmp/ki/remote/
+Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to /home/lyra/.ki/hashes
+Cloning .anki2 database into ephemeral repository at /tmp/ki/remote/
+Running `git remote add origin /tmp/ki/remote/ad7ea6d4.git`
+Running `git pull`
+```
+
+`ki` first deletes any residual ephemeral repositories in `/tmp/ki/remote/`.
+These would only remain here if a previous pull command failed.
+
+It then verifies that the path to the `.anki2` file specified in the `.ki/`
+directory (analogous to the `.git/` directory) still exists.
+
+It computes and records the hash of the collection file. In this way, `ki`
+keeps track of whether the collection database has changed since the last
+`clone`/`pull`.
+
+Finally, the collection is then cloned into an ephemeral repository in a temp
+directory, which is then `git pull`-ed into the current repository.
+
+At this point, if the git operation fails, the user can take over and manage
+the merge themselves.
+
+## Pushing changes in a `ki` repository to an Anki collection
+
+When we want to push our changes back to the Anki desktop client, we can use
+`ki push` to do that.
+
+An example of the `push` subcommand usage and its output is given below.
+
+```bash
+$ ki push
+```
+```bash
+Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Verified md5sum matches latest hash in `/home/lyra/.ki/hashes`
+Checked out latest commit at /tmp/ki/local/
+Generating local .anki2 file from latest commit
+Backing up original .anki2 file
+Overwriting collection
+```
+
+We store 5 backups of the collection prior to a push.
+
+> **INTERNAL**. It is not necessary to have a persistent "remote" copy of the
+repo to pull from. The remote can be ephemeral. It only exists when we `ki
+pull`, and then `ki` deletes it. This is safe because we're checking the
+`md5sum` of `collection.anki2`. Notably, it is not created when we `ki clone`
+or `ki push`.
+
+# Editing notes
+
+
+TODO.
+
+
+# How it works
+
 It uses existing tooling implmented in `apy` to parse the Anki collection
 SQLite file and convert its contents to human-readable markdown files.  
 
@@ -35,6 +133,8 @@ command line tools like `awk` or `sed`, and even add CI actions.
 
 # Model
 
+The following diagram shows the dataflow of a typical Anki/`ki` stack.
+
 ```
                  +-------------+          +--------------+
                  |             |          |              |
@@ -47,7 +147,6 @@ command line tools like `awk` or `sed`, and even add CI actions.
                  +------|------+
                  |             |
                  |    Anki     |
-                 |   (local)   |
                  |             |
                  +------|------+
                         |
@@ -73,47 +172,23 @@ command line tools like `awk` or `sed`, and even add CI actions.
              |                     |
              +---------------------+
 ```
-# Version control
+The node labeled Anki is the Anki desktop client on the localhost. It
+communicates with the AnkiWeb servers via Anki's sync feature, and from there,
+other clients (including AnkiDroid and AnkiMobile) are able to bidirectionally
+exchange changes to the user's collection.
 
-## Creating a new `ki` repository and setting up `ki`.
-```
-$ ki clone ~/.local/share/Anki2/ decks
-Creating directory ~/.local/share/ki/
-Found `collection.anki2` file at ~/.local/share/Anki2/User\ 1/collection.anki2
-Computed md5sum ~/.local/share/Anki2/User\ 1/collection.anki2: ad7ea6d486a327042cf0b09b54626b66
-Checking that there is not an existing git repo at ./decks/
-Cloning into ./decks/
-```
+When the Anki desktop client is started on the localhost, it opens and places a
+lock on the `.anki2` SQLite file. During the session, changes are possibly made
+to the deck, and the SQLite file is unlocked when the program is closed.
 
-## Pulling changes from an Anki collection into an extant `ki` repository
-```
-$ ki pull
-Removing /tmp/ki/remote/
-Found `collection.anki2` file at ~/.local/share/Anki2/User\ 1/collection.anki2
-Computed md5sum ~/.local/share/Anki2/User\ 1/collection.anki2: ad7ea6d486a327042cf0b09b54626b66
-Updating md5sum in .ki/hashes
-Cloning into ephemeral repository at /tmp/ki/remote/
-Running `git remote add origin /tmp/ki/remote/ad7ea6d486a327042cf0b09b54626b66.git`
-Running `git pull`
-```
+Since `ki` must read from this database file, that means that `ki` commands
+will not work while Anki is running. This is by-design, the database is locked
+for a reason, and enforcing this constraint lowers the likelihood that users'
+decks become corrupted.
 
-At this point, if the pull fails, the user can take over and manage the merge themselves.
-
-## Pushing committed changes in a `ki` repository to an Anki collection
-```
-$ ki push
-Checking latest hash in `.ki/hashes` matches md5sum of `~/.local/share/Anki2/User\ 1/collection.anki2`
-Checking out latest commit in a temp directory
-Compiling to .anki2 file
-Backing up `~/.local/share/Anki2/User\ 1/collection.anki2` to `~/.local/share/Anki2/User\ 1/ki/backups/`
-Overwriting `~/.local/share/Anki2/User\ 1/collection.anki2`
-```
-We store 5 backups of the collection prior to a push.
-
-It is not necessary to have a persistent "remote" copy of the repo to pull
-from. The remote can be ephemeral. It only exists when we `ki pull`, and then
-`ki` deletes it. This is safe because we're checking the `md5sum` of
-`collection.anki2`. Notably, it is not created when we `ki clone` or `ki push`.
+An ephemeral repository is used as an auxiliary step during the `ki pull`
+operation so that we can merge the Anki desktop client's changes into our
+repository via git.
 
 # Generating html
 -----------------
