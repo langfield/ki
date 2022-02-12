@@ -1,6 +1,6 @@
 ---
 
-> **Internal note.** The structure of this documentation is as follows:
+> **INTERNAL.** The structure of this documentation is as follows:
 
 > 1. The first paragraph is an elevator pitch. Say exactly what it does for
 the user.
@@ -19,6 +19,15 @@ supports what they need.
 3. **push** changes (safely!) back to Anki.
 
 # Installation
+
+`ki` is tested on Python 3.9 and Anki 2.1.49.
+
+The python package `apy` requires configuration. A walkthrough is provided in
+the output of ``apy --help``.
+
+```bash
+pip install anki-ki
+```
 
 # Usage
 
@@ -85,6 +94,8 @@ the merge themselves.
 When we want to push our changes back to the Anki desktop client, we can use
 `ki push` to do that.
 
+> **INTERNAL.** Add `--help` output here.
+
 An example of the `push` subcommand usage and its output is given below.
 
 ```bash
@@ -103,16 +114,28 @@ Overwriting collection
 We store 5 backups of the collection prior to a push.
 
 > **INTERNAL**. It is not necessary to have a persistent "remote" copy of the
-repo to pull from. The remote can be ephemeral. It only exists when we `ki
-pull`, and then `ki` deletes it. This is safe because we're checking the
+repo to pull from. The remote can be ephemeral. It only exists when we `ki pull`,
+and then `ki` deletes it. This is safe because we're checking the
 `md5sum` of `collection.anki2`. Notably, it is not created when we `ki clone`
 or `ki push`.
 
 # Editing notes
 
+An example of a generated markdown note is given below:
+```markdown
+# Note
+nid: 1636122987400
+model: Basic
+deck: Decks::Mathematics::Differentiable Manifolds
+tags: 
+markdown: false
 
-TODO.
+## Front
+What sort of object is `\(C_0(X)\)`?
 
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
+```
 
 # How it works
 
