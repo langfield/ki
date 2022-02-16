@@ -1,6 +1,7 @@
 """Tests for ki command line interface (CLI)."""
 import os
 import shutil
+import hashlib
 import tempfile
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
@@ -31,6 +32,16 @@ GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 def invoke(*args, **kwargs) -> int:
     """Wrap click CliRunner invoke()."""
     return CliRunner().invoke(*args, **kwargs)
+
+
+def get_collection_path() -> str:
+    """Put `collection.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    collection_path = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
+    shutil.copyfile(COLLECTION_PATH, collection_path)
+    assert os.path.isfile(collection_path)
+    return collection_path
 
 
 # CLI
@@ -100,24 +111,16 @@ def test_pull_push_fails_without_ki_subdirectory():
 
 def test_clone_pull_compute_and_store_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
+    collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        # Move to a temp directory.
-        tempdir = tempfile.mkdtemp()
-        os.chdir(tempdir)
-
-        # Copy collection to cwd.
-        collection_path = os.path.join(tempdir, COLLECTION_FILENAME)
-        shutil.copyfile(COLLECTION_PATH, collection_path)
-        assert os.path.isfile(collection_path)
-
         # Clone collection in cwd.
         ki.clone(collection_path)
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
 
         # Check that hash is written.
-        name = os.path.splittext(COLLECTION_FILENAME)[0]
-        with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+        with open(os.path.join(repodir, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" not in hashes
@@ -126,11 +129,12 @@ def test_clone_pull_compute_and_store_md5sum():
         shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
 
         # Pull updated collection.
-        ki.pull(collection_path)
+        os.chdir(repodir)
+        ki.pull()
+        os.chdir("../")
 
         # Check that updated hash is written and old hash is still there.
-        name = os.path.splittext(COLLECTION_FILENAME)[0]
-        with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+        with open(os.path.join(repodir, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
@@ -151,27 +155,77 @@ def test_get_default_clone_directory():
 
 def test_clone_creates_directory():
     """Does it create the directory?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        ki.clone(collection_path)
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+
+        assert os.path.isdir(repodir)
 
 
 def test_clone_errors_when_directory_already_exists():
     """Does it disallow overwrites?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+
+        # Create directory where we want to clone.
+        os.mkdir(repodir)
+
+        # Should error out because directory already exists.
+        with pytest.raises(FileNotFoundError):
+            ki.clone(collection_path)
 
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        ki.clone(collection_path)
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+
+        # Compute hashes.
+        cloned_md5 = hashlib.md5(os.path.join(repodir, "note.md"))
+        true_md5 = hashlib.md5(os.path.join(GITREPO_PATH, "note.md"))
+
+        assert cloned_md5 == true_md5
 
 
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        ki.clone(collection_path)
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+
+        # Check kidir exists.
+        kidir = os.path.join(repodir, ".ki/")
+        assert os.path.isdir(kidir)
 
 
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        ki.clone(collection_path)
+        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+
+        raise NotImplementedError
 
 
 def test_clone_commits_directory_contents():
