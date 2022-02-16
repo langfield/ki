@@ -11,11 +11,11 @@ projects.
 .. include:: ./DOCUMENTATION.md
 """
 
-__author__ = ''
-__email__ = ''
-__license__ = 'AGPLv3'
-__url__ = ''
-__version__ = '0.0.1a'
+__author__ = ""
+__email__ = ""
+__license__ = "AGPLv3"
+__url__ = ""
+__version__ = "0.0.1a"
 
 import click
 from beartype import beartype
@@ -54,7 +54,7 @@ def clone(collection_path: str, directory_path: str = "") -> None:
 
 @beartype
 def get_default_clone_directory(collection_path: str) -> str:
-    """"
+    """ "
     Get the default clone directory path.
 
     This should just be the name of the collection (which is usually a file
@@ -70,4 +70,4 @@ def get_default_clone_directory(collection_path: str) -> str:
     str
         The path to clone into.
     """
-    pass
+    return ""

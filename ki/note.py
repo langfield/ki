@@ -10,6 +10,7 @@ class KiNote(Note):
     This is distinct from the anki ``Note`` class, which is accessible using
     ``self.n``.
     """
+
     def __repr__(self):
         apy_note_repr: str = super().__repr__()
         apy_note_lines: List[str] = apy_note_repr.split("\n")
