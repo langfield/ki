@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import setuptools
+import ki as package
 
 
 def read_file(filename):
@@ -11,8 +12,6 @@ setuptools.setup(
     name=package.__name__.replace('_', '-'),
     version=package.__version__,
     description=package.__doc__.strip().split('\n')[0],
-    long_description=read_file('README.md'),
-    long_description_content_type='text/markdown',
     url=package.__url__,
     author=package.__author__,
     author_email=package.__email__,
