@@ -11,6 +11,8 @@ projects.
 .. include:: ./DOCUMENTATION.md
 """
 
+# pylint:disable=unnecessary-pass
+
 __author__ = ""
 __email__ = ""
 __license__ = "AGPLv3"

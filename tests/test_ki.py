@@ -1,10 +1,15 @@
 """Tests for ki command line interface (CLI)."""
 import os
-import pytest
 from importlib.metadata import version
+
+import pytest
 from click.testing import CliRunner
 from cli_test_helpers import shell
+
 import ki
+
+
+# pylint:disable=unnecessary-pass
 
 
 # HELPER FUNCTIONS
