@@ -30,15 +30,33 @@ UPDATED_COLLECTION_PATH = os.path.abspath(
     os.path.join(TEST_DATA_PATH, UPDATED_COLLECTION_FILENAME)
 )
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
+REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 
 
 # HELPER FUNCTIONS
 
 
-@beartype
 def invoke(*args, **kwargs) -> int:
     """Wrap click CliRunner invoke()."""
     return CliRunner().invoke(*args, **kwargs)
+
+
+@beartype
+def clone(runner: CliRunner, repository: str, directory: str = "") -> None:
+    """Make a test `ki clone` call."""
+    runner.invoke(ki.ki, ["clone", repository, directory])
+
+
+@beartype
+def pull(runner: CliRunner) -> None:
+    """Make a test `ki pull` call."""
+    runner.invoke(ki.ki, ["pull"])
+
+
+@beartype
+def push(runner: CliRunner) -> None:
+    """Make a test `ki push` call."""
+    runner.invoke(ki.ki, ["push"])
 
 
 @beartype
@@ -122,9 +140,9 @@ def test_pull_push_fails_without_ki_subdirectory():
         copy_tree(gitrepo_path, tempdir)
         os.chdir(tempdir)
         with pytest.raises(FileNotFoundError):
-            ki.pull()
+            pull(runner)
         with pytest.raises(FileNotFoundError):
-            ki.push()
+            push(runner)
 
 
 def test_clone_pull_compute_and_store_md5sum():
@@ -134,11 +152,11 @@ def test_clone_pull_compute_and_store_md5sum():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        ki.clone(collection_path)
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+        # ki.clone(collection_path)
+        clone(runner, collection_path)
 
         # Check that hash is written.
-        with open(os.path.join(repodir, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+        with open(os.path.join(REPODIR, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" not in hashes
@@ -147,12 +165,12 @@ def test_clone_pull_compute_and_store_md5sum():
         shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
 
         # Pull updated collection.
-        os.chdir(repodir)
-        ki.pull()
+        os.chdir(REPODIR)
+        pull(runner)
         os.chdir("../")
 
         # Check that updated hash is written and old hash is still there.
-        with open(os.path.join(repodir, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+        with open(os.path.join(REPODIR, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
@@ -177,10 +195,9 @@ def test_clone_creates_directory():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        ki.clone(collection_path)
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+        clone(runner, collection_path)
 
-        assert os.path.isdir(repodir)
+        assert os.path.isdir(REPODIR)
 
 
 def test_clone_errors_when_directory_already_exists():
@@ -190,14 +207,13 @@ def test_clone_errors_when_directory_already_exists():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
 
         # Create directory where we want to clone.
-        os.mkdir(repodir)
+        os.mkdir(REPODIR)
 
         # Should error out because directory already exists.
         with pytest.raises(FileNotFoundError):
-            ki.clone(collection_path)
+            clone(runner, collection_path)
 
 
 def test_clone_generates_expected_notes():
@@ -207,11 +223,10 @@ def test_clone_generates_expected_notes():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        ki.clone(collection_path)
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+        clone(runner, collection_path)
 
         # Compute hashes.
-        cloned_md5 = hashlib.md5(os.path.join(repodir, "note.md"))
+        cloned_md5 = hashlib.md5(os.path.join(REPODIR, "note.md"))
         true_md5 = hashlib.md5(os.path.join(GITREPO_PATH, "note.md"))
 
         assert cloned_md5 == true_md5
@@ -224,11 +239,10 @@ def test_clone_generates_ki_subdirectory():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        ki.clone(collection_path)
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+        clone(runner, collection_path)
 
         # Check kidir exists.
-        kidir = os.path.join(repodir, ".ki/")
+        kidir = os.path.join(REPODIR, ".ki/")
         assert os.path.isdir(kidir)
 
 
@@ -239,10 +253,9 @@ def test_cloned_collection_is_git_repository():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        ki.clone(collection_path)
-        repodir = os.path.splittext(COLLECTION_FILENAME)[0]
+        clone(runner, collection_path)
 
-        assert is_git_repo(repodir)
+        assert is_git_repo(REPODIR)
 
 
 def test_clone_commits_directory_contents():
