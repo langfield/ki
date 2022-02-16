@@ -12,10 +12,11 @@ def invoke(*args, **kwargs) -> int:
     return CliRunner().invoke(*args, **kwargs)
 
 
-def test_hello_world():
-    result = invoke(ki, ["Peter"])
-    assert result.exit_code == 0
-    assert result.output == "Hello Peter!\n"
+def test_bad_command_is_bad():
+    """Typos should result in errors."""
+    result = invoke(ki, ["clome"])
+    assert result.exit_code == 2
+    assert "Error: No such command 'clome'." in result.output
 
 
 def test_runas_module():
@@ -41,5 +42,12 @@ def test_version():
 
 def test_clone_command():
     """Is command available?"""
-    result = shell("ki baz --help")
+    result = shell("ki clone --help")
     assert result.exit_code == 0
+
+
+def test_cli():
+    """Does CLI stop execution w/o a command argument?"""
+    with pytest.raises(SystemExit):
+        ki()
+        pytest.fail("CLI doesn't abort asking for a command argument")

@@ -22,6 +22,7 @@ from beartype import beartype
 
 
 @click.group()
+@click.version_option()
 @beartype
 def ki() -> None:
     """
