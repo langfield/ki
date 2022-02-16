@@ -120,6 +120,7 @@ def test_clone_pull_compute_and_store_md5sum():
         with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
+            assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" not in hashes
 
         # Update collection.
         shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
@@ -127,10 +128,11 @@ def test_clone_pull_compute_and_store_md5sum():
         # Pull updated collection.
         ki.pull(collection_path)
 
-        # Check that updated hash is written.
+        # Check that updated hash is written and old hash is still there.
         name = os.path.splittext(COLLECTION_FILENAME)[0]
         with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
+            assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
 
 
