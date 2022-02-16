@@ -63,6 +63,19 @@ def test_cli():
         pytest.fail("CLI doesn't abort asking for a command argument")
 
 
+# COMMON
+
+
+def test_pull_push_fails_without_ki_subdirectory():
+    """Do pull and push know whether they're in a ki-generated git repo?"""
+    pass
+
+
+def test_clone_pull_compute_and_store_md5sum():
+    """Does ki add new hash to `.ki/hashes`?"""
+    pass
+
+
 # CLONE
 
 
@@ -87,4 +100,70 @@ def test_clone_errors_when_directory_already_exists():
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
+    pass
+
+
+def test_clone_generates_ki_subdirectory():
+    """Does clone command generate .ki/ directory?"""
+    pass
+
+
+def test_cloned_collection_is_git_repository():
+    """Does clone run `git init` and stuff?"""
+    pass
+
+
+def test_clone_commits_directory_contents():
+    """Does clone leave user with an up-to-date repo?"""
+    pass
+
+
+def test_clone_leaves_collection_file_unchanged():
+    """Does clone leave the collection alone?"""
+    pass
+
+
+# PULL
+
+
+def test_pull_fails_if_collection_no_longer_exists():
+    """Does ki pull only if `.anki2` file exists?"""
+    pass
+
+
+def test_pull_writes_changes_correctly():
+    """Does ki get the changes from modified collection file?"""
+    pass
+
+
+def test_pull_deletes_ephemeral_repo_directory():
+    """Does ki clean up `/tmp/ki/remote/`?"""
+    pass
+
+
+def test_pull_creates_ephemeral_repo_directory():
+    """Does ki first clone to `/tmp/ki/remote/`?"""
+    pass
+
+
+def test_pull_removes_ephemeral_git_remote():
+    """Does ki remove remote before quitting?"""
+    pass
+
+
+# PUSH
+
+
+def test_push_writes_changes_correctly():
+    """If there are committed changes, does push change the collection file?"""
+    pass
+
+
+def test_push_verifies_md5sum():
+    """Does ki only push if md5sum matches last pull?"""
+    pass
+
+
+def test_push_generates_correct_backup():
+    """Does push store a backup identical to old collection file?"""
     pass
