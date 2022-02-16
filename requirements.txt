@@ -5,3 +5,4 @@ apy @ git+https://github.com/lervag/apy.git@39fc43d6e3671afae3021b7d095de32c0c02
 pdoc3
 pytest
 cli-test-helpers==2.1.0
+loguru

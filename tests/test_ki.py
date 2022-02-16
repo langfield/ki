@@ -1,8 +1,12 @@
 """Tests for ki command line interface (CLI)."""
 import os
+import shutil
+import tempfile
+from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import pytest
+from loguru import logger
 from click.testing import CliRunner
 from cli_test_helpers import shell
 
@@ -10,6 +14,15 @@ import ki
 
 
 # pylint:disable=unnecessary-pass
+
+
+TEST_DATA_PATH = "tests/data/"
+COLLECTION_FILENAME = "collection.anki2"
+ORIG_COLLECTION_FILENAME = "original.anki2"
+UPDATED_COLLECTION_FILENAME = "updated.anki2"
+COLLECTION_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, ORIG_COLLECTION_FILENAME))
+UPDATED_COLLECTION_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, UPDATED_COLLECTION_FILENAME))
+GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 
 
 # HELPER FUNCTIONS
@@ -38,14 +51,14 @@ def test_runas_module():
 
 def test_entrypoint():
     """Is entrypoint script installed? (setup.py)"""
-    result = shell("ki --help")
+    result = invoke(ki.ki, ["--help"])
     assert result.exit_code == 0
 
 
 def test_version():
     """Does --version display information as expected?"""
     expected_version = version("ki")
-    result = shell("ki --version")
+    result = invoke(ki.ki, ["--version"])
 
     assert result.stdout == f"ki, version {expected_version}{os.linesep}"
     assert result.exit_code == 0
@@ -54,9 +67,9 @@ def test_version():
 def test_command_availability():
     """Are commands available?"""
     results = []
-    results.append(shell("ki clone --help"))
-    results.append(shell("ki pull --help"))
-    results.append(shell("ki push --help"))
+    results.append(invoke(ki.ki, ["clone", "--help"]))
+    results.append(invoke(ki.ki, ["pull", "--help"]))
+    results.append(invoke(ki.ki, ["push", "--help"]))
     for result in results:
         assert result.exit_code == 0
 
@@ -73,12 +86,53 @@ def test_cli():
 
 def test_pull_push_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
-    pass
+    gitrepo_path = os.path.abspath(GITREPO_PATH)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        tempdir = tempfile.mkdtemp()
+        copy_tree(gitrepo_path, tempdir)
+        os.chdir(tempdir)
+        with pytest.raises(FileNotFoundError):
+            ki.pull()
+        with pytest.raises(FileNotFoundError):
+            ki.push()
 
 
 def test_clone_pull_compute_and_store_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
-    pass
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Move to a temp directory.
+        tempdir = tempfile.mkdtemp()
+        os.chdir(tempdir)
+
+        # Copy collection to cwd.
+        collection_path = os.path.join(tempdir, COLLECTION_FILENAME)
+        shutil.copyfile(COLLECTION_PATH, collection_path)
+        assert os.path.isfile(collection_path)
+
+        # Clone collection in cwd.
+        ki.clone(collection_path)
+
+        # Check that hash is written.
+        name = os.path.splittext(COLLECTION_FILENAME)[0]
+        with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+            hashes = hashes_file.read()
+            assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
+
+        # Update collection.
+        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+
+        # Pull updated collection.
+        ki.pull(collection_path)
+
+        # Check that updated hash is written.
+        name = os.path.splittext(COLLECTION_FILENAME)[0]
+        with open(os.path.join(name, ".ki/hashes"), encoding="UTF-8") as hashes_file:
+            hashes = hashes_file.read()
+            assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
+
 
 
 # CLONE
