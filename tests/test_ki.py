@@ -36,7 +36,7 @@ REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 # HELPER FUNCTIONS
 
 
-def invoke(*args, **kwargs) -> int:
+def invoke(*args, **kwargs):
     """Wrap click CliRunner invoke()."""
     return CliRunner().invoke(*args, **kwargs)
 
@@ -78,6 +78,16 @@ def is_git_repo(path: str) -> bool:
         return True
     except git.exc.InvalidGitRepositoryError:
         return False
+
+
+@beartype
+def md5(path: str) -> str:
+    """Compute md5sum of file at `path`."""
+    hash_md5 = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 
 # CLI
@@ -131,7 +141,7 @@ def test_cli():
 # COMMON
 
 
-def test_pull_push_fails_without_ki_subdirectory():
+def test_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
     gitrepo_path = os.path.abspath(GITREPO_PATH)
     runner = CliRunner()
@@ -145,7 +155,7 @@ def test_pull_push_fails_without_ki_subdirectory():
             push(runner)
 
 
-def test_clone_pull_compute_and_store_md5sum():
+def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -226,8 +236,8 @@ def test_clone_generates_expected_notes():
         clone(runner, collection_path)
 
         # Compute hashes.
-        cloned_md5 = hashlib.md5(os.path.join(REPODIR, "note.md"))
-        true_md5 = hashlib.md5(os.path.join(GITREPO_PATH, "note.md"))
+        cloned_md5 = md5(os.path.join(REPODIR, "note.md"))
+        true_md5 = md5(os.path.join(GITREPO_PATH, "note.md"))
 
         assert cloned_md5 == true_md5
 
@@ -260,11 +270,41 @@ def test_cloned_collection_is_git_repository():
 
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Construct repo object.
+        repo = git.Repo(REPODIR)
+
+        # Make sure there are no changes.
+        changes = repo.head.commit.diff()
+        assert len(changes) == 0
+
+        # Make sure there is exactly 1 commit.
+        commits = list(repo.iter_commits("HEAD"))
+        assert len(commits) == 1
 
 
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
+    collection_path = get_collection_path()
+    original_md5 = md5(collection_path)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        updated_md5 = md5(collection_path)
+        assert original_md5 == updated_md5
+
+
+def test_clone_directory_argument_works():
+    """Does clone obey the target directory argument?"""
     pass
 
 
