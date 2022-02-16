@@ -6,3 +6,4 @@ pdoc3
 pytest
 cli-test-helpers==2.1.0
 loguru
+gitpython

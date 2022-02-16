@@ -6,8 +6,10 @@ import tempfile
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
+import git
 import pytest
 from loguru import logger
+from beartype import beartype
 from click.testing import CliRunner
 from cli_test_helpers import shell
 
@@ -21,19 +23,25 @@ TEST_DATA_PATH = "tests/data/"
 COLLECTION_FILENAME = "collection.anki2"
 ORIG_COLLECTION_FILENAME = "original.anki2"
 UPDATED_COLLECTION_FILENAME = "updated.anki2"
-COLLECTION_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, ORIG_COLLECTION_FILENAME))
-UPDATED_COLLECTION_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, UPDATED_COLLECTION_FILENAME))
+COLLECTION_PATH = os.path.abspath(
+    os.path.join(TEST_DATA_PATH, ORIG_COLLECTION_FILENAME)
+)
+UPDATED_COLLECTION_PATH = os.path.abspath(
+    os.path.join(TEST_DATA_PATH, UPDATED_COLLECTION_FILENAME)
+)
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 
 
 # HELPER FUNCTIONS
 
 
+@beartype
 def invoke(*args, **kwargs) -> int:
     """Wrap click CliRunner invoke()."""
     return CliRunner().invoke(*args, **kwargs)
 
 
+@beartype
 def get_collection_path() -> str:
     """Put `collection.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
@@ -42,6 +50,16 @@ def get_collection_path() -> str:
     shutil.copyfile(COLLECTION_PATH, collection_path)
     assert os.path.isfile(collection_path)
     return collection_path
+
+
+@beartype
+def is_git_repo(path: str) -> bool:
+    """Check if path is git repository."""
+    try:
+        _ = git.Repo(path).git_dir
+        return True
+    except git.exc.InvalidGitRepositoryError:
+        return False
 
 
 # CLI
@@ -140,7 +158,6 @@ def test_clone_pull_compute_and_store_md5sum():
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
 
 
-
 # CLONE
 
 
@@ -225,7 +242,7 @@ def test_cloned_collection_is_git_repository():
         ki.clone(collection_path)
         repodir = os.path.splittext(COLLECTION_FILENAME)[0]
 
-        raise NotImplementedError
+        assert is_git_repo(repodir)
 
 
 def test_clone_commits_directory_contents():
