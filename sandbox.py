@@ -19,16 +19,27 @@ from click.testing import CliRunner
 
 import ki
 
-from tests.test_ki import get_collection_path, clone
+from tests.test_ki import get_collection_path, clone, REPODIR, UPDATED_COLLECTION_PATH, pull
 
+import logging
+logging.basicConfig(level=logging.INFO)
 
 def main():
     collection_path = get_collection_path()
-
     runner = CliRunner()
     with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
         clone(runner, collection_path)
-        logger.info(os.listdir())
+        assert not os.path.isfile(os.path.join(REPODIR, "note1.md"))
+
+        # Update collection.
+        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+
+        # Pull updated collection.
+        os.chdir(REPODIR)
+        pull(runner)
+        assert os.path.isfile("note1.md")
 
 
 if __name__ == "__main__":

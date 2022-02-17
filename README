@@ -19,3 +19,9 @@ TODO
 - Add implementations of `clone`, `pull`, and `push`.
 - Make sure `push` acquires lock on SQLite3 file before overwriting.
 - Make clone work on empty directories to match `git` behavior
+
+
+Notes
+-----
+To debug gitpython commands:
+    export GIT_PYTHON_TRACE=full

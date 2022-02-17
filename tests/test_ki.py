@@ -87,15 +87,6 @@ def is_git_repo(path: str) -> bool:
         return False
 
 
-@beartype
-def md5(path: str) -> str:
-    """Compute md5sum of file at `path`."""
-    hash_md5 = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
 
 @beartype
 def read_sqlite3(db_path: str) -> None:
@@ -281,8 +272,8 @@ def test_clone_generates_expected_notes():
         clone(runner, collection_path)
 
         # Compute hashes.
-        cloned_md5 = md5(cloned_note_path)
-        true_md5 = md5(true_note_path)
+        cloned_md5 = ki.md5(cloned_note_path)
+        true_md5 = ki.md5(true_note_path)
 
         assert cloned_md5 == true_md5
 
@@ -337,14 +328,14 @@ def test_clone_commits_directory_contents():
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     collection_path = get_collection_path()
-    original_md5 = md5(collection_path)
+    original_md5 = ki.md5(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
         clone(runner, collection_path)
 
-        updated_md5 = md5(collection_path)
+        updated_md5 = ki.md5(collection_path)
         assert original_md5 == updated_md5
 
 
@@ -383,7 +374,6 @@ def test_pull_fails_if_collection_no_longer_exists():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     collection_path = get_collection_path()
@@ -467,7 +457,7 @@ def test_push_verifies_md5sum():
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     collection_path = get_collection_path()
-    old_hash = md5(collection_path)
+    old_hash = ki.md5(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -488,7 +478,7 @@ def test_push_generates_correct_backup():
 
         backup = False
         for path in paths:
-            if md5(path) == old_hash:
+            if ki.md5(path) == old_hash:
                 backup = True
 
         assert backup
