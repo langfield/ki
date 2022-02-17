@@ -19,7 +19,11 @@ __license__ = "AGPLv3"
 __url__ = ""
 __version__ = "0.0.1a"
 
+import os
+import anki
 import click
+from apy.anki import Anki
+from loguru import logger
 from beartype import beartype
 
 
@@ -32,26 +36,54 @@ def ki() -> None:
 
     Takes no arguments, only has three subcommands (clone, pull, push).
     """
-    pass
+    return
 
 
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-@beartype
-def clone(collection_path: str, directory_path: str = "") -> None:
+def clone(collection: str, directory: str = "") -> None:
     """
     Clone an Anki collection into a directory.
 
     Parameters
     ----------
-    collection_path : str
+    collection : str
         The path to a `.anki2` collection file.
-    directory_path : str, default=""
+    directory : str, default=""
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+
+    # Import with apy.
+    with Anki(path=collection) as a:
+        a.col.find_notes("")
+        notes = list(a.find_notes(query=""))
+        logger.info(notes)
+
+
+@ki.command()
+@beartype
+def pull() -> None:
+    """
+    Pull from a preconfigured remote Anki collection into an existing ki
+    repository.
+    """
     pass
+
+
+@ki.command()
+@beartype
+def push() -> None:
+    """
+    Pack a ki repository into a .anki2 file and push to collection location.
+    """
+    pass
+
+
+# UTILS
 
 
 @beartype
@@ -72,4 +104,7 @@ def get_default_clone_directory(collection_path: str) -> str:
     str
         The path to clone into.
     """
-    return ""
+    basename = os.path.basename(collection_path)
+    sections = os.path.splitext(basename)
+    assert len(sections) == 2
+    return os.path.abspath(sections[0])
