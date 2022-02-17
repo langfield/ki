@@ -1,17 +1,20 @@
 """Tests for ki command line interface (CLI)."""
 import os
+import random
 import shutil
 import hashlib
+import sqlite3
 import tempfile
+import subprocess
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import git
 import pytest
-from loguru import logger
+import bitstring
+import checksumdir
 from beartype import beartype
 from click.testing import CliRunner
-from cli_test_helpers import shell
 
 import ki
 
@@ -73,10 +76,12 @@ def get_collection_path() -> str:
 @beartype
 def is_git_repo(path: str) -> bool:
     """Check if path is git repository."""
+    if not os.path.isdir(path):
+        return False
     try:
         _ = git.Repo(path).git_dir
         return True
-    except git.exc.InvalidGitRepositoryError:
+    except git.InvalidGitRepositoryError:
         return False
 
 
@@ -88,6 +93,36 @@ def md5(path: str) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
+
+@beartype
+def read_sqlite3(db_path: str) -> None:
+    """Print all tables."""
+    # Create a SQL connection to our SQLite database
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    tables = list(cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
+    print(tables)
+    con.close()
+
+
+@beartype
+def randomly_swap_1_bit(path: str) -> None:
+    """Randomly swap a bit in a file."""
+    assert os.path.isfile(path)
+
+    # Read in bytes.
+    with open(path, "rb") as file:
+        data: bytes = file.read()
+
+    # Construct BitArray and swap bit.
+    bits = bitstring.BitArray(bytes=data)
+    i = random.randrange(len(bits))
+    bits.invert(i)
+
+    # Write out bytes.
+    with open(path, "wb") as file:
+        file.write(bits.bytes)
 
 
 # CLI
@@ -102,8 +137,9 @@ def test_bad_command_is_bad():
 
 def test_runas_module():
     """Can this package be run as a Python module?"""
-    result = shell("python -m ki --help")
-    assert result.exit_code == 0
+    command = "python -m ki --help"
+    completed = subprocess.run(command, shell=True, capture_output=True, check=True)
+    assert completed.returncode == 0
 
 
 def test_entrypoint():
@@ -305,7 +341,18 @@ def test_clone_leaves_collection_file_unchanged():
 
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        tempdir = tempfile.mkdtemp()
+        target = os.path.join(tempdir, "TARGET")
+        assert not os.path.isdir(target)
+        assert not os.path.isfile(target)
+
+        # Clone collection in cwd.
+        clone(runner, collection_path, target)
+        assert os.path.isdir(target)
 
 
 # PULL
@@ -313,27 +360,56 @@ def test_clone_directory_argument_works():
 
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Delete collection and try to pull.
+        os.remove(collection_path)
+        with pytest.raises(FileNotFoundError):
+            os.chdir(REPODIR)
+            pull(runner)
 
 
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, "note2.md"))
+
+        # Update collection.
+        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+
+        # Pull updated collection.
+        os.chdir(REPODIR)
+        pull(runner)
+        assert os.path.isfile("note2.md")
 
 
-def test_pull_deletes_ephemeral_repo_directory():
-    """Does ki clean up `/tmp/ki/remote/`?"""
-    pass
-
-
-def test_pull_creates_ephemeral_repo_directory():
-    """Does ki first clone to `/tmp/ki/remote/`?"""
-    pass
-
-
-def test_pull_removes_ephemeral_git_remote():
+def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        orig_hash = checksumdir.dirhash(REPODIR)
+
+        # Pull updated collection.
+        os.chdir(REPODIR)
+        pull(runner)
+        os.chdir("../")
+        new_hash = checksumdir.dirhash(REPODIR)
+
+        assert orig_hash == new_hash
 
 
 # PUSH
@@ -341,14 +417,64 @@ def test_pull_removes_ephemeral_git_remote():
 
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
-    pass
+    collection_path = get_collection_path()
+    read_sqlite3(collection_path)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        note = os.path.join(REPODIR, "note1.md")
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        push(runner)
+        read_sqlite3(collection_path)
 
 
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
-    pass
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Swap a bit.
+        randomly_swap_1_bit(collection_path)
+
+        # Make sure ki complains.
+        with pytest.raises(ValueError):
+            push(runner)
 
 
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
-    pass
+    collection_path = get_collection_path()
+    old_hash = md5(collection_path)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Make change in repo.
+        note = os.path.join(REPODIR, "note1.md")
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        push(runner)
+        os.chdir(REPODIR)
+        assert os.path.isdir(".ki/backups")
+
+        os.chdir(".ki/backups")
+        paths = os.listdir()
+
+        backup = False
+        for path in paths:
+            if md5(path) == old_hash:
+                backup = True
+
+        assert backup
