@@ -25,21 +25,11 @@ from tests.test_ki import get_collection_path, clone
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
     collection_path = get_collection_path()
-    parent = os.path.abspath(os.path.join(collection_path, os.pardir))
-    logger.debug(os.listdir(parent))
-    os.remove(collection_path)
-    logger.debug(os.listdir(parent))
+
     runner = CliRunner()
     with runner.isolated_filesystem():
-        logger.debug(os.listdir())
         clone(runner, collection_path)
-        logger.debug(os.listdir())
-
-
-def crazy():
-    anki.Collection("garbled.anki2")
 
 
 if __name__ == "__main__":
     test_clone_fails_if_collection_doesnt_exist()
-    crazy()

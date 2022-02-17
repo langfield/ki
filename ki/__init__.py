@@ -20,11 +20,14 @@ __url__ = ""
 __version__ = "0.0.1a"
 
 import os
+from typing import List
 import anki
 import click
-from apy.anki import Anki
+from apy.anki import Anki, Note
 from loguru import logger
 from beartype import beartype
+
+from ki.note import KiNote
 
 
 @click.group()
@@ -58,10 +61,29 @@ def clone(collection: str, directory: str = "") -> None:
         raise FileNotFoundError
 
     # Import with apy.
+    query = ""
     with Anki(path=collection) as a:
-        a.col.find_notes("")
-        notes = list(a.find_notes(query=""))
-        logger.info(notes)
+        notes: List[KiNote] = []
+        for i in set(a.col.find_notes(query)):
+            notes.append(KiNote(a, a.col.getNote(i)))
+
+        logger.info(f"Notes: {notes}")
+        logger.info(f"Notes (len): {len(notes)}")
+        logger.info(f"Notes (type): {type(notes)}")
+        logger.info(f"Note (type): {type(notes[0])}")
+
+    # Generate default target directory.
+    if directory == "":
+        directory = get_default_clone_directory(collection)
+
+    # Get abspath of target directory.
+    directory = os.path.abspath(directory)
+    os.mkdir(directory)
+
+    # Dump notes.
+    for i, note in enumerate(notes):
+        with open(f"note{i}.md", "w", encoding="UTF-8") as note_file:
+            note_file.write(str(note))
 
 
 @ki.command()
