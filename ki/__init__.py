@@ -98,9 +98,10 @@ def _clone(collection: str, directory: str = "") -> None:
         config.write(config_file)
 
     # Create hashes file.
+    basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(md5(collection))
+        hashes_file.write(f"{md5(collection)}  {basename}")
 
     # Run git init.
     repo = git.Repo.init(directory)
@@ -148,15 +149,29 @@ def pull() -> None:
     if not os.path.isfile(collection):
         raise FileNotFoundError
 
+    # Lock DB and get hash.
+    # TODO: lock DB.
+    md5sum = md5(collection)
+
+    # Quit if hash matches last pull.
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
+        if md5sum in hashes_file.readlines()[-1]:
+            logger.info(f"Up to date.")
+            return
+
     # Create a temp directory root.
     tempdir = tempfile.mkdtemp()
     root = os.path.join(tempdir, "ki/", "remote/")
     os.makedirs(root)
 
     # Clone into an ephemeral repository.
-    ephem = os.path.join(root, md5(collection))
+    ephem = os.path.join(root, md5sum)
     logger.debug(f"calling clone with args: {collection}, {ephem}")
     _clone(collection, ephem)
+
+    # TODO: unlock DB.
 
     # Create remote pointing to ephemeral repository and pull.
     repo = git.Repo(os.getcwd())
@@ -170,6 +185,14 @@ def pull() -> None:
     p = subprocess.run(["git", "pull", "-v", "--allow-unrelated-histories", "origin", "main"], check=False, capture_output=True)
     logger.info(f"\n{p.stdout.decode()}")
     logger.info(f"\n{p.stderr.decode()}")
+
+    # Append to hashes file.
+    basename = os.path.basename(collection)
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
+        hashes_file.write(f"{md5sum}  {basename}")
+
 
 
 @ki.command()

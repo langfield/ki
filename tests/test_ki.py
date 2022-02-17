@@ -118,6 +118,19 @@ def randomly_swap_1_bit(path: str) -> None:
         file.write(bits.bytes)
 
 
+@beartype
+def checksum_git_repository(path: str) -> str:
+    """Compute a checksum of git repository without .git folder."""
+    assert is_git_repo(path)
+    tempdir = tempfile.mkdtemp()
+    repodir = os.path.join(tempdir, "REPO")
+    shutil.copytree(path, repodir)
+    shutil.rmtree(os.path.join(repodir, ".git/"))
+    checksum = checksumdir.dirhash(repodir)
+    shutil.rmtree(tempdir)
+    return checksum
+
+
 # CLI
 
 
@@ -185,7 +198,6 @@ def test_fails_without_ki_subdirectory():
             push(runner)
 
 
-@pytest.mark.skip
 def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     collection_path = get_collection_path()
@@ -393,7 +405,6 @@ def test_pull_writes_changes_correctly():
         assert os.path.isfile("note1.md")
 
 
-@pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     collection_path = get_collection_path()
@@ -402,13 +413,13 @@ def test_pull_unchanged_collection_is_no_op():
 
         # Clone collection in cwd.
         clone(runner, collection_path)
-        orig_hash = checksumdir.dirhash(REPODIR)
+        orig_hash = checksum_git_repository(REPODIR)
 
         # Pull updated collection.
         os.chdir(REPODIR)
         pull(runner)
         os.chdir("../")
-        new_hash = checksumdir.dirhash(REPODIR)
+        new_hash = checksum_git_repository(REPODIR)
 
         assert orig_hash == new_hash
 
@@ -416,7 +427,6 @@ def test_pull_unchanged_collection_is_no_op():
 # PUSH
 
 
-@pytest.mark.skip
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
@@ -433,6 +443,7 @@ def test_push_writes_changes_correctly():
 
         push(runner)
         read_sqlite3(collection_path)
+        raise NotImplementedError
 
 
 @pytest.mark.skip
