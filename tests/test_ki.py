@@ -4,6 +4,7 @@ import random
 import shutil
 import hashlib
 import sqlite3
+import difflib
 import tempfile
 import subprocess
 from distutils.dir_util import copy_tree
@@ -252,7 +253,6 @@ def test_clone_creates_directory():
         assert os.path.isdir(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_errors_when_directory_already_exists():
     """Does it disallow overwrites?"""
     collection_path = get_collection_path()
@@ -265,13 +265,14 @@ def test_clone_errors_when_directory_already_exists():
         os.mkdir(REPODIR)
 
         # Should error out because directory already exists.
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(FileExistsError):
             clone(runner, collection_path)
 
 
-@pytest.mark.skip
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
+    true_note_path = os.path.abspath(os.path.join(GITREPO_PATH, "note0.md"))
+    cloned_note_path = os.path.join(REPODIR, "note0.md")
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -280,13 +281,12 @@ def test_clone_generates_expected_notes():
         clone(runner, collection_path)
 
         # Compute hashes.
-        cloned_md5 = md5(os.path.join(REPODIR, "note.md"))
-        true_md5 = md5(os.path.join(GITREPO_PATH, "note.md"))
+        cloned_md5 = md5(cloned_note_path)
+        true_md5 = md5(true_note_path)
 
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     collection_path = get_collection_path()
@@ -397,7 +397,7 @@ def test_pull_writes_changes_correctly():
 
         # Clone collection in cwd.
         clone(runner, collection_path)
-        assert not os.path.isfile(os.path.join(REPODIR, "note2.md"))
+        assert not os.path.isfile(os.path.join(REPODIR, "note1.md"))
 
         # Update collection.
         shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
@@ -405,7 +405,7 @@ def test_pull_writes_changes_correctly():
         # Pull updated collection.
         os.chdir(REPODIR)
         pull(runner)
-        assert os.path.isfile("note2.md")
+        assert os.path.isfile("note1.md")
 
 
 @pytest.mark.skip
@@ -442,7 +442,7 @@ def test_push_writes_changes_correctly():
         # Clone collection in cwd.
         clone(runner, collection_path)
 
-        note = os.path.join(REPODIR, "note1.md")
+        note = os.path.join(REPODIR, "note0.md")
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
@@ -480,7 +480,7 @@ def test_push_generates_correct_backup():
         clone(runner, collection_path)
 
         # Make change in repo.
-        note = os.path.join(REPODIR, "note1.md")
+        note = os.path.join(REPODIR, "note0.md")
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 

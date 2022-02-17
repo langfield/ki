@@ -67,11 +67,6 @@ def clone(collection: str, directory: str = "") -> None:
         for i in set(a.col.find_notes(query)):
             notes.append(KiNote(a, a.col.getNote(i)))
 
-        logger.info(f"Notes: {notes}")
-        logger.info(f"Notes (len): {len(notes)}")
-        logger.info(f"Notes (type): {type(notes)}")
-        logger.info(f"Note (type): {type(notes[0])}")
-
     # Generate default target directory.
     if directory == "":
         directory = get_default_clone_directory(collection)
@@ -82,7 +77,8 @@ def clone(collection: str, directory: str = "") -> None:
 
     # Dump notes.
     for i, note in enumerate(notes):
-        with open(f"note{i}.md", "w", encoding="UTF-8") as note_file:
+        note_path = os.path.join(directory, f"note{i}.md")
+        with open(note_path, "w", encoding="UTF-8") as note_file:
             note_file.write(str(note))
 
 

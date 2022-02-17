@@ -22,14 +22,14 @@ import ki
 from tests.test_ki import get_collection_path, clone
 
 
-def test_clone_fails_if_collection_doesnt_exist():
-    """Does ki clone only if `.anki2` file exists?"""
+def main():
     collection_path = get_collection_path()
 
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, collection_path)
+        logger.info(os.listdir())
 
 
 if __name__ == "__main__":
-    test_clone_fails_if_collection_doesnt_exist()
+    main()
