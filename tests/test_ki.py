@@ -9,6 +9,7 @@ import tempfile
 import subprocess
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
+from typing import List, Tuple, Union
 
 import git
 import pytest
@@ -89,14 +90,19 @@ def is_git_repo(path: str) -> bool:
 
 
 @beartype
-def read_sqlite3(db_path: str) -> None:
+def read_sqlite3(db_path: str) -> List[Tuple[Union[int, str], ...]]:
     """Print all tables."""
     # Create a SQL connection to our SQLite database
     con = sqlite3.connect(db_path)
     cur = con.cursor()
     tables = list(cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
+    cards = list(cur.execute("SELECT * FROM cards"))
+    notes = list(cur.execute("SELECT * FROM notes"))
     print(tables)
+    print(cards)
+    print(notes)
     con.close()
+    return notes
 
 
 @beartype
@@ -430,7 +436,7 @@ def test_pull_unchanged_collection_is_no_op():
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
-    read_sqlite3(collection_path)
+    old_notes = read_sqlite3(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -442,7 +448,7 @@ def test_push_writes_changes_correctly():
             note_file.write("e\n")
 
         push(runner)
-        read_sqlite3(collection_path)
+        new_notes = read_sqlite3(collection_path)
         raise NotImplementedError
 
 

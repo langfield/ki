@@ -153,12 +153,18 @@ def pull() -> None:
     # TODO: lock DB.
     md5sum = md5(collection)
 
+    # TODO: Everything above this line could be in a function called
+    # `open_repo()` that is called at the beginning of `pull` and `push`.
+
+    # TODO: The following block could be in a function called
+    # `get_latest_collection_hash()`.
     # Quit if hash matches last pull.
     kidir = os.path.join(os.getcwd(), ".ki/")
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
         if md5sum in hashes_file.readlines()[-1]:
             logger.info(f"Up to date.")
+            # TODO: unlock DB.
             return
 
     # Create a temp directory root.
@@ -201,7 +207,74 @@ def push() -> None:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
     """
-    pass
+    # Check that config file exists.
+    config_path = os.path.join(os.getcwd(), ".ki/", "config")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError
+
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    collection = config["remote"]["path"]
+
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+
+    # Lock DB and get hash.
+    # TODO: lock DB.
+    md5sum = md5(collection)
+
+    # Quit if hash doesn't match last pull.
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
+        if md5sum not in hashes_file.readlines()[-1]:
+            logger.info(f"Failed to push some refs to '{collection}'")
+            logger.info(f"hint: Updates were rejected because the tip of your current branch is behind")
+            logger.info(f"hint: the Anki remote collection. Integrate the remote changes (e.g."
+            logger.info(f"hint: 'ki pull ...') before pushing again.")
+            # TODO: unlock DB.
+            return
+
+    # Create a temp directory root.
+    tempdir = tempfile.mkdtemp()
+    root = os.path.join(tempdir, "ki/", "local/")
+    os.makedirs(root)
+
+    # Clone into an ephemeral repository.
+    ephem = os.path.join(root, md5sum)
+
+    # Clone repository at latest commit in `/tmp/.../ki/local/`.
+    repo = git.Repo(os.getcwd())
+    git.Repo.clone_from(os.getcwd(), ephem, branch=repo.active_branch)
+
+    # Get path to new collection.
+    coll_root = os.path.join(root, "coll")
+    os.makedirs(coll_root)
+    basename = os.path.basename(collection)
+    new_collection = os.path.join(coll_root, basename)
+    assert os.path.isdir(coll_root)
+    assert not os.path.isfile(new_collection)
+    assert not os.path.isdir(new_collection)
+
+    # Get all files in checked-out ephemeral repository.
+    files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
+
+    # Generate `.anki2` file.
+    with Anki(path=new_collection) as a:
+
+
+    def is_anki_note(path: str) -> bool:
+        """Check if file is an `apy`-style markdown anki note."""
+        # Ought to have markdown file extension.
+        if path[-3:] != ".md":
+            return False
+        with open(path, "r", encoding="UTF-8") as md_file:
+            lines = md_file.readlines()
+        if len(lines) < 2:
+            return False
+        first = lines[0]
+        raise NotImplementedError
 
 
 # UTILS
