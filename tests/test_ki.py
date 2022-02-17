@@ -301,7 +301,6 @@ def test_clone_generates_ki_subdirectory():
         assert os.path.isdir(kidir)
 
 
-@pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     collection_path = get_collection_path()
@@ -314,7 +313,6 @@ def test_cloned_collection_is_git_repository():
         assert is_git_repo(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     collection_path = get_collection_path()
@@ -336,7 +334,6 @@ def test_clone_commits_directory_contents():
         assert len(commits) == 1
 
 
-@pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     collection_path = get_collection_path()
@@ -351,7 +348,6 @@ def test_clone_leaves_collection_file_unchanged():
         assert original_md5 == updated_md5
 
 
-@pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
     collection_path = get_collection_path()
@@ -371,7 +367,6 @@ def test_clone_directory_argument_works():
 # PULL
 
 
-@pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     collection_path = get_collection_path()

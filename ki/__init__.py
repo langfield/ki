@@ -21,6 +21,8 @@ __version__ = "0.0.1a"
 
 import os
 from typing import List
+
+import git
 import anki
 import click
 from apy.anki import Anki, Note
@@ -75,11 +77,22 @@ def clone(collection: str, directory: str = "") -> None:
     directory = os.path.abspath(directory)
     os.mkdir(directory)
 
+    # Create .ki subdirectory.
+    kidir = os.path.join(directory, ".ki/")
+    os.mkdir(kidir)
+
+    # Run git init.
+    repo = git.Repo.init(directory)
+
     # Dump notes.
     for i, note in enumerate(notes):
         note_path = os.path.join(directory, f"note{i}.md")
         with open(note_path, "w", encoding="UTF-8") as note_file:
             note_file.write(str(note))
+
+    # Add and commit all contents.
+    repo.git.add(all=True)
+    repo.index.commit("Initial commit")
 
 
 @ki.command()
