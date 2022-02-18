@@ -28,15 +28,17 @@ import hashlib
 import tempfile
 import subprocess
 import configparser
-from typing import List, Dict, Any
 
 import git
 import anki
 import click
 from loguru import logger
-from beartype import beartype
+
 from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
+
+from beartype import beartype
+from beartype.typing import List, Dict, Any
 
 from ki.note import KiNote
 

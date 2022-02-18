@@ -7,16 +7,17 @@ import tempfile
 import subprocess
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
-from typing import List
 
 import git
 import pytest
 import bitstring
 import checksumdir
 from loguru import logger
-from beartype import beartype
 from apy.anki import Anki
 from click.testing import CliRunner
+
+from beartype import beartype
+from beartype.typing import List
 
 import ki
 from ki.note import KiNote
