@@ -27,6 +27,7 @@ TODO
 - Test that uncommitted changes do not get pushed.
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent.
 - Test hashes and backups gets committed or ignored.
+- Test that parser handles leading '#' characters (currently doesn't).
 
 
 Notes
@@ -46,138 +47,138 @@ We have already handled the case where we pulled.
 We must now make sure we don't include anything that was written in the initial
 clone call.
 
-merge conflicts
+Merge conflicts
 ---------------
-when you pull, ki clones a new ephemeral repository and commits its contents.
-then it git pulls from this repo. if there are any changes to the remote, this
-will always cause a merge conflict. this is because the current branch and the
+When you pull, ki clones a new ephemeral repository and commits its contents.
+Then it git pulls from this repo. If there are any changes to the remote, this
+will always cause a merge conflict. This is because the current branch and the
 ephemeral branch have completely unrelated histories.
 
-one possible solution is to clone the commit of the last successful pull, and
+One possible solution is to clone the commit of the last successful pull, and
 then clone an ephemeral repo and pull the ephem into that last-pull-commit
-repo, forcing merge conflict resolution with --theirs. then we can pull this
+repo, forcing merge conflict resolution with --theirs. Then we can pull this
 repo into the main ki repo, and the merge conflicts should be gone because
 there is now a shared history.
 
-bugs
+Bugs
 ----
-1.  collection is not open.
+1.  Collection is not open.
 
-    issue was that we were trying to interact with anki note objects after
-    closing apy anki object.
+    Issue was that we were trying to interact with anki note objects after
+    closing apy Anki object.
 
-    (anki39) user@host:~$ ki clone ~/.local/share/anki2/user\ 1/collection.anki2
-    traceback (most recent call last):
-      file "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+    (anki39) user@host:~$ ki clone ~/.local/share/Anki2/User\ 1/collection.anki2
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
         sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
         return self.main(*args, **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
         rv = self.invoke(ctx)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
         return _process_result(sub_ctx.command.invoke(sub_ctx))
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
         return ctx.invoke(self.callback, **ctx.params)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
         return __callback(*args, **kwargs)
-      file "/home/user/pkgs/ki/ki/__init__.py", line 77, in clone
+      File "/home/user/pkgs/ki/ki/__init__.py", line 77, in clone
         _clone(collection, directory)
-      file "/home/user/pkgs/ki/ki/__init__.py", line 130, in _clone
+      File "/home/user/pkgs/ki/ki/__init__.py", line 130, in _clone
         note_file.write(str(note))
-      file "/home/user/pkgs/ki/ki/note.py", line 18, in __repr__
+      File "/home/user/pkgs/ki/ki/note.py", line 18, in __repr__
         apy_note_repr: str = super().__repr__()
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 44, in __repr__
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 44, in __repr__
         lines += [f'deck: {self.get_deck()}']
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 318, in get_deck
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 318, in get_deck
         return self.a.col.decks.name(self.n.cards()[0].did)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 123, in cards
-        return [self.col.getcard(id) for id in self.card_ids()]
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 126, in card_ids
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 123, in cards
+        return [self.col.getCard(id) for id in self.card_ids()]
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 126, in card_ids
         return self.col.card_ids_of_note(self.id)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py", line 390, in card_ids_of_note
-        return [cardid(id) for id in self._backend.cards_of_note(note_id)]
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py", line 361, in cards_of_note
-        output.parsefromstring(self._run_command(2, 11, input))
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/__init__.py", line 131, in _run_command
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py", line 390, in card_ids_of_note
+        return [CardId(id) for id in self._backend.cards_of_note(note_id)]
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py", line 361, in cards_of_note
+        output.ParseFromString(self._run_command(2, 11, input))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/__init__.py", line 131, in _run_command
         raise backend_exception_to_pylib(err)
-    anki.errors.invalidinput: collectionnotopen
+    anki.errors.InvalidInput: CollectionNotOpen
 
-2.  remote not deleted.
+2.  Remote not deleted.
 
     (anki39) user@host:~/collection$ ki pull
-    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: markupresembleslocatorwarning: "." looks like a directory name, not markup. you may want to open a file found in this directory and pass the filehandle into beautiful soup.
+    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: MarkupResemblesLocatorWarning: "." looks like a directory name, not markup. You may want to open a file found in this directory and pass the filehandle into Beautiful Soup.
       warnings.warn(
-    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: markupresembleslocatorwarning: "/" looks like a directory name, not markup. you may want to open a file found in this directory and pass the filehandle into beautiful soup.
+    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: MarkupResemblesLocatorWarning: "/" looks like a directory name, not markup. You may want to open a file found in this directory and pass the filehandle into Beautiful Soup.
       warnings.warn(
-    traceback (most recent call last):
-      file "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
         sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
         return self.main(*args, **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
         rv = self.invoke(ctx)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
         return _process_result(sub_ctx.command.invoke(sub_ctx))
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
         return ctx.invoke(self.callback, **ctx.params)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
         return __callback(*args, **kwargs)
-      file "<@beartype(ki.pull) at 0x7f343f93adc0>", line 10, in pull
-      file "/home/user/pkgs/ki/ki/__init__.py", line 188, in pull
+      File "<@beartype(ki.pull) at 0x7f343f93adc0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 188, in pull
         _ = repo.create_remote("origin", os.path.join(ephem, ".git"))
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/repo/base.py", line 458, in create_remote
-        return remote.create(self, name, url, **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/remote.py", line 680, in create
-        repo.git.remote(scmd, name, git.polish_url(url), **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 638, in <lambda>
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/repo/base.py", line 458, in create_remote
+        return Remote.create(self, name, url, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/remote.py", line 680, in create
+        repo.git.remote(scmd, name, Git.polish_url(url), **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 638, in <lambda>
         return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 1183, in _call_process
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 1183, in _call_process
         return self.execute(call, **exec_kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 983, in execute
-        raise gitcommanderror(redacted_command, status, stderr_value, stdout_value)
-    git.exc.gitcommanderror: cmd('git') failed due to: exit code(3)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 983, in execute
+        raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+    git.exc.GitCommandError: Cmd('git') failed due to: exit code(3)
       cmdline: git remote add origin /tmp/tmpuand3wz0/ki/remote/1625c6643169d7c6b7b8d13d654645d5/.git
       stderr: 'error: remote origin already exists.'
 
-3.  note names not generated in fixed order. caused merge conflict for every note.
+3.  Note names not generated in fixed order. Caused merge conflict for every note.
 
-4.  we loop over all note files 4 times, but we should not do this at all. we
+4.  We loop over all note files 4 times, but we should not do this at all. We
     should ask git which files have changed since the last pull, and only update
     those.
 
-5.  keyerror in push:
+5.  KeyError in push:
 
-    traceback (most recent call last):
-      file "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
         sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
         return self.main(*args, **kwargs)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
         rv = self.invoke(ctx)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
         return _process_result(sub_ctx.command.invoke(sub_ctx))
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
         return ctx.invoke(self.callback, **ctx.params)
-      file "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
         return __callback(*args, **kwargs)
-      file "<@beartype(ki.push) at 0x7f28fab90f70>", line 10, in push
-      file "/home/user/pkgs/ki/ki/__init__.py", line 299, in push
+      File "<@beartype(ki.push) at 0x7f28fab90f70>", line 10, in push
+      File "/home/user/pkgs/ki/ki/__init__.py", line 299, in push
         nid = int(notemap["nid"])
-    keyerror: 'nid'
+    KeyError: 'nid'
 
-6.  doesn't handle when users make up new note ids:
+6.  Doesn't handle when users make up new note IDs:
 
-                # add new file.
-                shutil.copyfile(note_2, os.path.basename(note_2))
+                # Add new file.
+                shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
 
-                # commit.
+                # Commit.
                 os.chdir("../")
-                repo = git.repo(repodir)
-                repo.git.add(all=true)
-                repo.index.commit("added 'e'.")
+                repo = git.Repo(REPODIR)
+                repo.git.add(all=True)
+                repo.index.commit("Added 'e'.")
 
-                # push changes.
-                os.chdir(repodir)
+                # Push changes.
+                os.chdir(REPODIR)
     >           push(runner)
 
     tests/test_ki.py:278:
@@ -185,7 +186,7 @@ bugs
     <@beartype(tests.test_ki.push) at 0x7fa4345f8a60>:30: in push
         ???
     tests/test_ki.py:74: in push
-        res = runner.invoke(ki.ki, ["push"], standalone_mode=false, catch_exceptions=false)
+        res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
     ../../conda/envs/anki39/lib/python3.9/site-packages/click/testing.py:408: in invoke
         return_value = cli.main(args=args or (), prog_name=prog_name, **extra)
     ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1053: in main
@@ -199,27 +200,27 @@ bugs
     <@beartype(ki.push) at 0x7fa4345ea940>:10: in push
         ???
     ki/__init__.py:273: in push
-        note: note = note(a, a.col.get_note(nid))
+        note: Note = Note(a, a.col.get_note(nid))
     ../../conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py:332: in get_note
-        return note(self, id=id)
+        return Note(self, id=id)
     ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:46: in __init__
         self.load()
     ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:52: in load
         note = self.col._backend.get_note(self.id)
     ../../conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py:327: in get_note
-        output.parsefromstring(self._run_command(2, 5, input))
+        output.ParseFromString(self._run_command(2, 5, input))
     _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-    self = <anki._backend.rustbackend object at 0x7fa43459ba90>, service = 2, method = 5, input = nid: 123412341234
+    self = <anki._backend.RustBackend object at 0x7fa43459ba90>, service = 2, method = 5, input = nid: 123412341234
 
 
-        def _run_command(self, service: int, method: int, input: any) -> bytes:
-            input_bytes = input.serializetostring()
+        def _run_command(self, service: int, method: int, input: Any) -> bytes:
+            input_bytes = input.SerializeToString()
             try:
                 return self._backend.command(service, method, input_bytes)
-            except exception as e:
+            except Exception as e:
                 err_bytes = bytes(e.args[0])
-            err = backend_pb2.backenderror()
-            err.parsefromstring(err_bytes)
+            err = backend_pb2.BackendError()
+            err.ParseFromString(err_bytes)
     >       raise backend_exception_to_pylib(err)
-    e       anki.errors.notfounderror
+    E       anki.errors.NotFoundError
