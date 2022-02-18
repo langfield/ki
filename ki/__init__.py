@@ -134,13 +134,9 @@ def _clone(collection: str, directory: str = "") -> None:
     repo.index.commit("Initial commit")
 
 
-@ki.command()
 @beartype
-def pull() -> None:
-    """
-    Pull from a preconfigured remote Anki collection into an existing ki
-    repository.
-    """
+def open_repository() -> str:
+    """Get collection path from `.ki/` directory."""
     # Check that config file exists.
     config_path = os.path.join(os.getcwd(), ".ki/", "config")
     if not os.path.isfile(config_path):
@@ -154,12 +150,20 @@ def pull() -> None:
     if not os.path.isfile(collection):
         raise FileNotFoundError
 
+    return collection
+
+
+@ki.command()
+@beartype
+def pull() -> None:
+    """
+    Pull from a preconfigured remote Anki collection into an existing ki
+    repository.
+    """
     # Lock DB and get hash.
     # TODO: lock DB.
+    collection = open_repository()
     md5sum = md5(collection)
-
-    # TODO: Everything above this line could be in a function called
-    # `open_repo()` that is called at the beginning of `pull` and `push`.
 
     # TODO: The following block could be in a function called
     # `get_latest_collection_hash()`.
@@ -218,21 +222,9 @@ def push() -> None:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
     """
-    # Check that config file exists.
-    config_path = os.path.join(os.getcwd(), ".ki/", "config")
-    if not os.path.isfile(config_path):
-        raise FileNotFoundError
-
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    collection = config["remote"]["path"]
-
-    if not os.path.isfile(collection):
-        raise FileNotFoundError
-
     # Lock DB and get hash.
     # TODO: lock DB.
+    collection = open_repository()
     md5sum = md5(collection)
 
     # Quit if hash doesn't match last pull.
