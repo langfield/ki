@@ -132,20 +132,17 @@ def _clone(collection: str, directory: str = "") -> str:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5(collection)}  {basename}")
 
-    # Add `.ki/hashes` to gitignore.
+    # Add `.ki/hashes` and `.ki/backups` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")
     with open(ignore_path, "w", encoding="UTF-8") as ignore_file:
         ignore_file.write(".ki/hashes\n")
+        ignore_file.write(".ki/backups\n")
 
-    # Import with apy.
+    # Open deck with `apy`, and dump notes and markdown files.
     query = ""
     with Anki(path=collection) as a:
-        notes: List[KiNote] = []
-        for i in set(a.col.find_notes(query)):
-            notes.append(KiNote(a, a.col.getNote(i)))
-
-        # Dump notes.
-        for i, note in enumerate(notes):
+        for i in a.col.find_notes(query):
+            note = KiNote(a, a.col.getNote(i))
             note_path = os.path.join(directory, f"note{note.n.id}.md")
             with open(note_path, "w", encoding="UTF-8") as note_file:
                 note_file.write(str(note))
