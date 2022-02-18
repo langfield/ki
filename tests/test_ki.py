@@ -449,7 +449,6 @@ def test_push_writes_changes_correctly():
 
         with open(note, "r", encoding="UTF-8") as note_file:
             text = note_file.read()
-            logger.debug(f"FS note: {text}")
 
         os.chdir(REPODIR)
         push(runner)

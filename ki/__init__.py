@@ -270,9 +270,7 @@ def push() -> None:
 
     # Get all files in checked-out ephemeral repository.
     files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
-    logger.debug(files)
     note_paths = [file for file in files if is_anki_note(file)]
-    logger.debug(note_paths)
 
     # Generate `.anki2` file.
     # We must distinguish between new notes and old, edited notes.
@@ -291,16 +289,12 @@ def push() -> None:
             # This generates a new `nid`, so we don't want to use it.
             # notes = a.add_notes_from_file(note_path)
 
-        logger.debug(notemaps)
         for notemap in notemaps:
             nid = int(notemap["nid"])
             note: Note = Note(a, a.col.get_note(nid))
-            logger.debug(f"old apy note: {note}")
             update_apy_note(note, notemap)
-            logger.debug(f"new apy note: {note}")
 
     assert os.path.isfile(new_collection)
-    logger.debug(os.listdir(coll_root))
 
     # Backup collection.
     backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
