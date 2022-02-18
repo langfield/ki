@@ -280,38 +280,6 @@ def push() -> None:
     unlock(con)
 
 
-def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
-    """Add a note given its `apy` parsed notemap."""
-    model_name = notemap["model"]
-
-    # Set current notetype for collection to `model_name`.
-    model = apyanki.set_model(model_name)
-
-    model_field_names = [field["name"] for field in model["flds"]]
-
-    field_names = notemap["fields"].keys()
-    field_values = notemap["fields"].values()
-
-    if len(field_names) != len(model_field_names):
-        click.echo(f"Error: Not enough fields for model {model_name}!")
-        apyanki.modified = False
-        raise click.Abort()
-
-    for x, y in zip(model_field_names, field_names):
-        if x != y:
-            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
-
-    # pylint: disable=protected-access
-    note = apyanki._add_note(
-        field_values,
-        f"{notemap['tags']}",
-        notemap["markdown"],
-        notemap.get("deck"),
-    )
-
-    return note
-
-
 # UTILS
 
 
@@ -490,3 +458,36 @@ def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
         paths: List[str] = diff.split("\n")
 
     return filter(is_anki_note, paths)
+
+
+@beartype
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
+    """Add a note given its `apy` parsed notemap."""
+    model_name = notemap["model"]
+
+    # Set current notetype for collection to `model_name`.
+    model = apyanki.set_model(model_name)
+
+    model_field_names = [field["name"] for field in model["flds"]]
+
+    field_names = notemap["fields"].keys()
+    field_values = notemap["fields"].values()
+
+    if len(field_names) != len(model_field_names):
+        click.echo(f"Error: Not enough fields for model {model_name}!")
+        apyanki.modified = False
+        raise click.Abort()
+
+    for x, y in zip(model_field_names, field_names):
+        if x != y:
+            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
+
+    # pylint: disable=protected-access
+    note = apyanki._add_note(
+        field_values,
+        f"{notemap['tags']}",
+        notemap["markdown"],
+        notemap.get("deck"),
+    )
+
+    return note
