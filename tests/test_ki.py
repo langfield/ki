@@ -1,10 +1,9 @@
+#!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
 import random
 import shutil
-import hashlib
 import sqlite3
-import difflib
 import tempfile
 import subprocess
 from distutils.dir_util import copy_tree
@@ -17,9 +16,11 @@ import bitstring
 import checksumdir
 from loguru import logger
 from beartype import beartype
+from apy.anki import Anki
 from click.testing import CliRunner
 
 import ki
+from ki.note import KiNote
 
 
 # pylint:disable=unnecessary-pass
@@ -98,9 +99,8 @@ def read_sqlite3(db_path: str) -> List[Tuple[Union[int, str], ...]]:
     tables = list(cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
     cards = list(cur.execute("SELECT * FROM cards"))
     notes = list(cur.execute("SELECT * FROM notes"))
-    logger.debug(tables)
-    logger.debug(cards)
-    logger.debug(notes)
+    logger.debug(f"Cards: {cards}")
+    logger.debug(f"Notes: {notes}")
     con.close()
     return notes
 
@@ -433,10 +433,23 @@ def test_pull_unchanged_collection_is_no_op():
 # PUSH
 
 
+def get_notes(collection: str) -> List[KiNote]:
+    """Get a list of notes from a path."""
+    # Import with apy.
+    query = ""
+    with Anki(path=collection) as a:
+        notes: List[KiNote] = []
+        for i in set(a.col.find_notes(query)):
+            notes.append(KiNote(a, a.col.getNote(i)))
+    return notes
+
+
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
-    old_notes = read_sqlite3(collection_path)
+    read_sqlite3(collection_path)
+    old_notes = get_notes(collection_path)
+    read_sqlite3(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -447,10 +460,17 @@ def test_push_writes_changes_correctly():
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
+        with open(note, "r", encoding="UTF-8") as note_file:
+            text = note_file.read()
+            logger.debug(f"FS note: {text}")
+
         os.chdir(REPODIR)
         push(runner)
-        new_notes = read_sqlite3(collection_path)
-        raise NotImplementedError
+        new_notes = get_notes(collection_path)
+        assert len(old_notes) == len(new_notes) == 1
+
+        for old, new in zip(old_notes, new_notes):
+            assert str(old) + "e\n" == str(new)
 
 
 @pytest.mark.skip

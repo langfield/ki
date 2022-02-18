@@ -28,14 +28,15 @@ import hashlib
 import tempfile
 import subprocess
 import configparser
-from typing import List
+from typing import List, Dict, Any
 
 import git
 import anki
 import click
-from apy.anki import Anki, Note
 from loguru import logger
 from beartype import beartype
+from apy.anki import Anki, Note
+from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from ki.note import KiNote
 
@@ -166,7 +167,7 @@ def pull() -> None:
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
         if md5sum in hashes_file.readlines()[-1]:
-            logger.info(f"Up to date.")
+            logger.info("Up to date.")
             # TODO: unlock DB.
             return
 
@@ -184,7 +185,7 @@ def pull() -> None:
 
     # Create remote pointing to ephemeral repository and pull.
     repo = git.Repo(os.getcwd())
-    origin = repo.create_remote("origin", os.path.join(ephem, ".git"))
+    _ = repo.create_remote("origin", os.path.join(ephem, ".git"))
     _git = repo.git
     _git.config("pull.rebase", "false")
 
@@ -237,12 +238,12 @@ def push() -> None:
         if md5sum not in hashes_file.readlines()[-1]:
             logger.info(f"Failed to push some refs to '{collection}'")
             logger.info(
-                f"hint: Updates were rejected because the tip of your current branch is behind"
+                "hint: Updates were rejected because the tip of your current branch is behind"
             )
             logger.info(
-                f"hint: the Anki remote collection. Integrate the remote changes (e.g."
+                "hint: the Anki remote collection. Integrate the remote changes (e.g."
             )
-            logger.info(f"hint: 'ki pull ...') before pushing again.")
+            logger.info("hint: 'ki pull ...') before pushing again.")
             # TODO: unlock DB.
             return
 
@@ -267,16 +268,40 @@ def push() -> None:
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
+    # Copy collection to new collection.
+    shutil.copyfile(collection, new_collection)
+
     # Get all files in checked-out ephemeral repository.
     files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
     logger.debug(files)
-    notes = [file for file in files if is_anki_note(file)]
-    logger.debug(notes)
+    note_paths = [file for file in files if is_anki_note(file)]
+    logger.debug(note_paths)
 
     # Generate `.anki2` file.
+    # We must distinguish between new notes and old, edited notes.
+    # So if they have an nid, they are old notes.
+    # If an `nid` is provided that is not already extant in the deck, we should
+    # raise an error and tell the user not to make up `nid`s.
     with Anki(path=new_collection) as a:
-        for note in notes:
-            a.add_notes_from_file(note)
+
+        # List of note dictionaries as defined in `apy.convert`.
+        notemaps: List[Dict[str, Any]] = []
+        for note_path in note_paths:
+
+            # `apy` support multiple notes per-markdown file. Should we?
+            notemaps.extend(markdown_file_to_notes(note_path))
+
+            # This generates a new `nid`, so we don't want to use it.
+            # notes = a.add_notes_from_file(note_path)
+
+        logger.debug(notemaps)
+        for notemap in notemaps:
+            nid = int(notemap["nid"])
+            note: Note = Note(a, a.col.get_note(nid))
+            logger.debug(f"old apy note: {note}")
+            update_apy_note(note, notemap)
+            logger.debug(f"new apy note: {note}")
+
     assert os.path.isfile(new_collection)
     logger.debug(os.listdir(coll_root))
 
@@ -358,3 +383,27 @@ def is_anki_note(path: str) -> bool:
     if not re.match(r"^nid: [0-9]+$", lines[1]):
         return False
     return True
+
+
+@beartype
+def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
+    """Update an `apy` Note in a collection."""
+    new_tags = notemap['tags'].split()
+    if new_tags != note.n.tags:
+        note.n.tags = new_tags
+
+    new_deck = notemap.get('deck', None)
+    if new_deck is not None and new_deck != note.get_deck():
+        note.set_deck(new_deck)
+
+    for i, value in enumerate(notemap['fields'].values()):
+        if notemap['markdown']:
+            note.n.fields[i] = markdown_to_html(value)
+        else:
+            note.n.fields[i] = plain_to_html(value)
+
+    note.n.flush()
+    note.a.modified = True
+    if note.n.dupeOrEmpty():
+        click.confirm('The updated note is now a dupe!',
+                      prompt_suffix='', show_default=False)

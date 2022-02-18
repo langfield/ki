@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """A module containing a class for Anki notes."""
-from apy.anki import Note
 from typing import List
-
+from apy.anki import Note
 from beartype import beartype
 
 
