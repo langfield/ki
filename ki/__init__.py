@@ -388,16 +388,16 @@ def is_anki_note(path: str) -> bool:
 @beartype
 def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
     """Update an `apy` Note in a collection."""
-    new_tags = notemap['tags'].split()
+    new_tags = notemap["tags"].split()
     if new_tags != note.n.tags:
         note.n.tags = new_tags
 
-    new_deck = notemap.get('deck', None)
+    new_deck = notemap.get("deck", None)
     if new_deck is not None and new_deck != note.get_deck():
         note.set_deck(new_deck)
 
-    for i, value in enumerate(notemap['fields'].values()):
-        if notemap['markdown']:
+    for i, value in enumerate(notemap["fields"].values()):
+        if notemap["markdown"]:
             note.n.fields[i] = markdown_to_html(value)
         else:
             note.n.fields[i] = plain_to_html(value)
@@ -405,5 +405,6 @@ def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
     note.n.flush()
     note.a.modified = True
     if note.n.dupeOrEmpty():
-        click.confirm('The updated note is now a dupe!',
-                      prompt_suffix='', show_default=False)
+        click.confirm(
+            "The updated note is now a dupe!", prompt_suffix="", show_default=False
+        )

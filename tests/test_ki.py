@@ -51,7 +51,12 @@ def invoke(*args, **kwargs):
 @beartype
 def clone(runner: CliRunner, repository: str, directory: str = "") -> None:
     """Make a test `ki clone` call."""
-    runner.invoke(ki.ki, ["clone", repository, directory], standalone_mode=False, catch_exceptions=False)
+    runner.invoke(
+        ki.ki,
+        ["clone", repository, directory],
+        standalone_mode=False,
+        catch_exceptions=False,
+    )
 
 
 @beartype
@@ -87,7 +92,6 @@ def is_git_repo(path: str) -> bool:
         return True
     except git.InvalidGitRepositoryError:
         return False
-
 
 
 @beartype
@@ -135,6 +139,18 @@ def checksum_git_repository(path: str) -> str:
     checksum = checksumdir.dirhash(repodir)
     shutil.rmtree(tempdir)
     return checksum
+
+
+@beartype
+def get_notes(collection: str) -> List[KiNote]:
+    """Get a list of notes from a path."""
+    # Import with apy.
+    query = ""
+    with Anki(path=collection) as a:
+        notes: List[KiNote] = []
+        for i in set(a.col.find_notes(query)):
+            notes.append(KiNote(a, a.col.getNote(i)))
+    return notes
 
 
 # CLI
@@ -431,17 +447,6 @@ def test_pull_unchanged_collection_is_no_op():
 
 
 # PUSH
-
-
-def get_notes(collection: str) -> List[KiNote]:
-    """Get a list of notes from a path."""
-    # Import with apy.
-    query = ""
-    with Anki(path=collection) as a:
-        notes: List[KiNote] = []
-        for i in set(a.col.find_notes(query)):
-            notes.append(KiNote(a, a.col.getNote(i)))
-    return notes
 
 
 def test_push_writes_changes_correctly():
