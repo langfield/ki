@@ -206,7 +206,6 @@ def pull() -> None:
         hashes_file.write(f"{md5sum}  {basename}")
 
 
-
 @ki.command()
 @beartype
 def push() -> None:
@@ -457,6 +456,7 @@ def unlock(con: sqlite3.Connection) -> None:
     """Unlock a SQLite3 database."""
     con.commit()
     con.close()
+
 
 @beartype
 def get_fetch_head_sha(repo: git.Repo) -> str:

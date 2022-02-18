@@ -262,9 +262,6 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
-
-
-
 # CLONE
 
 
