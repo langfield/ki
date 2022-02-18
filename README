@@ -18,7 +18,8 @@ TODO
 - Add `shell-doctest` tests for CLI subcommands.
 - Add implementations of `clone`, `pull`, and `push`.
 - Make sure `push` acquires lock on SQLite3 file before overwriting.
-- Make clone work on empty directories to match `git` behavior
+- Make clone work on empty directories to match `git` behavior.
+- Test utilities.
 
 
 Notes

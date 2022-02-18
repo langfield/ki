@@ -98,9 +98,9 @@ def read_sqlite3(db_path: str) -> List[Tuple[Union[int, str], ...]]:
     tables = list(cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
     cards = list(cur.execute("SELECT * FROM cards"))
     notes = list(cur.execute("SELECT * FROM notes"))
-    print(tables)
-    print(cards)
-    print(notes)
+    logger.debug(tables)
+    logger.debug(cards)
+    logger.debug(notes)
     con.close()
     return notes
 
@@ -447,6 +447,7 @@ def test_push_writes_changes_correctly():
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
+        os.chdir(REPODIR)
         push(runner)
         new_notes = read_sqlite3(collection_path)
         raise NotImplementedError

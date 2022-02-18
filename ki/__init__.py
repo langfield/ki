@@ -20,7 +20,10 @@ __url__ = ""
 __version__ = "0.0.1a"
 
 import os
+import re
+import shutil
 import logging
+import tarfile
 import hashlib
 import tempfile
 import subprocess
@@ -188,7 +191,11 @@ def pull() -> None:
     # Won't use this because we can't print stdout/stderr for the user.
     # origin.pull("main", allow_unrelated_histories=True)
 
-    p = subprocess.run(["git", "pull", "-v", "--allow-unrelated-histories", "origin", "main"], check=False, capture_output=True)
+    p = subprocess.run(
+        ["git", "pull", "-v", "--allow-unrelated-histories", "origin", "main"],
+        check=False,
+        capture_output=True,
+    )
     logger.info(f"\n{p.stdout.decode()}")
     logger.info(f"\n{p.stderr.decode()}")
 
@@ -198,7 +205,6 @@ def pull() -> None:
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
-
 
 
 @ki.command()
@@ -230,8 +236,12 @@ def push() -> None:
     with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
         if md5sum not in hashes_file.readlines()[-1]:
             logger.info(f"Failed to push some refs to '{collection}'")
-            logger.info(f"hint: Updates were rejected because the tip of your current branch is behind")
-            logger.info(f"hint: the Anki remote collection. Integrate the remote changes (e.g."
+            logger.info(
+                f"hint: Updates were rejected because the tip of your current branch is behind"
+            )
+            logger.info(
+                f"hint: the Anki remote collection. Integrate the remote changes (e.g."
+            )
             logger.info(f"hint: 'ki pull ...') before pushing again.")
             # TODO: unlock DB.
             return
@@ -259,22 +269,41 @@ def push() -> None:
 
     # Get all files in checked-out ephemeral repository.
     files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
+    logger.debug(files)
+    notes = [file for file in files if is_anki_note(file)]
+    logger.debug(notes)
 
     # Generate `.anki2` file.
     with Anki(path=new_collection) as a:
+        for note in notes:
+            a.add_notes_from_file(note)
+    assert os.path.isfile(new_collection)
+    logger.debug(os.listdir(coll_root))
 
+    # Backup remote collection.
+    profiledir = os.path.abspath(os.path.join(collection, os.pardir))
 
-    def is_anki_note(path: str) -> bool:
-        """Check if file is an `apy`-style markdown anki note."""
-        # Ought to have markdown file extension.
-        if path[-3:] != ".md":
-            return False
-        with open(path, "r", encoding="UTF-8") as md_file:
-            lines = md_file.readlines()
-        if len(lines) < 2:
-            return False
-        first = lines[0]
-        raise NotImplementedError
+    # Get path to backups directory.
+    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
+    assert not os.path.isfile(backupsdir)
+
+    # Create backups directory if it doesn't already exist.
+    if not os.path.isdir(backupsdir):
+        os.mkdir(backupsdir)
+
+    # Get path to backup archive.
+    backup_path = os.path.join(backupsdir, f"{md5sum}.tar.gz")
+    assert not os.path.isfile(backup_path)
+
+    # Write backup gzipped tar archive.
+    with tarfile.open(backup_path, "w:gz") as tar:
+        tar.add(profiledir, arcname=os.path.basename(profiledir))
+    assert os.path.isfile(backup_path)
+
+    # Overwrite remote collection.
+    shutil.copyfile(new_collection, collection)
+
+    # TODO: unlock DB.
 
 
 # UTILS
@@ -312,3 +341,20 @@ def md5(path: str) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
+
+@beartype
+def is_anki_note(path: str) -> bool:
+    """Check if file is an `apy`-style markdown anki note."""
+    # Ought to have markdown file extension.
+    if path[-3:] != ".md":
+        return False
+    with open(path, "r", encoding="UTF-8") as md_file:
+        lines = md_file.readlines()
+    if len(lines) < 2:
+        return False
+    if lines[0] != "# Note\n":
+        return False
+    if not re.match(r"^nid: [0-9]+$", lines[1]):
+        return False
+    return True
