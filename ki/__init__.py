@@ -44,6 +44,7 @@ from ki.note import KiNote
 logging.basicConfig(level=logging.INFO)
 
 
+# pylint: disable=invalid-name
 @click.group()
 @click.version_option()
 @beartype

@@ -3,12 +3,11 @@
 import os
 import random
 import shutil
-import sqlite3
 import tempfile
 import subprocess
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
-from typing import List, Tuple, Union
+from typing import List
 
 import git
 import pytest
@@ -23,7 +22,7 @@ import ki
 from ki.note import KiNote
 
 
-# pylint:disable=unnecessary-pass
+# pylint:disable=unnecessary-pass, too-many-lines
 
 
 TEST_DATA_PATH = "tests/data/"
@@ -93,21 +92,6 @@ def is_git_repo(path: str) -> bool:
         return True
     except git.InvalidGitRepositoryError:
         return False
-
-
-@beartype
-def read_sqlite3(db_path: str) -> List[Tuple[Union[int, str], ...]]:
-    """Print all tables."""
-    # Create a SQL connection to our SQLite database
-    con = sqlite3.connect(db_path)
-    cur = con.cursor()
-    tables = list(cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'"))
-    cards = list(cur.execute("SELECT * FROM cards"))
-    notes = list(cur.execute("SELECT * FROM notes"))
-    logger.debug(f"Cards: {cards}")
-    logger.debug(f"Notes: {notes}")
-    con.close()
-    return notes
 
 
 @beartype
@@ -452,9 +436,7 @@ def test_pull_unchanged_collection_is_no_op():
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
-    read_sqlite3(collection_path)
     old_notes = get_notes(collection_path)
-    read_sqlite3(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -478,7 +460,7 @@ def test_push_writes_changes_correctly():
             assert str(old) + "e\n" == str(new)
 
 
-def test_push_verifies_md5sum(caplog):
+def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     collection_path = get_collection_path()
     runner = CliRunner()

@@ -16,5 +16,5 @@ class KiNote(Note):
     @beartype
     def __repr__(self):
         apy_note_repr: str = super().__repr__()
-        apy_note_lines: List[str] = apy_note_repr.split("\n")
+        _apy_note_lines: List[str] = apy_note_repr.split("\n")
         return apy_note_repr
