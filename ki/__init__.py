@@ -207,14 +207,9 @@ def pull() -> None:
 
 @ki.command()
 @beartype
-def push() -> int:
+def push() -> None:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
-
-    Returns
-    -------
-    int
-        Exit code. Returns 1 if hash verification fails, 0 otherwise.
     """
     # Check that config file exists.
     config_path = os.path.join(os.getcwd(), ".ki/", "config")
@@ -247,7 +242,6 @@ def push() -> int:
             )
             click.echo("hint: 'ki pull ...') before pushing again.")
             # TODO: unlock DB.
-            return 1
 
     # Create a temp directory root.
     tempdir = tempfile.mkdtemp()
@@ -307,32 +301,19 @@ def push() -> int:
     assert os.path.isfile(new_collection)
     logger.debug(os.listdir(coll_root))
 
-    # Backup remote collection.
-    profiledir = os.path.abspath(os.path.join(collection, os.pardir))
-
-    # Get path to backups directory.
+    # Backup collection.
     backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
     assert not os.path.isfile(backupsdir)
-
-    # Create backups directory if it doesn't already exist.
     if not os.path.isdir(backupsdir):
         os.mkdir(backupsdir)
-
-    # Get path to backup archive.
-    backup_path = os.path.join(backupsdir, f"{md5sum}.tar.gz")
+    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
     assert not os.path.isfile(backup_path)
-
-    # Write backup gzipped tar archive.
-    with tarfile.open(backup_path, "w:gz") as tar:
-        tar.add(profiledir, arcname=os.path.basename(profiledir))
-    assert os.path.isfile(backup_path)
+    shutil.copyfile(collection, backup_path)
 
     # Overwrite remote collection.
     shutil.copyfile(new_collection, collection)
 
     # TODO: unlock DB.
-
-    return 0
 
 
 # UTILS
