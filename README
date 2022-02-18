@@ -24,6 +24,8 @@ TODO
 - Handle file deletion.
 - Try doing one file per deck, and see if this is faster.
 - Handle merge conflicts better.
+- Test that uncommitted changes do not get pushed.
+- Test that repeated push-pull on up-to-date repo is no-op/idempotent.
 
 
 Notes

@@ -34,6 +34,7 @@ import git
 import anki
 import click
 import gitdb
+from tqdm import tqdm
 from loguru import logger
 
 from apy.anki import Anki, Note
@@ -246,6 +247,7 @@ def push() -> None:
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
+    logger.debug("Getting notepaths iterator.")
     # Get all changed notes in checked-out ephemeral repository.
     ephem_repo = git.Repo(ephem)
     notepaths: Iterator[str] = get_files_changed_since_last_fetch(ephem_repo)
@@ -254,9 +256,10 @@ def push() -> None:
     shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
+        logger.debug("Looping over notepaths.")
         # List of note dictionaries as defined in `apy.convert`.
         notemaps: List[Dict[str, Any]] = []
-        for notepath in notepaths:
+        for notepath in tqdm(notepaths):
 
             # Support multiple notes-per-file.
             notemaps = markdown_file_to_notes(notepath)
@@ -267,6 +270,7 @@ def push() -> None:
                     nid = int(notemap["nid"])
                 except KeyError as err:
                     logger.debug(f"notemap: {notemap}")
+                    logger.debug(f"path: {notepath}")
                     raise err
 
                 # Look for `nid` and update existing note if found.
@@ -283,7 +287,8 @@ def push() -> None:
     assert os.path.isfile(new_collection)
 
     backup(collection)
-    shutil.copyfile(new_collection, collection)
+    # Dry run.
+    # shutil.copyfile(new_collection, collection)
     unlock(con)
 
 
@@ -392,10 +397,19 @@ def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
 
     note.n.flush()
     note.a.modified = True
-    if note.n.dupeOrEmpty():
-        click.confirm(
-            "The updated note is now a dupe!", prompt_suffix="", show_default=False
-        )
+    fields_health_check = note.n.fields_check()
+
+    if fields_health_check == 1:
+        logger.warning(f"Found empty note:\n {note}")
+        return
+    if fields_health_check == 2:
+        # logger.warning(f"Found duplicate note:\n {note}")
+        return
+
+    if fields_health_check:
+        logger.warning(f"Found duplicate or empty note:\n {note}")
+        logger.debug(f"Fields health check: {fields_health_check}")
+        logger.debug(f"Fields health check (type): {type(fields_health_check)}")
 
 
 @beartype
