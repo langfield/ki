@@ -240,6 +240,20 @@ def test_computes_and_stores_md5sum():
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
 
 
+def test_pull_avoids_unnecessary_merge_conflicts():
+    """Does pull merge without conflicts when it's supposed to?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
+        raise NotImplementedError
+
+
+
+
 # CLONE
 
 

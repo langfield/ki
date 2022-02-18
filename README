@@ -28,7 +28,7 @@ TODO
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent.
 - Test hashes and backups gets committed or ignored.
 - Test that parser handles leading '#' characters (currently doesn't).
-
+- Test warnings are captured.
 
 Notes
 -----
