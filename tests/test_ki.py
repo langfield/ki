@@ -66,9 +66,10 @@ def pull(runner: CliRunner) -> None:
 
 
 @beartype
-def push(runner: CliRunner) -> None:
+def push(runner: CliRunner) -> str:
     """Make a test `ki push` call."""
-    runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
+    res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
+    return res.output
 
 
 @beartype
@@ -478,8 +479,7 @@ def test_push_writes_changes_correctly():
             assert str(old) + "e\n" == str(new)
 
 
-@pytest.mark.skip
-def test_push_verifies_md5sum():
+def test_push_verifies_md5sum(caplog):
     """Does ki only push if md5sum matches last pull?"""
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -492,11 +492,11 @@ def test_push_verifies_md5sum():
         randomly_swap_1_bit(collection_path)
 
         # Make sure ki complains.
-        with pytest.raises(ValueError):
-            push(runner)
+        os.chdir(REPODIR)
+        out = push(runner)
+        assert "Failed to push some refs to" in out
 
 
-@pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     collection_path = get_collection_path()
@@ -512,8 +512,8 @@ def test_push_generates_correct_backup():
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
-        push(runner)
         os.chdir(REPODIR)
+        push(runner)
         assert os.path.isdir(".ki/backups")
 
         os.chdir(".ki/backups")

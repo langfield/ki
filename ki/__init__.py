@@ -80,8 +80,6 @@ def _clone(collection: str, directory: str = "") -> None:
     if not os.path.isfile(collection):
         raise FileNotFoundError
 
-    logger.debug(f"clone was called with args: {collection}, {directory}")
-
     # Generate default target directory.
     if directory == "":
         directory = get_default_clone_directory(collection)
@@ -178,7 +176,6 @@ def pull() -> None:
 
     # Clone into an ephemeral repository.
     ephem = os.path.join(root, md5sum)
-    logger.debug(f"calling clone with args: {collection}, {ephem}")
     _clone(collection, ephem)
 
     # TODO: unlock DB.
@@ -210,9 +207,14 @@ def pull() -> None:
 
 @ki.command()
 @beartype
-def push() -> None:
+def push() -> int:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
+
+    Returns
+    -------
+    int
+        Exit code. Returns 1 if hash verification fails, 0 otherwise.
     """
     # Check that config file exists.
     config_path = os.path.join(os.getcwd(), ".ki/", "config")
@@ -236,16 +238,16 @@ def push() -> None:
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
         if md5sum not in hashes_file.readlines()[-1]:
-            logger.info(f"Failed to push some refs to '{collection}'")
-            logger.info(
+            click.echo(f"Failed to push some refs to '{collection}'")
+            click.echo(
                 "hint: Updates were rejected because the tip of your current branch is behind"
             )
-            logger.info(
+            click.echo(
                 "hint: the Anki remote collection. Integrate the remote changes (e.g."
             )
-            logger.info("hint: 'ki pull ...') before pushing again.")
+            click.echo("hint: 'ki pull ...') before pushing again.")
             # TODO: unlock DB.
-            return
+            return 1
 
     # Create a temp directory root.
     tempdir = tempfile.mkdtemp()
@@ -329,6 +331,8 @@ def push() -> None:
     shutil.copyfile(new_collection, collection)
 
     # TODO: unlock DB.
+
+    return 0
 
 
 # UTILS
