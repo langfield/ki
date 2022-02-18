@@ -39,6 +39,8 @@ UPDATED_COLLECTION_PATH = os.path.abspath(
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 
+NOTE_0 = "note1645010162168.md"
+NOTE_1 = "note1645027705329.md"
 
 # HELPER FUNCTIONS
 
@@ -281,8 +283,8 @@ def test_clone_errors_when_directory_already_exists():
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
-    true_note_path = os.path.abspath(os.path.join(GITREPO_PATH, "note0.md"))
-    cloned_note_path = os.path.join(REPODIR, "note0.md")
+    true_note_path = os.path.abspath(os.path.join(GITREPO_PATH, NOTE_0))
+    cloned_note_path = os.path.join(REPODIR, NOTE_0)
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -401,7 +403,7 @@ def test_pull_writes_changes_correctly():
 
         # Clone collection in cwd.
         clone(runner, collection_path)
-        assert not os.path.isfile(os.path.join(REPODIR, "note1.md"))
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
 
         # Update collection.
         shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
@@ -409,7 +411,8 @@ def test_pull_writes_changes_correctly():
         # Pull updated collection.
         os.chdir(REPODIR)
         pull(runner)
-        assert os.path.isfile("note1.md")
+        logger.debug(os.listdir())
+        assert os.path.isfile(NOTE_1)
 
 
 def test_pull_unchanged_collection_is_no_op():
@@ -444,7 +447,7 @@ def test_push_writes_changes_correctly():
         # Clone collection in cwd.
         clone(runner, collection_path)
 
-        note = os.path.join(REPODIR, "note0.md")
+        note = os.path.join(REPODIR, NOTE_0)
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
@@ -489,7 +492,7 @@ def test_push_generates_correct_backup():
         clone(runner, collection_path)
 
         # Make change in repo.
-        note = os.path.join(REPODIR, "note0.md")
+        note = os.path.join(REPODIR, NOTE_0)
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 

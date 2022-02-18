@@ -123,11 +123,11 @@ def _clone(collection: str, directory: str = "") -> None:
         for i in set(a.col.find_notes(query)):
             notes.append(KiNote(a, a.col.getNote(i)))
 
-    # Dump notes.
-    for i, note in enumerate(notes):
-        note_path = os.path.join(directory, f"note{i}.md")
-        with open(note_path, "w", encoding="UTF-8") as note_file:
-            note_file.write(str(note))
+        # Dump notes.
+        for i, note in enumerate(notes):
+            note_path = os.path.join(directory, f"note{note.n.id}.md")
+            with open(note_path, "w", encoding="UTF-8") as note_file:
+                note_file.write(str(note))
 
     # Add and commit all contents.
     repo.git.add(all=True)
@@ -184,8 +184,9 @@ def pull() -> None:
     # TODO: unlock DB.
 
     # Create remote pointing to ephemeral repository and pull.
+    remote_name = "anki"
     repo = git.Repo(os.getcwd())
-    _ = repo.create_remote("origin", os.path.join(ephem, ".git"))
+    remote = repo.create_remote(remote_name, os.path.join(ephem, ".git"))
     _git = repo.git
     _git.config("pull.rebase", "false")
 
@@ -193,12 +194,15 @@ def pull() -> None:
     # origin.pull("main", allow_unrelated_histories=True)
 
     p = subprocess.run(
-        ["git", "pull", "-v", "--allow-unrelated-histories", "origin", "main"],
+        ["git", "pull", "-v", "--allow-unrelated-histories", remote_name, "main"],
         check=False,
         capture_output=True,
     )
     logger.info(f"\n{p.stdout.decode()}")
     logger.info(f"\n{p.stderr.decode()}")
+
+    # Delete the remote we added.
+    repo.delete_remote(remote)
 
     # Append to hashes file.
     basename = os.path.basename(collection)

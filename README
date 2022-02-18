@@ -15,6 +15,7 @@ projects.
 TODO
 ----
 - Add implementations to test function sigs in `tests/test_ki.py`. (DONE)
+- Add CLI tests that actually call the subcommands. (DONE)
 - Add `shell-doctest` tests for CLI subcommands.
 - Add implementations of `clone`, `pull`, and `push`. (DONE)
 - Make sure `push` acquires lock on SQLite3 file before overwriting.
@@ -26,3 +27,11 @@ Notes
 -----
 To debug gitpython commands:
     export GIT_PYTHON_TRACE=full
+
+
+Bugs
+----
+    raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+git.exc.GitCommandError: Cmd('git') failed due to: exit code(3)
+  cmdline: git remote add origin /tmp/tmpuand3wz0/ki/remote/1625c6643169d7c6b7b8d13d654645d5/.git
+  stderr: 'error: remote origin already exists.'
