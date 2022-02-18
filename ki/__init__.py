@@ -25,6 +25,7 @@ import shutil
 import logging
 import tarfile
 import hashlib
+import sqlite3
 import tempfile
 import subprocess
 import configparser
@@ -47,6 +48,11 @@ logging.basicConfig(level=logging.INFO)
 
 
 REMOTE_NAME = "anki"
+HINT = (
+    "hint: Updates were rejected because the tip of your current branch is behind\n"
+    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
+    + "hint: 'ki pull ...') before pushing again."
+)
 
 
 # pylint: disable=invalid-name
@@ -140,22 +146,22 @@ def pull() -> None:
     repository.
     """
     # Lock DB and get hash.
-    # TODO: lock DB.
     collection = open_repository()
+    con = lock(collection)
     md5sum = md5(collection)
 
     # Quit if hash matches last pull.
     if md5sum in get_latest_collection_hash():
         logger.info("Up to date.")
-        # TODO: unlock DB.
+        unlock(con)
         return
 
-    # Ki clone into ephemeral repository.
+    # Ki clone into ephemeral repository and unlock DB.
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
     ephem = os.path.join(root, md5sum)
     _clone(collection, ephem)
-    # TODO: unlock DB.
+    unlock(con)
 
     # Create remote pointing to ephemeral repository and pull.
     repo = git.Repo(os.getcwd())
@@ -180,13 +186,6 @@ def pull() -> None:
         hashes_file.write(f"{md5sum}  {basename}")
 
 
-HINT = (
-    "hint: Updates were rejected because the tip of your current branch is behind\n"
-    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
-    + "hint: 'ki pull ...') before pushing again."
-)
-
-
 @ki.command()
 @beartype
 def push() -> None:
@@ -194,14 +193,14 @@ def push() -> None:
     Pack a ki repository into a .anki2 file and push to collection location.
     """
     # Lock DB, get path to collection, and compute hash.
-    # TODO: lock DB.
     collection = open_repository()
+    con = lock(collection)
     md5sum = md5(collection)
 
     # Quit if hash doesn't match last pull.
     if md5sum not in get_latest_collection_hash():
         click.echo(f"Failed to push some refs to '{collection}'\n{HINT}")
-        # TODO: unlock DB.
+        unlock(con)
         return
 
     # Git clone repository at latest commit in `/tmp/.../ki/local/<md5sum>`.
@@ -242,11 +241,9 @@ def push() -> None:
 
     assert os.path.isfile(new_collection)
 
-    # Backup collection and overwrite remote collection.
     backup(collection)
     shutil.copyfile(new_collection, collection)
-
-    # TODO: unlock DB.
+    unlock(con)
 
 
 # UTILS
@@ -368,3 +365,19 @@ def backup(collection: str) -> None:
     assert not os.path.isfile(backup_path)
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)
+
+
+@beartype
+def lock(collection: str) -> sqlite3.Connection:
+    """Acquire a lock on a SQLite3 database given a path."""
+    con = sqlite3.connect(collection)
+    con.isolation_level = "EXCLUSIVE"
+    con.execute("BEGIN EXCLUSIVE")
+    return con
+
+
+@beartype
+def unlock(con: sqlite3.Connection) -> None:
+    """Unlock a SQLite3 database."""
+    con.commit()
+    con.close()
