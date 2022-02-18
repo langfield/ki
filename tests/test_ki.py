@@ -411,7 +411,6 @@ def test_pull_writes_changes_correctly():
         # Pull updated collection.
         os.chdir(REPODIR)
         pull(runner)
-        logger.debug(os.listdir())
         assert os.path.isfile(NOTE_1)
 
 

@@ -153,6 +153,15 @@ def open_repository() -> str:
     return collection
 
 
+@beartype
+def get_latest_collection_hash() -> str:
+    """Get the last collection hash stored in `.ki/hashes`."""
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
+        return hashes_file.readlines()[-1]
+
+
 @ki.command()
 @beartype
 def pull() -> None:
@@ -165,16 +174,11 @@ def pull() -> None:
     collection = open_repository()
     md5sum = md5(collection)
 
-    # TODO: The following block could be in a function called
-    # `get_latest_collection_hash()`.
     # Quit if hash matches last pull.
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
-        if md5sum in hashes_file.readlines()[-1]:
-            logger.info("Up to date.")
-            # TODO: unlock DB.
-            return
+    if md5sum in get_latest_collection_hash():
+        logger.info("Up to date.")
+        # TODO: unlock DB.
+        return
 
     # Create a temp directory root.
     tempdir = tempfile.mkdtemp()
@@ -216,6 +220,13 @@ def pull() -> None:
         hashes_file.write(f"{md5sum}  {basename}")
 
 
+HINT = (
+    "hint: Updates were rejected because the tip of your current branch is behind\n"
+    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
+    + "hint: 'ki pull ...') before pushing again."
+)
+
+
 @ki.command()
 @beartype
 def push() -> None:
@@ -228,19 +239,10 @@ def push() -> None:
     md5sum = md5(collection)
 
     # Quit if hash doesn't match last pull.
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
-        if md5sum not in hashes_file.readlines()[-1]:
-            click.echo(f"Failed to push some refs to '{collection}'")
-            click.echo(
-                "hint: Updates were rejected because the tip of your current branch is behind"
-            )
-            click.echo(
-                "hint: the Anki remote collection. Integrate the remote changes (e.g."
-            )
-            click.echo("hint: 'ki pull ...') before pushing again.")
-            # TODO: unlock DB.
+    if md5sum not in get_latest_collection_hash():
+        click.echo(f"Failed to push some refs to '{collection}'\n{HINT}")
+        # TODO: unlock DB.
+        return
 
     # Create a temp directory root.
     tempdir = tempfile.mkdtemp()
