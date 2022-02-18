@@ -11,7 +11,7 @@ projects.
 .. include:: ./DOCUMENTATION.md
 """
 
-# pylint:disable=unnecessary-pass
+# pylint:disable=unnecessary-pass, too-many-lines
 
 __author__ = ""
 __email__ = ""
@@ -174,19 +174,54 @@ def pull() -> None:
         unlock(con)
         return
 
+    # Git clone local repository at SHA of last FETCH in `/tmp/.../ki/local/<md5sum>`.
+    root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
+    os.makedirs(root)
+    cwd = os.getcwd()
+    fetch_head_dir = os.path.join(root, md5sum)
+    repo = git.Repo(cwd)
+    git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+    logger.debug(f"fetch_head_dir: {os.listdir(fetch_head_dir)}")
+
+    # Do a reset --hard to the SHA of last FETCH.
+    fetch_head_sha = get_fetch_head_sha(repo)
+    fetch_head_repo = git.Repo(fetch_head_dir)
+    fetch_head_repo.index.reset(fetch_head_sha, hard=True)
+
     # Ki clone into ephemeral repository and unlock DB.
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
-    ephem = os.path.join(root, md5sum)
-    _clone(collection, ephem)
+    anki_remote_dir = os.path.join(root, md5sum)
+    _clone(collection, anki_remote_dir)
     unlock(con)
+    logger.debug(f"anki_remote_dir: {os.listdir(anki_remote_dir)}")
 
-    # Create remote pointing to ephemeral repository and pull.
-    repo = git.Repo(os.getcwd())
-    remote = repo.create_remote(REMOTE_NAME, os.path.join(ephem, ".git"))
-    repo.git.config("pull.rebase", "false")
+    # Create remote pointing to anki repository and pull into ``fetch_head_repo``.
+    os.chdir(fetch_head_dir)
+    anki_remote_path = os.path.join(anki_remote_dir, ".git")
+    anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
+
+    # .ki/initial is deleted here, why?
+    diff = fetch_head_repo.git.diff(repo.head.commit.tree)
+    logger.debug(f"Diff: {diff}")
+
+    # Commit the deletion of .ki/initial because it doesn't matter.
+    fetch_head_repo.git.add(all=True)
+    fetch_head_repo.index.commit("Deleted '.ki/initial'")
+
+    # Actually pull.
+    fetch_head_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
-        ["git", "pull", "-v", "--allow-unrelated-histories", REMOTE_NAME, "main"],
+        [
+            "git",
+            "pull",
+            "-v",
+            "--allow-unrelated-histories",
+            "--strategy-option",
+            "theirs",
+            REMOTE_NAME,
+            "main",
+        ],
         check=False,
         capture_output=True,
     )
@@ -194,9 +229,29 @@ def pull() -> None:
     logger.info(f"\n{p.stderr.decode()}")
     click.secho(f"\n{p.stdout.decode()}", blink=True)
     click.secho(f"\n{p.stderr.decode()}", bold=True)
+    assert p.returncode == 0
 
     # Delete the remote we added.
-    repo.delete_remote(remote)
+    fetch_head_repo.delete_remote(anki_remote)
+
+    # Create remote pointing to ``fetch_head`` repository and pull into ``repo``.
+    os.chdir(cwd)
+    fetch_head_remote_path = os.path.join(fetch_head_dir, ".git")
+    fetch_head_remote = repo.create_remote(REMOTE_NAME, fetch_head_remote_path)
+    repo.git.config("pull.rebase", "false")
+    p = subprocess.run(
+        ["git", "pull", "-v", REMOTE_NAME, "main"],
+        check=False,
+        capture_output=True,
+    )
+    logger.info(f"\n{p.stdout.decode()}")
+    logger.info(f"\n{p.stderr.decode()}")
+    click.secho(f"\n{p.stdout.decode()}", blink=True)
+    click.secho(f"\n{p.stderr.decode()}", bold=True)
+    assert p.returncode == 0
+
+    # Delete the remote we added.
+    repo.delete_remote(fetch_head_remote)
 
     # Append to hashes file.
     basename = os.path.basename(collection)
@@ -236,7 +291,6 @@ def push() -> None:
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
-    logger.debug("Getting notepaths iterator.")
     # Get all changed notes in checked-out ephemeral repository.
     ephem_repo = git.Repo(ephem)
     notepaths: Iterator[str] = get_files_changed_since_last_fetch(ephem_repo)
@@ -245,7 +299,6 @@ def push() -> None:
     shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
-        logger.debug("Looping over notepaths.")
         # List of note dictionaries as defined in `apy.convert`.
         notemaps: List[Dict[str, Any]] = []
         for notepath in tqdm(notepaths):
