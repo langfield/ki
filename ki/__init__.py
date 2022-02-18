@@ -46,6 +46,9 @@ from ki.note import KiNote
 logging.basicConfig(level=logging.INFO)
 
 
+REMOTE_NAME = "anki"
+
+
 # pylint: disable=invalid-name
 @click.group()
 @click.version_option()
@@ -83,12 +86,9 @@ def _clone(collection: str, directory: str = "") -> None:
     if not os.path.isfile(collection):
         raise FileNotFoundError
 
-    # Generate default target directory.
+    # Create default target directory.
     if directory == "":
         directory = get_default_clone_directory(collection)
-    directory = os.path.abspath(directory)
-
-    # Create target directory.
     os.mkdir(directory)
 
     # Create .ki subdirectory.
@@ -108,9 +108,6 @@ def _clone(collection: str, directory: str = "") -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5(collection)}  {basename}")
 
-    # Run git init.
-    repo = git.Repo.init(directory)
-
     # Add `.ki/hashes` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")
     with open(ignore_path, "w", encoding="UTF-8") as ignore_file:
@@ -129,37 +126,10 @@ def _clone(collection: str, directory: str = "") -> None:
             with open(note_path, "w", encoding="UTF-8") as note_file:
                 note_file.write(str(note))
 
-    # Add and commit all contents.
+    # Initialize git repo and commit contents.
+    repo = git.Repo.init(directory)
     repo.git.add(all=True)
     repo.index.commit("Initial commit")
-
-
-@beartype
-def open_repository() -> str:
-    """Get collection path from `.ki/` directory."""
-    # Check that config file exists.
-    config_path = os.path.join(os.getcwd(), ".ki/", "config")
-    if not os.path.isfile(config_path):
-        raise FileNotFoundError
-
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    collection = config["remote"]["path"]
-
-    if not os.path.isfile(collection):
-        raise FileNotFoundError
-
-    return collection
-
-
-@beartype
-def get_latest_collection_hash() -> str:
-    """Get the last collection hash stored in `.ki/hashes`."""
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
-        return hashes_file.readlines()[-1]
 
 
 @ki.command()
@@ -180,29 +150,19 @@ def pull() -> None:
         # TODO: unlock DB.
         return
 
-    # Create a temp directory root.
-    tempdir = tempfile.mkdtemp()
-    root = os.path.join(tempdir, "ki/", "remote/")
+    # Ki clone into ephemeral repository.
+    root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
-
-    # Clone into an ephemeral repository.
     ephem = os.path.join(root, md5sum)
     _clone(collection, ephem)
-
     # TODO: unlock DB.
 
     # Create remote pointing to ephemeral repository and pull.
-    remote_name = "anki"
     repo = git.Repo(os.getcwd())
-    remote = repo.create_remote(remote_name, os.path.join(ephem, ".git"))
-    _git = repo.git
-    _git.config("pull.rebase", "false")
-
-    # Won't use this because we can't print stdout/stderr for the user.
-    # origin.pull("main", allow_unrelated_histories=True)
-
+    remote = repo.create_remote(REMOTE_NAME, os.path.join(ephem, ".git"))
+    repo.git.config("pull.rebase", "false")
     p = subprocess.run(
-        ["git", "pull", "-v", "--allow-unrelated-histories", remote_name, "main"],
+        ["git", "pull", "-v", "--allow-unrelated-histories", REMOTE_NAME, "main"],
         check=False,
         capture_output=True,
     )
@@ -233,7 +193,7 @@ def push() -> None:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
     """
-    # Lock DB and get hash.
+    # Lock DB, get path to collection, and compute hash.
     # TODO: lock DB.
     collection = open_repository()
     md5sum = md5(collection)
@@ -244,50 +204,36 @@ def push() -> None:
         # TODO: unlock DB.
         return
 
-    # Create a temp directory root.
-    tempdir = tempfile.mkdtemp()
-    root = os.path.join(tempdir, "ki/", "local/")
+    # Git clone repository at latest commit in `/tmp/.../ki/local/<md5sum>`.
+    root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
     os.makedirs(root)
-
-    # Clone into an ephemeral repository.
+    cwd = os.getcwd()
     ephem = os.path.join(root, md5sum)
-
-    # Clone repository at latest commit in `/tmp/.../ki/local/`.
-    repo = git.Repo(os.getcwd())
-    git.Repo.clone_from(os.getcwd(), ephem, branch=repo.active_branch)
+    git.Repo.clone_from(cwd, ephem, branch=git.Repo(cwd).active_branch)
 
     # Get path to new collection.
-    coll_root = os.path.join(root, "coll")
-    os.makedirs(coll_root)
-    basename = os.path.basename(collection)
-    new_collection = os.path.join(coll_root, basename)
-    assert os.path.isdir(coll_root)
+    new_collection = os.path.join(root, os.path.basename(collection))
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
-
-    # Copy collection to new collection.
-    shutil.copyfile(collection, new_collection)
 
     # Get all files in checked-out ephemeral repository.
     files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
     note_paths = [file for file in files if is_anki_note(file)]
 
-    # Generate `.anki2` file.
+    # Copy collection to new collection and modify in-place.
     # We must distinguish between new notes and old, edited notes.
     # So if they have an nid, they are old notes.
     # If an `nid` is provided that is not already extant in the deck, we should
     # raise an error and tell the user not to make up `nid`s.
+    shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
         # List of note dictionaries as defined in `apy.convert`.
         notemaps: List[Dict[str, Any]] = []
         for note_path in note_paths:
 
-            # `apy` support multiple notes per-markdown file. Should we?
+            # `apy` supports multiple notes per-markdown file. Should we?
             notemaps.extend(markdown_file_to_notes(note_path))
-
-            # This generates a new `nid`, so we don't want to use it.
-            # notes = a.add_notes_from_file(note_path)
 
         for notemap in notemaps:
             nid = int(notemap["nid"])
@@ -296,16 +242,8 @@ def push() -> None:
 
     assert os.path.isfile(new_collection)
 
-    # Backup collection.
-    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
-    assert not os.path.isfile(backupsdir)
-    if not os.path.isdir(backupsdir):
-        os.mkdir(backupsdir)
-    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
-    assert not os.path.isfile(backup_path)
-    shutil.copyfile(collection, backup_path)
-
-    # Overwrite remote collection.
+    # Backup collection and overwrite remote collection.
+    backup(collection)
     shutil.copyfile(new_collection, collection)
 
     # TODO: unlock DB.
@@ -388,3 +326,45 @@ def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
         click.confirm(
             "The updated note is now a dupe!", prompt_suffix="", show_default=False
         )
+
+
+@beartype
+def open_repository() -> str:
+    """Get collection path from `.ki/` directory."""
+    # Check that config file exists.
+    config_path = os.path.join(os.getcwd(), ".ki/", "config")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError
+
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    collection = config["remote"]["path"]
+
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+
+    return collection
+
+
+@beartype
+def get_latest_collection_hash() -> str:
+    """Get the last collection hash stored in `.ki/hashes`."""
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
+        return hashes_file.readlines()[-1]
+
+
+@beartype
+def backup(collection: str) -> None:
+    """Backup collection to `.ki/backups`."""
+    md5sum = md5(collection)
+    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
+    assert not os.path.isfile(backupsdir)
+    if not os.path.isdir(backupsdir):
+        os.mkdir(backupsdir)
+    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
+    assert not os.path.isfile(backup_path)
+    shutil.copyfile(collection, backup_path)
+    assert os.path.isfile(backup_path)
