@@ -192,6 +192,8 @@ def pull() -> None:
     )
     logger.info(f"\n{p.stdout.decode()}")
     logger.info(f"\n{p.stderr.decode()}")
+    click.secho(f"\n{p.stdout.decode()}", blink=True)
+    click.secho(f"\n{p.stderr.decode()}", bold=True)
 
     # Delete the remote we added.
     repo.delete_remote(remote)
@@ -203,38 +205,6 @@ def pull() -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
 
-
-@beartype
-def get_fetch_head_sha(repo: git.Repo) -> str:
-    """
-    Get FETCH_HEAD SHA.
-
-    Returns empty string if we've never `git fetch`-ed
-    """
-    try:
-        return repo.rev_parse("FETCH_HEAD").binsha.hex()
-    except gitdb.exc.BadName:
-        initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
-        with open(initial_path, "r", encoding="UTF-8") as initial_file:
-            sha = initial_file.read()
-        logger.debug(f"SHA: {sha}")
-        return sha
-
-
-def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
-    """Gets a list of paths to modified/new/deleted files since last fetch."""
-    fetch_head_sha = get_fetch_head_sha(repo)
-
-    # Treat case where there is no last fetch.
-    if fetch_head_sha == "":
-        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
-        paths: Iterator[str] = map(lambda entry: entry.path, dir_entries)
-
-    else:
-        diff: str = repo.git.diff(fetch_head_sha, "HEAD", name_only=True)
-        paths: List[str] = diff.split("\n")
-
-    return filter(is_anki_note, paths)
 
 
 @ki.command()
@@ -487,3 +457,36 @@ def unlock(con: sqlite3.Connection) -> None:
     """Unlock a SQLite3 database."""
     con.commit()
     con.close()
+
+@beartype
+def get_fetch_head_sha(repo: git.Repo) -> str:
+    """
+    Get FETCH_HEAD SHA.
+
+    Returns empty string if we've never `git fetch`-ed
+    """
+    try:
+        return repo.rev_parse("FETCH_HEAD").binsha.hex()
+    except gitdb.exc.BadName:
+        initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
+        with open(initial_path, "r", encoding="UTF-8") as initial_file:
+            sha = initial_file.read()
+        logger.debug(f"SHA: {sha}")
+        return sha
+
+
+@beartype
+def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
+    """Gets a list of paths to modified/new/deleted files since last fetch."""
+    fetch_head_sha = get_fetch_head_sha(repo)
+
+    # Treat case where there is no last fetch.
+    if fetch_head_sha == "":
+        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
+        paths: Iterator[str] = map(lambda entry: entry.path, dir_entries)
+
+    else:
+        diff: str = repo.git.diff(fetch_head_sha, "HEAD", name_only=True)
+        paths: List[str] = diff.split("\n")
+
+    return filter(is_anki_note, paths)

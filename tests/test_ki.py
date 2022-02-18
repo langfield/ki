@@ -27,20 +27,21 @@ from ki.note import KiNote
 
 
 TEST_DATA_PATH = "tests/data/"
+COLLECTIONS_PATH = os.path.join(TEST_DATA_PATH, "collections/")
 COLLECTION_FILENAME = "collection.anki2"
 ORIG_COLLECTION_FILENAME = "original.anki2"
-UPDATED_COLLECTION_FILENAME = "updated.anki2"
+EDITED_COLLECTION_FILENAME = "edited.anki2"
 COLLECTION_PATH = os.path.abspath(
-    os.path.join(TEST_DATA_PATH, ORIG_COLLECTION_FILENAME)
+    os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
 )
-UPDATED_COLLECTION_PATH = os.path.abspath(
-    os.path.join(TEST_DATA_PATH, UPDATED_COLLECTION_FILENAME)
+EDITED_COLLECTION_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, EDITED_COLLECTION_FILENAME)
 )
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 
 NOTE_0 = "note1645010162168.md"
-NOTE_1 = "note1645027705329.md"
+NOTE_1 = "note1645222430007.md"
 NOTE_2 = os.path.abspath("tests/data/note123412341234.md")
 NOTE_3 = os.path.abspath("tests/data/note 3.md")
 
@@ -64,9 +65,10 @@ def clone(runner: CliRunner, repository: str, directory: str = "") -> None:
 
 
 @beartype
-def pull(runner: CliRunner) -> None:
+def pull(runner: CliRunner) -> str:
     """Make a test `ki pull` call."""
-    runner.invoke(ki.ki, ["pull"], standalone_mode=False, catch_exceptions=False)
+    res = runner.invoke(ki.ki, ["pull"], standalone_mode=False, catch_exceptions=False)
+    return res.output
 
 
 @beartype
@@ -219,29 +221,30 @@ def test_computes_and_stores_md5sum():
         # ki.clone(collection_path)
         clone(runner, collection_path)
 
+        # TODO: Update hash literals.
         # Check that hash is written.
         with open(os.path.join(REPODIR, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
-            assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
-            assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" not in hashes
+            assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
+            assert "199216c39eeabe23a1da016a99ffd3e2  collection.anki2" not in hashes
 
-        # Update collection.
-        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
 
-        # Pull updated collection.
+        # Pull edited collection.
         os.chdir(REPODIR)
         pull(runner)
         os.chdir("../")
 
-        # Check that updated hash is written and old hash is still there.
+        # Check that edited hash is written and old hash is still there.
         with open(os.path.join(REPODIR, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
-            assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
+            assert "199216c39eeabe23a1da016a99ffd3e2  collection.anki2" in hashes
 
 
 def test_pull_avoids_unnecessary_merge_conflicts():
-    """Does pull merge without conflicts when it's supposed to?"""
+    """Does ki prevent gratuitous merge conflicts?"""
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -249,7 +252,15 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         # Clone collection in cwd.
         clone(runner, collection_path)
         assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
-        raise NotImplementedError
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
+
+        # Pull edited collection.
+        os.chdir(REPODIR)
+        out = pull(runner)
+        assert "Automatic merge failed; fix" not in out
+
 
 
 
@@ -421,10 +432,10 @@ def test_pull_writes_changes_correctly():
         clone(runner, collection_path)
         assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
 
-        # Update collection.
-        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
 
-        # Pull updated collection.
+        # Pull edited collection.
         os.chdir(REPODIR)
         pull(runner)
         assert os.path.isfile(NOTE_1)
@@ -452,6 +463,7 @@ def test_pull_unchanged_collection_is_no_op():
 # PUSH
 
 
+@pytest.mark.skip
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
@@ -529,6 +541,7 @@ def test_push_generates_correct_backup():
         assert backup
 
 
+@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     collection_path = get_collection_path()
@@ -539,10 +552,10 @@ def test_push_doesnt_fail_after_pull():
         clone(runner, collection_path)
         assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
 
-        # Update collection.
-        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
 
-        # Pull updated collection.
+        # Pull edited collection.
         os.chdir(REPODIR)
         pull(runner)
         assert os.path.isfile(NOTE_1)
