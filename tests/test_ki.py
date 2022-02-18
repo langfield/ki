@@ -40,10 +40,22 @@ EDITED_COLLECTION_PATH = os.path.abspath(
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 
+NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
+
 NOTE_0 = "note1645010162168.md"
 NOTE_1 = "note1645222430007.md"
-NOTE_2 = os.path.abspath("tests/data/note123412341234.md")
-NOTE_3 = os.path.abspath("tests/data/note 3.md")
+NOTE_2 = "note123412341234.md"
+NOTE_3 = "note 3.md"
+NOTE_4 = "note1645027705329.md"
+
+NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
+NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
+NOTE_2_PATH = os.path.join(NOTES_PATH, NOTE_2)
+NOTE_3_PATH = os.path.join(NOTES_PATH, NOTE_3)
+NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
+
+NOTE_0_ID = 1645010162168
+NOTE_4_ID = 1645027705329
 
 # HELPER FUNCTIONS
 
@@ -460,7 +472,6 @@ def test_pull_unchanged_collection_is_no_op():
 # PUSH
 
 
-@pytest.mark.skip
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
@@ -471,9 +482,19 @@ def test_push_writes_changes_correctly():
         # Clone collection in cwd.
         clone(runner, collection_path)
 
+        logger.debug(os.listdir(REPODIR))
+
+        # Edit a note.
         note = os.path.join(REPODIR, NOTE_0)
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
+
+        # Delete a note.
+        note = os.path.join(REPODIR, NOTE_4)
+        os.remove(note)
+
+        # Add a note.
+        shutil.copyfile(NOTE_2_PATH, os.path.join(REPODIR, NOTE_2))
 
         # Commit.
         repo = git.Repo(REPODIR)
@@ -484,10 +505,31 @@ def test_push_writes_changes_correctly():
         os.chdir(REPODIR)
         push(runner)
         new_notes = get_notes(collection_path)
-        assert len(old_notes) == len(new_notes) == 1
 
-        for old, new in zip(old_notes, new_notes):
-            assert str(old) + "e\n" == str(new)
+        # Check NOTE_4 was deleted.
+        new_ids = [note.n.id for note in new_notes]
+        assert NOTE_4_ID not in new_ids
+
+        # Check NOTE_0 was edited.
+        logger.debug(f"new_ids: {new_ids}")
+        logger.debug(f"NOTE_0_ID: {NOTE_0_ID}")
+        logger.debug(f"new_notes: {new_notes}")
+        old_note_0 = ""
+        for note in new_notes:
+            logger.debug(f"NOTE ID: {note.n.id}")
+            if note.n.id == NOTE_0_ID:
+                logger.debug(f"FOUND NOTE 0")
+                old_note_0 = str(note)
+        assert len(old_note_0) > 0
+        found_0 = False
+        for note in new_notes:
+            if note.n.id == NOTE_0_ID:
+                assert old_note_0 == str(note)
+                found_0 = True
+        assert found_0
+
+        # Check NOTE_2 was added.
+        assert len(old_notes) == len(new_notes) == 2
 
 
 def test_push_verifies_md5sum():
@@ -560,14 +602,14 @@ def test_push_doesnt_fail_after_pull():
         logger.debug(os.listdir())
 
         # Modify local file.
-        note = os.path.join(NOTE_0)
-        with open(note, "a", encoding="UTF-8") as note_file:
+        assert os.path.isfile(NOTE_0)
+        with open(NOTE_0, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
         # Add new file.
-        shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
+        shutil.copyfile(NOTE_2_PATH, NOTE_2)
         # Add new file.
-        shutil.copyfile(NOTE_3, os.path.basename(NOTE_3))
+        shutil.copyfile(NOTE_3_PATH, NOTE_3)
 
         # Commit.
         os.chdir("../")
