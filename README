@@ -26,7 +26,8 @@ TODO
 - Handle merge conflicts better.
 - Test that uncommitted changes do not get pushed.
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent.
-- Test hashes gets committed or ignored.
+- Test hashes and backups gets committed or ignored.
+- Test that parser handles leading '#' characters (currently doesn't).
 
 
 Notes
