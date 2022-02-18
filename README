@@ -26,6 +26,7 @@ TODO
 - Handle merge conflicts better.
 - Test that uncommitted changes do not get pushed.
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent.
+- Test hashes gets committed or ignored.
 
 
 Notes
@@ -33,6 +34,17 @@ Notes
 To debug gitpython commands:
     export GIT_PYTHON_TRACE=full
 
+On making push faster
+---------------------
+We only want to update notes in the SQLite DB that have changed since the last
+time we fetched from the remote, i.e. from the local Anki desktop client.
+
+The only times we fetch are when we clone, or when we pull.
+
+We have already handled the case where we pulled.
+
+We must now make sure we don't include anything that was written in the initial
+clone call.
 
 Merge conflicts
 ---------------

@@ -240,45 +240,6 @@ def test_computes_and_stores_md5sum():
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
 
 
-def test_pull_and_push():
-    collection_path = get_collection_path()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, collection_path)
-        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
-
-        # Update collection.
-        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
-
-        # Pull updated collection.
-        os.chdir(REPODIR)
-        pull(runner)
-        assert os.path.isfile(NOTE_1)
-
-        logger.debug(os.listdir())
-
-        # Modify local file.
-        note = os.path.join(NOTE_0)
-        with open(note, "a", encoding="UTF-8") as note_file:
-            note_file.write("e\n")
-
-        # Add new file.
-        shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
-        # Add new file.
-        shutil.copyfile(NOTE_3, os.path.basename(NOTE_3))
-
-        # Commit.
-        os.chdir("../")
-        repo = git.Repo(REPODIR)
-        repo.git.add(all=True)
-        repo.index.commit("Added 'e'.")
-
-        # Push changes.
-        os.chdir(REPODIR)
-        push(runner)
-
 
 # CLONE
 
@@ -383,9 +344,9 @@ def test_clone_commits_directory_contents():
         changes = repo.head.commit.diff()
         assert len(changes) == 0
 
-        # Make sure there is exactly 1 commit.
+        # Make sure there are exactly 2 commits.
         commits = list(repo.iter_commits("HEAD"))
-        assert len(commits) == 1
+        assert len(commits) == 2
 
 
 def test_clone_leaves_collection_file_unchanged():
@@ -553,6 +514,48 @@ def test_push_generates_correct_backup():
                 backup = True
 
         assert backup
+
+
+def test_push_doesnt_fail_after_pull():
+    """Does push work if we pull and then edit and then push?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
+
+        # Update collection.
+        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+
+        # Pull updated collection.
+        os.chdir(REPODIR)
+        pull(runner)
+        assert os.path.isfile(NOTE_1)
+
+        logger.debug(os.listdir())
+
+        # Modify local file.
+        note = os.path.join(NOTE_0)
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        # Add new file.
+        shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
+        # Add new file.
+        shutil.copyfile(NOTE_3, os.path.basename(NOTE_3))
+
+        # Commit.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        push(runner)
+
 
 
 # UTILS

@@ -137,7 +137,16 @@ def _clone(collection: str, directory: str = "") -> None:
     # Initialize git repo and commit contents.
     repo = git.Repo.init(directory)
     repo.git.add(all=True)
-    repo.index.commit("Initial commit")
+    commit = repo.index.commit("Initial commit")
+
+    # Create initial commit SHA file.
+    initial_path = os.path.join(kidir, "initial")
+    with open(initial_path, "a", encoding="UTF-8") as initial_file:
+        initial_file.write(f"{str(commit)}")
+
+    # Commit `.ki/` directory with initial commit SHA file.
+    repo.git.add([".ki/"])
+    repo.index.commit("Initial SHA")
 
 
 @ki.command()
@@ -198,7 +207,11 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
     try:
         return repo.rev_parse("FETCH_HEAD").binsha.hex()
     except gitdb.exc.BadName:
-        return ""
+        initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
+        with open(initial_path, "r", encoding="UTF-8") as initial_file:
+            sha = initial_file.read()
+        logger.debug(f"SHA: {sha}")
+        return sha
 
 
 def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
@@ -211,7 +224,7 @@ def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
         paths: Iterator[str] = map(lambda entry: entry.path, dir_entries)
 
     else:
-        diff: str = repo.git.diff("FETCH_HEAD", "HEAD", name_only=True)
+        diff: str = repo.git.diff(fetch_head_sha, "HEAD", name_only=True)
         paths: List[str] = diff.split("\n")
 
     return filter(is_anki_note, paths)
@@ -287,8 +300,7 @@ def push() -> None:
     assert os.path.isfile(new_collection)
 
     backup(collection)
-    # Dry run.
-    # shutil.copyfile(new_collection, collection)
+    shutil.copyfile(new_collection, collection)
     unlock(con)
 
 
