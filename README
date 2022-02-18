@@ -14,9 +14,9 @@ projects.
 
 TODO
 ----
-- Add implementations to test function sigs in `tests/test_ki.py`.
+- Add implementations to test function sigs in `tests/test_ki.py`. (DONE)
 - Add `shell-doctest` tests for CLI subcommands.
-- Add implementations of `clone`, `pull`, and `push`.
+- Add implementations of `clone`, `pull`, and `push`. (DONE)
 - Make sure `push` acquires lock on SQLite3 file before overwriting.
 - Make clone work on empty directories to match `git` behavior.
 - Test utilities.
