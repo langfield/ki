@@ -85,10 +85,26 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    _clone(collection, directory)
+    sha = _clone(collection, directory)
+
+    # Stuff below this line should not happen in a `pull()`.
+
+    # Create initial commit SHA file.
+    if directory == "":
+        directory = get_default_clone_directory(collection)
+    kidir = os.path.join(directory, ".ki/")
+    initial_path = os.path.join(kidir, "initial")
+    with open(initial_path, "a", encoding="UTF-8") as initial_file:
+        initial_file.write(f"{sha}")
+
+    # Commit `.ki/` directory with initial commit SHA file.
+    repo = git.Repo.init(directory)
+    repo.git.add([".ki/"])
+    repo.index.commit("Initial SHA")
 
 
-def _clone(collection: str, directory: str = "") -> None:
+@beartype
+def _clone(collection: str, directory: str = "") -> str:
     """Clone an Anki collection into a directory."""
     collection = os.path.abspath(collection)
     if not os.path.isfile(collection):
@@ -139,14 +155,8 @@ def _clone(collection: str, directory: str = "") -> None:
     repo.git.add(all=True)
     commit = repo.index.commit("Initial commit")
 
-    # Create initial commit SHA file.
-    initial_path = os.path.join(kidir, "initial")
-    with open(initial_path, "a", encoding="UTF-8") as initial_file:
-        initial_file.write(f"{str(commit)}")
-
-    # Commit `.ki/` directory with initial commit SHA file.
-    repo.git.add([".ki/"])
-    repo.index.commit("Initial SHA")
+    # Return SHA of initial commit.
+    return str(commit)
 
 
 @ki.command()

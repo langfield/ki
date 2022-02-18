@@ -240,7 +240,6 @@ def test_computes_and_stores_md5sum():
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
 
 
-
 # CLONE
 
 
@@ -555,7 +554,6 @@ def test_push_doesnt_fail_after_pull():
         # Push changes.
         os.chdir(REPODIR)
         push(runner)
-
 
 
 # UTILS
