@@ -41,6 +41,8 @@ REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 
 NOTE_0 = "note1645010162168.md"
 NOTE_1 = "note1645027705329.md"
+NOTE_2 = os.path.abspath("tests/data/note123412341234.md")
+NOTE_3 = os.path.abspath("tests/data/note 3.md")
 
 # HELPER FUNCTIONS
 
@@ -236,6 +238,46 @@ def test_computes_and_stores_md5sum():
             hashes = hashes_file.read()
             assert "f6945f2bb37aef63d57e76f915d3a97f  collection.anki2" in hashes
             assert "a68250f8ee3dc8302534f908bcbafc6a  collection.anki2" in hashes
+
+
+def test_pull_and_push():
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
+
+        # Update collection.
+        shutil.copyfile(UPDATED_COLLECTION_PATH, collection_path)
+
+        # Pull updated collection.
+        os.chdir(REPODIR)
+        pull(runner)
+        assert os.path.isfile(NOTE_1)
+
+        logger.debug(os.listdir())
+
+        # Modify local file.
+        note = os.path.join(NOTE_0)
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        # Add new file.
+        shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
+        # Add new file.
+        shutil.copyfile(NOTE_3, os.path.basename(NOTE_3))
+
+        # Commit.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        push(runner)
 
 
 # CLONE
@@ -450,9 +492,12 @@ def test_push_writes_changes_correctly():
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
-        with open(note, "r", encoding="UTF-8") as note_file:
-            text = note_file.read()
+        # Commit.
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
 
+        # Push and check for changes.
         os.chdir(REPODIR)
         push(runner)
         new_notes = get_notes(collection_path)

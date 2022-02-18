@@ -18,7 +18,7 @@ TODO
 - Add CLI tests that actually call the subcommands. (DONE)
 - Add `shell-doctest` tests for CLI subcommands.
 - Add implementations of `clone`, `pull`, and `push`. (DONE)
-- Make sure `push` acquires lock on SQLite3 file before overwriting.
+- Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
 - Make clone work on empty directories to match `git` behavior.
 - Test utilities.
 - Handle file deletion.
@@ -150,3 +150,62 @@ Bugs
       File "/home/user/pkgs/ki/ki/__init__.py", line 299, in push
         nid = int(notemap["nid"])
     KeyError: 'nid'
+
+6.  Doesn't handle when users make up new note IDs:
+
+                # Add new file.
+                shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
+
+                # Commit.
+                os.chdir("../")
+                repo = git.Repo(REPODIR)
+                repo.git.add(all=True)
+                repo.index.commit("Added 'e'.")
+
+                # Push changes.
+                os.chdir(REPODIR)
+    >           push(runner)
+
+    tests/test_ki.py:278:
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    <@beartype(tests.test_ki.push) at 0x7fa4345f8a60>:30: in push
+        ???
+    tests/test_ki.py:74: in push
+        res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/testing.py:408: in invoke
+        return_value = cli.main(args=args or (), prog_name=prog_name, **extra)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1053: in main
+        rv = self.invoke(ctx)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1659: in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1395: in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:754: in invoke
+        return __callback(*args, **kwargs)
+    <@beartype(ki.push) at 0x7fa4345ea940>:10: in push
+        ???
+    ki/__init__.py:273: in push
+        note: Note = Note(a, a.col.get_note(nid))
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py:332: in get_note
+        return Note(self, id=id)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:46: in __init__
+        self.load()
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:52: in load
+        note = self.col._backend.get_note(self.id)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py:327: in get_note
+        output.ParseFromString(self._run_command(2, 5, input))
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    self = <anki._backend.RustBackend object at 0x7fa43459ba90>, service = 2, method = 5, input = nid: 123412341234
+
+
+        def _run_command(self, service: int, method: int, input: Any) -> bytes:
+            input_bytes = input.SerializeToString()
+            try:
+                return self._backend.command(service, method, input_bytes)
+            except Exception as e:
+                err_bytes = bytes(e.args[0])
+            err = backend_pb2.BackendError()
+            err.ParseFromString(err_bytes)
+    >       raise backend_exception_to_pylib(err)
+    E       anki.errors.NotFoundError

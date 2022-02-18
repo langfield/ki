@@ -33,13 +33,14 @@ import configparser
 import git
 import anki
 import click
+import gitdb
 from loguru import logger
 
 from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any
+from beartype.typing import List, Dict, Any, Iterator
 
 from ki.note import KiNote
 
@@ -186,6 +187,35 @@ def pull() -> None:
         hashes_file.write(f"{md5sum}  {basename}")
 
 
+@beartype
+def get_fetch_head_sha(repo: git.Repo) -> str:
+    """
+    Get FETCH_HEAD SHA.
+
+    Returns empty string if we've never `git fetch`-ed
+    """
+    try:
+        return repo.rev_parse("FETCH_HEAD").binsha.hex()
+    except gitdb.exc.BadName:
+        return ""
+
+
+def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
+    """Gets a list of paths to modified/new/deleted files since last fetch."""
+    fetch_head_sha = get_fetch_head_sha(repo)
+
+    # Treat case where there is no last fetch.
+    if fetch_head_sha == "":
+        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
+        paths: Iterator[str] = map(lambda entry: entry.path, dir_entries)
+
+    else:
+        diff: str = repo.git.diff("FETCH_HEAD", "HEAD", name_only=True)
+        paths: List[str] = diff.split("\n")
+
+    return filter(is_anki_note, paths)
+
+
 @ki.command()
 @beartype
 def push() -> None:
@@ -208,42 +238,85 @@ def push() -> None:
     os.makedirs(root)
     cwd = os.getcwd()
     ephem = os.path.join(root, md5sum)
-    git.Repo.clone_from(cwd, ephem, branch=git.Repo(cwd).active_branch)
+    repo = git.Repo(cwd)
+    git.Repo.clone_from(cwd, ephem, branch=repo.active_branch)
 
     # Get path to new collection.
     new_collection = os.path.join(root, os.path.basename(collection))
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
-    # Get all files in checked-out ephemeral repository.
-    files = [path for path in os.listdir(ephem) if os.path.isfile(path)]
-    note_paths = [file for file in files if is_anki_note(file)]
+    # Get all changed notes in checked-out ephemeral repository.
+    ephem_repo = git.Repo(ephem)
+    notepaths: Iterator[str] = get_files_changed_since_last_fetch(ephem_repo)
 
     # Copy collection to new collection and modify in-place.
-    # We must distinguish between new notes and old, edited notes.
-    # So if they have an nid, they are old notes.
-    # If an `nid` is provided that is not already extant in the deck, we should
-    # raise an error and tell the user not to make up `nid`s.
     shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
         # List of note dictionaries as defined in `apy.convert`.
         notemaps: List[Dict[str, Any]] = []
-        for note_path in note_paths:
+        for notepath in notepaths:
 
-            # `apy` supports multiple notes per-markdown file. Should we?
-            notemaps.extend(markdown_file_to_notes(note_path))
+            # Support multiple notes-per-file.
+            notemaps = markdown_file_to_notes(notepath)
+            for notemap in notemaps:
 
-        for notemap in notemaps:
-            nid = int(notemap["nid"])
-            note: Note = Note(a, a.col.get_note(nid))
-            update_apy_note(note, notemap)
+                # Read `nid` from notemap, raise error if not found.
+                try:
+                    nid = int(notemap["nid"])
+                except KeyError as err:
+                    logger.debug(f"notemap: {notemap}")
+                    raise err
+
+                # Look for `nid` and update existing note if found.
+                try:
+                    note: Note = Note(a, a.col.get_note(nid))
+                    update_apy_note(note, notemap)
+
+                # Otherwise, add a new note.
+                except anki.errors.NotFoundError:
+                    note: Note = add_note_from_notemap(a, notemap)
+                    logger.info(f"Couldn't find note with nid: '{nid}'")
+                    logger.info(f"Assigned new nid: '{note.n.id}'")
 
     assert os.path.isfile(new_collection)
 
     backup(collection)
     shutil.copyfile(new_collection, collection)
     unlock(con)
+
+
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
+    """Add a note given its `apy` parsed notemap."""
+    model_name = notemap["model"]
+
+    # Set current notetype for collection to `model_name`.
+    model = apyanki.set_model(model_name)
+
+    model_field_names = [field["name"] for field in model["flds"]]
+
+    field_names = notemap["fields"].keys()
+    field_values = notemap["fields"].values()
+
+    if len(field_names) != len(model_field_names):
+        click.echo(f"Error: Not enough fields for model {model_name}!")
+        apyanki.modified = False
+        raise click.Abort()
+
+    for x, y in zip(model_field_names, field_names):
+        if x != y:
+            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
+
+    # pylint: disable=protected-access
+    note = apyanki._add_note(
+        field_values,
+        f"{notemap['tags']}",
+        notemap["markdown"],
+        notemap.get("deck"),
+    )
+
+    return note
 
 
 # UTILS
