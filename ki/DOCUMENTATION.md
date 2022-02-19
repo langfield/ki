@@ -32,10 +32,11 @@ An example of the `clone` subcommand usage and its output is given below.
 $ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
 ```
 ```bash
-Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
-Cloning into /home/lyra/decks/
+Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Wrote md5sum to /home/lyra/decks/.ki/hashes
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
+Cloning into '/home/lyra/decks/' ...
+100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
 ```
 
 ## Pulling changes from an Anki collection into an existing `ki` repository
@@ -49,13 +50,12 @@ An example of the `pull` subcommand usage and its output is given below.
 $ ki pull
 ```
 ```bash
-Removing /tmp/ki/remote/
-Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
+Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Wrote md5sum to /home/lyra/.ki/hashes
-Cloning .anki2 database into ephemeral repository at /tmp/ki/remote/
-Running `git remote add origin /tmp/ki/remote/ad7ea6d4.git`
-Running `git pull`
+Wrote md5sum to '/home/lyra/.ki/hashes'
+Cloning .anki2 database into ephemeral repository at '/tmp/ki/remote/'
+Running 'git remote add origin /tmp/ki/remote/ad7ea6d4.git'
+Running 'git pull'
 ```
 
 `ki` first deletes any residual ephemeral repositories in `/tmp/ki/remote/`.
@@ -87,8 +87,8 @@ $ ki push
 ```bash
 Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Verified md5sum matches latest hash in `/home/lyra/.ki/hashes`
-Checked out latest commit at /tmp/ki/local/
+Verified md5sum matches latest hash in '/home/lyra/.ki/hashes'
+Checked out latest commit at '/tmp/ki/local/'
 Generating local .anki2 file from latest commit
 Backing up original .anki2 file
 Overwriting collection

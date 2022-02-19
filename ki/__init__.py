@@ -108,6 +108,7 @@ def _clone(collection: str, directory: str = "") -> str:
     collection = os.path.abspath(collection)
     if not os.path.isfile(collection):
         raise FileNotFoundError
+    click.secho(f"Found .anki2 file at '{collection}'", bold=True)
 
     # Create default target directory.
     if directory == "":
@@ -126,10 +127,14 @@ def _clone(collection: str, directory: str = "") -> str:
         config.write(config_file)
 
     # Create hashes file.
+    md5sum = md5(collection)
+    click.secho(f"Computed md5sum: {md5sum}", bold=True)
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5(collection)}  {basename}")
+        hashes_file.write(f"{md5sum}  {basename}")
+    click.secho(f"Wrote md5sum to '{hashes_path}'", bold=True)
+    click.secho(f"Cloning into '{directory}'", bold=True)
 
     # Add `.ki/` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")
