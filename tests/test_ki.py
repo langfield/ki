@@ -482,8 +482,6 @@ def test_push_writes_changes_correctly():
         # Clone collection in cwd.
         clone(runner, collection_path)
 
-        logger.debug(os.listdir(REPODIR))
-
         # Edit a note.
         note = os.path.join(REPODIR, NOTE_0)
         with open(note, "a", encoding="UTF-8") as note_file:
@@ -511,14 +509,9 @@ def test_push_writes_changes_correctly():
         assert NOTE_4_ID not in new_ids
 
         # Check NOTE_0 was edited.
-        logger.debug(f"new_ids: {new_ids}")
-        logger.debug(f"NOTE_0_ID: {NOTE_0_ID}")
-        logger.debug(f"new_notes: {new_notes}")
         old_note_0 = ""
         for note in new_notes:
-            logger.debug(f"NOTE ID: {note.n.id}")
             if note.n.id == NOTE_0_ID:
-                logger.debug(f"FOUND NOTE 0")
                 old_note_0 = str(note)
         assert len(old_note_0) > 0
         found_0 = False
@@ -597,8 +590,6 @@ def test_push_doesnt_fail_after_pull():
         os.chdir(REPODIR)
         pull(runner)
         assert os.path.isfile(NOTE_1)
-
-        logger.debug(os.listdir())
 
         # Modify local file.
         assert os.path.isfile(NOTE_0)

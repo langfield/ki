@@ -183,7 +183,6 @@ def pull() -> None:
     fetch_head_dir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
     git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
-    logger.debug(f"fetch_head_dir: {os.listdir(fetch_head_dir)}")
 
     # Do a reset --hard to the SHA of last FETCH.
     fetch_head_sha = get_fetch_head_sha(repo)
@@ -196,7 +195,6 @@ def pull() -> None:
     anki_remote_dir = os.path.join(root, md5sum)
     _clone(collection, anki_remote_dir)
     unlock(con)
-    logger.debug(f"anki_remote_dir: {os.listdir(anki_remote_dir)}")
 
     # Create remote pointing to anki repository and pull into ``fetch_head_repo``.
     os.chdir(fetch_head_dir)
@@ -205,7 +203,6 @@ def pull() -> None:
 
     # .ki/initial is deleted here, why?
     diff = fetch_head_repo.git.diff(repo.head.commit.tree)
-    logger.debug(f"Diff: {diff}")
 
     # Commit the deletion of .ki/initial because it doesn't matter.
     fetch_head_repo.git.add(all=True)
@@ -312,7 +309,6 @@ def push() -> None:
 
         # Do a reset --hard to the SHA of last FETCH.
         fetch_head_sha = get_fetch_head_sha(ephem_repo)
-        logger.debug(f"Fetch head SHA: {fetch_head_sha}")
         fetch_head_repo = git.Repo(fetch_head_dir)
         fetch_head_repo.git.checkout(fetch_head_sha)
 
@@ -321,11 +317,9 @@ def push() -> None:
             # Checkout commit of last fetch (where deleted files are guaranteed
             # to exist), then parse the nids and delete with `apy`.
             if not os.path.isfile(notepath):
-                logger.debug(f"Fetch head repo: {os.listdir(fetch_head_dir)}")
                 deleted_filename = os.path.basename(notepath)
                 deleted_path = os.path.join(fetch_head_dir, deleted_filename)
 
-                logger.debug(f"Deleted file: {deleted_path}")
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
                 a.delete_notes(nids)
@@ -531,7 +525,6 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
         initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
         with open(initial_path, "r", encoding="UTF-8") as initial_file:
             sha = initial_file.read()
-        logger.debug(f"SHA: {sha}")
         return sha
 
 
@@ -552,12 +545,9 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
         hcommit = repo.head.commit
         diff_index = hcommit.diff(fetch_head_sha)
         for change_type in CHANGE_TYPES:
-            logger.debug(f"Change type: {change_type}")
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
-                logger.debug(f"diff a path: {diff.a_path}")
-                logger.debug(f"diff b path: {diff.b_path}")
         paths = [os.path.join(repo.working_dir, file) for file in files]
 
     changed = []
@@ -574,7 +564,6 @@ def get_note_files_deleted_since_last_fetch(repo: git.Repo) -> List[str]:
     """Gets a list of abspaths to modified/new/deleted note files since last fetch."""
     deleted_files = []
     for file in get_note_files_changed_since_last_fetch(repo):
-        logger.debug(f"File: {file}")
         if not os.path.isfile(file):
             deleted_files.append(file)
     return deleted_files
