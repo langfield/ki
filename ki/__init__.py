@@ -27,6 +27,7 @@ import tarfile
 import hashlib
 import sqlite3
 import tempfile
+import warnings
 import subprocess
 import configparser
 
@@ -34,6 +35,7 @@ import git
 import anki
 import click
 import gitdb
+from bs4 import MarkupResemblesLocatorWarning
 from tqdm import tqdm
 from loguru import logger
 
@@ -86,6 +88,7 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
+    warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
     sha = _clone(collection, directory)
 
     # Stuff below this line should not happen in a `pull()`.
