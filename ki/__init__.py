@@ -496,6 +496,9 @@ def backup(collection: str) -> None:
     if not os.path.isdir(backupsdir):
         os.mkdir(backupsdir)
     backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
+    if os.path.isfile(backup_path):
+        logger.info(f"Up to date: backup already exists.")
+        return
     assert not os.path.isfile(backup_path)
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)
