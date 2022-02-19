@@ -24,18 +24,20 @@ TODO
 - Handle file deletion. (DONE)
 - Try doing one file per deck, and see if this is faster.
 - Handle merge conflicts better. (DONE)
-- Test that uncommitted changes do not get pushed.
-- Test that repeated push-pull on up-to-date repo is no-op/idempotent.
+- Test that uncommitted changes do not get pushed. (DONE)
+- Test that repeated push-pull on up-to-date repo is no-op/idempotent. (DONE)
 - Test hashes and backups gets committed or ignored.
 - Test that parser handles leading '#' characters (currently doesn't).
 - Test warnings are captured.
 - Test that the existence of a backup file with an up-to-date checksum doesn't
   prevent us from pushing.
-- Remove commit call that deletes .ki/initial
+- Remove commit call that deletes .ki/initial (DONE)
 - Test that the sequence PULL -> EDIT -> PUSH -> PULL yields a no-op on the
   last PULL.
 - Test ``get_fetch_head_sha``.
 - Test that .ki/ is in gitignore, and doesn't get committed.
+- Test that CLONE -> EDIT -> COMMIT -> PULL -> PUSH results in a nontrivial
+  PUSH.
 
 Notes
 -----
