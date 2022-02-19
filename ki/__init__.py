@@ -41,7 +41,7 @@ from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Iterator
+from beartype.typing import List, Dict, Any, Iterator, Sequence
 
 from ki.note import KiNote
 
@@ -293,7 +293,25 @@ def push() -> None:
 
     # Get all changed notes in checked-out ephemeral repository.
     ephem_repo = git.Repo(ephem)
-    notepaths: Iterator[str] = get_files_changed_since_last_fetch(ephem_repo)
+    branch = ephem_repo.active_branch
+    notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
+
+    deleted = get_note_files_deleted_since_last_fetch(ephem_repo)
+    fetch_head_sha = get_fetch_head_sha(ephem_repo)
+    logger.debug(f"Contents before checkout: {os.listdir(ephem)}")
+    logger.debug(f"Log:\n{ephem_repo.git.log()}")
+    logger.debug(f"Current commit: {ephem_repo.head.object.hexsha}")
+    logger.debug(f"Checking out {fetch_head_sha}")
+    ephem_repo.git.checkout(fetch_head_sha)
+    logger.debug(f"Current commit: {ephem_repo.head.object.hexsha}")
+    logger.debug(f"Contents after checkout: {os.listdir(ephem)}")
+    os.chdir(ephem)
+    logger.debug(f"Cwd: {os.getcwd()}")
+    logger.debug(f"Deleted: {deleted}")
+    for file in deleted:
+        assert os.path.isfile(file)
+    ephem_repo.git.checkout(branch)
+    logger.debug(os.listdir())
 
     # Copy collection to new collection and modify in-place.
     shutil.copyfile(collection, new_collection)
@@ -302,6 +320,13 @@ def push() -> None:
         # List of note dictionaries as defined in `apy.convert`.
         notemaps: List[Dict[str, Any]] = []
         for notepath in tqdm(notepaths):
+
+            if not os.path.isfile(notepath):
+                # TODO: Delete the note here.
+                # The robust thing to do is checkout the commit of last fetch,
+                # read nid from the file, and delete by nid.
+                assert notepath in deleted
+                continue
 
             # Support multiple notes-per-file.
             notemaps = markdown_file_to_notes(notepath)
@@ -483,8 +508,6 @@ def unlock(con: sqlite3.Connection) -> None:
 def get_fetch_head_sha(repo: git.Repo) -> str:
     """
     Get FETCH_HEAD SHA.
-
-    Returns empty string if we've never `git fetch`-ed
     """
     try:
         return repo.rev_parse("FETCH_HEAD").binsha.hex()
@@ -497,20 +520,50 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
 
 
 @beartype
-def get_files_changed_since_last_fetch(repo: git.Repo) -> Iterator[str]:
-    """Gets a list of paths to modified/new/deleted files since last fetch."""
+def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
+    """Gets a list of paths to modified/new/deleted note md files since last fetch."""
     fetch_head_sha = get_fetch_head_sha(repo)
 
+    paths: Iterator[str]
     # Treat case where there is no last fetch.
     if fetch_head_sha == "":
         dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
-        paths: Iterator[str] = map(lambda entry: entry.path, dir_entries)
+        paths = map(lambda entry: entry.path, dir_entries)
 
     else:
-        diff: str = repo.git.diff(fetch_head_sha, "HEAD", name_only=True)
-        paths: List[str] = diff.split("\n")
+        files = []
+        status: str = repo.git.diff(fetch_head_sha, "HEAD", name_status=True)
+        status_lines: List[str] = status.split("\n")
+        for line in status_lines:
+            sections = line.split()
+            assert len(sections) >= 2
+            files += sections[1:]
+        paths = [os.path.join(repo.working_dir, file) for file in files]
 
-    return filter(is_anki_note, paths)
+    changed = []
+    for path in paths:
+        if os.path.isfile(path) and not is_anki_note(path):
+            continue
+        changed.append(path)
+    logger.debug(f"Paths: {changed}")
+
+    return changed
+
+
+@beartype
+def get_note_files_deleted_since_last_fetch(repo: git.Repo) -> List[str]:
+    """Gets a list of abspaths to modified/new/deleted note files since last fetch."""
+    deleted_files = []
+    extant_files: List[str] = os.listdir(repo.working_dir)
+    extant_files = [os.path.join(repo.working_dir, file) for file in extant_files]
+    logger.debug(f"extant_files: {extant_files}")
+    for file in get_note_files_changed_since_last_fetch(repo):
+        logger.debug(f"changed file: {file}")
+        if file not in extant_files:
+            deleted_files.append(file)
+    return deleted_files
+
+
 
 
 @beartype
