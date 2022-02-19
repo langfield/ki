@@ -167,6 +167,9 @@ def pull() -> None:
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
     """
+    # Suppress `bs4` warnings.
+    warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
+
     # Lock DB and get hash.
     collection = open_repository()
     con = lock(collection)
@@ -174,7 +177,7 @@ def pull() -> None:
 
     # Quit if hash matches last pull.
     if md5sum in get_latest_collection_hash():
-        logger.info("Up to date.")
+        logger.info("Already up to date.")
         unlock(con)
         return
 
@@ -227,9 +230,7 @@ def pull() -> None:
         check=False,
         capture_output=True,
     )
-    logger.info(f"\n{p.stdout.decode()}")
-    logger.info(f"\n{p.stderr.decode()}")
-    click.secho(f"\n{p.stdout.decode()}", blink=True)
+    click.secho(f"\n{p.stdout.decode()}", bold=True)
     click.secho(f"\n{p.stderr.decode()}", bold=True)
     assert p.returncode == 0
 
@@ -246,9 +247,7 @@ def pull() -> None:
         check=False,
         capture_output=True,
     )
-    logger.info(f"\n{p.stdout.decode()}")
-    logger.info(f"\n{p.stderr.decode()}")
-    click.secho(f"\n{p.stdout.decode()}", blink=True)
+    click.secho(f"\n{p.stdout.decode()}", bold=True)
     click.secho(f"\n{p.stderr.decode()}", bold=True)
     assert p.returncode == 0
 
@@ -273,6 +272,19 @@ def push() -> None:
     collection = open_repository()
     con = lock(collection)
     md5sum = md5(collection)
+
+    # Backup and check about aborting.
+    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
+    assert not os.path.isfile(backupsdir)
+    if not os.path.isdir(backupsdir):
+        os.mkdir(backupsdir)
+    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
+    if os.path.isfile(backup_path):
+        logger.info(f"Not pushing: backup already exists.")
+        return
+    assert not os.path.isfile(backup_path)
+    shutil.copyfile(collection, backup_path)
+    assert os.path.isfile(backup_path)
 
     # Quit if hash doesn't match last pull.
     if md5sum not in get_latest_collection_hash():

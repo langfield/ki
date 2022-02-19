@@ -285,13 +285,21 @@ def test_no_op_pull_push_cycle_is_idempotent():
         assert os.path.isdir(REPODIR)
 
         os.chdir(REPODIR)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(f"Out: {out}")
+        assert "Merge made by the" not in out
         push(runner)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(f"Out: {out}")
+        assert "Merge made by the" not in out
         push(runner)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(f"Out: {out}")
+        assert "Merge made by the" not in out
         push(runner)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(f"Out: {out}")
+        assert "Merge made by the" not in out
         push(runner)
 
 
