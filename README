@@ -43,6 +43,11 @@ TODO
 - Test that the 'Initial commit' created on nontrivial PUSH ops is squashed
   into the merge commit or at least given a better name (renaming is probably
   the better option, because merges may not always succeed).
+- Write a 'Getting started' section with an example repository on github that
+  users can clone and pull into their collections with ki (requires submodule
+  support, which is not yet implemented).
+- Test that cloning deck repos from github and adding as submodules works as
+  expected.
 
 Notes
 -----
