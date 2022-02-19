@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>ki API documentation</title>
+<meta name="description" content="Python package `ki` is a command-line interface for the version control and
+editing of ``.anki2`` collections as git repositories of markdown files.
+…" />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+<style>.homelink{display:block;font-size:2em;font-weight:bold;color:#555;padding-bottom:.5em;border-bottom:1px solid silver}.homelink:hover{color:inherit}.homelink img{max-width:20%;max-height:5em;margin:auto;margin-bottom:.3em}</style>
+<link rel="canonical" href="ki/">
+<link rel="icon" href="u1F367-shavedice.svg">
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Package <code>ki</code></h1>
+</header>
+<section id="section-intro">
+<p>Python package <code><a title="ki" href="#ki">ki</a></code> is a command-line interface for the version control and
+editing of <code>.anki2</code> collections as git repositories of markdown files.
+Rather than providing an interactive UI like the Anki desktop client, <code><a title="ki" href="#ki">ki</a></code> aims
+to allow natural editing <em>in the filesystem</em>.</p>
+<p>In general, the purpose of <code><a title="ki" href="#ki">ki</a></code> is to allow users to work on large, complex
+Anki decks in exactly the same way they work on large, complex software
+projects.</p>
+<p><code><a title="ki" href="#ki">ki</a></code> provides command-line functions to:</p>
+<ol>
+<li><strong>clone</strong> a <code>.anki2</code> collection into a directory as a git repository,</li>
+<li><strong>pull</strong> changes from the Anki desktop client (and AnkiWeb) into an existing
+repository,</li>
+<li><strong>push</strong> changes (safely!) back to Anki.</li>
+</ol>
+<blockquote>
+<p><strong>INTERNAL.</strong> Perhaps we should support making each deck a separate git
+submodule, so that users can have collaborative decks and work on them within
+their own collections.</p>
+</blockquote>
+<h1 id="installation">Installation</h1>
+<p><code><a title="ki" href="#ki">ki</a></code> is tested on Python 3.9 and Anki 2.1.49.</p>
+<ol>
+<li>Install the <code><a title="ki" href="#ki">ki</a></code> package from PyPI:</li>
+</ol>
+<pre><code class="language-bash">pip install anki-ki
+</code></pre>
+<h1 id="usage">Usage</h1>
+<h2 id="cloning-an-anki-collection-into-a-new-ki-repository">Cloning an Anki collection into a new <code><a title="ki" href="#ki">ki</a></code> repository</h2>
+<p>The <code><a title="ki" href="#ki">ki</a> clone</code> command takes one required argument (the path to a <code>.anki2</code>
+file) and one optional argument (a path to a target directory). The usage is
+meant to mirror that of <code>git clone</code>.</p>
+<p>An example of the <code>clone</code> subcommand usage and its output is given below.</p>
+<pre><code class="language-bash">$ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
+</code></pre>
+<pre><code class="language-bash">Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
+Cloning into '/home/lyra/decks/' ...
+100%|█████████████████████████| 28886/28886 [00:10&lt;00:00, 2883.78it/s]
+</code></pre>
+<h2 id="pulling-changes-from-an-anki-collection-into-an-existing-ki-repository">Pulling changes from an Anki collection into an existing <code><a title="ki" href="#ki">ki</a></code> repository</h2>
+<p>Once an Anki collection has been cloned, we can <code>pull</code> changes made by the Anki
+desktop client into our repository.</p>
+<p>An example of the <code>pull</code> subcommand usage and its output is given below.</p>
+<pre><code class="language-bash">$ ki pull
+</code></pre>
+<pre><code class="language-bash">Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to '/home/lyra/.ki/hashes'
+Cloning .anki2 database into ephemeral repository at '/tmp/ki/remote/'
+Running 'git remote add origin /tmp/ki/remote/ad7ea6d4.git'
+Running 'git pull'
+</code></pre>
+<p><code><a title="ki" href="#ki">ki</a></code> first deletes any residual ephemeral repositories in <code>/tmp/ki/remote/</code>.
+These would only remain here if a previous pull command failed.</p>
+<p>It then verifies that the path to the <code>.anki2</code> file specified in the <code>.ki/</code>
+directory (analogous to the <code>.git/</code> directory) still exists.</p>
+<p>It computes and records the hash of the collection file. In this way, <code><a title="ki" href="#ki">ki</a></code>
+keeps track of whether the collection database has changed since the last
+<code>clone</code>/<code>pull</code>.</p>
+<p>Finally, the collection is then cloned into an ephemeral repository in a temp
+directory, which is then <code>git pull</code>-ed into the current repository.</p>
+<p>At this point, if the git operation fails, the user can take over and manage
+the merge themselves.</p>
+<h2 id="pushing-changes-in-a-ki-repository-to-an-anki-collection">Pushing changes in a <code><a title="ki" href="#ki">ki</a></code> repository to an Anki collection</h2>
+<p>When we want to push our changes back to the Anki desktop client, we can use
+<code><a title="ki" href="#ki">ki</a> push</code> to do that.</p>
+<p>An example of the <code>push</code> subcommand usage and its output is given below.</p>
+<pre><code class="language-bash">$ ki push
+</code></pre>
+<pre><code class="language-bash">Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Verified md5sum matches latest hash in '/home/lyra/.ki/hashes'
+Checked out latest commit at '/tmp/ki/local/'
+Generating local .anki2 file from latest commit
+Backing up original .anki2 file
+Overwriting collection
+</code></pre>
+<p>We store 5 backups of the collection prior to a push.</p>
+<blockquote>
+<p><strong>INTERNAL</strong>. It is not necessary to have a persistent "remote" copy of the
+repo to pull from. The remote can be ephemeral. It only exists when we <code><a title="ki" href="#ki">ki</a> pull</code>,
+and then <code><a title="ki" href="#ki">ki</a></code> deletes it. This is safe because we're checking the
+<code>md5sum</code> of <code>collection.anki2</code>. Notably, it is not created when we <code><a title="ki" href="#ki">ki</a> clone</code>
+or <code><a title="ki" href="#ki">ki</a> push</code>.</p>
+</blockquote>
+<h1 id="editing-notes">Editing notes</h1>
+<p>An example of a generated markdown note is given below:</p>
+<pre><code class="language-markdown"># Note
+nid: 1636122987400
+model: Basic
+deck: Decks::Mathematics::Differentiable Manifolds
+tags:
+markdown: false
+
+## Front
+What sort of object is `\(C_0(X)\)`?
+
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
+</code></pre>
+<h1 id="how-it-works">How it works</h1>
+<p><code><a title="ki" href="#ki">ki</a></code> is built on top of existing tooling implemented in the python package
+<a href="https://github.com/lervag/apy"><code>apy</code></a>, which is used to parse the Anki
+collection SQLite file and convert its contents to human-readable markdown
+files.</p>
+<p>These files (one per Anki note) are then dumped to a configurable location in
+the filesystem as a git repository, whose structure mirrors that of the decks
+in the collection. In effect, <code><a title="ki" href="#ki">ki</a></code> treats the git repo it generates as a local
+copy of the collection, and the <code>.anki2</code> collection file as a remote.</p>
+<p>All operations like pulling updates to the collection into <code><a title="ki" href="#ki">ki</a></code> and pushing
+updates from <code><a title="ki" href="#ki">ki</a></code> into Anki are handled by git under the hood.</p>
+<p>This appproach has several advantages:</p>
+<ol>
+<li>Merge conflicts can be handled in the usual, familiar way.</li>
+<li>Additional remotes (e.g. a human-readable backup of a collection on github)
+can be added easily.</li>
+<li>Users are free to pick the editor of their choice, perform batch editing
+with command line tools like <code>awk</code> or <code>sed</code>, and even add CI actions.</li>
+</ol>
+<h1 id="model">Model</h1>
+<p>The following diagram shows the dataflow of a typical Anki/<code><a title="ki" href="#ki">ki</a></code> stack.</p>
+<pre><code>                 +-------------+          +--------------+
+                 |             |          |              |
+                 |   AnkiWeb  -------------  AnkiMobile  |
+                 |             |   sync   |              |
+                 +------|------+          +--------------+
+                        |
+                        | sync
+                        |
+                 +------|------+
+                 |             |
+                 |    Anki     |
+                 |             |
+                 +------|------+
+                        |
+                        | deck edits
+                        |
+               +--------|--------+               +------------------+
+               |                 |    ki clone   |                  |
+               |                 ----------------&gt;                  |
+               | Collection file |               |     ~/decks/     |
+               |    (.anki2)     |    ki push    | (git repository) |
+               |                 &lt;----------------                  |
+               |                 |               |                  |
+               +--------|--------+               +---------^--------+
+                        |                                  |
+                        | ki pull                          |
+                        |                                  |
+                        |                                  |
+             +----------v----------+                       |
+             |                     |                       |
+             | /tmp/ki/remote/AAA  |           ki pull     |
+             |  (git repository)   -------------------------
+             |    [ephemeral]      |
+             |                     |
+             +---------------------+
+</code></pre>
+<p>The node labeled Anki is the Anki desktop client on the localhost. It
+communicates with the AnkiWeb servers via Anki's sync feature. Other clients
+(e.g. AnkiDroid and AnkiMobile) are able to (1) pull changes made by the
+desktop client into their local collections via AnkiWeb, and (2) push changes
+made locally back to AnkiWeb.</p>
+<p>When the Anki desktop client is started on the localhost, it opens and places a
+lock on the <code>.anki2</code> SQLite file. During the session, changes are possibly made
+to the deck, and the SQLite file is unlocked when the program is closed.</p>
+<p>Since <code><a title="ki" href="#ki">ki</a></code> must read from this database file, that means that <code><a title="ki" href="#ki">ki</a></code> commands
+will not work while Anki is running. This is <strong>by design</strong>: the database is
+locked for a reason, and enforcing this constraint lowers the likelihood that
+users' decks become corrupted.</p>
+<p>An ephemeral repository is used as an auxiliary step during the <code><a title="ki" href="#ki">ki</a> pull</code>
+operation so that we can merge the Anki desktop client's changes into our
+repository via git.</p>
+<h1 id="generating-html">Generating html</h1>
+<p>By default, <code><a title="ki" href="#ki">ki</a></code> parses the html of each field and dumps the content only,
+insofar as that is possible. It also supports parsing arbitrary html elements
+autogenerated by addons and regenerated the updated content. In the following
+subsection, we walk through an example.</p>
+<h2 id="example-generating-syntax-highlighted-code-blocks">Example: generating syntax-highlighted code blocks</h2>
+<p>The anki addon developer Glutanimate has an addon called <code>syntax-highlighting</code>,
+which adds UI elements to the Anki note editor that automatically generates a
+syntax highlighted version of a code block from the clipboard. In effect, it
+generates a formatted HTML table for the code listing that gets dumped into the
+source of relevant note field.</p>
+<p>A fork of this addon for the latest version of Anki (2.1.49 at the time of
+writing), is available here:
+<a href="https://ankiweb.net/shared/info/1972239816">https://ankiweb.net/shared/info/1972239816</a></p>
+<p>And the source tree for the original addon is on github:
+<a href="https://github.com/glutanimate/syntax-highlighting">https://github.com/glutanimate/syntax-highlighting</a></p>
+<p>For example, consider the following python code block:</p>
+<pre><code class="language-python">n = 1
+n &gt;&gt; 1
+print(n)
+</code></pre>
+<p>Given the above code, the addon generates the following HTML:</p>
+<pre><code class="language-html">&lt;table class=&quot;highlighttable&quot;&gt;
+    &lt;tbody&gt;
+        &lt;tr&gt;
+            &lt;td class=&quot;linenos&quot;&gt;
+                &lt;div class=&quot;linenodiv&quot;&gt;
+                    &lt;pre&gt;
+                        &lt;span class=&quot;normal&quot;&gt;1&lt;/span&gt;
+                        &lt;span class=&quot;normal&quot;&gt;2&lt;/span&gt;
+                        &lt;span class=&quot;normal&quot;&gt;3&lt;/span&gt;
+                    &lt;/pre&gt;
+                &lt;/div&gt;
+            &lt;/td&gt;
+            &lt;td class=&quot;code&quot;&gt;
+                &lt;div class=&quot;highlight&quot;&gt;
+                    &lt;pre&gt;
+                        &lt;code&gt;
+                            &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;
+                            &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;
+                            &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+                            &lt;br&gt;
+                                &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;
+                                &lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt;
+                                &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;
+                                &lt;br&gt;
+                                    &lt;span class=&quot;nb&quot;&gt;print&lt;/span&gt;
+                                    &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+                                    &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;
+                                    &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+                                    &lt;br&gt;
+                                    &lt;/code&gt;
+                                &lt;/pre&gt;
+                &lt;/div&gt;
+            &lt;/td&gt;
+        &lt;/tr&gt;
+    &lt;/tbody&gt;
+&lt;/table&gt;
+</code></pre>
+<p>Editing fields like this could become annoying very quickly. It would be better
+if <code><a title="ki" href="#ki">ki</a></code> just gave us the markdown version above (only 3 lines), and then
+regenerated the note field HTML when converting the repository back into a
+<code>.anki2</code> deck.</p>
+<h3 id="adding-ki-html-attributes">Adding <code><a title="ki" href="#ki">ki</a></code> HTML attributes</h3>
+<p>And in fact, this is possible. We first fork the addon so we can add some extra
+data to our generated HTML. In particular, we'd like to add an attribute
+<code>ki-src</code> whose value is the UTF-8 encoded source code. In general, this will be
+the encoded version of the source of whatever you'd like to autoformat.</p>
+<p>We also add a <code>ki-formatter</code> attribute, whose value is an identifier that
+specifies a custom python module (we must implement this) that transforms the
+(possibly edited) <code>ki-src</code> text back into a HTML element of the form seen
+above.</p>
+<p>So let's call our <code>ki-formatter</code> identifier <code>syntax-hl-python</code>. Then our addon
+has to change the opening tag of the snippet above to look like:</p>
+<pre><code class="language-html">&lt;table class=&quot;highlighttable&quot;; ki-src=&quot;n = 1\nn &gt;&gt; 1\nprint(n)\n&quot;; ki-formatter=&quot;syntax-hl-python&quot;&gt;
+</code></pre>
+<p>All <code><a title="ki" href="#ki">ki</a></code> needs is the original text of the code block prior to html formatting,
+and a function that can reapply the formatting to the modified text. Since the
+html table was generated by an addon, we already have a python function for
+this, and in general you can provide a <code>~/.config/ki/ki.json</code> file that maps
+implementation IDs to paths of python modules. The module must have a top-level
+function defined of the form <code>format(text: str) -&gt; bs4.Tag</code>. If you have an
+addon implementation, you can import it here and use it in your <code>format()</code>
+implementation. you can add a <code><a title="ki" href="#ki">ki</a></code> attribute whose value is the base64 encoding
+of the code block, and a <code>implementation</code> attribute whose value is the name of
+a function. At import-time, <code><a title="ki" href="#ki">ki</a></code> will decode this and write the human-readable
+source to the relevant markdown file instead.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">#!/usr/bin/env python3
+&#34;&#34;&#34;
+Python package `ki` is a command-line interface for the version control and
+editing of ``.anki2`` collections as git repositories of markdown files.
+Rather than providing an interactive UI like the Anki desktop client, `ki` aims
+to allow natural editing *in the filesystem*.
+
+In general, the purpose of `ki` is to allow users to work on large, complex
+Anki decks in exactly the same way they work on large, complex software
+projects.
+.. include:: ./DOCUMENTATION.md
+&#34;&#34;&#34;
+
+# pylint:disable=unnecessary-pass, too-many-lines
+
+__author__ = &#34;&#34;
+__email__ = &#34;&#34;
+__license__ = &#34;AGPLv3&#34;
+__url__ = &#34;&#34;
+__version__ = &#34;0.0.1a&#34;
+
+import os
+import re
+import shutil
+import logging
+import tarfile
+import hashlib
+import sqlite3
+import tempfile
+import warnings
+import subprocess
+import configparser
+
+import git
+import anki
+import click
+import gitdb
+from bs4 import MarkupResemblesLocatorWarning
+from tqdm import tqdm
+from loguru import logger
+
+from apy.anki import Anki, Note
+from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
+
+from beartype import beartype
+from beartype.typing import List, Dict, Any, Iterator, Sequence
+
+from ki.note import KiNote
+
+
+logging.basicConfig(level=logging.INFO)
+
+
+TQDM_NUM_COLS = 70
+CHANGE_TYPES = &#34;A D R M T&#34;.split()
+REMOTE_NAME = &#34;anki&#34;
+HINT = (
+    &#34;hint: Updates were rejected because the tip of your current branch is behind\n&#34;
+    + &#34;hint: the Anki remote collection. Integrate the remote changes (e.g.\n&#34;
+    + &#34;hint: &#39;ki pull ...&#39;) before pushing again.&#34;
+)
+
+
+# pylint: disable=invalid-name
+@click.group()
+@click.version_option()
+@beartype
+def ki() -&gt; None:
+    &#34;&#34;&#34;
+    The universal CLI entry point for `ki`.
+
+    Takes no arguments, only has three subcommands (clone, pull, push).
+    &#34;&#34;&#34;
+    return
+
+
+@ki.command()
+@click.argument(&#34;collection&#34;)
+@click.argument(&#34;directory&#34;, required=False, default=&#34;&#34;)
+def clone(collection: str, directory: str = &#34;&#34;) -&gt; None:
+    &#34;&#34;&#34;
+    Clone an Anki collection into a directory.
+
+    Parameters
+    ----------
+    collection : str
+        The path to a `.anki2` collection file.
+    directory : str, default=&#34;&#34;
+        An optional path to a directory to clone the collection into.
+        Note: we check that this directory does not yet exist.
+    &#34;&#34;&#34;
+    warnings.filterwarnings(action=&#34;ignore&#34;, category=MarkupResemblesLocatorWarning)
+    sha = _clone(collection, directory)
+
+    # Stuff below this line should not happen in a `pull()`.
+    if directory == &#34;&#34;:
+        directory = get_default_clone_directory(collection)
+
+    # Update FETCH_HEAD commit SHA file.
+    fetch_head_path = os.path.join(directory, &#34;.ki/&#34;, &#34;fetch_head&#34;)
+    with open(fetch_head_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as fetch_head_file:
+        fetch_head_file.write(f&#34;{sha}&#34;)
+
+
+@beartype
+def _clone(collection: str, directory: str = &#34;&#34;) -&gt; str:
+    &#34;&#34;&#34;Clone an Anki collection into a directory.&#34;&#34;&#34;
+    collection = os.path.abspath(collection)
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+    click.secho(f&#34;Found .anki2 file at &#39;{collection}&#39;&#34;, bold=True)
+
+    # Create default target directory.
+    if directory == &#34;&#34;:
+        directory = get_default_clone_directory(collection)
+    os.mkdir(directory)
+
+    # Create .ki subdirectory.
+    kidir = os.path.join(directory, &#34;.ki/&#34;)
+    os.mkdir(kidir)
+
+    # Create config file.
+    config_path = os.path.join(kidir, &#34;config&#34;)
+    config = configparser.ConfigParser()
+    config[&#34;remote&#34;] = {&#34;path&#34;: collection}
+    with open(config_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as config_file:
+        config.write(config_file)
+
+    # Create hashes file.
+    md5sum = md5(collection)
+    click.secho(f&#34;Computed md5sum: {md5sum}&#34;, bold=True)
+    basename = os.path.basename(collection)
+    hashes_path = os.path.join(kidir, &#34;hashes&#34;)
+    with open(hashes_path, &#34;a&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
+        hashes_file.write(f&#34;{md5sum}  {basename}&#34;)
+    click.secho(f&#34;Wrote md5sum to &#39;{hashes_path}&#39;&#34;, bold=True)
+    click.secho(f&#34;Cloning into &#39;{directory}&#39;&#34;, bold=True)
+
+    # Add `.ki/` to gitignore.
+    ignore_path = os.path.join(directory, &#34;.gitignore&#34;)
+    with open(ignore_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as ignore_file:
+        ignore_file.write(&#34;.ki/\n&#34;)
+
+    # Open deck with `apy`, and dump notes and markdown files.
+    query = &#34;&#34;
+    with Anki(path=collection) as a:
+        for i in tqdm(list(a.col.find_notes(query)), ncols=TQDM_NUM_COLS):
+            note = KiNote(a, a.col.getNote(i))
+            note_path = os.path.join(directory, f&#34;note{note.n.id}.md&#34;)
+            with open(note_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as note_file:
+                note_file.write(str(note))
+
+    # Initialize git repo and commit contents.
+    repo = git.Repo.init(directory)
+    repo.git.add(all=True)
+    commit = repo.index.commit(&#34;Initial commit&#34;)
+
+    # Return SHA of initial commit.
+    return str(commit)
+
+
+@ki.command()
+@beartype
+def pull() -&gt; None:
+    &#34;&#34;&#34;
+    Pull from a preconfigured remote Anki collection into an existing ki
+    repository.
+    &#34;&#34;&#34;
+    # Suppress `bs4` warnings.
+    warnings.filterwarnings(action=&#34;ignore&#34;, category=MarkupResemblesLocatorWarning)
+
+    # Lock DB and get hash.
+    collection = open_repository()
+    con = lock(collection)
+    md5sum = md5(collection)
+
+    # Quit if hash matches last pull.
+    if md5sum in get_latest_collection_hash():
+        click.secho(&#34;ki pull: up to date.&#34;, bold=True)
+        unlock(con)
+
+        return
+
+    # CLONE BLOCK
+    # Git clone local repository at SHA of last FETCH in `/tmp/.../ki/local/&lt;md5sum&gt;`.
+    root = os.path.join(tempfile.mkdtemp(), &#34;ki/&#34;, &#34;local/&#34;)
+    os.makedirs(root)
+    cwd = os.getcwd()
+    fetch_head_dir = os.path.join(root, md5sum)
+    repo = git.Repo(cwd)
+    git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+
+    # Do a reset --hard to the SHA of last FETCH.
+    fetch_head_sha = get_fetch_head_sha(repo)
+    fetch_head_repo = git.Repo(fetch_head_dir)
+    fetch_head_repo.index.reset(fetch_head_sha, hard=True)
+
+    # Ki clone into ephemeral repository and unlock DB.
+    root = os.path.join(tempfile.mkdtemp(), &#34;ki/&#34;, &#34;remote/&#34;)
+    os.makedirs(root)
+    anki_remote_dir = os.path.join(root, md5sum)
+    _clone(collection, anki_remote_dir)
+    unlock(con)
+
+    # Create remote pointing to anki repository and pull into ``fetch_head_repo``.
+    os.chdir(fetch_head_dir)
+    anki_remote_path = os.path.join(anki_remote_dir, &#34;.git&#34;)
+    anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
+
+    # Actually pull.
+    fetch_head_repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
+    p = subprocess.run(
+        [
+            &#34;git&#34;,
+            &#34;pull&#34;,
+            &#34;-v&#34;,
+            &#34;--allow-unrelated-histories&#34;,
+            &#34;--strategy-option&#34;,
+            &#34;theirs&#34;,
+            REMOTE_NAME,
+            &#34;main&#34;,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    click.secho(f&#34;\n{p.stdout.decode()}&#34;, bold=True)
+    click.secho(f&#34;\n{p.stderr.decode()}&#34;, bold=True)
+    assert p.returncode == 0
+
+    # Delete the remote we added.
+    fetch_head_repo.delete_remote(anki_remote)
+
+    # Create remote pointing to ``fetch_head`` repository and pull into ``repo``.
+    os.chdir(cwd)
+    fetch_head_remote_path = os.path.join(fetch_head_dir, &#34;.git&#34;)
+    fetch_head_remote = repo.create_remote(REMOTE_NAME, fetch_head_remote_path)
+    repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
+    p = subprocess.run(
+        [&#34;git&#34;, &#34;pull&#34;, &#34;-v&#34;, REMOTE_NAME, &#34;main&#34;],
+        check=False,
+        capture_output=True,
+    )
+    click.secho(f&#34;\n{p.stdout.decode()}&#34;, bold=True)
+    click.secho(f&#34;\n{p.stderr.decode()}&#34;, bold=True)
+    assert p.returncode == 0
+
+    # Delete the remote we added.
+    repo.delete_remote(fetch_head_remote)
+
+    # Append to hashes file.
+    basename = os.path.basename(collection)
+    kidir = os.path.join(os.getcwd(), &#34;.ki/&#34;)
+    hashes_path = os.path.join(kidir, &#34;hashes&#34;)
+    with open(hashes_path, &#34;a&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
+        hashes_file.write(f&#34;{md5sum}  {basename}&#34;)
+
+
+@ki.command()
+@beartype
+def push() -&gt; None:
+    &#34;&#34;&#34;
+    Pack a ki repository into a .anki2 file and push to collection location.
+    &#34;&#34;&#34;
+    # Lock DB, get path to collection, and compute hash.
+    collection = open_repository()
+    con = lock(collection)
+    md5sum = md5(collection)
+
+    # Quit if hash doesn&#39;t match last pull.
+    if md5sum not in get_latest_collection_hash():
+        click.echo(f&#34;Failed to push some refs to &#39;{collection}&#39;\n{HINT}&#34;)
+        unlock(con)
+        return
+
+    # CLONE BLOCK
+    # Git clone repository at latest commit in `/tmp/.../ki/local/&lt;md5sum&gt;`.
+    root = os.path.join(tempfile.mkdtemp(), &#34;ki/&#34;, &#34;local/&#34;)
+    os.makedirs(root)
+    cwd = os.getcwd()
+    ephem = os.path.join(root, md5sum)
+    repo = git.Repo(cwd)
+    git.Repo.clone_from(cwd, ephem, branch=repo.active_branch)
+    kidir = os.path.join(cwd, &#34;.ki/&#34;)
+    ephem_kidir = os.path.join(ephem, &#34;.ki/&#34;)
+    shutil.copytree(kidir, ephem_kidir)
+
+    # Get path to new collection.
+    new_collection = os.path.join(root, os.path.basename(collection))
+    assert not os.path.isfile(new_collection)
+    assert not os.path.isdir(new_collection)
+
+    # Get all changed notes in checked-out ephemeral repository.
+    ephem_repo = git.Repo(ephem)
+    notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
+
+    if len(set(notepaths)) == 0:
+        click.secho(&#34;ki push: up to date.&#34;, bold=True)
+
+        # Update FETCH_HEAD commit SHA file.
+        repo = git.Repo(os.getcwd())
+        sha = str(repo.head.commit)
+        fetch_head_path = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;fetch_head&#34;)
+        with open(fetch_head_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as fetch_head_file:
+            fetch_head_file.write(f&#34;{sha}&#34;)
+        return
+
+    click.secho(&#34;ki push: nontrivial push.&#34;, bold=True)
+
+    # Copy collection to new collection and modify in-place.
+    shutil.copyfile(collection, new_collection)
+    with Anki(path=new_collection) as a:
+
+        # CLONE BLOCK
+        # Git clone local repo at SHA of last FETCH in `/tmp/.../ki/deleted/&lt;md5sum&gt;`.
+        root = os.path.join(tempfile.mkdtemp(), &#34;ki/&#34;, &#34;deleted/&#34;)
+        os.makedirs(root)
+        cwd = os.getcwd()
+        fetch_head_dir = os.path.join(root, md5sum)
+        git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+
+        # Do a reset --hard to the SHA of last FETCH.
+        fetch_head_sha = get_fetch_head_sha(ephem_repo)
+        fetch_head_repo = git.Repo(fetch_head_dir)
+        fetch_head_repo.git.checkout(fetch_head_sha)
+
+        for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
+
+            # Checkout commit of last fetch (where deleted files are guaranteed
+            # to exist), then parse the nids and delete with `apy`.
+            if not os.path.isfile(notepath):
+                deleted_filename = os.path.basename(notepath)
+                deleted_path = os.path.join(fetch_head_dir, deleted_filename)
+
+                assert os.path.isfile(deleted_path)
+                nids = get_nids(deleted_path)
+                a.delete_notes(nids)
+                continue
+
+            # Loop over nids and update/add notes.
+            for notemap in parse_markdown_notes(notepath):
+                nid = notemap[&#34;nid&#34;]
+                try:
+                    note: Note = Note(a, a.col.get_note(nid))
+                    update_apy_note(note, notemap)
+                except anki.errors.NotFoundError:
+                    note: Note = add_note_from_notemap(a, notemap)
+                    logger.warning(f&#34;Couldn&#39;t find note with nid: &#39;{nid}&#39;&#34;)
+                    logger.warning(f&#34;Assigned new nid: &#39;{note.n.id}&#39;&#34;)
+
+    assert os.path.isfile(new_collection)
+
+    # Backup collection file, overwrite collection, and unlock DB.
+    backup(collection)
+    shutil.copyfile(new_collection, collection)
+    unlock(con)
+
+    # Append to hashes file.
+    new_md5sum = md5(new_collection)
+    basename = os.path.basename(collection)
+    kidir = os.path.join(os.getcwd(), &#34;.ki/&#34;)
+    hashes_path = os.path.join(kidir, &#34;hashes&#34;)
+    with open(hashes_path, &#34;a&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
+        hashes_file.write(f&#34;{new_md5sum}  {basename}&#34;)
+
+    # Update FETCH_HEAD commit SHA file.
+    repo = git.Repo(os.getcwd())
+    sha = str(repo.head.commit)
+    fetch_head_path = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;fetch_head&#34;)
+    with open(fetch_head_path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as fetch_head_file:
+        fetch_head_file.write(f&#34;{sha}&#34;)
+
+
+# UTILS
+
+
+@beartype
+def parse_markdown_notes(path: str) -&gt; List[Dict[str, Any]]:
+    &#34;&#34;&#34;Parse nids from markdown file of notes.&#34;&#34;&#34;
+    # Support multiple notes-per-file.
+    notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
+    casted_notemaps = []
+    for notemap in notemaps:
+        try:
+            nid = int(notemap[&#34;nid&#34;])
+            notemap[&#34;nid&#34;] = nid
+            casted_notemaps.append(notemap)
+        except KeyError as err:
+            logger.error(&#34;Failed to parse nid.&#34;)
+            logger.error(f&#34;notemap: {notemap}&#34;)
+            logger.error(f&#34;path: {path}&#34;)
+            raise err
+    return casted_notemaps
+
+
+@beartype
+def get_nids(path: str) -&gt; List[int]:
+    &#34;&#34;&#34;Get just nids from a markdown note.&#34;&#34;&#34;
+    notemaps = parse_markdown_notes(path)
+    return [notemap[&#34;nid&#34;] for notemap in notemaps]
+
+
+@beartype
+def get_default_clone_directory(collection_path: str) -&gt; str:
+    &#34;&#34;&#34; &#34;
+    Get the default clone directory path.
+
+    This should just be the name of the collection (which is usually a file
+    called `collection.anki2`) so this will usually be `./collection/`.
+
+    Parameters
+    ----------
+    collection_path : str
+        The path to a `.anki2` collection file.
+
+    Returns
+    -------
+    str
+        The path to clone into.
+    &#34;&#34;&#34;
+    basename = os.path.basename(collection_path)
+    sections = os.path.splitext(basename)
+    assert len(sections) == 2
+    return os.path.abspath(sections[0])
+
+
+@beartype
+def md5(path: str) -&gt; str:
+    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
+    hash_md5 = hashlib.md5()
+    with open(path, &#34;rb&#34;) as f:
+        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+
+@beartype
+def is_anki_note(path: str) -&gt; bool:
+    &#34;&#34;&#34;Check if file is an `apy`-style markdown anki note.&#34;&#34;&#34;
+    # Ought to have markdown file extension.
+    if path[-3:] != &#34;.md&#34;:
+        return False
+    with open(path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as md_file:
+        lines = md_file.readlines()
+    if len(lines) &lt; 2:
+        return False
+    if lines[0] != &#34;# Note\n&#34;:
+        return False
+    if not re.match(r&#34;^nid: [0-9]+$&#34;, lines[1]):
+        return False
+    return True
+
+
+@beartype
+def update_apy_note(note: Note, notemap: Dict[str, Any]) -&gt; None:
+    &#34;&#34;&#34;Update an `apy` Note in a collection.&#34;&#34;&#34;
+    new_tags = notemap[&#34;tags&#34;].split()
+    if new_tags != note.n.tags:
+        note.n.tags = new_tags
+
+    new_deck = notemap.get(&#34;deck&#34;, None)
+    if new_deck is not None and new_deck != note.get_deck():
+        note.set_deck(new_deck)
+
+    for i, value in enumerate(notemap[&#34;fields&#34;].values()):
+        if notemap[&#34;markdown&#34;]:
+            note.n.fields[i] = markdown_to_html(value)
+        else:
+            note.n.fields[i] = plain_to_html(value)
+
+    note.n.flush()
+    note.a.modified = True
+    fields_health_check = note.n.fields_check()
+
+    if fields_health_check == 1:
+        logger.warning(f&#34;Found empty note:\n {note}&#34;)
+        return
+    if fields_health_check == 2:
+        # logger.warning(f&#34;Found duplicate note:\n {note}&#34;)
+        return
+
+    if fields_health_check:
+        logger.warning(f&#34;Found duplicate or empty note:\n {note}&#34;)
+        logger.debug(f&#34;Fields health check: {fields_health_check}&#34;)
+        logger.debug(f&#34;Fields health check (type): {type(fields_health_check)}&#34;)
+
+
+@beartype
+def open_repository() -&gt; str:
+    &#34;&#34;&#34;Get collection path from `.ki/` directory.&#34;&#34;&#34;
+    # Check that config file exists.
+    config_path = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;config&#34;)
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError
+
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    collection = config[&#34;remote&#34;][&#34;path&#34;]
+
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+
+    return collection
+
+
+@beartype
+def get_latest_collection_hash() -&gt; str:
+    &#34;&#34;&#34;Get the last collection hash stored in `.ki/hashes`.&#34;&#34;&#34;
+    kidir = os.path.join(os.getcwd(), &#34;.ki/&#34;)
+    hashes_path = os.path.join(kidir, &#34;hashes&#34;)
+    with open(hashes_path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
+        return hashes_file.readlines()[-1]
+
+
+@beartype
+def backup(collection: str) -&gt; None:
+    &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
+    md5sum = md5(collection)
+    backupsdir = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;backups&#34;)
+    assert not os.path.isfile(backupsdir)
+    if not os.path.isdir(backupsdir):
+        os.mkdir(backupsdir)
+    backup_path = os.path.join(backupsdir, f&#34;{md5sum}.anki2&#34;)
+    if os.path.isfile(backup_path):
+        click.secho(&#34;Backup already exists.&#34;, bold=True)
+        return
+    assert not os.path.isfile(backup_path)
+    shutil.copyfile(collection, backup_path)
+    assert os.path.isfile(backup_path)
+
+
+@beartype
+def lock(collection: str) -&gt; sqlite3.Connection:
+    &#34;&#34;&#34;Acquire a lock on a SQLite3 database given a path.&#34;&#34;&#34;
+    con = sqlite3.connect(collection)
+    con.isolation_level = &#34;EXCLUSIVE&#34;
+    con.execute(&#34;BEGIN EXCLUSIVE&#34;)
+    return con
+
+
+@beartype
+def unlock(con: sqlite3.Connection) -&gt; None:
+    &#34;&#34;&#34;Unlock a SQLite3 database.&#34;&#34;&#34;
+    con.commit()
+    con.close()
+
+
+@beartype
+def get_fetch_head_sha(repo: git.Repo) -&gt; str:
+    &#34;&#34;&#34;Get FETCH_HEAD SHA.&#34;&#34;&#34;
+    fetch_head_path = os.path.join(repo.working_dir, &#34;.ki/&#34;, &#34;fetch_head&#34;)
+    with open(fetch_head_path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as fetch_head_file:
+        sha = fetch_head_file.read()
+    return sha
+
+
+@beartype
+def get_note_files_changed_since_last_fetch(repo: git.Repo) -&gt; Sequence[str]:
+    &#34;&#34;&#34;Gets a list of paths to modified/new/deleted note md files since last fetch.&#34;&#34;&#34;
+    paths: Iterator[str]
+    fetch_head_sha = get_fetch_head_sha(repo)
+
+    # Treat case where there is no last fetch.
+    if fetch_head_sha == &#34;&#34;:
+        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
+        paths = map(lambda entry: entry.path, dir_entries)
+
+    else:
+        # Use a `DiffIndex` to get the changed files.
+        files = []
+        hcommit = repo.head.commit
+        diff_index = hcommit.diff(fetch_head_sha)
+        for change_type in CHANGE_TYPES:
+            for diff in diff_index.iter_change_type(change_type):
+                files.append(diff.a_path)
+                files.append(diff.b_path)
+        paths = [os.path.join(repo.working_dir, file) for file in files]
+
+    changed = []
+    for path in paths:
+        if os.path.isfile(path) and not is_anki_note(path):
+            continue
+        changed.append(path)
+
+    return changed
+
+
+@beartype
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -&gt; Note:
+    &#34;&#34;&#34;Add a note given its `apy` parsed notemap.&#34;&#34;&#34;
+    model_name = notemap[&#34;model&#34;]
+
+    # Set current notetype for collection to `model_name`.
+    model = apyanki.set_model(model_name)
+
+    model_field_names = [field[&#34;name&#34;] for field in model[&#34;flds&#34;]]
+
+    field_names = notemap[&#34;fields&#34;].keys()
+    field_values = notemap[&#34;fields&#34;].values()
+
+    if len(field_names) != len(model_field_names):
+        click.echo(f&#34;Error: Not enough fields for model {model_name}!&#34;)
+        apyanki.modified = False
+        raise click.Abort()
+
+    for x, y in zip(model_field_names, field_names):
+        if x != y:
+            click.echo(&#34;Warning: Inconsistent field names &#34; f&#34;({x} != {y})&#34;)
+
+    # pylint: disable=protected-access
+    note = apyanki._add_note(
+        field_values,
+        f&#34;{notemap[&#39;tags&#39;]}&#34;,
+        notemap[&#34;markdown&#34;],
+        notemap.get(&#34;deck&#34;),
+    )
+
+    return note</code></pre>
+</details>
+</section>
+<section>
+<h2 class="section-title" id="header-submodules">Sub-modules</h2>
+<dl>
+<dt><code class="name"><a title="ki.note" href="note.html">ki.note</a></code></dt>
+<dd>
+<div class="desc"><p>A module containing a class for Anki notes.</p></div>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="ki.add_note_from_notemap"><code class="name flex">
+<span>def <span class="ident">add_note_from_notemap</span></span>(<span>apyanki: apy.anki.Anki, notemap: dict) ‑> apy.note.Note</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Add a note given its <code>apy</code> parsed notemap.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -&gt; Note:
+    &#34;&#34;&#34;Add a note given its `apy` parsed notemap.&#34;&#34;&#34;
+    model_name = notemap[&#34;model&#34;]
+
+    # Set current notetype for collection to `model_name`.
+    model = apyanki.set_model(model_name)
+
+    model_field_names = [field[&#34;name&#34;] for field in model[&#34;flds&#34;]]
+
+    field_names = notemap[&#34;fields&#34;].keys()
+    field_values = notemap[&#34;fields&#34;].values()
+
+    if len(field_names) != len(model_field_names):
+        click.echo(f&#34;Error: Not enough fields for model {model_name}!&#34;)
+        apyanki.modified = False
+        raise click.Abort()
+
+    for x, y in zip(model_field_names, field_names):
+        if x != y:
+            click.echo(&#34;Warning: Inconsistent field names &#34; f&#34;({x} != {y})&#34;)
+
+    # pylint: disable=protected-access
+    note = apyanki._add_note(
+        field_values,
+        f&#34;{notemap[&#39;tags&#39;]}&#34;,
+        notemap[&#34;markdown&#34;],
+        notemap.get(&#34;deck&#34;),
+    )
+
+    return note</code></pre>
+</details>
+</dd>
+<dt id="ki.backup"><code class="name flex">
+<span>def <span class="ident">backup</span></span>(<span>collection: str) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Backup collection to <code>.ki/backups</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def backup(collection: str) -&gt; None:
+    &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
+    md5sum = md5(collection)
+    backupsdir = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;backups&#34;)
+    assert not os.path.isfile(backupsdir)
+    if not os.path.isdir(backupsdir):
+        os.mkdir(backupsdir)
+    backup_path = os.path.join(backupsdir, f&#34;{md5sum}.anki2&#34;)
+    if os.path.isfile(backup_path):
+        click.secho(&#34;Backup already exists.&#34;, bold=True)
+        return
+    assert not os.path.isfile(backup_path)
+    shutil.copyfile(collection, backup_path)
+    assert os.path.isfile(backup_path)</code></pre>
+</details>
+</dd>
+<dt id="ki.get_default_clone_directory"><code class="name flex">
+<span>def <span class="ident">get_default_clone_directory</span></span>(<span>collection_path: str) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>"
+Get the default clone directory path.</p>
+<p>This should just be the name of the collection (which is usually a file
+called <code>collection.anki2</code>) so this will usually be <code>./collection/</code>.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>collection_path</code></strong> :&ensp;<code>str</code></dt>
+<dd>The path to a <code>.anki2</code> collection file.</dd>
+</dl>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>str</code></dt>
+<dd>The path to clone into.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_default_clone_directory(collection_path: str) -&gt; str:
+    &#34;&#34;&#34; &#34;
+    Get the default clone directory path.
+
+    This should just be the name of the collection (which is usually a file
+    called `collection.anki2`) so this will usually be `./collection/`.
+
+    Parameters
+    ----------
+    collection_path : str
+        The path to a `.anki2` collection file.
+
+    Returns
+    -------
+    str
+        The path to clone into.
+    &#34;&#34;&#34;
+    basename = os.path.basename(collection_path)
+    sections = os.path.splitext(basename)
+    assert len(sections) == 2
+    return os.path.abspath(sections[0])</code></pre>
+</details>
+</dd>
+<dt id="ki.get_fetch_head_sha"><code class="name flex">
+<span>def <span class="ident">get_fetch_head_sha</span></span>(<span>repo: git.repo.base.Repo) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get FETCH_HEAD SHA.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_fetch_head_sha(repo: git.Repo) -&gt; str:
+    &#34;&#34;&#34;Get FETCH_HEAD SHA.&#34;&#34;&#34;
+    fetch_head_path = os.path.join(repo.working_dir, &#34;.ki/&#34;, &#34;fetch_head&#34;)
+    with open(fetch_head_path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as fetch_head_file:
+        sha = fetch_head_file.read()
+    return sha</code></pre>
+</details>
+</dd>
+<dt id="ki.get_latest_collection_hash"><code class="name flex">
+<span>def <span class="ident">get_latest_collection_hash</span></span>(<span>) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get the last collection hash stored in <code>.ki/hashes</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_latest_collection_hash() -&gt; str:
+    &#34;&#34;&#34;Get the last collection hash stored in `.ki/hashes`.&#34;&#34;&#34;
+    kidir = os.path.join(os.getcwd(), &#34;.ki/&#34;)
+    hashes_path = os.path.join(kidir, &#34;hashes&#34;)
+    with open(hashes_path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
+        return hashes_file.readlines()[-1]</code></pre>
+</details>
+</dd>
+<dt id="ki.get_nids"><code class="name flex">
+<span>def <span class="ident">get_nids</span></span>(<span>path: str) ‑> list</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get just nids from a markdown note.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_nids(path: str) -&gt; List[int]:
+    &#34;&#34;&#34;Get just nids from a markdown note.&#34;&#34;&#34;
+    notemaps = parse_markdown_notes(path)
+    return [notemap[&#34;nid&#34;] for notemap in notemaps]</code></pre>
+</details>
+</dd>
+<dt id="ki.get_note_files_changed_since_last_fetch"><code class="name flex">
+<span>def <span class="ident">get_note_files_changed_since_last_fetch</span></span>(<span>repo: git.repo.base.Repo) ‑> collections.abc.Sequence</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Gets a list of paths to modified/new/deleted note md files since last fetch.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_note_files_changed_since_last_fetch(repo: git.Repo) -&gt; Sequence[str]:
+    &#34;&#34;&#34;Gets a list of paths to modified/new/deleted note md files since last fetch.&#34;&#34;&#34;
+    paths: Iterator[str]
+    fetch_head_sha = get_fetch_head_sha(repo)
+
+    # Treat case where there is no last fetch.
+    if fetch_head_sha == &#34;&#34;:
+        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
+        paths = map(lambda entry: entry.path, dir_entries)
+
+    else:
+        # Use a `DiffIndex` to get the changed files.
+        files = []
+        hcommit = repo.head.commit
+        diff_index = hcommit.diff(fetch_head_sha)
+        for change_type in CHANGE_TYPES:
+            for diff in diff_index.iter_change_type(change_type):
+                files.append(diff.a_path)
+                files.append(diff.b_path)
+        paths = [os.path.join(repo.working_dir, file) for file in files]
+
+    changed = []
+    for path in paths:
+        if os.path.isfile(path) and not is_anki_note(path):
+            continue
+        changed.append(path)
+
+    return changed</code></pre>
+</details>
+</dd>
+<dt id="ki.is_anki_note"><code class="name flex">
+<span>def <span class="ident">is_anki_note</span></span>(<span>path: str) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Check if file is an <code>apy</code>-style markdown anki note.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def is_anki_note(path: str) -&gt; bool:
+    &#34;&#34;&#34;Check if file is an `apy`-style markdown anki note.&#34;&#34;&#34;
+    # Ought to have markdown file extension.
+    if path[-3:] != &#34;.md&#34;:
+        return False
+    with open(path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as md_file:
+        lines = md_file.readlines()
+    if len(lines) &lt; 2:
+        return False
+    if lines[0] != &#34;# Note\n&#34;:
+        return False
+    if not re.match(r&#34;^nid: [0-9]+$&#34;, lines[1]):
+        return False
+    return True</code></pre>
+</details>
+</dd>
+<dt id="ki.lock"><code class="name flex">
+<span>def <span class="ident">lock</span></span>(<span>collection: str) ‑> sqlite3.Connection</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Acquire a lock on a SQLite3 database given a path.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def lock(collection: str) -&gt; sqlite3.Connection:
+    &#34;&#34;&#34;Acquire a lock on a SQLite3 database given a path.&#34;&#34;&#34;
+    con = sqlite3.connect(collection)
+    con.isolation_level = &#34;EXCLUSIVE&#34;
+    con.execute(&#34;BEGIN EXCLUSIVE&#34;)
+    return con</code></pre>
+</details>
+</dd>
+<dt id="ki.md5"><code class="name flex">
+<span>def <span class="ident">md5</span></span>(<span>path: str) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Compute md5sum of file at <code>path</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def md5(path: str) -&gt; str:
+    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
+    hash_md5 = hashlib.md5()
+    with open(path, &#34;rb&#34;) as f:
+        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()</code></pre>
+</details>
+</dd>
+<dt id="ki.open_repository"><code class="name flex">
+<span>def <span class="ident">open_repository</span></span>(<span>) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get collection path from <code>.ki/</code> directory.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def open_repository() -&gt; str:
+    &#34;&#34;&#34;Get collection path from `.ki/` directory.&#34;&#34;&#34;
+    # Check that config file exists.
+    config_path = os.path.join(os.getcwd(), &#34;.ki/&#34;, &#34;config&#34;)
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError
+
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    collection = config[&#34;remote&#34;][&#34;path&#34;]
+
+    if not os.path.isfile(collection):
+        raise FileNotFoundError
+
+    return collection</code></pre>
+</details>
+</dd>
+<dt id="ki.parse_markdown_notes"><code class="name flex">
+<span>def <span class="ident">parse_markdown_notes</span></span>(<span>path: str) ‑> list</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Parse nids from markdown file of notes.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def parse_markdown_notes(path: str) -&gt; List[Dict[str, Any]]:
+    &#34;&#34;&#34;Parse nids from markdown file of notes.&#34;&#34;&#34;
+    # Support multiple notes-per-file.
+    notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
+    casted_notemaps = []
+    for notemap in notemaps:
+        try:
+            nid = int(notemap[&#34;nid&#34;])
+            notemap[&#34;nid&#34;] = nid
+            casted_notemaps.append(notemap)
+        except KeyError as err:
+            logger.error(&#34;Failed to parse nid.&#34;)
+            logger.error(f&#34;notemap: {notemap}&#34;)
+            logger.error(f&#34;path: {path}&#34;)
+            raise err
+    return casted_notemaps</code></pre>
+</details>
+</dd>
+<dt id="ki.unlock"><code class="name flex">
+<span>def <span class="ident">unlock</span></span>(<span>con: sqlite3.Connection) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Unlock a SQLite3 database.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def unlock(con: sqlite3.Connection) -&gt; None:
+    &#34;&#34;&#34;Unlock a SQLite3 database.&#34;&#34;&#34;
+    con.commit()
+    con.close()</code></pre>
+</details>
+</dd>
+<dt id="ki.update_apy_note"><code class="name flex">
+<span>def <span class="ident">update_apy_note</span></span>(<span>note: apy.note.Note, notemap: dict) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Update an <code>apy</code> Note in a collection.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def update_apy_note(note: Note, notemap: Dict[str, Any]) -&gt; None:
+    &#34;&#34;&#34;Update an `apy` Note in a collection.&#34;&#34;&#34;
+    new_tags = notemap[&#34;tags&#34;].split()
+    if new_tags != note.n.tags:
+        note.n.tags = new_tags
+
+    new_deck = notemap.get(&#34;deck&#34;, None)
+    if new_deck is not None and new_deck != note.get_deck():
+        note.set_deck(new_deck)
+
+    for i, value in enumerate(notemap[&#34;fields&#34;].values()):
+        if notemap[&#34;markdown&#34;]:
+            note.n.fields[i] = markdown_to_html(value)
+        else:
+            note.n.fields[i] = plain_to_html(value)
+
+    note.n.flush()
+    note.a.modified = True
+    fields_health_check = note.n.fields_check()
+
+    if fields_health_check == 1:
+        logger.warning(f&#34;Found empty note:\n {note}&#34;)
+        return
+    if fields_health_check == 2:
+        # logger.warning(f&#34;Found duplicate note:\n {note}&#34;)
+        return
+
+    if fields_health_check:
+        logger.warning(f&#34;Found duplicate or empty note:\n {note}&#34;)
+        logger.debug(f&#34;Fields health check: {fields_health_check}&#34;)
+        logger.debug(f&#34;Fields health check (type): {type(fields_health_check)}&#34;)</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+</article>
+<nav id="sidebar">
+<header>
+<a class="homelink" rel="home" title="ki Home" href="index.html">
+<img src="u1F367-shavedice.svg" alt=""> ki
+</a>
+</header>
+<h1>Index</h1>
+<div class="toc">
+<ul>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#usage">Usage</a><ul>
+<li><a href="#cloning-an-anki-collection-into-a-new-ki-repository">Cloning an Anki collection into a new ki repository</a></li>
+<li><a href="#pulling-changes-from-an-anki-collection-into-an-existing-ki-repository">Pulling changes from an Anki collection into an existing ki repository</a></li>
+<li><a href="#pushing-changes-in-a-ki-repository-to-an-anki-collection">Pushing changes in a ki repository to an Anki collection</a></li>
+</ul>
+</li>
+<li><a href="#editing-notes">Editing notes</a></li>
+<li><a href="#how-it-works">How it works</a></li>
+<li><a href="#model">Model</a></li>
+<li><a href="#generating-html">Generating html</a><ul>
+<li><a href="#example-generating-syntax-highlighted-code-blocks">Example: generating syntax-highlighted code blocks</a><ul>
+<li><a href="#adding-ki-html-attributes">Adding ki HTML attributes</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<ul id="index">
+<li><h3><a href="#header-submodules">Sub-modules</a></h3>
+<ul>
+<li><code><a title="ki.note" href="note.html">ki.note</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="ki.add_note_from_notemap" href="#ki.add_note_from_notemap">add_note_from_notemap</a></code></li>
+<li><code><a title="ki.backup" href="#ki.backup">backup</a></code></li>
+<li><code><a title="ki.get_default_clone_directory" href="#ki.get_default_clone_directory">get_default_clone_directory</a></code></li>
+<li><code><a title="ki.get_fetch_head_sha" href="#ki.get_fetch_head_sha">get_fetch_head_sha</a></code></li>
+<li><code><a title="ki.get_latest_collection_hash" href="#ki.get_latest_collection_hash">get_latest_collection_hash</a></code></li>
+<li><code><a title="ki.get_nids" href="#ki.get_nids">get_nids</a></code></li>
+<li><code><a title="ki.get_note_files_changed_since_last_fetch" href="#ki.get_note_files_changed_since_last_fetch">get_note_files_changed_since_last_fetch</a></code></li>
+<li><code><a title="ki.is_anki_note" href="#ki.is_anki_note">is_anki_note</a></code></li>
+<li><code><a title="ki.lock" href="#ki.lock">lock</a></code></li>
+<li><code><a title="ki.md5" href="#ki.md5">md5</a></code></li>
+<li><code><a title="ki.open_repository" href="#ki.open_repository">open_repository</a></code></li>
+<li><code><a title="ki.parse_markdown_notes" href="#ki.parse_markdown_notes">parse_markdown_notes</a></code></li>
+<li><code><a title="ki.unlock" href="#ki.unlock">unlock</a></code></li>
+<li><code><a title="ki.update_apy_note" href="#ki.update_apy_note">update_apy_note</a></code></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>
