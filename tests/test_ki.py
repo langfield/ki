@@ -407,9 +407,9 @@ def test_clone_commits_directory_contents():
         changes = repo.head.commit.diff()
         assert len(changes) == 0
 
-        # Make sure there are exactly 2 commits.
+        # Make sure there is exactly 1 commit.
         commits = list(repo.iter_commits("HEAD"))
-        assert len(commits) == 2
+        assert len(commits) == 1
 
 
 def test_clone_leaves_collection_file_unchanged():

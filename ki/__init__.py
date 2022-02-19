@@ -92,20 +92,13 @@ def clone(collection: str, directory: str = "") -> None:
     sha = _clone(collection, directory)
 
     # Stuff below this line should not happen in a `pull()`.
-
-    # Create initial commit SHA file.
     if directory == "":
         directory = get_default_clone_directory(collection)
-    kidir = os.path.join(directory, ".ki/")
-    initial_path = os.path.join(kidir, "initial")
-    with open(initial_path, "a", encoding="UTF-8") as initial_file:
-        initial_file.write(f"{sha}")
 
-    # Commit `.ki/` directory with initial commit SHA file.
-    repo = git.Repo.init(directory)
-    repo.git.add([".ki/"])
-    repo.index.commit("Initial SHA")
-
+    # Update FETCH_HEAD commit SHA file.
+    fetch_head_path = os.path.join(directory, ".ki/", "fetch_head")
+    with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
+        fetch_head_file.write(f"{sha}")
 
 
 @beartype
@@ -137,11 +130,10 @@ def _clone(collection: str, directory: str = "") -> str:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5(collection)}  {basename}")
 
-    # Add `.ki/hashes` and `.ki/backups` to gitignore.
+    # Add `.ki/` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")
     with open(ignore_path, "w", encoding="UTF-8") as ignore_file:
-        ignore_file.write(".ki/hashes\n")
-        ignore_file.write(".ki/backups\n")
+        ignore_file.write(".ki/\n")
 
     # Open deck with `apy`, and dump notes and markdown files.
     query = ""
@@ -180,6 +172,7 @@ def pull() -> None:
     if md5sum in get_latest_collection_hash():
         logger.info("ki pull: up to date.")
         unlock(con)
+
         return
 
     # CLONE BLOCK
@@ -207,12 +200,6 @@ def pull() -> None:
     os.chdir(fetch_head_dir)
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
-
-    # TODO: .ki/initial is deleted here, fix.
-
-    # Commit the deletion of .ki/initial because it doesn't matter.
-    fetch_head_repo.git.add(all=True)
-    fetch_head_repo.index.commit("Deleted '.ki/initial'")
 
     # Actually pull.
     fetch_head_repo.git.config("pull.rebase", "false")
@@ -287,6 +274,9 @@ def push() -> None:
     ephem = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
     git.Repo.clone_from(cwd, ephem, branch=repo.active_branch)
+    kidir = os.path.join(cwd, ".ki/")
+    ephem_kidir = os.path.join(ephem, ".ki/")
+    shutil.copytree(kidir, ephem_kidir)
 
     # Get path to new collection.
     new_collection = os.path.join(root, os.path.basename(collection))
@@ -302,6 +292,13 @@ def push() -> None:
         logger.debug("No changed files.")
         logger.info("ki push: up to date.")
         click.secho("ki push: up to date.", bold=True)
+
+        # Update FETCH_HEAD commit SHA file.
+        repo = git.Repo(os.getcwd())
+        sha = str(repo.head.commit)
+        fetch_head_path = os.path.join(os.getcwd(), ".ki/", "fetch_head")
+        with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
+            fetch_head_file.write(f"{sha}")
         return
 
     logger.debug("NONTRIVIAL PUSH")
@@ -362,6 +359,12 @@ def push() -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{new_md5sum}  {basename}")
 
+    # Update FETCH_HEAD commit SHA file.
+    repo = git.Repo(os.getcwd())
+    sha = str(repo.head.commit)
+    fetch_head_path = os.path.join(os.getcwd(), ".ki/", "fetch_head")
+    with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
+        fetch_head_file.write(f"{sha}")
 
 
 # UTILS
@@ -543,18 +546,11 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
     """
     Get FETCH_HEAD SHA.
     """
-    try:
-        sha = repo.rev_parse("FETCH_HEAD").binsha.hex()
-        logger.debug(f"FETCH_HEAD reference found for repo: {repo}")
-        return sha
-    except gitdb.exc.BadName as err:
-        logger.debug(f"\n{err}")
-        logger.debug(f"FETCH_HEAD reference not found for repo: {repo}")
-        logger.debug("Getting SHA for initial commit.")
-        initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
-        with open(initial_path, "r", encoding="UTF-8") as initial_file:
-            sha = initial_file.read()
-        return sha
+    logger.debug("Getting SHA for ki FETCH_HEAD commit.")
+    fetch_head_path = os.path.join(repo.working_dir, ".ki/", "fetch_head")
+    with open(fetch_head_path, "r", encoding="UTF-8") as fetch_head_file:
+        sha = fetch_head_file.read()
+    return sha
 
 
 @beartype
