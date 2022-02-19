@@ -588,6 +588,11 @@ def test_push_generates_correct_backup():
         with open(note, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
+        # Commit.
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
         os.chdir(REPODIR)
         push(runner)
         assert os.path.isdir(".ki/backups")
@@ -601,6 +606,28 @@ def test_push_generates_correct_backup():
                 backup = True
 
         assert backup
+
+
+def test_push_doesnt_write_uncommitted_changes():
+    """Does push only write changes that have been committed?"""
+    collection_path = get_collection_path()
+    old_hash = ki.md5(collection_path)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Make change in repo.
+        note = os.path.join(REPODIR, NOTE_0)
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        # DON'T COMMIT, push.
+        os.chdir(REPODIR)
+        out = push(runner)
+        assert "ki push: up to date." in out
+        assert not os.path.isdir(".ki/backups")
 
 
 def test_push_doesnt_fail_after_pull():

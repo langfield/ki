@@ -107,6 +107,7 @@ def clone(collection: str, directory: str = "") -> None:
     repo.index.commit("Initial SHA")
 
 
+
 @beartype
 def _clone(collection: str, directory: str = "") -> str:
     """Clone an Anki collection into a directory."""
@@ -177,7 +178,7 @@ def pull() -> None:
 
     # Quit if hash matches last pull.
     if md5sum in get_latest_collection_hash():
-        logger.info("Already up to date.")
+        logger.info("ki pull: up to date.")
         unlock(con)
         return
 
@@ -207,8 +208,7 @@ def pull() -> None:
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
-    # .ki/initial is deleted here, why?
-    diff = fetch_head_repo.git.diff(repo.head.commit.tree)
+    # TODO: .ki/initial is deleted here, fix.
 
     # Commit the deletion of .ki/initial because it doesn't matter.
     fetch_head_repo.git.add(all=True)
@@ -273,19 +273,6 @@ def push() -> None:
     con = lock(collection)
     md5sum = md5(collection)
 
-    # Backup and check about aborting.
-    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
-    assert not os.path.isfile(backupsdir)
-    if not os.path.isdir(backupsdir):
-        os.mkdir(backupsdir)
-    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
-    if os.path.isfile(backup_path):
-        logger.info(f"Not pushing: backup already exists.")
-        return
-    assert not os.path.isfile(backup_path)
-    shutil.copyfile(collection, backup_path)
-    assert os.path.isfile(backup_path)
-
     # Quit if hash doesn't match last pull.
     if md5sum not in get_latest_collection_hash():
         click.echo(f"Failed to push some refs to '{collection}'\n{HINT}")
@@ -309,6 +296,15 @@ def push() -> None:
     # Get all changed notes in checked-out ephemeral repository.
     ephem_repo = git.Repo(ephem)
     notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
+
+    logger.debug(f"Changed files: {notepaths}")
+    if len(set(notepaths)) == 0:
+        logger.debug("No changed files.")
+        logger.info("ki push: up to date.")
+        click.secho("ki push: up to date.", bold=True)
+        return
+
+    logger.debug("NONTRIVIAL PUSH")
 
     # Copy collection to new collection and modify in-place.
     shutil.copyfile(collection, new_collection)
@@ -353,9 +349,19 @@ def push() -> None:
 
     assert os.path.isfile(new_collection)
 
+    # Backup collection file, overwrite collection, and unlock DB.
     backup(collection)
     shutil.copyfile(new_collection, collection)
     unlock(con)
+
+    # Append to hashes file.
+    new_md5sum = md5(new_collection)
+    basename = os.path.basename(collection)
+    kidir = os.path.join(os.getcwd(), ".ki/")
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
+        hashes_file.write(f"{new_md5sum}  {basename}")
+
 
 
 # UTILS
@@ -509,7 +515,7 @@ def backup(collection: str) -> None:
         os.mkdir(backupsdir)
     backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
     if os.path.isfile(backup_path):
-        logger.info(f"Up to date: backup already exists.")
+        logger.info("Backup already exists.")
         return
     assert not os.path.isfile(backup_path)
     shutil.copyfile(collection, backup_path)
@@ -538,8 +544,13 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
     Get FETCH_HEAD SHA.
     """
     try:
-        return repo.rev_parse("FETCH_HEAD").binsha.hex()
-    except gitdb.exc.BadName:
+        sha = repo.rev_parse("FETCH_HEAD").binsha.hex()
+        logger.debug(f"FETCH_HEAD reference found for repo: {repo}")
+        return sha
+    except gitdb.exc.BadName as err:
+        logger.debug(f"\n{err}")
+        logger.debug(f"FETCH_HEAD reference not found for repo: {repo}")
+        logger.debug("Getting SHA for initial commit.")
         initial_path = os.path.join(repo.working_dir, ".ki/", "initial")
         with open(initial_path, "r", encoding="UTF-8") as initial_file:
             sha = initial_file.read()
@@ -551,6 +562,7 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
     """Gets a list of paths to modified/new/deleted note md files since last fetch."""
     paths: Iterator[str]
     fetch_head_sha = get_fetch_head_sha(repo)
+    logger.debug(f"Getting files changed since: {fetch_head_sha}")
 
     # Treat case where there is no last fetch.
     if fetch_head_sha == "":

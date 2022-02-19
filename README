@@ -29,6 +29,13 @@ TODO
 - Test hashes and backups gets committed or ignored.
 - Test that parser handles leading '#' characters (currently doesn't).
 - Test warnings are captured.
+- Test that the existence of a backup file with an up-to-date checksum doesn't
+  prevent us from pushing.
+- Remove commit call that deletes .ki/initial
+- Test that the sequence PULL -> EDIT -> PUSH -> PULL yields a no-op on the
+  last PULL.
+- Test ``get_fetch_head_sha``.
+- Test that .ki/ is in gitignore, and doesn't get committed.
 
 Notes
 -----
