@@ -51,6 +51,7 @@ from ki.note import KiNote
 logging.basicConfig(level=logging.INFO)
 
 
+TQDM_NUM_COLS = 70
 CHANGE_TYPES = "A D R M T".split()
 REMOTE_NAME = "anki"
 HINT = (
@@ -138,7 +139,7 @@ def _clone(collection: str, directory: str = "") -> str:
     # Open deck with `apy`, and dump notes and markdown files.
     query = ""
     with Anki(path=collection) as a:
-        for i in a.col.find_notes(query):
+        for i in tqdm(list(a.col.find_notes(query)), ncols=TQDM_NUM_COLS):
             note = KiNote(a, a.col.getNote(i))
             note_path = os.path.join(directory, f"note{note.n.id}.md")
             with open(note_path, "w", encoding="UTF-8") as note_file:
@@ -317,7 +318,7 @@ def push() -> None:
         fetch_head_repo = git.Repo(fetch_head_dir)
         fetch_head_repo.git.checkout(fetch_head_sha)
 
-        for notepath in tqdm(notepaths):
+        for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
             # Checkout commit of last fetch (where deleted files are guaranteed
             # to exist), then parse the nids and delete with `apy`.

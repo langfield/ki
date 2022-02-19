@@ -1,15 +1,3 @@
----
-
-> **INTERNAL.** The structure of this documentation is as follows:
-
-> 1. The first paragraph is an elevator pitch. Say exactly what it does for
-the user.
-2. The second bit is a list of functions, so users can look and see if it
-supports what they need.
-3. The third bit is two or three short sentences about how it works.
-4. Then the actual sections-proper of the documentation start.
-
----
 
 `ki` provides command-line functions to:
 
@@ -38,8 +26,6 @@ The `ki clone` command takes one required argument (the path to a `.anki2`
 file) and one optional argument (a path to a target directory). The usage is
 meant to mirror that of `git clone`.
 
-> **INTERNAL.** Add `--help` output here.
-
 An example of the `clone` subcommand usage and its output is given below.
 
 ```bash
@@ -56,8 +42,6 @@ Wrote md5sum to /home/lyra/decks/.ki/hashes
 
 Once an Anki collection has been cloned, we can `pull` changes made by the Anki
 desktop client into our repository.
-
-> **INTERNAL.** Add `--help` output here.
 
 An example of the `pull` subcommand usage and its output is given below.
 
@@ -94,8 +78,6 @@ the merge themselves.
 
 When we want to push our changes back to the Anki desktop client, we can use
 `ki push` to do that.
-
-> **INTERNAL.** Add `--help` output here.
 
 An example of the `push` subcommand usage and its output is given below.
 
