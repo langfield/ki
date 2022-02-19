@@ -541,9 +541,7 @@ def unlock(con: sqlite3.Connection) -> None:
 
 @beartype
 def get_fetch_head_sha(repo: git.Repo) -> str:
-    """
-    Get FETCH_HEAD SHA.
-    """
+    """Get FETCH_HEAD SHA."""
     fetch_head_path = os.path.join(repo.working_dir, ".ki/", "fetch_head")
     with open(fetch_head_path, "r", encoding="UTF-8") as fetch_head_file:
         sha = fetch_head_file.read()
@@ -579,16 +577,6 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
         changed.append(path)
 
     return changed
-
-
-@beartype
-def get_note_files_deleted_since_last_fetch(repo: git.Repo) -> List[str]:
-    """Gets a list of abspaths to modified/new/deleted note files since last fetch."""
-    deleted_files = []
-    for file in get_note_files_changed_since_last_fetch(repo):
-        if not os.path.isfile(file):
-            deleted_files.append(file)
-    return deleted_files
 
 
 @beartype

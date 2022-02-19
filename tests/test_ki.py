@@ -233,7 +233,6 @@ def test_computes_and_stores_md5sum():
         # ki.clone(collection_path)
         clone(runner, collection_path)
 
-        # TODO: Update hash literals.
         # Check that hash is written.
         with open(os.path.join(REPODIR, ".ki/hashes"), encoding="UTF-8") as hashes_file:
             hashes = hashes_file.read()
@@ -301,7 +300,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
         logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
-
 
 
 # CLONE
@@ -611,7 +609,6 @@ def test_push_generates_correct_backup():
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     collection_path = get_collection_path()
-    old_hash = ki.md5(collection_path)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
