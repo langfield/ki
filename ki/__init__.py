@@ -174,6 +174,7 @@ def pull() -> None:
         unlock(con)
         return
 
+    # CLONE BLOCK
     # Git clone local repository at SHA of last FETCH in `/tmp/.../ki/local/<md5sum>`.
     root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
     os.makedirs(root)
@@ -278,6 +279,7 @@ def push() -> None:
         unlock(con)
         return
 
+    # CLONE BLOCK
     # Git clone repository at latest commit in `/tmp/.../ki/local/<md5sum>`.
     root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
     os.makedirs(root)
@@ -293,59 +295,45 @@ def push() -> None:
 
     # Get all changed notes in checked-out ephemeral repository.
     ephem_repo = git.Repo(ephem)
-    branch = ephem_repo.active_branch
     notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
-
-    deleted = get_note_files_deleted_since_last_fetch(ephem_repo)
-    fetch_head_sha = get_fetch_head_sha(ephem_repo)
-    logger.debug(f"Contents before checkout: {os.listdir(ephem)}")
-    logger.debug(f"Log:\n{ephem_repo.git.log()}")
-    logger.debug(f"Current commit: {ephem_repo.head.object.hexsha}")
-    logger.debug(f"Checking out {fetch_head_sha}")
-    ephem_repo.git.checkout(fetch_head_sha)
-    logger.debug(f"Current commit: {ephem_repo.head.object.hexsha}")
-    logger.debug(f"Contents after checkout: {os.listdir(ephem)}")
-    os.chdir(ephem)
-    logger.debug(f"Cwd: {os.getcwd()}")
-    logger.debug(f"Deleted: {deleted}")
-    for file in deleted:
-        assert os.path.isfile(file)
-    ephem_repo.git.checkout(branch)
-    logger.debug(os.listdir())
 
     # Copy collection to new collection and modify in-place.
     shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
-        # List of note dictionaries as defined in `apy.convert`.
-        notemaps: List[Dict[str, Any]] = []
+        # CLONE BLOCK
+        # Git clone local repo at SHA of last FETCH in `/tmp/.../ki/deleted/<md5sum>`.
+        root = os.path.join(tempfile.mkdtemp(), "ki/", "deleted/")
+        os.makedirs(root)
+        cwd = os.getcwd()
+        fetch_head_dir = os.path.join(root, md5sum)
+        git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+
+        # Do a reset --hard to the SHA of last FETCH.
+        fetch_head_sha = get_fetch_head_sha(ephem_repo)
+        logger.debug(f"Fetch head SHA: {fetch_head_sha}")
+        fetch_head_repo = git.Repo(fetch_head_dir)
+        fetch_head_repo.git.checkout(fetch_head_sha)
+
         for notepath in tqdm(notepaths):
 
+            # Checkout commit of last fetch (where deleted files are guaranteed
+            # to exist), then parse the nids and delete with `apy`.
             if not os.path.isfile(notepath):
-                # TODO: Delete the note here.
-                # The robust thing to do is checkout the commit of last fetch,
-                # read nid from the file, and delete by nid.
-                assert notepath in deleted
+                logger.debug(f"Fetch head repo: {os.listdir(fetch_head_dir)}")
+                deleted_filename = os.path.basename(notepath)
+                deleted_path = os.path.join(fetch_head_dir, deleted_filename)
+                assert os.path.isfile(deleted_path)
+                nids = get_nids(deleted_path)
+                a.delete_notes(nids)
                 continue
 
-            # Support multiple notes-per-file.
-            notemaps = markdown_file_to_notes(notepath)
-            for notemap in notemaps:
-
-                # Read `nid` from notemap, raise error if not found.
-                try:
-                    nid = int(notemap["nid"])
-                except KeyError as err:
-                    logger.debug(f"notemap: {notemap}")
-                    logger.debug(f"path: {notepath}")
-                    raise err
-
-                # Look for `nid` and update existing note if found.
+            # Loop over nids and update/add notes.
+            for notemap in parse_markdown_notes(notepath):
+                nid = notemap["nid"]
                 try:
                     note: Note = Note(a, a.col.get_note(nid))
                     update_apy_note(note, notemap)
-
-                # Otherwise, add a new note.
                 except anki.errors.NotFoundError:
                     note: Note = add_note_from_notemap(a, notemap)
                     logger.info(f"Couldn't find note with nid: '{nid}'")
@@ -359,6 +347,31 @@ def push() -> None:
 
 
 # UTILS
+
+
+@beartype
+def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
+    """Parse nids from markdown file of notes."""
+    # Support multiple notes-per-file.
+    notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
+    casted_notemaps = []
+    for notemap in notemaps:
+        try:
+            nid = int(notemap["nid"])
+            notemap["nid"] = nid
+            casted_notemaps.append(notemap)
+        except KeyError as err:
+            logger.debug(f"notemap: {notemap}")
+            logger.debug(f"path: {path}")
+            raise err
+    return casted_notemaps
+
+
+@beartype
+def get_nids(path: str) -> List[int]:
+    """Get just nids from a markdown note."""
+    notemaps = parse_markdown_notes(path)
+    return [notemap["nid"] for notemap in notemaps]
 
 
 @beartype
@@ -545,7 +558,6 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
         if os.path.isfile(path) and not is_anki_note(path):
             continue
         changed.append(path)
-    logger.debug(f"Paths: {changed}")
 
     return changed
 
@@ -554,16 +566,11 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
 def get_note_files_deleted_since_last_fetch(repo: git.Repo) -> List[str]:
     """Gets a list of abspaths to modified/new/deleted note files since last fetch."""
     deleted_files = []
-    extant_files: List[str] = os.listdir(repo.working_dir)
-    extant_files = [os.path.join(repo.working_dir, file) for file in extant_files]
-    logger.debug(f"extant_files: {extant_files}")
     for file in get_note_files_changed_since_last_fetch(repo):
-        logger.debug(f"changed file: {file}")
-        if file not in extant_files:
+        logger.debug(f"File: {file}")
+        if not os.path.isfile(file):
             deleted_files.append(file)
     return deleted_files
-
-
 
 
 @beartype

@@ -580,7 +580,6 @@ def test_push_generates_correct_backup():
         assert backup
 
 
-@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     collection_path = get_collection_path()
