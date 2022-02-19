@@ -49,6 +49,7 @@ from ki.note import KiNote
 logging.basicConfig(level=logging.INFO)
 
 
+CHANGE_TYPES = "A D R M T".split()
 REMOTE_NAME = "anki"
 HINT = (
     "hint: Updates were rejected because the tip of your current branch is behind\n"
@@ -323,6 +324,8 @@ def push() -> None:
                 logger.debug(f"Fetch head repo: {os.listdir(fetch_head_dir)}")
                 deleted_filename = os.path.basename(notepath)
                 deleted_path = os.path.join(fetch_head_dir, deleted_filename)
+
+                logger.debug(f"Deleted file: {deleted_path}")
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
                 a.delete_notes(nids)
@@ -535,22 +538,26 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
 @beartype
 def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
     """Gets a list of paths to modified/new/deleted note md files since last fetch."""
+    paths: Iterator[str]
     fetch_head_sha = get_fetch_head_sha(repo)
 
-    paths: Iterator[str]
     # Treat case where there is no last fetch.
     if fetch_head_sha == "":
         dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
         paths = map(lambda entry: entry.path, dir_entries)
 
     else:
+        # Use a `DiffIndex` to get the changed files.
         files = []
-        status: str = repo.git.diff(fetch_head_sha, "HEAD", name_status=True)
-        status_lines: List[str] = status.split("\n")
-        for line in status_lines:
-            sections = line.split()
-            assert len(sections) >= 2
-            files += sections[1:]
+        hcommit = repo.head.commit
+        diff_index = hcommit.diff(fetch_head_sha)
+        for change_type in CHANGE_TYPES:
+            logger.debug(f"Change type: {change_type}")
+            for diff in diff_index.iter_change_type(change_type):
+                files.append(diff.a_path)
+                files.append(diff.b_path)
+                logger.debug(f"diff a path: {diff.a_path}")
+                logger.debug(f"diff b path: {diff.b_path}")
         paths = [os.path.join(repo.working_dir, file) for file in files]
 
     changed = []
