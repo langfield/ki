@@ -170,7 +170,7 @@ def pull() -> None:
 
     # Quit if hash matches last pull.
     if md5sum in get_latest_collection_hash():
-        logger.info("ki pull: up to date.")
+        click.secho("ki pull: up to date.", bold=True)
         unlock(con)
 
         return
@@ -287,10 +287,7 @@ def push() -> None:
     ephem_repo = git.Repo(ephem)
     notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
 
-    logger.debug(f"Changed files: {notepaths}")
     if len(set(notepaths)) == 0:
-        logger.debug("No changed files.")
-        logger.info("ki push: up to date.")
         click.secho("ki push: up to date.", bold=True)
 
         # Update FETCH_HEAD commit SHA file.
@@ -301,7 +298,7 @@ def push() -> None:
             fetch_head_file.write(f"{sha}")
         return
 
-    logger.debug("NONTRIVIAL PUSH")
+    click.secho("ki push: nontrivial push.", bold=True)
 
     # Copy collection to new collection and modify in-place.
     shutil.copyfile(collection, new_collection)
@@ -341,8 +338,8 @@ def push() -> None:
                     update_apy_note(note, notemap)
                 except anki.errors.NotFoundError:
                     note: Note = add_note_from_notemap(a, notemap)
-                    logger.info(f"Couldn't find note with nid: '{nid}'")
-                    logger.info(f"Assigned new nid: '{note.n.id}'")
+                    logger.warning(f"Couldn't find note with nid: '{nid}'")
+                    logger.warning(f"Assigned new nid: '{note.n.id}'")
 
     assert os.path.isfile(new_collection)
 
@@ -382,8 +379,9 @@ def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
             notemap["nid"] = nid
             casted_notemaps.append(notemap)
         except KeyError as err:
-            logger.debug(f"notemap: {notemap}")
-            logger.debug(f"path: {path}")
+            logger.error("Failed to parse nid.")
+            logger.error(f"notemap: {notemap}")
+            logger.error(f"path: {path}")
             raise err
     return casted_notemaps
 
@@ -518,7 +516,7 @@ def backup(collection: str) -> None:
         os.mkdir(backupsdir)
     backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
     if os.path.isfile(backup_path):
-        logger.info("Backup already exists.")
+        click.secho("Backup already exists.", bold=True)
         return
     assert not os.path.isfile(backup_path)
     shutil.copyfile(collection, backup_path)
@@ -546,7 +544,6 @@ def get_fetch_head_sha(repo: git.Repo) -> str:
     """
     Get FETCH_HEAD SHA.
     """
-    logger.debug("Getting SHA for ki FETCH_HEAD commit.")
     fetch_head_path = os.path.join(repo.working_dir, ".ki/", "fetch_head")
     with open(fetch_head_path, "r", encoding="UTF-8") as fetch_head_file:
         sha = fetch_head_file.read()
@@ -558,7 +555,6 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
     """Gets a list of paths to modified/new/deleted note md files since last fetch."""
     paths: Iterator[str]
     fetch_head_sha = get_fetch_head_sha(repo)
-    logger.debug(f"Getting files changed since: {fetch_head_sha}")
 
     # Treat case where there is no last fetch.
     if fetch_head_sha == "":
