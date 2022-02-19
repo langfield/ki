@@ -4,6 +4,7 @@ install:
 	pip install -e .
 documentation:
 	pdoc --html ki --template-dir docs/template/ --force
-	cp docs/u1F367-shavedice.svg html/ki/
+	cp html/ki/* docs/
+	rm -rf html/
 clean:
 	rm -rf html/

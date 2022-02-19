@@ -64,7 +64,7 @@ meant to mirror that of <code>git clone</code>.</p>
 <pre><code class="language-bash">Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
 Wrote md5sum to '/home/lyra/decks/.ki/hashes'
-Cloning into '/home/lyra/decks/' ...
+Cloning into '/home/lyra/decks/'...
 100%|█████████████████████████| 28886/28886 [00:10&lt;00:00, 2883.78it/s]
 </code></pre>
 <h2 id="pulling-changes-from-an-anki-collection-into-an-existing-ki-repository">Pulling changes from an Anki collection into an existing <code><a title="ki" href="#ki">ki</a></code> repository</h2>
@@ -427,7 +427,7 @@ def _clone(collection: str, directory: str = &#34;&#34;) -&gt; str:
     with open(hashes_path, &#34;a&#34;, encoding=&#34;UTF-8&#34;) as hashes_file:
         hashes_file.write(f&#34;{md5sum}  {basename}&#34;)
     click.secho(f&#34;Wrote md5sum to &#39;{hashes_path}&#39;&#34;, bold=True)
-    click.secho(f&#34;Cloning into &#39;{directory}&#39;&#34;, bold=True)
+    click.secho(f&#34;Cloning into &#39;{directory}&#39;...&#34;, bold=True)
 
     # Add `.ki/` to gitignore.
     ignore_path = os.path.join(directory, &#34;.gitignore&#34;)
