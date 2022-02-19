@@ -134,7 +134,7 @@ def _clone(collection: str, directory: str = "") -> str:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
     click.secho(f"Wrote md5sum to '{hashes_path}'", bold=True)
-    click.secho(f"Cloning into '{directory}'", bold=True)
+    click.secho(f"Cloning into '{directory}'...", bold=True)
 
     # Add `.ki/` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")

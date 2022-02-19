@@ -35,7 +35,7 @@ $ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
 Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
 Wrote md5sum to '/home/lyra/decks/.ki/hashes'
-Cloning into '/home/lyra/decks/' ...
+Cloning into '/home/lyra/decks/'...
 100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
 ```
 

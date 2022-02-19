@@ -38,6 +38,8 @@ TODO
 - Test that .ki/ is in gitignore, and doesn't get committed.
 - Test that CLONE -> EDIT -> COMMIT -> PULL -> PUSH results in a nontrivial
   PUSH.
+- Test that CLONE -> PULL NONTRIVIAL -> PUSH results in trivial PUSH.
+- Test that ephemeral clones are maximally shallow.
 
 Notes
 -----
@@ -233,3 +235,41 @@ Bugs
             err.ParseFromString(err_bytes)
     >       raise backend_exception_to_pylib(err)
     E       anki.errors.NotFoundError
+
+7.  Doesn't say 'up to date.' when pushing right after a nontrivial pull:
+
+    (anki39) user@host:~/collection$ ki pull
+    Found .anki2 file at '/home/user/.local/share/Anki2/test2/collection.anki2'
+    Computed md5sum: 3aebb4b7c59e24b8f000739c6f6cb72a
+    Wrote md5sum to '/tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a/.ki/hashes'
+    Cloning into '/tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a'...
+    100%|█████████████████████████████████| 3/3 [00:00<00:00, 1698.10it/s]
+
+    Merge made by the 'ort' strategy.
+     note1645298206334.md | 11 +++++++++++
+     1 file changed, 11 insertions(+)
+     create mode 100644 note1645298206334.md
+
+
+    From /tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+
+    Updating 986fee6..51c4d9c
+    Fast-forward
+     note1645298206334.md | 11 +++++++++++
+     1 file changed, 11 insertions(+)
+     create mode 100644 note1645298206334.md
+
+
+    From /tmp/tmp_699r57b/ki/local/3aebb4b7c59e24b8f000739c6f6cb72a/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+    (anki39) user@host:~/collection$ ls
+    note1645010162168.md  note1645222430007.md  note1645298206334.md
+    (anki39) user@host:~/collection$ ki push
+    ki push: nontrivial push.
+    100%|██████████████████████████████████| 2/2 [00:00<00:00, 621.75it/s]
+    Database was modified.
