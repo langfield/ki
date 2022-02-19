@@ -40,36 +40,14 @@ TODO
   PUSH.
 - Test that CLONE -> PULL NONTRIVIAL -> PUSH results in trivial PUSH.
 - Test that ephemeral clones are maximally shallow.
+- Test that the 'Initial commit' created on nontrivial PUSH ops is squashed
+  into the merge commit or at least given a better name (renaming is probably
+  the better option, because merges may not always succeed).
 
 Notes
 -----
 To debug gitpython commands:
     export GIT_PYTHON_TRACE=full
-
-On making push faster
----------------------
-We only want to update notes in the SQLite DB that have changed since the last
-time we fetched from the remote, i.e. from the local Anki desktop client.
-
-The only times we fetch are when we clone, or when we pull.
-
-We have already handled the case where we pulled.
-
-We must now make sure we don't include anything that was written in the initial
-clone call.
-
-Merge conflicts
----------------
-When you pull, ki clones a new ephemeral repository and commits its contents.
-Then it git pulls from this repo. If there are any changes to the remote, this
-will always cause a merge conflict. This is because the current branch and the
-ephemeral branch have completely unrelated histories.
-
-One possible solution is to clone the commit of the last successful pull, and
-then clone an ephemeral repo and pull the ephem into that last-pull-commit
-repo, forcing merge conflict resolution with --theirs. Then we can pull this
-repo into the main ki repo, and the merge conflicts should be gone because
-there is now a shared history.
 
 Bugs
 ----
@@ -273,3 +251,29 @@ Bugs
     ki push: nontrivial push.
     100%|██████████████████████████████████| 2/2 [00:00<00:00, 621.75it/s]
     Database was modified.
+
+On making push faster
+---------------------
+We only want to update notes in the SQLite DB that have changed since the last
+time we fetched from the remote, i.e. from the local Anki desktop client.
+
+The only times we fetch are when we clone, or when we pull.
+
+We have already handled the case where we pulled.
+
+We must now make sure we don't include anything that was written in the initial
+clone call.
+
+Merge conflicts
+---------------
+When you pull, ki clones a new ephemeral repository and commits its contents.
+Then it git pulls from this repo. If there are any changes to the remote, this
+will always cause a merge conflict. This is because the current branch and the
+ephemeral branch have completely unrelated histories.
+
+One possible solution is to clone the commit of the last successful pull, and
+then clone an ephemeral repo and pull the ephem into that last-pull-commit
+repo, forcing merge conflict resolution with --theirs. Then we can pull this
+repo into the main ki repo, and the merge conflicts should be gone because
+there is now a shared history.
+
