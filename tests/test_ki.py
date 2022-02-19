@@ -274,6 +274,28 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
+def test_no_op_pull_push_cycle_is_idempotent():
+    """Do pull/push not misbehave if you keep doing both?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert os.path.isdir(REPODIR)
+
+        os.chdir(REPODIR)
+        pull(runner)
+        push(runner)
+        pull(runner)
+        push(runner)
+        pull(runner)
+        push(runner)
+        pull(runner)
+        push(runner)
+
+
+
 # CLONE
 
 
@@ -609,6 +631,25 @@ def test_push_doesnt_fail_after_pull():
 
         # Push changes.
         os.chdir(REPODIR)
+        push(runner)
+
+
+def test_no_op_push_is_idempotent():
+    """Does push not misbehave if you keep pushing?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert os.path.isdir(REPODIR)
+
+        os.chdir(REPODIR)
+        push(runner)
+        push(runner)
+        push(runner)
+        push(runner)
+        push(runner)
         push(runner)
 
 

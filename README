@@ -21,9 +21,9 @@ TODO
 - Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
 - Make clone work on empty directories to match `git` behavior.
 - Test utilities.
-- Handle file deletion.
+- Handle file deletion. (DONE)
 - Try doing one file per deck, and see if this is faster.
-- Handle merge conflicts better.
+- Handle merge conflicts better. (DONE)
 - Test that uncommitted changes do not get pushed.
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent.
 - Test hashes and backups gets committed or ignored.
