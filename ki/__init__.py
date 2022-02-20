@@ -200,7 +200,6 @@ def pull() -> None:
     if md5sum in get_latest_collection_hash():
         click.secho("ki pull: up to date.", bold=True)
         unlock(con)
-
         return
 
     # CLONE BLOCK
@@ -225,14 +224,12 @@ def pull() -> None:
     _clone(collection, anki_remote_dir, msg, silent=True)
     unlock(con)
 
-    # Create remote pointing to anki repository and pull into ``fetch_head_repo``.
+    # Create remote pointing to anki repository.
     os.chdir(fetch_head_dir)
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
-    logger.debug(f"fetch_head_sha: {fetch_head_sha}")
-
-    # Actually pull.
+    # Pull anki remote ephemeral repo into ``fetch_head_repo``.
     fetch_head_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
@@ -245,12 +242,9 @@ def pull() -> None:
             REMOTE_NAME,
             "main",
         ],
-        check=False,
+        check=True,
         capture_output=True,
     )
-    click.secho(f"{p.stdout.decode()}", bold=True)
-    click.secho(f"{p.stderr.decode()}", bold=True)
-    assert p.returncode == 0
 
     # Delete the remote we added.
     fetch_head_repo.delete_remote(anki_remote)
