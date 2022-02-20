@@ -215,9 +215,7 @@ def pull() -> None:
     # Do a reset --hard to the SHA of last FETCH.
     fetch_head_sha = get_fetch_head_sha(repo)
     fetch_head_repo = git.Repo(fetch_head_dir)
-    # fetch_head_repo.index.reset(fetch_head_sha, hard=True)
     fetch_head_repo.git.reset(fetch_head_sha, hard=True)
-    # fetch_head_repo.git.reset()
 
     # Ki clone into ephemeral repository and unlock DB.
     msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
