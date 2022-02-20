@@ -16,7 +16,7 @@ TODO
 ----
 - Add implementations to test function sigs in `tests/test_ki.py`. (DONE)
 - Add CLI tests that actually call the subcommands. (DONE)
-- Add `shell-doctest` tests for CLI subcommands.
+- Add `shell-doctest` tests for CLI subcommands. (NO)
 - Add implementations of `clone`, `pull`, and `push`. (DONE)
 - Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
 - Make clone work on empty directories to match `git` behavior.
@@ -48,6 +48,33 @@ TODO
   support, which is not yet implemented).
 - Test that cloning deck repos from github and adding as submodules works as
   expected.
+- Write a finite state machine test with the following operations as rules:
+    1.  clone
+    2.  pull
+    3.  push
+    4.  edit a field
+    5.  add a note
+    6.  delete a note
+    7.  the three above operations, but using the anki API
+    8.  changed the note type of a card
+    9.  add an image
+    10. all the above operations, but with subdecks
+- Separate tests into quick and slow.
+- Try working with a Japanese language deck.
+- Test that the media folder isn't created outside the repository.
+    
+Triage
+------
+Ghostwrite hypothesis tests
+Command line output
+Test backlog
+Add support for images
+Add support for submodules
+Add support for modifying note types
+Add support for changing note types
+Add support for generating HTML
+
+
 
 Notes
 -----
