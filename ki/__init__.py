@@ -189,11 +189,48 @@ def pull() -> None:
     fetch_head_dir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
     git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+    os.chdir(fetch_head_dir)
+    logger.debug(f"Cloned branch '{repo.active_branch}' into '{fetch_head_dir}'")
+    p = subprocess.run(["git", "status"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "diff"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "log", "--all", "--decorate", "--oneline", "--graph"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
 
     # Do a reset --hard to the SHA of last FETCH.
     fetch_head_sha = get_fetch_head_sha(repo)
     fetch_head_repo = git.Repo(fetch_head_dir)
+    logger.debug(f"Loaded repo '{fetch_head_dir}'")
+    p = subprocess.run(["git", "status"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "diff"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "log", "--all", "--decorate", "--oneline", "--graph"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+
     fetch_head_repo.index.reset(fetch_head_sha, hard=True)
+
+    # NOTE: Fixes bug #8.
+    fetch_head_repo.git.reset()
+
+    os.chdir(fetch_head_dir)
+    logger.debug(f"Reset index to '{fetch_head_sha}' of repo '{fetch_head_dir}'")
+    p = subprocess.run(["git", "status"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "diff"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "log", "--all", "--decorate", "--oneline", "--graph"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
 
     # Ki clone into ephemeral repository and unlock DB.
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
@@ -208,6 +245,18 @@ def pull() -> None:
     anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
     # Actually pull.
+    logger.debug(f"Pulling Anki remote repo at '{anki_remote_dir}' into FETCH_HEAD repo at '{fetch_head_dir}'")
+
+    p = subprocess.run(["git", "status"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "diff"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+    p = subprocess.run(["git", "log", "--all", "--decorate", "--oneline", "--graph"], check=True, capture_output=True)
+    logger.debug(f"\n{p.stdout.decode()}")
+    logger.debug(f"\n{p.stderr.decode()}")
+
     fetch_head_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
@@ -223,8 +272,8 @@ def pull() -> None:
         check=False,
         capture_output=True,
     )
-    click.secho(f"\n{p.stdout.decode()}", bold=True)
-    click.secho(f"\n{p.stderr.decode()}", bold=True)
+    click.secho(f"{p.stdout.decode()}", bold=True)
+    click.secho(f"{p.stderr.decode()}", bold=True)
     assert p.returncode == 0
 
     # Delete the remote we added.
@@ -240,8 +289,8 @@ def pull() -> None:
         check=False,
         capture_output=True,
     )
-    click.secho(f"\n{p.stdout.decode()}", bold=True)
-    click.secho(f"\n{p.stderr.decode()}", bold=True)
+    click.secho(f"{p.stdout.decode()}", bold=True)
+    click.secho(f"{p.stderr.decode()}", bold=True)
     assert p.returncode == 0
 
     # Delete the remote we added.

@@ -291,6 +291,40 @@ Bugs
     100%|██████████████████████████████████| 2/2 [00:00<00:00, 621.75it/s]
     Database was modified.
 
+8.  Unknown issue on pulling nontrivial change from live collection:
+
+    (anki39) user@host:~/collection$ ki pull
+    Found .anki2 file at '/home/user/.local/share/Anki2/test2/collection.anki2'
+    Computed md5sum: 658fa0b356262c2c42077bde3a526eda
+    Wrote md5sum to '/tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda/.ki/hashes'
+    Cloning into '/tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda'...
+    100%|█████████████████████████████████| 4/4 [00:00<00:00, 2145.15it/s]
+
+
+
+    From /tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+    Your local changes to the following files would be overwritten by merge:
+      note1645010162168.md
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7f09fc045ee0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 228, in pull
+        assert p.returncode == 0
+    AssertionError
+
 On making push faster
 ---------------------
 We only want to update notes in the SQLite DB that have changed since the last
