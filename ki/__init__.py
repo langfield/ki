@@ -96,10 +96,10 @@ def clone(collection: str, directory: str = "") -> None:
     if directory == "":
         directory = get_default_clone_directory(collection)
 
-    # Update FETCH_HEAD commit SHA file.
-    fetch_head_path = os.path.join(directory, ".ki/", "fetch_head")
-    with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
-        fetch_head_file.write(f"{sha}")
+    # Update LAST_PUSH commit SHA file.
+    last_push_path = os.path.join(directory, ".ki/", "last_push")
+    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
+        last_push_file.write(f"{sha}")
 
 
 @beartype
@@ -149,7 +149,7 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> str:
 
     # Create hashes file.
     md5sum = md5(collection)
-    echo(f"Computed md5sum: {md5sum}", silent=silent)
+    echo(f"Computed md5sum: {md5sum}")
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
@@ -203,18 +203,20 @@ def pull() -> None:
         return
 
     # CLONE BLOCK
-    # Git clone local repository at SHA of last FETCH in `/tmp/.../ki/local/<md5sum>`.
+    # Git clone local repository to `/tmp/.../ki/local/<md5sum>`.
+    # Inputs: suffix, cwd, md5sum, branch
+    # Outputs: repo, cwd, last_push_dir, last_push_repo
     root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
     os.makedirs(root)
     cwd = os.getcwd()
-    fetch_head_dir = os.path.join(root, md5sum)
+    last_push_dir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
-    git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+    git.Repo.clone_from(cwd, last_push_dir, branch=repo.active_branch)
 
-    # Do a reset --hard to the SHA of last FETCH.
-    fetch_head_sha = get_fetch_head_sha(repo)
-    fetch_head_repo = git.Repo(fetch_head_dir)
-    fetch_head_repo.git.reset(fetch_head_sha, hard=True)
+    # Do a reset --hard to the SHA of last PUSH.
+    last_push_sha = get_last_push_sha(repo)
+    last_push_repo = git.Repo(last_push_dir)
+    last_push_repo.git.reset(last_push_sha, hard=True)
 
     # Ki clone into ephemeral repository and unlock DB.
     msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
@@ -225,12 +227,12 @@ def pull() -> None:
     unlock(con)
 
     # Create remote pointing to anki repository.
-    os.chdir(fetch_head_dir)
+    os.chdir(last_push_dir)
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
-    anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
+    anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
-    # Pull anki remote ephemeral repo into ``fetch_head_repo``.
-    fetch_head_repo.git.config("pull.rebase", "false")
+    # Pull anki remote ephemeral repo into ``last_push_repo``.
+    last_push_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
             "git",
@@ -247,12 +249,12 @@ def pull() -> None:
     )
 
     # Delete the remote we added.
-    fetch_head_repo.delete_remote(anki_remote)
+    last_push_repo.delete_remote(anki_remote)
 
-    # Create remote pointing to ``fetch_head`` repository and pull into ``repo``.
+    # Create remote pointing to ``last_push`` repository and pull into ``repo``.
     os.chdir(cwd)
-    fetch_head_remote_path = os.path.join(fetch_head_dir, ".git")
-    fetch_head_remote = repo.create_remote(REMOTE_NAME, fetch_head_remote_path)
+    last_push_remote_path = os.path.join(last_push_dir, ".git")
+    last_push_remote = repo.create_remote(REMOTE_NAME, last_push_remote_path)
     repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         ["git", "pull", "-v", REMOTE_NAME, "main"],
@@ -263,7 +265,7 @@ def pull() -> None:
     click.secho(f"{p.stderr.decode()}", bold=True)
 
     # Delete the remote we added.
-    repo.delete_remote(fetch_head_remote)
+    repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
     basename = os.path.basename(collection)
@@ -272,12 +274,20 @@ def pull() -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
 
+    # Check that md5sum hasn't changed.
+    assert md5(collection) == md5sum
+
 
 @ki.command()
 @beartype
 def push() -> None:
     """
     Pack a ki repository into a .anki2 file and push to collection location.
+
+    1. Clone the repository at the latest commit in a staging repo.
+    2. Get all notes that have changed since the last successful push.
+    3. Clone repository at SHA of last successful push to get nids of deleted files.
+    4. Add/edit/delete notes using `apy`.
     """
     # Lock DB, get path to collection, and compute hash.
     collection = open_repository()
@@ -296,11 +306,13 @@ def push() -> None:
     root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
     os.makedirs(root)
     cwd = os.getcwd()
-    ephem = os.path.join(root, md5sum)
+    stagingdir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
-    git.Repo.clone_from(cwd, ephem, branch=repo.active_branch)
+    git.Repo.clone_from(cwd, stagingdir, branch=repo.active_branch)
+
+    # Copy `.ki/` directory into the staging repository.
     kidir = os.path.join(cwd, ".ki/")
-    ephem_kidir = os.path.join(ephem, ".ki/")
+    ephem_kidir = os.path.join(stagingdir, ".ki/")
     shutil.copytree(kidir, ephem_kidir)
 
     # Get path to new collection.
@@ -308,19 +320,19 @@ def push() -> None:
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
-    # Get all changed notes in checked-out ephemeral repository.
-    ephem_repo = git.Repo(ephem)
-    notepaths: Iterator[str] = get_note_files_changed_since_last_fetch(ephem_repo)
+    # Get all changed notes in checked-out staging repository.
+    staging_repo = git.Repo(stagingdir)
+    notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
 
     if len(set(notepaths)) == 0:
         click.secho("ki push: up to date.", bold=True)
 
-        # Update FETCH_HEAD commit SHA file.
+        # Update LAST_PUSH commit SHA file.
         repo = git.Repo(os.getcwd())
         sha = str(repo.head.commit)
-        fetch_head_path = os.path.join(os.getcwd(), ".ki/", "fetch_head")
-        with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
-            fetch_head_file.write(f"{sha}")
+        last_push_path = os.path.join(os.getcwd(), ".ki/", "last_push")
+        with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
+            last_push_file.write(f"{sha}")
         return
 
     click.secho("ki push: nontrivial push.", bold=True)
@@ -330,25 +342,25 @@ def push() -> None:
     with Anki(path=new_collection) as a:
 
         # CLONE BLOCK
-        # Git clone local repo at SHA of last FETCH in `/tmp/.../ki/deleted/<md5sum>`.
+        # Git clone local repo to `/tmp/.../ki/deleted/<md5sum>`.
         root = os.path.join(tempfile.mkdtemp(), "ki/", "deleted/")
         os.makedirs(root)
         cwd = os.getcwd()
-        fetch_head_dir = os.path.join(root, md5sum)
-        git.Repo.clone_from(cwd, fetch_head_dir, branch=repo.active_branch)
+        last_push_dir = os.path.join(root, md5sum)
+        git.Repo.clone_from(cwd, last_push_dir, branch=repo.active_branch)
 
-        # Do a reset --hard to the SHA of last FETCH.
-        fetch_head_sha = get_fetch_head_sha(ephem_repo)
-        fetch_head_repo = git.Repo(fetch_head_dir)
-        fetch_head_repo.git.checkout(fetch_head_sha)
+        # Do a reset --hard to the SHA of last PUSH.
+        last_push_sha = get_last_push_sha(staging_repo)
+        last_push_repo = git.Repo(last_push_dir)
+        last_push_repo.git.checkout(last_push_sha)
 
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
-            # Checkout commit of last fetch (where deleted files are guaranteed
-            # to exist), then parse the nids and delete with `apy`.
+            # If the file doesn't exist, parse its `nid` from its counterpart
+            # in `last_push_dir`, and then delete using `apy`.
             if not os.path.isfile(notepath):
                 deleted_filename = os.path.basename(notepath)
-                deleted_path = os.path.join(fetch_head_dir, deleted_filename)
+                deleted_path = os.path.join(last_push_dir, deleted_filename)
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
@@ -381,12 +393,12 @@ def push() -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{new_md5sum}  {basename}")
 
-    # Update FETCH_HEAD commit SHA file.
+    # Update LAST_PUSH commit SHA file.
     repo = git.Repo(os.getcwd())
     sha = str(repo.head.commit)
-    fetch_head_path = os.path.join(os.getcwd(), ".ki/", "fetch_head")
-    with open(fetch_head_path, "w", encoding="UTF-8") as fetch_head_file:
-        fetch_head_file.write(f"{sha}")
+    last_push_path = os.path.join(os.getcwd(), ".ki/", "last_push")
+    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
+        last_push_file.write(f"{sha}")
 
 
 # UTILS
@@ -565,22 +577,22 @@ def unlock(con: sqlite3.Connection) -> None:
 
 
 @beartype
-def get_fetch_head_sha(repo: git.Repo) -> str:
-    """Get FETCH_HEAD SHA."""
-    fetch_head_path = os.path.join(repo.working_dir, ".ki/", "fetch_head")
-    with open(fetch_head_path, "r", encoding="UTF-8") as fetch_head_file:
-        sha = fetch_head_file.read()
+def get_last_push_sha(repo: git.Repo) -> str:
+    """Get LAST_PUSH SHA."""
+    last_push_path = os.path.join(repo.working_dir, ".ki/", "last_push")
+    with open(last_push_path, "r", encoding="UTF-8") as last_push_file:
+        sha = last_push_file.read()
     return sha
 
 
 @beartype
-def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
-    """Gets a list of paths to modified/new/deleted note md files since last fetch."""
+def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
+    """Gets a list of paths to modified/new/deleted note md files since last push."""
     paths: Iterator[str]
-    fetch_head_sha = get_fetch_head_sha(repo)
+    last_push_sha = get_last_push_sha(repo)
 
-    # Treat case where there is no last fetch.
-    if fetch_head_sha == "":
+    # Treat case where there is no last push.
+    if last_push_sha == "":
         dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
         paths = map(lambda entry: entry.path, dir_entries)
 
@@ -588,7 +600,7 @@ def get_note_files_changed_since_last_fetch(repo: git.Repo) -> Sequence[str]:
         # Use a `DiffIndex` to get the changed files.
         files = []
         hcommit = repo.head.commit
-        diff_index = hcommit.diff(fetch_head_sha)
+        diff_index = hcommit.diff(last_push_sha)
         for change_type in CHANGE_TYPES:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
@@ -635,3 +647,51 @@ def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
     )
 
     return note
+
+
+@beartype
+def create_ephemeral_repository(
+    suffix: str, repo: git.Repo, md5sum: str, sha: str
+) -> git.Repo:
+    """
+    Clone the git repo at `repo` into an ephemeral repo.
+
+    Parameters
+    ----------
+    suffix : str
+        /tmp/.../ path suffix, e.g. `ki/local/`.
+    repo : git.Repo
+        The git repository to clone.
+    md5sum : str
+        The md5sum of the associated anki collection.
+    sha : str
+        The commit SHA to reset --hard to.
+
+    Returns
+    -------
+    git.Repo
+        The cloned repository.
+    """
+    # Git clone repository at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    assert os.path.isdir(repo.working_dir)
+    root = os.path.join(tempfile.mkdtemp(), suffix)
+    os.makedirs(root)
+    target = os.path.join(root, md5sum)
+    git.Repo.clone_from(repo.working_dir, target, branch=repo.active_branch)
+
+    # Do a reset --hard to the given SHA.
+    ephem: git.Repo = git.Repo(target)
+    ephem.git.reset(sha, hard=True)
+    return ephem
+
+    # CLONE BLOCK
+    # Git clone local repo to `/tmp/.../ki/deleted/<md5sum>`.
+
+    # Inputs: suffix, cwd, md5sum, branch
+    # Outputs: repo, cwd, last_push_dir, last_push_repo
+
+    # Inputs: suffix, cwd, md5sum, branch
+    # Outputs: repo, cwd, stagingdir, staging_repo
+
+    # Inputs: suffix, cwd, md5sum, branch
+    # Outputs: last_push_dir
