@@ -266,6 +266,7 @@ def push() -> None:
         unlock(con)
         return
 
+    # Clone latest commit into a staging repo.
     cwd = os.getcwd()
     repo = git.Repo(cwd)
     sha = str(repo.head.commit)
@@ -276,12 +277,7 @@ def push() -> None:
     staging_repo_kidir = os.path.join(staging_repo.working_dir, ".ki/")
     shutil.copytree(repo_kidir, staging_repo_kidir)
 
-    # Get path to new collection.
-    new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
-    assert not os.path.isfile(new_collection)
-    assert not os.path.isdir(new_collection)
-
-    # Get all changed notes in checked-out staging repo.
+    # Get all notes changed between LAST_PUSH and HEAD.
     notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
 
     # If there are no changes, update LAST_PUSH commit and quit.
@@ -292,10 +288,16 @@ def push() -> None:
 
     click.secho("ki push: nontrivial push.", bold=True)
 
-    # Copy collection to new collection and modify in-place.
+    # Copy collection to a temp directory.
+    new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
+    assert not os.path.isfile(new_collection)
+    assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
+
+    # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
 
+        # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
         deletions_repo = get_ephemeral_repo("ki/deleted/", repo, md5sum, last_push_sha)
 
