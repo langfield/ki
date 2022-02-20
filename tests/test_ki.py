@@ -66,14 +66,15 @@ def invoke(*args, **kwargs):
 
 
 @beartype
-def clone(runner: CliRunner, repository: str, directory: str = "") -> None:
+def clone(runner: CliRunner, repository: str, directory: str = "") -> str:
     """Make a test `ki clone` call."""
-    runner.invoke(
+    res = runner.invoke(
         ki.ki,
         ["clone", repository, directory],
         standalone_mode=False,
         catch_exceptions=False,
     )
+    return res.output
 
 
 @beartype
@@ -300,6 +301,41 @@ def test_no_op_pull_push_cycle_is_idempotent():
         logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
+
+
+def test_output():
+    """Does it print nice things?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        out = clone(runner, collection_path)
+        logger.debug(f"\n{out}")
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
+
+        # Pull edited collection.
+        os.chdir(REPODIR)
+        out = pull(runner)
+        logger.debug(f"\n{out}")
+
+        # Modify local repository.
+        assert os.path.isfile(NOTE_0)
+        with open(NOTE_0, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+        shutil.copyfile(NOTE_2_PATH, NOTE_2)
+        shutil.copyfile(NOTE_3_PATH, NOTE_3)
+
+        # Commit.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        out = push(runner)
+        logger.debug(f"\n{out}")
 
 
 # CLONE

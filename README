@@ -67,7 +67,7 @@ TODO
 - Test that ki cleans up its tempdirs unless a debug flag is set. There is no
   need to backup the ephemeral repos because those commits can be checked-out.
 - Use terminology other than FETCH_HEAD, because this no longer represents the
-  git ref FETCH_HEAD.
+  git ref FETCH_HEAD. (DONE)
 
 
 Triage
