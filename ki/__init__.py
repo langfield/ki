@@ -95,13 +95,6 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def echo(string: str, silent: bool = False) -> None:
-    """Call `click.secho()` with formatting."""
-    if not silent:
-        click.secho(string, bold=True)
-
-
-@beartype
 def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     """
     Clone an Anki collection into a directory.
@@ -144,14 +137,8 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     with open(config_path, "w", encoding="UTF-8") as config_file:
         config.write(config_file)
 
-    # Create hashes file.
-    md5sum = md5(collection)
-    echo(f"Computed md5sum: {md5sum}")
-    basename = os.path.basename(collection)
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {basename}")
-    echo(f"Wrote md5sum to '{hashes_path}'", silent=silent)
+    # Append to hashes file.
+    append_md5sum(kidir, collection)
     echo(f"Cloning into '{directory}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
@@ -250,11 +237,7 @@ def pull() -> None:
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    basename = os.path.basename(collection)
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {basename}")
+    append_md5sum(os.path.join(cwd, ".ki"), collection)
 
     # Check that md5sum hasn't changed.
     assert md5(collection) == md5sum
@@ -348,12 +331,7 @@ def push() -> None:
     unlock(con)
 
     # Append to hashes file.
-    new_md5sum = md5(new_collection)
-    basename = os.path.basename(collection)
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{new_md5sum}  {basename}")
+    append_md5sum(os.path.join(cwd, ".ki"), new_collection)
 
     # Update LAST_PUSH commit SHA file.
     update_last_push_commit_sha(repo)
@@ -647,3 +625,22 @@ def update_last_push_commit_sha(repo: git.Repo) -> None:
     last_push_path = os.path.join(repo.working_dir, ".ki/", "last_push")
     with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
         last_push_file.write(f"{str(repo.head.commit)}")
+
+
+@beartype
+def echo(string: str, silent: bool = False) -> None:
+    """Call `click.secho()` with formatting."""
+    if not silent:
+        click.secho(string, bold=True)
+
+
+@beartype
+def append_md5sum(kidir: str, collection: str) -> None:
+    """Append an md5sum hash to the hashes file."""
+    md5sum = md5(collection)
+    echo(f"Computed md5sum: {md5sum}")
+    basename = os.path.basename(collection)
+    hashes_path = os.path.join(kidir, "hashes")
+    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
+        hashes_file.write(f"{md5sum}  {basename}")
+    echo(f"Wrote md5sum to '{hashes_path}'")
