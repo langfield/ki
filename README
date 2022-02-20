@@ -12,6 +12,7 @@ In general, the purpose of `ki` is to allow users to work on large, complex
 Anki decks in exactly the same way they work on large, complex software
 projects.
 
+
 TODO
 ----
 - Add implementations to test function sigs in `tests/test_ki.py`. (DONE)
@@ -62,18 +63,24 @@ TODO
 - Separate tests into quick and slow.
 - Try working with a Japanese language deck.
 - Test that the media folder isn't created outside the repository.
-    
+
+
 Triage
 ------
-Ghostwrite hypothesis tests
+Ghostwrite hypothesis tests (NO)
 Command line output
 Test backlog
-Add support for images
-Add support for submodules
-Add support for modifying note types
-Add support for changing note types
-Add support for generating HTML
+Images
+Submodules
+Modifying note types
+Changing note types
+Generating HTML
 
+
+Won't fix
+---------
+pdoc3 doesn't generate docstrings for click commands
+clone doesn't work on ankiweb deck URLs
 
 
 Notes

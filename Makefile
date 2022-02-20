@@ -7,4 +7,4 @@ documentation:
 	cp html/ki/* docs/
 	rm -rf html/
 clean:
-	rm -rf html/
+	rm -rf docs/*.html
