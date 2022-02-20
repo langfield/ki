@@ -90,7 +90,7 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
-    sha = _clone(collection, directory)
+    sha = _clone(collection, directory, msg="Initial commit", silent=False)
 
     # Stuff below this line should not happen in a `pull()`.
     if directory == "":
@@ -103,12 +103,33 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def _clone(collection: str, directory: str = "") -> str:
-    """Clone an Anki collection into a directory."""
+def echo(string: str, silent: bool = False) -> None:
+    """Call `click.secho()` with formatting."""
+    if not silent:
+        click.secho(string, bold=True)
+
+
+@beartype
+def _clone(collection: str, directory: str, msg: str, silent: bool) -> str:
+    """
+    Clone an Anki collection into a directory.
+
+    Parameters
+    ----------
+    collection : str
+        The path to a `.anki2` collection file.
+    directory : str
+        A path to a directory to clone the collection into.
+        Note: we check that this directory does not yet exist.
+    msg : str
+        Message for initial commit.
+    silent : bool
+        Indicates whether we are calling `_clone()` from `pull()`.
+    """
     collection = os.path.abspath(collection)
     if not os.path.isfile(collection):
         raise FileNotFoundError
-    click.secho(f"Found .anki2 file at '{collection}'", bold=True)
+    echo(f"Found .anki2 file at '{collection}'", silent=silent)
 
     # Create default target directory.
     if directory == "":
@@ -128,13 +149,13 @@ def _clone(collection: str, directory: str = "") -> str:
 
     # Create hashes file.
     md5sum = md5(collection)
-    click.secho(f"Computed md5sum: {md5sum}", bold=True)
+    echo(f"Computed md5sum: {md5sum}", silent=silent)
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
-    click.secho(f"Wrote md5sum to '{hashes_path}'", bold=True)
-    click.secho(f"Cloning into '{directory}'...", bold=True)
+    echo(f"Wrote md5sum to '{hashes_path}'", silent=silent)
+    echo(f"Cloning into '{directory}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
     ignore_path = os.path.join(directory, ".gitignore")
@@ -144,7 +165,8 @@ def _clone(collection: str, directory: str = "") -> str:
     # Open deck with `apy`, and dump notes and markdown files.
     query = ""
     with Anki(path=collection) as a:
-        for i in tqdm(list(a.col.find_notes(query)), ncols=TQDM_NUM_COLS):
+        nids = list(a.col.find_notes(query))
+        for i in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
             note = KiNote(a, a.col.getNote(i))
             note_path = os.path.join(directory, f"note{note.n.id}.md")
             with open(note_path, "w", encoding="UTF-8") as note_file:
@@ -153,7 +175,7 @@ def _clone(collection: str, directory: str = "") -> str:
     # Initialize git repo and commit contents.
     repo = git.Repo.init(directory)
     repo.git.add(all=True)
-    commit = repo.index.commit("Initial commit")
+    commit = repo.index.commit(msg)
 
     # Return SHA of initial commit.
     return str(commit)
@@ -193,20 +215,24 @@ def pull() -> None:
     # Do a reset --hard to the SHA of last FETCH.
     fetch_head_sha = get_fetch_head_sha(repo)
     fetch_head_repo = git.Repo(fetch_head_dir)
-    fetch_head_repo.index.reset(fetch_head_sha, hard=True)
-    fetch_head_repo.git.reset()
+    # fetch_head_repo.index.reset(fetch_head_sha, hard=True)
+    fetch_head_repo.git.reset(fetch_head_sha, hard=True)
+    # fetch_head_repo.git.reset()
 
     # Ki clone into ephemeral repository and unlock DB.
+    msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
     anki_remote_dir = os.path.join(root, md5sum)
-    _clone(collection, anki_remote_dir)
+    _clone(collection, anki_remote_dir, msg, silent=True)
     unlock(con)
 
     # Create remote pointing to anki repository and pull into ``fetch_head_repo``.
     os.chdir(fetch_head_dir)
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = fetch_head_repo.create_remote(REMOTE_NAME, anki_remote_path)
+
+    logger.debug(f"fetch_head_sha: {fetch_head_sha}")
 
     # Actually pull.
     fetch_head_repo.git.config("pull.rebase", "false")
@@ -243,7 +269,6 @@ def pull() -> None:
     )
     click.secho(f"{p.stdout.decode()}", bold=True)
     click.secho(f"{p.stderr.decode()}", bold=True)
-    assert p.returncode == 0
 
     # Delete the remote we added.
     repo.delete_remote(fetch_head_remote)
@@ -269,7 +294,8 @@ def push() -> None:
 
     # Quit if hash doesn't match last pull.
     if md5sum not in get_latest_collection_hash():
-        click.echo(f"Failed to push some refs to '{collection}'\n{HINT}")
+        failed: str = f"Failed to push some refs to '{collection}'\n{HINT}"
+        click.secho(failed, fg="yellow", bold=True)
         unlock(con)
         return
 
