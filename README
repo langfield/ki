@@ -63,6 +63,7 @@ TODO
 - Separate tests into quick and slow.
 - Try working with a Japanese language deck.
 - Test that the media folder isn't created outside the repository.
+- Test that actual merge conflicts are handled nicely.
 
 
 Triage
@@ -81,6 +82,7 @@ Won't fix
 ---------
 pdoc3 doesn't generate docstrings for click commands
 clone doesn't work on ankiweb deck URLs
+pull creates an extra commit when cloning anki remote repo
 
 
 Notes
@@ -324,6 +326,30 @@ Bugs
       File "/home/user/pkgs/ki/ki/__init__.py", line 228, in pull
         assert p.returncode == 0
     AssertionError
+
+9.  Pull when Anki is open should print a prettier error message:
+
+    (anki39) user@host:~/collection$ ki pull
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7ff2bea48ee0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 174, in pull
+        con = lock(collection)
+      File "<@beartype(ki.lock) at 0x7ff2bea55dc0>", line 30, in lock
+      File "/home/user/pkgs/ki/ki/__init__.py", line 538, in lock
+        con.execute("BEGIN EXCLUSIVE")
+    sqlite3.OperationalError: database is locked
 
 On making push faster
 ---------------------
