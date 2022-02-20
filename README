@@ -351,6 +351,79 @@ Bugs
         con.execute("BEGIN EXCLUSIVE")
     sqlite3.OperationalError: database is locked
 
+10. Note parse errors should not be silent.
+
+11. Deletion of 'anki' git remote and write to hashes file should be in a
+    'finally' block. In particular, they should happen if we get a merge conflict:
+
+    (anki39) user@host:~/collection$ ki pull
+    2022-02-20 14:55:14.448 | DEBUG    | ki:pull:235 - fetch_head_sha: 74c98c22a54485fd6f7648592076dfd6c5ac1a4a
+    2022-02-20 14:55:14.453 | DEBUG    | ki:pull:237 -
+    diff --git a/note1645010162168.md b/note1645010162168.md
+    index e6f8464..d924148 100644
+    --- a/note1645010162168.md
+    +++ b/note1645010162168.md
+    @@ -20,4 +20,4 @@ eee
+     888
+     999
+     999
+    -888
+    +111
+
+    2022-02-20 14:55:14.453 | DEBUG    | ki:pull:238 -
+
+    Auto-merging note1645010162168.md
+    Merge made by the 'ort' strategy.
+     note1645010162168.md | 1 +
+     1 file changed, 1 insertion(+)
+
+    From /tmp/tmpm88m07j6/ki/remote/96d99f27d75f7715a71f26ed6f282b0c/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+    2022-02-20 14:55:14.488 | DEBUG    | ki:pull:261 -
+    diff --git a/note1645010162168.md b/note1645010162168.md
+    index d924148..1b9c51b 100644
+    --- a/note1645010162168.md
+    +++ b/note1645010162168.md
+    @@ -21,3 +21,4 @@ eee
+     999
+     999
+     111
+    +222
+
+    2022-02-20 14:55:14.488 | DEBUG    | ki:pull:262 -
+
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7f9e7dc9c160>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 270, in pull
+        fetch_head_remote = repo.create_remote(REMOTE_NAME, fetch_head_remote_path)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/repo/base.py", line 458, in create_remote
+        return Remote.create(self, name, url, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/remote.py", line 680, in create
+        repo.git.remote(scmd, name, Git.polish_url(url), **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 638, in <lambda>
+        return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 1183, in _call_process
+        return self.execute(call, **exec_kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 983, in execute
+        raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+    git.exc.GitCommandError: Cmd('git') failed due to: exit code(3)
+      cmdline: git remote add anki /tmp/tmpuglbuhux/ki/local/96d99f27d75f7715a71f26ed6f282b0c/.git
+      stderr: 'error: remote anki already exists.'
+
 On making push faster
 ---------------------
 We only want to update notes in the SQLite DB that have changed since the last
