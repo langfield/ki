@@ -90,16 +90,8 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
-    sha = _clone(collection, directory, msg="Initial commit", silent=False)
-
-    # Stuff below this line should not happen in a `pull()`.
-    if directory == "":
-        directory = get_default_clone_directory(collection)
-
-    # Update LAST_PUSH commit SHA file.
-    last_push_path = os.path.join(directory, ".ki/", "last_push")
-    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
-        last_push_file.write(f"{sha}")
+    repo = _clone(collection, directory, msg="Initial commit", silent=False)
+    update_last_push_commit_sha(repo)
 
 
 @beartype
@@ -110,7 +102,7 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def _clone(collection: str, directory: str, msg: str, silent: bool) -> str:
+def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     """
     Clone an Anki collection into a directory.
 
@@ -125,6 +117,11 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> str:
         Message for initial commit.
     silent : bool
         Indicates whether we are calling `_clone()` from `pull()`.
+
+    Returns
+    -------
+    git.Repo
+        The cloned repository.
     """
     collection = os.path.abspath(collection)
     if not os.path.isfile(collection):
@@ -175,10 +172,9 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> str:
     # Initialize git repo and commit contents.
     repo = git.Repo.init(directory)
     repo.git.add(all=True)
-    commit = repo.index.commit(msg)
+    _ = repo.index.commit(msg)
 
-    # Return SHA of initial commit.
-    return str(commit)
+    return repo
 
 
 @ki.command()
@@ -192,7 +188,7 @@ def pull() -> None:
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
 
     # Lock DB and get hash.
-    collection = open_repository()
+    collection = open_repo()
     con = lock(collection)
     md5sum = md5(collection)
 
@@ -202,23 +198,13 @@ def pull() -> None:
         unlock(con)
         return
 
-    # CLONE BLOCK
-    # Git clone local repository to `/tmp/.../ki/local/<md5sum>`.
-    # Inputs: suffix, cwd, md5sum, branch
-    # Outputs: repo, cwd, last_push_dir, last_push_repo
-    root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
-    os.makedirs(root)
+    # Clone `repo` into an ephemeral repo at commit SHA of last successful `push()`.
     cwd = os.getcwd()
-    last_push_dir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
-    git.Repo.clone_from(cwd, last_push_dir, branch=repo.active_branch)
-
-    # Do a reset --hard to the SHA of last PUSH.
     last_push_sha = get_last_push_sha(repo)
-    last_push_repo = git.Repo(last_push_dir)
-    last_push_repo.git.reset(last_push_sha, hard=True)
+    last_push_repo = get_ephemeral_repo("ki/local/", repo, md5sum, last_push_sha)
 
-    # Ki clone into ephemeral repository and unlock DB.
+    # Ki clone into another ephemeral repo and unlock DB.
     msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
@@ -226,12 +212,12 @@ def pull() -> None:
     _clone(collection, anki_remote_dir, msg, silent=True)
     unlock(con)
 
-    # Create remote pointing to anki repository.
-    os.chdir(last_push_dir)
+    # Create remote pointing to anki repo.
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
     # Pull anki remote ephemeral repo into ``last_push_repo``.
+    os.chdir(last_push_repo.working_dir)
     last_push_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
@@ -247,13 +233,11 @@ def pull() -> None:
         check=True,
         capture_output=True,
     )
-
-    # Delete the remote we added.
     last_push_repo.delete_remote(anki_remote)
 
-    # Create remote pointing to ``last_push`` repository and pull into ``repo``.
+    # Create remote pointing to ``last_push`` repo and pull into ``repo``.
     os.chdir(cwd)
-    last_push_remote_path = os.path.join(last_push_dir, ".git")
+    last_push_remote_path = os.path.join(last_push_repo.working_dir, ".git")
     last_push_remote = repo.create_remote(REMOTE_NAME, last_push_remote_path)
     repo.git.config("pull.rebase", "false")
     p = subprocess.run(
@@ -263,8 +247,6 @@ def pull() -> None:
     )
     click.secho(f"{p.stdout.decode()}", bold=True)
     click.secho(f"{p.stderr.decode()}", bold=True)
-
-    # Delete the remote we added.
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
@@ -290,7 +272,7 @@ def push() -> None:
     4. Add/edit/delete notes using `apy`.
     """
     # Lock DB, get path to collection, and compute hash.
-    collection = open_repository()
+    collection = open_repo()
     con = lock(collection)
     md5sum = md5(collection)
 
@@ -301,38 +283,28 @@ def push() -> None:
         unlock(con)
         return
 
-    # CLONE BLOCK
-    # Git clone repository at latest commit in `/tmp/.../ki/local/<md5sum>`.
-    root = os.path.join(tempfile.mkdtemp(), "ki/", "local/")
-    os.makedirs(root)
     cwd = os.getcwd()
-    stagingdir = os.path.join(root, md5sum)
     repo = git.Repo(cwd)
-    git.Repo.clone_from(cwd, stagingdir, branch=repo.active_branch)
+    sha = str(repo.head.commit)
+    staging_repo = get_ephemeral_repo("ki/local/", repo, md5sum, sha)
 
-    # Copy `.ki/` directory into the staging repository.
-    kidir = os.path.join(cwd, ".ki/")
-    ephem_kidir = os.path.join(stagingdir, ".ki/")
-    shutil.copytree(kidir, ephem_kidir)
+    # Copy `.ki/` directory into the staging repo.
+    repo_kidir = os.path.join(cwd, ".ki/")
+    staging_repo_kidir = os.path.join(staging_repo.working_dir, ".ki/")
+    shutil.copytree(repo_kidir, staging_repo_kidir)
 
     # Get path to new collection.
-    new_collection = os.path.join(root, os.path.basename(collection))
+    new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
 
-    # Get all changed notes in checked-out staging repository.
-    staging_repo = git.Repo(stagingdir)
+    # Get all changed notes in checked-out staging repo.
     notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
 
+    # If there are no changes, update LAST_PUSH commit and quit.
     if len(set(notepaths)) == 0:
         click.secho("ki push: up to date.", bold=True)
-
-        # Update LAST_PUSH commit SHA file.
-        repo = git.Repo(os.getcwd())
-        sha = str(repo.head.commit)
-        last_push_path = os.path.join(os.getcwd(), ".ki/", "last_push")
-        with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
-            last_push_file.write(f"{sha}")
+        update_last_push_commit_sha(repo)
         return
 
     click.secho("ki push: nontrivial push.", bold=True)
@@ -341,26 +313,16 @@ def push() -> None:
     shutil.copyfile(collection, new_collection)
     with Anki(path=new_collection) as a:
 
-        # CLONE BLOCK
-        # Git clone local repo to `/tmp/.../ki/deleted/<md5sum>`.
-        root = os.path.join(tempfile.mkdtemp(), "ki/", "deleted/")
-        os.makedirs(root)
-        cwd = os.getcwd()
-        last_push_dir = os.path.join(root, md5sum)
-        git.Repo.clone_from(cwd, last_push_dir, branch=repo.active_branch)
-
-        # Do a reset --hard to the SHA of last PUSH.
         last_push_sha = get_last_push_sha(staging_repo)
-        last_push_repo = git.Repo(last_push_dir)
-        last_push_repo.git.checkout(last_push_sha)
+        deletions_repo = get_ephemeral_repo("ki/deleted/", repo, md5sum, last_push_sha)
 
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
             # If the file doesn't exist, parse its `nid` from its counterpart
-            # in `last_push_dir`, and then delete using `apy`.
+            # in `deletions_repo`, and then delete using `apy`.
             if not os.path.isfile(notepath):
-                deleted_filename = os.path.basename(notepath)
-                deleted_path = os.path.join(last_push_dir, deleted_filename)
+                deleted_file = os.path.basename(notepath)
+                deleted_path = os.path.join(deletions_repo.working_dir, deleted_file)
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
@@ -394,11 +356,7 @@ def push() -> None:
         hashes_file.write(f"{new_md5sum}  {basename}")
 
     # Update LAST_PUSH commit SHA file.
-    repo = git.Repo(os.getcwd())
-    sha = str(repo.head.commit)
-    last_push_path = os.path.join(os.getcwd(), ".ki/", "last_push")
-    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
-        last_push_file.write(f"{sha}")
+    update_last_push_commit_sha(repo)
 
 
 # UTILS
@@ -516,7 +474,7 @@ def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
 
 
 @beartype
-def open_repository() -> str:
+def open_repo() -> str:
     """Get collection path from `.ki/` directory."""
     # Check that config file exists.
     config_path = os.path.join(os.getcwd(), ".ki/", "config")
@@ -650,9 +608,7 @@ def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
 
 
 @beartype
-def create_ephemeral_repository(
-    suffix: str, repo: git.Repo, md5sum: str, sha: str
-) -> git.Repo:
+def get_ephemeral_repo(suffix: str, repo: git.Repo, md5sum: str, sha: str) -> git.Repo:
     """
     Clone the git repo at `repo` into an ephemeral repo.
 
@@ -672,7 +628,7 @@ def create_ephemeral_repository(
     git.Repo
         The cloned repository.
     """
-    # Git clone repository at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
     assert os.path.isdir(repo.working_dir)
     root = os.path.join(tempfile.mkdtemp(), suffix)
     os.makedirs(root)
@@ -684,14 +640,10 @@ def create_ephemeral_repository(
     ephem.git.reset(sha, hard=True)
     return ephem
 
-    # CLONE BLOCK
-    # Git clone local repo to `/tmp/.../ki/deleted/<md5sum>`.
 
-    # Inputs: suffix, cwd, md5sum, branch
-    # Outputs: repo, cwd, last_push_dir, last_push_repo
-
-    # Inputs: suffix, cwd, md5sum, branch
-    # Outputs: repo, cwd, stagingdir, staging_repo
-
-    # Inputs: suffix, cwd, md5sum, branch
-    # Outputs: last_push_dir
+@beartype
+def update_last_push_commit_sha(repo: git.Repo) -> None:
+    """Dump the SHA of current HEAD commit to ``last_push file``."""
+    last_push_path = os.path.join(repo.working_dir, ".ki/", "last_push")
+    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
+        last_push_file.write(f"{str(repo.head.commit)}")
