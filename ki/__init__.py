@@ -298,6 +298,10 @@ def push() -> None:
     # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
 
+        # DEBUG
+        nids = list(a.col.find_notes(""))
+        logger.debug(f"Initial note count: {len(nids)}")
+
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
         deletions_repo = get_ephemeral_repo("ki/deleted/", repo, md5sum, last_push_sha)
@@ -307,15 +311,20 @@ def push() -> None:
 
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
+            logger.debug(f"Handling modified notepath {notepath}")
+
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
             if not os.path.isfile(notepath):
+                logger.debug(f"Couldn't find notepath {notepath}")
+                logger.debug("Deleting.")
                 deleted_file = os.path.basename(notepath)
                 deleted_path = os.path.join(deletions_repo.working_dir, deleted_file)
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
-                a.delete_notes(nids)
+                logger.debug(f"Got nids {nids} from deleted path {deleted_path}")
+                delete_notes(a, nids)
                 continue
 
             # Loop over nids and update/add notes.
@@ -333,6 +342,11 @@ def push() -> None:
         for line in log:
             click.secho(line, bold=True, fg="yellow")
 
+    # DEBUG
+    with Anki(path=new_collection) as a:
+        nids = list(a.col.find_notes(""))
+        logger.debug(f"Final note count: {len(nids)}")
+
     assert os.path.isfile(new_collection)
 
     # Backup collection file, overwrite collection, and unlock DB.
@@ -348,6 +362,18 @@ def push() -> None:
 
 
 # UTILS
+
+
+@beartype
+def delete_notes(apyanki: Anki, ids: Sequence[int]) -> None:
+    """Delete notes by note ids"""
+    if not isinstance(ids, list):
+        ids = [ids]
+
+    op_changes = apyanki.col.remove_notes(ids)
+    logger.debug(f"op_changes: {op_changes}")
+    logger.debug(f"op_changes (type): {type(op_changes)}")
+    apyanki.modified = True
 
 
 @beartype

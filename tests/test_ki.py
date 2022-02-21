@@ -731,6 +731,7 @@ def test_push_deletes_notes():
         clone(runner, collection_path)
 
         # Remove a note file.
+        os.chdir(REPODIR)
         assert os.path.isfile(NOTE_0)
         os.remove(NOTE_0)
 
@@ -742,12 +743,62 @@ def test_push_deletes_notes():
 
         # Push changes.
         os.chdir(REPODIR)
-        push(runner)
+        out = push(runner)
+        logger.debug(f"\nPUSH:\n{out}")
 
     # Check that note is gone.
     with runner.isolated_filesystem():
         clone(runner, collection_path)
         assert not os.path.isfile(NOTE_0)
+
+
+def test_push_deletes_added_notes():
+    """Does push remove deleted notes added with ki?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Add new files.
+        os.chdir(REPODIR)
+        shutil.copyfile(NOTE_2_PATH, NOTE_2)
+        shutil.copyfile(NOTE_3_PATH, NOTE_3)
+
+        # Commit the additions.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        out = push(runner)
+        logger.debug(f"\nPUSH:\n{out}")
+
+        # Add new files.
+        os.remove(NOTE_2)
+        os.remove(NOTE_3)
+
+        # Commit the deletions.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        out = push(runner)
+        logger.debug(f"\nPUSH:\n{out}")
+
+    # Check that notes are gone.
+    with runner.isolated_filesystem():
+        clone(runner, collection_path)
+        contents = os.listdir(REPODIR)
+        notes = [path for path in contents if path[-3:] == ".md"]
+        logger.debug(f"Notes: {notes}")
+        assert len(notes) == 2
 
 
 # UTILS
