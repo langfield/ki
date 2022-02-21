@@ -280,7 +280,6 @@ def push() -> None:
 
     # Get all notes changed between LAST_PUSH and HEAD.
     notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
-    logger.debug(f"notepaths: \n{pprint.pformat(notepaths)}")
 
     # If there are no changes, update LAST_PUSH commit and quit.
     if len(set(notepaths)) == 0:
@@ -317,7 +316,6 @@ def push() -> None:
                 continue
 
             # Loop over nids and update/add notes.
-            logger.debug(f"Updating/adding notes from notepath {notepath}")
             for notemap in parse_markdown_notes(notepath):
                 nid = notemap["nid"]
                 try:
@@ -327,7 +325,6 @@ def push() -> None:
                     note: Note = add_note_from_notemap(a, notemap)
                     logger.warning(f"Couldn't find note with nid: '{nid}'")
                     logger.warning(f"Assigned new nid: '{note.n.id}'")
-            logger.debug(f"Loop: notepaths =============================")
 
     assert os.path.isfile(new_collection)
 
@@ -448,13 +445,13 @@ def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
         logger.warning(f"Found empty note:\n {note}")
         return
     if fields_health_check == 2:
-        # logger.warning(f"Found duplicate note:\n {note}")
+        logger.warning(f"Found duplicate note:\n {note}")
         return
 
     if fields_health_check:
         logger.warning(f"Found duplicate or empty note:\n {note}")
-        logger.debug(f"Fields health check: {fields_health_check}")
-        logger.debug(f"Fields health check (type): {type(fields_health_check)}")
+        logger.warning(f"Fields health check: {fields_health_check}")
+        logger.warning(f"Fields health check (type): {type(fields_health_check)}")
 
 
 @beartype
