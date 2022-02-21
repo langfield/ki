@@ -68,6 +68,9 @@ TODO
   need to backup the ephemeral repos because those commits can be checked-out.
 - Use terminology other than FETCH_HEAD, because this no longer represents the
   git ref FETCH_HEAD. (DONE)
+- Make notemap a namedtuple, dataclass, or Namespace (figure out which is
+  best).
+- Test warnings are displayed for duplicate notes.
 
 
 Triage

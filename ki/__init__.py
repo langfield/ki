@@ -21,6 +21,7 @@ __version__ = "0.0.1a"
 
 import os
 import re
+import pprint
 import shutil
 import logging
 import tarfile
@@ -43,7 +44,7 @@ from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Iterator, Sequence
+from beartype.typing import List, Dict, Any, Iterator, Sequence, Iterable, Optional
 
 from ki.note import KiNote
 
@@ -279,6 +280,7 @@ def push() -> None:
 
     # Get all notes changed between LAST_PUSH and HEAD.
     notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
+    logger.debug(f"notepaths: \n{pprint.pformat(notepaths)}")
 
     # If there are no changes, update LAST_PUSH commit and quit.
     if len(set(notepaths)) == 0:
@@ -315,6 +317,7 @@ def push() -> None:
                 continue
 
             # Loop over nids and update/add notes.
+            logger.debug(f"Updating/adding notes from notepath {notepath}")
             for notemap in parse_markdown_notes(notepath):
                 nid = notemap["nid"]
                 try:
@@ -324,6 +327,7 @@ def push() -> None:
                     note: Note = add_note_from_notemap(a, notemap)
                     logger.warning(f"Couldn't find note with nid: '{nid}'")
                     logger.warning(f"Assigned new nid: '{note.n.id}'")
+            logger.debug(f"Loop: notepaths =============================")
 
     assert os.path.isfile(new_collection)
 
@@ -544,6 +548,7 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
                 files.append(diff.a_path)
                 files.append(diff.b_path)
         paths = [os.path.join(repo.working_dir, file) for file in files]
+        paths = set(paths)
 
     changed = []
     for path in paths:
@@ -553,38 +558,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
 
     return changed
 
-
-@beartype
-def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
-    """Add a note given its `apy` parsed notemap."""
-    model_name = notemap["model"]
-
-    # Set current notetype for collection to `model_name`.
-    model = apyanki.set_model(model_name)
-
-    model_field_names = [field["name"] for field in model["flds"]]
-
-    field_names = notemap["fields"].keys()
-    field_values = notemap["fields"].values()
-
-    if len(field_names) != len(model_field_names):
-        click.echo(f"Error: Not enough fields for model {model_name}!")
-        apyanki.modified = False
-        raise click.Abort()
-
-    for x, y in zip(model_field_names, field_names):
-        if x != y:
-            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
-
-    # pylint: disable=protected-access
-    note = apyanki._add_note(
-        field_values,
-        f"{notemap['tags']}",
-        notemap["markdown"],
-        notemap.get("deck"),
-    )
-
-    return note
 
 
 @beartype
@@ -646,3 +619,77 @@ def append_md5sum(kidir: str, collection: str) -> None:
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
     echo(f"Wrote md5sum to '{hashes_path}'")
+
+@beartype
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
+    """Add a note given its `apy` parsed notemap."""
+    model_name = notemap["model"]
+
+    # Set current notetype for collection to `model_name`.
+    model = apyanki.set_model(model_name)
+
+    model_field_names = [field["name"] for field in model["flds"]]
+
+    field_names = notemap["fields"].keys()
+    field_values = notemap["fields"].values()
+
+    if len(field_names) != len(model_field_names):
+        click.echo(f"Error: Not enough fields for model {model_name}!")
+        apyanki.modified = False
+        raise click.Abort()
+
+    for x, y in zip(model_field_names, field_names):
+        if x != y:
+            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
+
+    # pylint: disable=protected-access
+    note = _add_note(
+        apyanki,
+        field_values,
+        f"{notemap['tags']}",
+        notemap["markdown"],
+        notemap.get("deck"),
+    )
+
+    return note
+
+
+@beartype
+def _add_note(
+    apyanki: Anki,
+    fields: Iterable[str],
+    tags: str,
+    markdown: bool = True,
+    deck: Optional[str] = None,
+) -> Note:
+    """Add new note to collection. Apy method."""
+    notetype = apyanki.col.models.current(for_deck=False)
+    note = apyanki.col.new_note(notetype)
+
+    if deck is not None:
+        note.note_type()["did"] = apyanki.deck_name_to_id[deck]
+
+    if markdown:
+        note.fields = [markdown_to_html(x) for x in fields]
+    else:
+        note.fields = [plain_to_html(x) for x in fields]
+
+    for tag in tags.strip().split():
+        note.add_tag(tag)
+
+    fields_health_check: int = note.fields_check()
+    if fields_health_check == 0:
+        apyanki.col.addNote(note)
+        apyanki.modified = True
+    elif fields_health_check == 2:
+        logger.warning(f"Detected duplicate note while trying to add new note with nid {note.id}.")
+        logger.warning(f"Note type and field values of note {note.id} exactly match an existing note.")
+        logger.warning(f"Note was not added to collection!")
+        logger.warning(f"Note type: {note.note_type()}")
+        logger.warning(f"First field: {list(fields)[0]}")
+        logger.warning(f"Fields health check: {fields_health_check}")
+    else:
+        logger.error(f"Failed to add note '{note.id}'.")
+        logger.error(f"Note failed fields health check with error code: {fields_health_check}")
+
+    return Note(apyanki, note)
