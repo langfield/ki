@@ -139,7 +139,7 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
         config.write(config_file)
 
     # Append to hashes file.
-    append_md5sum(kidir, collection)
+    append_md5sum(kidir, collection, silent)
     echo(f"Cloning into '{directory}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
@@ -302,6 +302,9 @@ def push() -> None:
         last_push_sha = get_last_push_sha(staging_repo)
         deletions_repo = get_ephemeral_repo("ki/deleted/", repo, md5sum, last_push_sha)
 
+        # Gather logging statements to display.
+        log: List[str] = []
+
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
             # If the file doesn't exist, parse its `nid` from its counterpart
@@ -323,8 +326,12 @@ def push() -> None:
                     update_apy_note(note, notemap)
                 except anki.errors.NotFoundError:
                     note: Note = add_note_from_notemap(a, notemap)
-                    logger.warning(f"Couldn't find note with nid: '{nid}'")
-                    logger.warning(f"Assigned new nid: '{note.n.id}'")
+                    log.append(f"Couldn't find note with nid: '{nid}'")
+                    log.append(f"Assigned new nid: '{note.n.id}'")
+
+        # Display warnings.
+        for line in log:
+            click.secho(line, bold=True, fg="yellow")
 
     assert os.path.isfile(new_collection)
 
@@ -556,7 +563,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
     return changed
 
 
-
 @beartype
 def get_ephemeral_repo(suffix: str, repo: git.Repo, md5sum: str, sha: str) -> git.Repo:
     """
@@ -607,15 +613,16 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def append_md5sum(kidir: str, collection: str) -> None:
+def append_md5sum(kidir: str, collection: str, silent: bool = False) -> None:
     """Append an md5sum hash to the hashes file."""
     md5sum = md5(collection)
-    echo(f"Computed md5sum: {md5sum}")
+    echo(f"Computed md5sum: {md5sum}", silent)
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {basename}")
-    echo(f"Wrote md5sum to '{hashes_path}'")
+    echo(f"Wrote md5sum to '{hashes_path}'", silent)
+
 
 @beartype
 def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
@@ -679,14 +686,19 @@ def _add_note(
         apyanki.col.addNote(note)
         apyanki.modified = True
     elif fields_health_check == 2:
-        logger.warning(f"Detected duplicate note while trying to add new note with nid {note.id}.")
-        logger.warning(f"Note type and field values of note {note.id} exactly match an existing note.")
-        logger.warning(f"Note was not added to collection!")
-        logger.warning(f"Note type: {note.note_type()}")
+        logger.warning(
+            f"\nDetected duplicate note while trying to add new note with nid {note.id}."
+        )
+        logger.warning(
+            f"Note type and field values of note {note.id} exactly match an existing note."
+        )
+        logger.warning("Note was not added to collection!")
         logger.warning(f"First field: {list(fields)[0]}")
         logger.warning(f"Fields health check: {fields_health_check}")
     else:
         logger.error(f"Failed to add note '{note.id}'.")
-        logger.error(f"Note failed fields health check with error code: {fields_health_check}")
+        logger.error(
+            f"Note failed fields health check with error code: {fields_health_check}"
+        )
 
     return Note(apyanki, note)

@@ -71,6 +71,7 @@ TODO
 - Make notemap a namedtuple, dataclass, or Namespace (figure out which is
   best).
 - Test warnings are displayed for duplicate notes.
+- Test pure note deletion doesn't raise deprecation warning.
 
 
 Triage

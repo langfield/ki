@@ -309,7 +309,7 @@ def test_output():
     runner = CliRunner()
     with runner.isolated_filesystem():
         out = clone(runner, collection_path)
-        logger.debug(f"\n{out}")
+        logger.debug(f"\nCLONE:\n{out}")
 
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
@@ -317,7 +317,7 @@ def test_output():
         # Pull edited collection.
         os.chdir(REPODIR)
         out = pull(runner)
-        logger.debug(f"\n{out}")
+        logger.debug(f"\nPULL:\n{out}")
 
         # Modify local repository.
         assert os.path.isfile(NOTE_0)
@@ -335,7 +335,7 @@ def test_output():
         # Push changes.
         os.chdir(REPODIR)
         out = push(runner)
-        logger.debug(f"\n{out}")
+        logger.debug(f"\nPUSH:\n{out}")
 
 
 # CLONE
@@ -719,6 +719,35 @@ def test_no_op_push_is_idempotent():
         push(runner)
         push(runner)
         push(runner)
+
+
+def test_push_deletes_notes():
+    """Does push remove deleted notes from collection?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Remove a note file.
+        assert os.path.isfile(NOTE_0)
+        os.remove(NOTE_0)
+
+        # Commit the deletion.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        push(runner)
+
+    # Check that note is gone.
+    with runner.isolated_filesystem():
+        clone(runner, collection_path)
+        assert not os.path.isfile(NOTE_0)
 
 
 # UTILS
