@@ -786,9 +786,9 @@ def test_push_deletes_added_notes():
         repo = git.Repo(REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Added 'e'.")
+        os.chdir(REPODIR)
 
         # Push changes.
-        os.chdir(REPODIR)
         out = push(runner)
         logger.debug(f"\nPUSH:\n{out}")
 

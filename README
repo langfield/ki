@@ -72,6 +72,10 @@ TODO
   best).
 - Test warnings are displayed for duplicate notes.
 - Test pure note deletion doesn't raise deprecation warning.
+- Test that push does not work if there are uncommitted changes.
+- Test that notes get renamed and their nids modified when being added.
+- Test that pull squashes initial commit and merge if and only if there were no
+  merge conflicts.
 
 
 Triage
@@ -90,7 +94,25 @@ Won't fix
 ---------
 pdoc3 doesn't generate docstrings for click commands
 clone doesn't work on ankiweb deck URLs
-pull creates an extra commit when cloning anki remote repo
+
+
+On pushing new notes
+--------------------
+We must use nids as the filename so that edits to fields don't require edits to
+the filenames as well. The only other alternative so far is doing
+one-file-per-deck.
+
+So what happens when you add a new note?
+
+- Create new md file.
+- Add content, add an nid or leave it blank.
+- Call push()
+    - Ki asks anki to generate a new nid for this note.
+    - Changed are pushed to collection.
+    - Ki stashes unstaged and staged files (git stash -u --keep-index && git reset --hard HEAD).
+    - Ki renames file to reflect new nid and also changes nid in file.
+    - Ki commits these changes.
+    - Ki recovers the stashed files (git stash pop).
 
 
 Notes

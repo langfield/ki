@@ -295,6 +295,10 @@ def push() -> None:
     assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
 
+
+    # Track whether Anki reassigned any nids.
+    reassigned = False
+
     # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
 
@@ -331,19 +335,19 @@ def push() -> None:
             for notemap in parse_markdown_notes(notepath):
                 nid = notemap["nid"]
                 try:
-                    note: Note = Note(a, a.col.get_note(nid))
+                    note: KiNote = KiNote(a, a.col.get_note(nid))
                     update_apy_note(note, notemap)
                 except anki.errors.NotFoundError:
-                    note: Note = add_note_from_notemap(a, notemap)
+                    note: KiNote = add_note_from_notemap(a, notemap)
                     log.append(f"Couldn't find note with nid: '{nid}'")
                     log.append(f"Assigned new nid: '{note.n.id}'")
+                    reassigned = True
 
         # Display warnings.
         for line in log:
             click.secho(line, bold=True, fg="yellow")
 
-    # DEBUG
-    with Anki(path=new_collection) as a:
+        # DEBUG
         nids = list(a.col.find_notes(""))
         logger.debug(f"Final note count: {len(nids)}")
 
@@ -353,6 +357,15 @@ def push() -> None:
     backup(collection)
     shutil.copyfile(new_collection, collection)
     unlock(con)
+
+    if reassigned:
+        logger.debug(f"Pulling reassigned nids.")
+        from click.testing import CliRunner
+        import tests.test_ki as kit
+        runner = CliRunner()
+        out = kit.pull(runner)
+        logger.debug(f"\nInternal PULL:\n{out}")
+        # pull()
 
     # Append to hashes file.
     append_md5sum(os.path.join(cwd, ".ki"), new_collection)
@@ -454,7 +467,7 @@ def is_anki_note(path: str) -> bool:
 
 
 @beartype
-def update_apy_note(note: Note, notemap: Dict[str, Any]) -> None:
+def update_apy_note(note: KiNote, notemap: Dict[str, Any]) -> None:
     """Update an `apy` Note in a collection."""
     new_tags = notemap["tags"].split()
     if new_tags != note.n.tags:
@@ -651,7 +664,7 @@ def append_md5sum(kidir: str, collection: str, silent: bool = False) -> None:
 
 
 @beartype
-def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> Note:
+def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> KiNote:
     """Add a note given its `apy` parsed notemap."""
     model_name = notemap["model"]
 
@@ -691,7 +704,7 @@ def _add_note(
     tags: str,
     markdown: bool = True,
     deck: Optional[str] = None,
-) -> Note:
+) -> KiNote:
     """Add new note to collection. Apy method."""
     notetype = apyanki.col.models.current(for_deck=False)
     note = apyanki.col.new_note(notetype)
@@ -727,4 +740,4 @@ def _add_note(
             f"Note failed fields health check with error code: {fields_health_check}"
         )
 
-    return Note(apyanki, note)
+    return KiNote(apyanki, note)
