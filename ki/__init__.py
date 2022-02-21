@@ -295,7 +295,6 @@ def push() -> None:
     assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
 
-
     # Track whether Anki reassigned any nids.
     reassigned = False
 
@@ -331,7 +330,7 @@ def push() -> None:
                 delete_notes(a, nids)
                 continue
 
-            # Loop over nids and update/add notes.
+            # Loop over nids and edit/add/delete notes.
             for notemap in parse_markdown_notes(notepath):
                 nid = notemap["nid"]
                 try:
@@ -590,6 +589,9 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
+                logger.debug(f"a_blob: {diff.a_blob}")
+                logger.debug(f"b_blob: {diff.b_blob}")
+                logger.debug(f"diff: {diff.diff}")
         paths = [os.path.join(repo.working_dir, file) for file in files]
         paths = set(paths)
 

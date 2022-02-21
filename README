@@ -76,6 +76,8 @@ TODO
 - Test that notes get renamed and their nids modified when being added.
 - Test that pull squashes initial commit and merge if and only if there were no
   merge conflicts.
+- Test that deleting individual notes from files containing multiple notes
+  works as intended.
 
 
 Triage
@@ -109,10 +111,74 @@ So what happens when you add a new note?
 - Call push()
     - Ki asks anki to generate a new nid for this note.
     - Changed are pushed to collection.
-    - Ki stashes unstaged and staged files (git stash -u --keep-index && git reset --hard HEAD).
-    - Ki renames file to reflect new nid and also changes nid in file.
+    - Ki stashes unstaged and staged files
+      (git stash -u --keep-index && git reset --hard HEAD).
+    - Ki renames file to reflect new nid and changes nid in file.
+        - If there is an nid reassignment in a notepath, we first delete that
+          path in ``repo``.
+        - Then we regenerate the file (may contain multiple notes) from a
+          representation (list of notemaps) saved during push() call.
+        - The order of notes in a file is deterministic, and the filename
+          generated is the nid of the first note.
     - Ki commits these changes.
     - Ki recovers the stashed files (git stash pop).
+
+So what happens when you modify an existing nid?
+
+BAD THINGS! YOU LOSE YOUR REVIEW DATA!!
+We'll add warning when the nid is generated not to mess with it.
+
+If the user copies the text of a note and doesn't remove the ki-generated nid
+stuff, then ki will use some variant of edit distance to figure out which is
+the original.
+
+If the user changes the nid of an existing note to something else, then on the
+next push, ki will treat it like a new note and generate a new nid for it. The
+review/learning data will be lost (can be recovered by reverting to an earlier
+commit and pushing again).
+
+We are effectively reimplementing functionality that git can already handle.
+The `nid` is to anki what a `filename` is to git.
+
+So the ``apy`` spec for a note looks like this:
+
+    # Note
+    nid: 1645010162168
+    model: Basic
+    tags:
+    markdown: false
+
+    ## Front
+    a
+
+    ## Back
+    b
+
+And our modified spec looks similar to this:
+
+
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@~~~ki~~~@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    @@@ # WARNING: DO NOT EDIT DATA IN THIS SECTION!
+    @@@
+    @@@ nid: 1645010162168
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@~~~ki~~~@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+    ---
+
+    # Note
+    model: Basic
+    tags:
+    markdown: false
+
+    ## Front
+    a
+
+    ## Back
+    b
+
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 Notes
