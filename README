@@ -78,6 +78,8 @@ TODO
   merge conflicts.
 - Test that deleting individual notes from files containing multiple notes
   works as intended.
+- Test that push works when adding notes and with changes to the working tree
+  or untracked files (uncommitted stuff).
 
 
 Triage
@@ -109,17 +111,27 @@ So what happens when you add a new note?
 - Create new md file.
 - Add content, add an nid or leave it blank.
 - Call push()
+
     - Ki asks anki to generate a new nid for this note.
     - Changed are pushed to collection.
     - Ki stashes unstaged and staged files
       (git stash -u --keep-index && git reset --hard HEAD).
     - Ki renames file to reflect new nid and changes nid in file.
-        - If there is an nid reassignment in a notepath, we first delete that
-          path in ``repo``.
+
+        - If a new nid must be generated, we first delete the file containing
+          that note.
         - Then we regenerate the file (may contain multiple notes) from a
           representation (list of notemaps) saved during push() call.
+
+            - In order to regenerate the file, we must keep track of which
+              notes we generated new nids for.
+            - For these notes, we must edit the ``notemap`` to have the correct
+              ``nid``, and then serialize all the notemaps for that file and
+              regenerate the markdown.
+
         - The order of notes in a file is deterministic, and the filename
           generated is the nid of the first note.
+
     - Ki commits these changes.
     - Ki recovers the stashed files (git stash pop).
 

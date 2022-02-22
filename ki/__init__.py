@@ -152,6 +152,8 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     with Anki(path=collection) as a:
         nids = list(a.col.find_notes(query))
         for i in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
+
+            # TODO: Support multiple notes per-file.
             note = KiNote(a, a.col.getNote(i))
             note_path = os.path.join(directory, f"note{note.n.id}.md")
             with open(note_path, "w", encoding="UTF-8") as note_file:
@@ -295,9 +297,6 @@ def push() -> None:
     assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
 
-    # Track whether Anki reassigned any nids.
-    reassigned = False
-
     # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
 
@@ -312,6 +311,20 @@ def push() -> None:
         # Gather logging statements to display.
         log: List[str] = []
 
+        new_nid_path_map = {}
+
+        p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
+        stash_ref = p.stdout.decode()
+        logger.debug(f"Stash ref: {stash_ref}")
+
+        # Stash both unstaged and staged files (including untracked).
+        repo.git.stash(include_untracked=True, keep_index=True)
+        repo.git.reset("HEAD", hard=True)
+
+        # TODO: All this logic can be abstracted away from the process of
+        # actually parsing notes and constructing Anki-specific objects. This
+        # is just a series of filesystem ops. They should be put in a
+        # standalone function and tested without anything related to Anki.
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
             logger.debug(f"Handling modified notepath {notepath}")
@@ -330,17 +343,63 @@ def push() -> None:
                 delete_notes(a, nids)
                 continue
 
+            # Track whether Anki reassigned any nids.
+            reassigned = False
+            notes: List[KiNote] = []
+            new_nids = set()
+
             # Loop over nids and edit/add/delete notes.
             for notemap in parse_markdown_notes(notepath):
                 nid = notemap["nid"]
                 try:
                     note: KiNote = KiNote(a, a.col.get_note(nid))
                     update_apy_note(note, notemap)
+                    notes.append(note)
                 except anki.errors.NotFoundError:
                     note: KiNote = add_note_from_notemap(a, notemap)
                     log.append(f"Couldn't find note with nid: '{nid}'")
                     log.append(f"Assigned new nid: '{note.n.id}'")
+                    new_nids.add(note.n.id)
+                    notes.append(note)
                     reassigned = True
+
+            # If we reassigned any nids, we must regenerate the whole file.
+            if reassigned:
+                assert len(notes) > 0
+                if len(notes) > 1:
+                    logger.warning("MULTIPLE NOTES IN A SINGLE FILE!")
+
+                # Get paths to note in local repo, as distinct from staging repo.
+                note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
+                repo_notepath = os.path.join(repo.working_dir, note_relpath)
+
+                # If this is not an entirely new file, remove it.
+                if os.path.isfile(repo_notepath):
+                    os.remove(repo_notepath)
+
+                # Construct markdown file contents and write.
+                content: str = ""
+                for note in notes:
+                    content += f"{str(note)}\n\n"
+                first_nid = notes[0].n.id
+                parent = os.path.abspath(os.path.join(repo_notepath, os.pardir))
+                new_notepath = os.path.join(parent, f"note{first_nid}.md")
+                with open(new_notepath, "w", encoding="UTF-8") as note_file:
+                    note_file.write(content)
+                for nid in new_nids:
+                    new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
+                    new_nid_path_map[nid] = new_note_relpath
+
+        if len(new_nid_path_map) > 0:
+            msg = "Generated new nid(s).\n\n"
+            for new_nid, path in new_nid_path_map.items():
+                msg += f"Wrote new '{new_nid}' in file {path}\n"
+            repo.git.add(all=True)
+            _ = repo.index.commit(msg)
+
+        p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
+        new_stash_ref = p.stdout.decode()
+        logger.debug(f"Stash ref: {new_stash_ref}")
 
         # Display warnings.
         for line in log:
@@ -356,15 +415,6 @@ def push() -> None:
     backup(collection)
     shutil.copyfile(new_collection, collection)
     unlock(con)
-
-    if reassigned:
-        logger.debug(f"Pulling reassigned nids.")
-        from click.testing import CliRunner
-        import tests.test_ki as kit
-        runner = CliRunner()
-        out = kit.pull(runner)
-        logger.debug(f"\nInternal PULL:\n{out}")
-        # pull()
 
     # Append to hashes file.
     append_md5sum(os.path.join(cwd, ".ki"), new_collection)

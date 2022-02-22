@@ -763,6 +763,7 @@ def test_push_deletes_added_notes():
 
         # Add new files.
         os.chdir(REPODIR)
+        contents = os.listdir()
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         shutil.copyfile(NOTE_3_PATH, NOTE_3)
 
@@ -774,12 +775,21 @@ def test_push_deletes_added_notes():
 
         # Push changes.
         os.chdir(REPODIR)
+        logger.debug(f"pre-push contents: {os.listdir()}")
         out = push(runner)
         logger.debug(f"\nPUSH:\n{out}")
+        logger.debug(f"post-push contents: {os.listdir()}")
 
-        # Add new files.
-        os.remove(NOTE_2)
-        os.remove(NOTE_3)
+        # Make sure 2 new files actually got added.
+        post_push_contents = os.listdir()
+        notes = [path for path in post_push_contents if path[-3:] == ".md"]
+        assert len(notes) == 4
+
+        # Delete added files.
+        for file in post_push_contents:
+            if file not in contents:
+                logger.debug(f"Removing '{file}'")
+                os.remove(file)
 
         # Commit the deletions.
         os.chdir("../")
