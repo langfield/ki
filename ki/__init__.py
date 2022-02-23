@@ -125,7 +125,11 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     # Create default target directory.
     if directory == "":
         directory = get_default_clone_directory(collection)
-    os.mkdir(directory)
+    if os.path.isdir(directory):
+        if len(os.listdir(directory)) > 0:
+            raise FileExistsError
+    else:
+        os.mkdir(directory)
 
     # Create .ki subdirectory.
     kidir = os.path.join(directory, ".ki/")
@@ -294,7 +298,7 @@ def push() -> None:
         update_last_push_commit_sha(repo)
         return
 
-    hashes_path = os.path.join(repo_kidir, 'hashes')
+    hashes_path = os.path.join(repo_kidir, "hashes")
     echo(f"Pushing to '{collection}'")
     echo(f"Computed md5sum: {md5sum}")
     echo(f"Verified md5sum matches latest hash in '{hashes_path}'")
@@ -322,7 +326,11 @@ def push() -> None:
 
         new_nid_path_map = {}
 
-        p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
+        p = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
+            check=False,
+            capture_output=True,
+        )
         stash_ref = p.stdout.decode()
 
         # Stash both unstaged and staged files (including untracked).
@@ -400,7 +408,11 @@ def push() -> None:
             repo.git.add(all=True)
             _ = repo.index.commit(msg)
 
-        p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
+        p = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
+            check=False,
+            capture_output=True,
+        )
         new_stash_ref = p.stdout.decode()
 
         # Display warnings.
@@ -703,7 +715,9 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def append_md5sum(kidir: str, collection: str, md5sum: str, silent: bool = False) -> None:
+def append_md5sum(
+    kidir: str, collection: str, md5sum: str, silent: bool = False
+) -> None:
     """Append an md5sum hash to the hashes file."""
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")

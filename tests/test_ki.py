@@ -365,20 +365,31 @@ def test_clone_creates_directory():
         assert os.path.isdir(REPODIR)
 
 
-def test_clone_errors_when_directory_already_exists():
+def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        # Clone collection in cwd.
-
         # Create directory where we want to clone.
         os.mkdir(REPODIR)
+        with open(os.path.join(REPODIR, "hi"), "w", encoding="UTF-8") as hi_file:
+            hi_file.write("hi\n")
 
         # Should error out because directory already exists.
         with pytest.raises(FileExistsError):
             clone(runner, collection_path)
+
+
+def test_clone_succeeds_when_directory_exists_but_is_empty():
+    """Does it clone into empty directories?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Create directory where we want to clone.
+        os.mkdir(REPODIR)
+        clone(runner, collection_path)
 
 
 def test_clone_generates_expected_notes():
