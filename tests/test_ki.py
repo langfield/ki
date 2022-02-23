@@ -47,12 +47,14 @@ NOTE_1 = "note1645222430007.md"
 NOTE_2 = "note123412341234.md"
 NOTE_3 = "note 3.md"
 NOTE_4 = "note1645027705329.md"
+NOTE_5 = "bad_nid.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
 NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
 NOTE_2_PATH = os.path.join(NOTES_PATH, NOTE_2)
 NOTE_3_PATH = os.path.join(NOTES_PATH, NOTE_3)
 NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
+NOTE_5_PATH = os.path.join(NOTES_PATH, NOTE_5)
 
 NOTE_0_ID = 1645010162168
 NOTE_4_ID = 1645027705329
@@ -832,3 +834,8 @@ def test_get_default_clone_directory():
 
     path = ki.get_default_clone_directory("sensors.anki2")
     assert path == os.path.abspath("./sensors")
+
+
+def test_parse_markdown_notes():
+    """Does it raise a KeyError when it fails to parse nid?"""
+    ki.parse_markdown_notes(NOTE_5_PATH)
