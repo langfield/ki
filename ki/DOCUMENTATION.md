@@ -1,14 +1,18 @@
 
 `ki` provides command-line functions to:
 
-1. **clone** a `.anki2` collection into a directory as a git repository,
+1. **clone** a `.anki2` collection into a directory as a git repository.
 2. **pull** changes from the Anki desktop client (and AnkiWeb) into an existing
-   repository,
+   repository.
 3. **push** changes (safely!) back to Anki.
 
-> **INTERNAL.** Perhaps we should support making each deck a separate git
-> submodule, so that users can have collaborative decks and work on them within
-> their own collections.
+### Source code
+This is documentation for the `ki`
+[repository](https://github.com/langfield/ki). If you have `git`, you can clone
+a local copy of the source code by running the following command in a terminal:
+```bash
+git clone git@github.com:langfield/ki.git
+```
 
 # Installation
 `ki` is tested on Python 3.9 and Anki 2.1.49.
@@ -130,6 +134,128 @@ What sort of object is `\(C_0(X)\)`?
 A Banach algebra, and more specifically a `\(C^*\)`-algebra
 ```
 
+# Getting started
+
+This section will walk through the following example workflow:
+
+1. **Cloning** an existing collection into a `ki` repository.
+2. **Downloading** a collaborative deck from [GitHub](https://github.com/).
+3. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
+4. **Editing** the collaborative deck.
+5. **Pushing** those edits back to [GitHub](https://github.com/).
+
+## Cloning a collection
+
+Before cloning, you'll need to find your `.anki2` collection file.
+This is where Anki stores the data for all your notes.
+
+> **Note.** If you're new to Anki, or are unfamiliar with the terms *collection*,
+*profile*, *note*, or *card*, you may wish to take a look at the Anki
+[documentation](https://docs.ankiweb.net/intro.html).
+
+If you already know the path to the `.anki2` collection file you want to clone,
+skip to the [section on running the clone command][Running the clone command].
+
+
+### Finding the `.anki2` collection file
+
+To find your collection file, you must first find your Anki data directory. The
+location of this varies by operating system.
+
+In most cases, you should be able to find your data directory at the path given
+below for your respective OS:
+
+#### MacOS
+
+```
+~/Library/Application Support/Anki2
+```
+
+#### Windows
+
+```
+%APPDATA%\Anki2 
+```
+
+#### GNU/Linux
+```
+~/.local/share/Anki2
+```
+
+
+> **Note.** You can read more about the default Anki data directory locations
+[here](https://docs.ankiweb.net/files.html#file-locations).
+
+---
+
+
+If you are running Anki 2.1 (which you should be, because `ki` is not tested
+with lower versions), opening this directory will reveal several files and
+subdirectories. The following example output is from a machine running Debian
+GNU/Linux:
+
+```
+user@host:~/.local/share/Anki2$ ls
+ addons21   crash.log   prefs21.db   README.txt  'User 1'
+```
+In particular, there is a subdirectory for each **profile**. In the above
+example, there is only one profile, `User 1`. But, in general, there may be
+many profiles associated with a given Anki installation.
+
+Below you can see a visual representation of the directory structure of an
+Anki data directory with two profiles, `User 1`, and `User 2`:
+
+```bash
+Anki2/
+├── addons21
+│   ├── 1046608507
+│   ├── 109531687
+│   ├── 1097423555
+│   └── 1972239816
+├── crash.log
+├── prefs21.db
+├── README.txt
+├── User 1
+│   ├── backups
+│   ├── collection2.log
+│   ├── collection.anki2
+│   ├── collection.log
+│   ├── collection.media
+│   ├── collection.media.db2
+│   └── deleted.txt
+└── User 2
+    ├── collection.anki2
+    ├── collection.anki2-wal
+    └── collection.media
+```
+
+As you can see, there is a `collection.anki2` file in each profile
+subdirectory.
+
+If you're not sure of the name of your user profile, it can be seen in the
+title bar of the Anki desktop client:
+
+<p align="center">
+  <img width="460" src="anki.png">
+</p>
+
+And this is what we see when we enter the profile directory for `User 2` and
+list its contents:
+```
+user@host:~/.local/share/Anki2$ cd User\ 2/
+user@host:~/.local/share/Anki2/User 2$ ls
+collection.anki2  collection.anki2-wal  collection.media
+```
+
+So the path that we want is:
+```
+~/.local/share/Anki2/User\ 2/collection.anki2
+```
+
+### Running the `ki clone` command
+[Running the clone command]: #Running-the-ki-clone-command
+
+
 # How it works
 
 `ki` is built on top of existing tooling implemented in the python package
@@ -152,6 +278,8 @@ This appproach has several advantages:
    can be added easily.
 3. Users are free to pick the editor of their choice, perform batch editing
    with command line tools like `awk` or `sed`, and even add CI actions.
+
+
 
 
 # Model
