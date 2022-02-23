@@ -96,7 +96,7 @@ $ ki push
 Pushing to '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
 Verified md5sum matches latest hash in '/home/lyra/decks/.ki/hashes'
-Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49f35787
+Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49
 Writing changes to '/tmp/tmpyiids2qm/original.anki2'...
 100%|█████████████████████████████████| 2/2 [00:00<00:00, 1081.56it/s]
 Database was modified.
