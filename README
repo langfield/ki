@@ -80,6 +80,12 @@ TODO
   works as intended.
 - Test that push works when adding notes and with changes to the working tree
   or untracked files (uncommitted stuff).
+- Convert notemaps into namedtuples.
+- Test that clone cleans up directory if it aborts due to invalid DB path.
+- Test the media folder is cloned, and that a warning is printed if it isn't
+  found.
+- Add a section in docs that explains what a `ki` repository is.
+- Try pdoc instead of pdoc3.
 
 
 Triage
