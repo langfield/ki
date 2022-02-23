@@ -105,13 +105,15 @@ the merge themselves.</p>
 <p>An example of the <code>push</code> subcommand usage and its output is given below.</p>
 <pre><code class="language-bash">$ ki push
 </code></pre>
-<pre><code class="language-bash">Found .anki2 file at /home/lyra/.local/share/Anki2/lyra/collection.anki2
-Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Verified md5sum matches latest hash in '/home/lyra/.ki/hashes'
-Checked out latest commit at '/tmp/ki/local/'
-Generating local .anki2 file from latest commit
-Backing up original .anki2 file
-Overwriting collection
+<pre><code class="language-bash">Pushing to '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Verified md5sum matches latest hash in '/home/lyra/decks/.ki/hashes'
+Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49f35787
+Writing changes to '/tmp/tmpyiids2qm/original.anki2'...
+100%|█████████████████████████████████| 2/2 [00:00&lt;00:00, 1081.56it/s]
+Database was modified.
+Writing backup of .anki2 file to '/home/lyra/decks/.ki/backups'
+Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 </code></pre>
 <p>We store 5 backups of the collection prior to a push.</p>
 <blockquote>
@@ -595,20 +597,24 @@ def push() -&gt; None:
         update_last_push_commit_sha(repo)
         return
 
-    click.secho(&#34;ki push: nontrivial push.&#34;, bold=True)
+    hashes_path = os.path.join(repo_kidir, &#39;hashes&#39;)
+    echo(f&#34;Pushing to &#39;{collection}&#39;&#34;)
+    echo(f&#34;Computed md5sum: {md5sum}&#34;)
+    echo(f&#34;Verified md5sum matches latest hash in &#39;{hashes_path}&#39;&#34;)
 
     # Copy collection to a temp directory.
     new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
+    echo(f&#34;Generating local .anki2 file from latest commit: {sha}&#34;)
+    echo(f&#34;Writing changes to &#39;{new_collection}&#39;...&#34;)
 
     # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
 
         # DEBUG
         nids = list(a.col.find_notes(&#34;&#34;))
-        logger.debug(f&#34;Initial note count: {len(nids)}&#34;)
 
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
@@ -621,7 +627,6 @@ def push() -&gt; None:
 
         p = subprocess.run([&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;], check=False, capture_output=True)
         stash_ref = p.stdout.decode()
-        logger.debug(f&#34;Stash ref: {stash_ref}&#34;)
 
         # Stash both unstaged and staged files (including untracked).
         repo.git.stash(include_untracked=True, keep_index=True)
@@ -633,19 +638,14 @@ def push() -&gt; None:
         # standalone function and tested without anything related to Anki.
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
-            logger.debug(f&#34;Handling modified notepath {notepath}&#34;)
-
             # If the file doesn&#39;t exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
             if not os.path.isfile(notepath):
-                logger.debug(f&#34;Couldn&#39;t find notepath {notepath}&#34;)
-                logger.debug(&#34;Deleting.&#34;)
                 deleted_file = os.path.basename(notepath)
                 deleted_path = os.path.join(deletions_repo.working_dir, deleted_file)
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
-                logger.debug(f&#34;Got nids {nids} from deleted path {deleted_path}&#34;)
                 delete_notes(a, nids)
                 continue
 
@@ -705,7 +705,6 @@ def push() -&gt; None:
 
         p = subprocess.run([&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;], check=False, capture_output=True)
         new_stash_ref = p.stdout.decode()
-        logger.debug(f&#34;Stash ref: {new_stash_ref}&#34;)
 
         # Display warnings.
         for line in log:
@@ -713,18 +712,17 @@ def push() -&gt; None:
 
         # DEBUG
         nids = list(a.col.find_notes(&#34;&#34;))
-        logger.debug(f&#34;Final note count: {len(nids)}&#34;)
 
     assert os.path.isfile(new_collection)
 
     # Backup collection file and overwrite collection.
     backup(collection)
     shutil.copyfile(new_collection, collection)
+    echo(f&#34;Overwrote &#39;{collection}&#39;&#34;)
 
     # Append to hashes file.
     new_md5sum = md5(new_collection)
-    echo(f&#34;Computed new md5sum: {new_md5sum}&#34;)
-    append_md5sum(os.path.join(cwd, &#34;.ki&#34;), new_collection, new_md5sum)
+    append_md5sum(os.path.join(cwd, &#34;.ki&#34;), new_collection, new_md5sum, silent=True)
 
     # Update LAST_PUSH commit SHA file and unlock DB.
     update_last_push_commit_sha(repo)
@@ -741,8 +739,6 @@ def delete_notes(apyanki: Anki, ids: Sequence[int]) -&gt; None:
         ids = [ids]
 
     op_changes = apyanki.col.remove_notes(ids)
-    logger.debug(f&#34;op_changes: {op_changes}&#34;)
-    logger.debug(f&#34;op_changes (type): {type(op_changes)}&#34;)
     apyanki.modified = True
 
 
@@ -898,6 +894,7 @@ def backup(collection: str) -&gt; None:
         click.secho(&#34;Backup already exists.&#34;, bold=True)
         return
     assert not os.path.isfile(backup_path)
+    echo(f&#34;Writing backup of .anki2 file to &#39;{backupsdir}&#39;&#34;)
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)
 
@@ -947,9 +944,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -&gt; Sequence[str]:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
-                logger.debug(f&#34;a_blob: {diff.a_blob}&#34;)
-                logger.debug(f&#34;b_blob: {diff.b_blob}&#34;)
-                logger.debug(f&#34;diff: {diff.diff}&#34;)
         paths = [os.path.join(repo.working_dir, file) for file in files]
         paths = set(paths)
 
@@ -1199,6 +1193,7 @@ def backup(collection: str) -&gt; None:
         click.secho(&#34;Backup already exists.&#34;, bold=True)
         return
     assert not os.path.isfile(backup_path)
+    echo(f&#34;Writing backup of .anki2 file to &#39;{backupsdir}&#39;&#34;)
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)</code></pre>
 </details>
@@ -1219,8 +1214,6 @@ def delete_notes(apyanki: Anki, ids: Sequence[int]) -&gt; None:
         ids = [ids]
 
     op_changes = apyanki.col.remove_notes(ids)
-    logger.debug(f&#34;op_changes: {op_changes}&#34;)
-    logger.debug(f&#34;op_changes (type): {type(op_changes)}&#34;)
     apyanki.modified = True</code></pre>
 </details>
 </dd>
@@ -1426,9 +1419,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -&gt; Sequence[str]:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
-                logger.debug(f&#34;a_blob: {diff.a_blob}&#34;)
-                logger.debug(f&#34;b_blob: {diff.b_blob}&#34;)
-                logger.debug(f&#34;diff: {diff.diff}&#34;)
         paths = [os.path.join(repo.working_dir, file) for file in files]
         paths = set(paths)
 
