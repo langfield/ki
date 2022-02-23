@@ -36,16 +36,17 @@ Anki decks in exactly the same way they work on large, complex software
 projects.</p>
 <p><code><a title="ki" href="#ki">ki</a></code> provides command-line functions to:</p>
 <ol>
-<li><strong>clone</strong> a <code>.anki2</code> collection into a directory as a git repository,</li>
+<li><strong>clone</strong> a <code>.anki2</code> collection into a directory as a git repository.</li>
 <li><strong>pull</strong> changes from the Anki desktop client (and AnkiWeb) into an existing
-repository,</li>
+repository.</li>
 <li><strong>push</strong> changes (safely!) back to Anki.</li>
 </ol>
-<blockquote>
-<p><strong>INTERNAL.</strong> Perhaps we should support making each deck a separate git
-submodule, so that users can have collaborative decks and work on them within
-their own collections.</p>
-</blockquote>
+<h3 id="source-code">Source code</h3>
+<p>This is documentation for the <code><a title="ki" href="#ki">ki</a></code>
+<a href="https://github.com/langfield/ki">repository</a>. If you have <code>git</code>, you can clone
+a local copy of the source code by running the following command in a terminal:</p>
+<pre><code class="language-bash">git clone git@github.com:langfield/ki.git
+</code></pre>
 <h1 id="installation">Installation</h1>
 <p><code><a title="ki" href="#ki">ki</a></code> is tested on Python 3.9 and Anki 2.1.49.</p>
 <ol>
@@ -138,6 +139,95 @@ What sort of object is `\(C_0(X)\)`?
 ## Back
 A Banach algebra, and more specifically a `\(C^*\)`-algebra
 </code></pre>
+<h1 id="getting-started">Getting started</h1>
+<p>This section will walk through the following example workflow:</p>
+<ol>
+<li><strong>Cloning</strong> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
+<li><strong>Downloading</strong> a collaborative deck from <a href="https://github.com/">GitHub</a>.</li>
+<li><strong>Pulling</strong> other users' changes to the deck from <a href="https://github.com/">GitHub</a>.</li>
+<li><strong>Editing</strong> the collaborative deck.</li>
+<li><strong>Pushing</strong> those edits back to <a href="https://github.com/">GitHub</a>.</li>
+</ol>
+<h2 id="cloning-a-collection">Cloning a collection</h2>
+<p>Before cloning, you'll need to find your <code>.anki2</code> collection file.
+This is where Anki stores the data for all your notes.</p>
+<blockquote>
+<p><strong>Note.</strong> If you're new to Anki, or are unfamiliar with the terms <em>collection</em>,
+<em>profile</em>, <em>note</em>, or <em>card</em>, you may wish to take a look at the Anki
+<a href="https://docs.ankiweb.net/intro.html">documentation</a>.</p>
+</blockquote>
+<p>If you already know the path to the <code>.anki2</code> collection file you want to clone,
+skip to the <a href="#Running-the-ki-clone-command">section on running the clone command</a>.</p>
+<h3 id="finding-the-anki2-collection-file">Finding the <code>.anki2</code> collection file</h3>
+<p>To find your collection file, you must first find your Anki data directory. The
+location of this varies by operating system.</p>
+<p>In most cases, you should be able to find your data directory at the path given
+below for your respective OS:</p>
+<h4 id="macos">MacOS</h4>
+<pre><code>~/Library/Application Support/Anki2
+</code></pre>
+<h4 id="windows">Windows</h4>
+<pre><code>%APPDATA%\Anki2 
+</code></pre>
+<h4 id="gnulinux">GNU/Linux</h4>
+<pre><code>~/.local/share/Anki2
+</code></pre>
+<blockquote>
+<p><strong>Note.</strong> You can read more about the default Anki data directory locations
+<a href="https://docs.ankiweb.net/files.html#file-locations">here</a>.</p>
+</blockquote>
+<hr>
+<p>If you are running Anki 2.1 (which you should be, because <code><a title="ki" href="#ki">ki</a></code> is not tested
+with lower versions), opening this directory will reveal several files and
+subdirectories. The following example output is from a machine running Debian
+GNU/Linux:</p>
+<pre><code>user@host:~/.local/share/Anki2$ ls
+ addons21   crash.log   prefs21.db   README.txt  'User 1'
+</code></pre>
+<p>In particular, there is a subdirectory for each <strong>profile</strong>. In the above
+example, there is only one profile, <code>User 1</code>. But, in general, there may be
+many profiles associated with a given Anki installation.</p>
+<p>Below you can see a visual representation of the directory structure of an
+Anki data directory with two profiles, <code>User 1</code>, and <code>User 2</code>:</p>
+<pre><code class="language-bash">Anki2/
+├── addons21
+│   ├── 1046608507
+│   ├── 109531687
+│   ├── 1097423555
+│   └── 1972239816
+├── crash.log
+├── prefs21.db
+├── README.txt
+├── User 1
+│   ├── backups
+│   ├── collection2.log
+│   ├── collection.anki2
+│   ├── collection.log
+│   ├── collection.media
+│   ├── collection.media.db2
+│   └── deleted.txt
+└── User 2
+    ├── collection.anki2
+    ├── collection.anki2-wal
+    └── collection.media
+</code></pre>
+<p>As you can see, there is a <code>collection.anki2</code> file in each profile
+subdirectory.</p>
+<p>If you're not sure of the name of your user profile, it can be seen in the
+title bar of the Anki desktop client:</p>
+<p align="center">
+<img width="460" src="anki.png">
+</p>
+<p>And this is what we see when we enter the profile directory for <code>User 2</code> and
+list its contents:</p>
+<pre><code>user@host:~/.local/share/Anki2$ cd User\ 2/
+user@host:~/.local/share/Anki2/User 2$ ls
+collection.anki2  collection.anki2-wal  collection.media
+</code></pre>
+<p>So the path that we want is:</p>
+<pre><code>~/.local/share/Anki2/User\ 2/collection.anki2
+</code></pre>
+<h3 id="running-the-ki-clone-command">Running the <code><a title="ki" href="#ki">ki</a> clone</code> command</h3>
 <h1 id="how-it-works">How it works</h1>
 <p><code><a title="ki" href="#ki">ki</a></code> is built on top of existing tooling implemented in the python package
 <a href="https://github.com/lervag/apy"><code>apy</code></a>, which is used to parse the Anki
@@ -428,7 +518,11 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -&gt; git.Re
     # Create default target directory.
     if directory == &#34;&#34;:
         directory = get_default_clone_directory(collection)
-    os.mkdir(directory)
+    if os.path.isdir(directory):
+        if len(os.listdir(directory)) &gt; 0:
+            raise FileExistsError
+    else:
+        os.mkdir(directory)
 
     # Create .ki subdirectory.
     kidir = os.path.join(directory, &#34;.ki/&#34;)
@@ -597,7 +691,7 @@ def push() -&gt; None:
         update_last_push_commit_sha(repo)
         return
 
-    hashes_path = os.path.join(repo_kidir, &#39;hashes&#39;)
+    hashes_path = os.path.join(repo_kidir, &#34;hashes&#34;)
     echo(f&#34;Pushing to &#39;{collection}&#39;&#34;)
     echo(f&#34;Computed md5sum: {md5sum}&#34;)
     echo(f&#34;Verified md5sum matches latest hash in &#39;{hashes_path}&#39;&#34;)
@@ -625,7 +719,11 @@ def push() -&gt; None:
 
         new_nid_path_map = {}
 
-        p = subprocess.run([&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;], check=False, capture_output=True)
+        p = subprocess.run(
+            [&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;],
+            check=False,
+            capture_output=True,
+        )
         stash_ref = p.stdout.decode()
 
         # Stash both unstaged and staged files (including untracked).
@@ -646,7 +744,8 @@ def push() -&gt; None:
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
-                delete_notes(a, nids)
+                a.col.remove_notes(nids)
+                a.modified = True
                 continue
 
             # Track whether Anki reassigned any nids.
@@ -703,7 +802,11 @@ def push() -&gt; None:
             repo.git.add(all=True)
             _ = repo.index.commit(msg)
 
-        p = subprocess.run([&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;], check=False, capture_output=True)
+        p = subprocess.run(
+            [&#34;git&#34;, &#34;rev-parse&#34;, &#34;-q&#34;, &#34;--verify&#34;, &#34;refs/stash&#34;],
+            check=False,
+            capture_output=True,
+        )
         new_stash_ref = p.stdout.decode()
 
         # Display warnings.
@@ -730,16 +833,6 @@ def push() -&gt; None:
 
 
 # UTILS
-
-
-@beartype
-def delete_notes(apyanki: Anki, ids: Sequence[int]) -&gt; None:
-    &#34;&#34;&#34;Delete notes by note ids&#34;&#34;&#34;
-    if not isinstance(ids, list):
-        ids = [ids]
-
-    op_changes = apyanki.col.remove_notes(ids)
-    apyanki.modified = True
 
 
 @beartype
@@ -1006,7 +1099,9 @@ def echo(string: str, silent: bool = False) -&gt; None:
 
 
 @beartype
-def append_md5sum(kidir: str, collection: str, md5sum: str, silent: bool = False) -&gt; None:
+def append_md5sum(
+    kidir: str, collection: str, md5sum: str, silent: bool = False
+) -&gt; None:
     &#34;&#34;&#34;Append an md5sum hash to the hashes file.&#34;&#34;&#34;
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, &#34;hashes&#34;)
@@ -1162,7 +1257,9 @@ def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -&gt; KiNote:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def append_md5sum(kidir: str, collection: str, md5sum: str, silent: bool = False) -&gt; None:
+def append_md5sum(
+    kidir: str, collection: str, md5sum: str, silent: bool = False
+) -&gt; None:
     &#34;&#34;&#34;Append an md5sum hash to the hashes file.&#34;&#34;&#34;
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, &#34;hashes&#34;)
@@ -1196,25 +1293,6 @@ def backup(collection: str) -&gt; None:
     echo(f&#34;Writing backup of .anki2 file to &#39;{backupsdir}&#39;&#34;)
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)</code></pre>
-</details>
-</dd>
-<dt id="ki.delete_notes"><code class="name flex">
-<span>def <span class="ident">delete_notes</span></span>(<span>apyanki: apy.anki.Anki, ids: collections.abc.Sequence) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Delete notes by note ids</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def delete_notes(apyanki: Anki, ids: Sequence[int]) -&gt; None:
-    &#34;&#34;&#34;Delete notes by note ids&#34;&#34;&#34;
-    if not isinstance(ids, list):
-        ids = [ids]
-
-    op_changes = apyanki.col.remove_notes(ids)
-    apyanki.modified = True</code></pre>
 </details>
 </dd>
 <dt id="ki.echo"><code class="name flex">
@@ -1640,6 +1718,7 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <h1>Index</h1>
 <div class="toc">
 <ul>
+<li><a href="#source-code">Source code</a></li>
 <li><a href="#installation">Installation</a></li>
 <li><a href="#usage">Usage</a><ul>
 <li><a href="#cloning-an-anki-collection-into-a-new-ki-repository">Cloning an Anki collection into a new ki repository</a></li>
@@ -1648,6 +1727,19 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 </ul>
 </li>
 <li><a href="#editing-notes">Editing notes</a></li>
+<li><a href="#getting-started">Getting started</a><ul>
+<li><a href="#cloning-a-collection">Cloning a collection</a><ul>
+<li><a href="#finding-the-anki2-collection-file">Finding the .anki2 collection file</a><ul>
+<li><a href="#macos">MacOS</a></li>
+<li><a href="#windows">Windows</a></li>
+<li><a href="#gnulinux">GNU/Linux</a></li>
+</ul>
+</li>
+<li><a href="#running-the-ki-clone-command">Running the ki clone command</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li><a href="#how-it-works">How it works</a></li>
 <li><a href="#model">Model</a></li>
 <li><a href="#generating-html">Generating html</a><ul>
@@ -1670,7 +1762,6 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <li><code><a title="ki.add_note_from_notemap" href="#ki.add_note_from_notemap">add_note_from_notemap</a></code></li>
 <li><code><a title="ki.append_md5sum" href="#ki.append_md5sum">append_md5sum</a></code></li>
 <li><code><a title="ki.backup" href="#ki.backup">backup</a></code></li>
-<li><code><a title="ki.delete_notes" href="#ki.delete_notes">delete_notes</a></code></li>
 <li><code><a title="ki.echo" href="#ki.echo">echo</a></code></li>
 <li><code><a title="ki.get_default_clone_directory" href="#ki.get_default_clone_directory">get_default_clone_directory</a></code></li>
 <li><code><a title="ki.get_ephemeral_repo" href="#ki.get_ephemeral_repo">get_ephemeral_repo</a></code></li>
