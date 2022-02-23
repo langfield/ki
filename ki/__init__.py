@@ -351,7 +351,8 @@ def push() -> None:
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
-                delete_notes(a, nids)
+                a.col.remove_notes(nids)
+                a.modified = True
                 continue
 
             # Track whether Anki reassigned any nids.
@@ -439,16 +440,6 @@ def push() -> None:
 
 
 # UTILS
-
-
-@beartype
-def delete_notes(apyanki: Anki, ids: Sequence[int]) -> None:
-    """Delete notes by note ids"""
-    if not isinstance(ids, list):
-        ids = [ids]
-
-    op_changes = apyanki.col.remove_notes(ids)
-    apyanki.modified = True
 
 
 @beartype

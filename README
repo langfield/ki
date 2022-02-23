@@ -20,7 +20,7 @@ TODO
 - Add `shell-doctest` tests for CLI subcommands. (NO)
 - Add implementations of `clone`, `pull`, and `push`. (DONE)
 - Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
-- Make clone work on empty directories to match `git` behavior.
+- Make clone work on empty directories to match `git` behavior. (DONE)
 - Test utilities.
 - Handle file deletion. (DONE)
 - Try doing one file per deck, and see if this is faster.
