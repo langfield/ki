@@ -139,7 +139,9 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
         config.write(config_file)
 
     # Append to hashes file.
-    append_md5sum(kidir, collection, silent)
+    md5sum = md5(collection)
+    echo(f"Computed md5sum: {md5sum}", silent)
+    append_md5sum(kidir, collection, md5sum, silent)
     echo(f"Cloning into '{directory}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
@@ -188,25 +190,27 @@ def pull() -> None:
         unlock(con)
         return
 
-    # Clone `repo` into an ephemeral repo at commit SHA of last successful `push()`.
+    echo(f"Pulling from '{collection}'")
+    echo(f"Computed md5sum: {md5sum}")
+
+    # Git clone `repo` at commit SHA of last successful `push()`.
     cwd = os.getcwd()
     repo = git.Repo(cwd)
     last_push_sha = get_last_push_sha(repo)
     last_push_repo = get_ephemeral_repo("ki/local/", repo, md5sum, last_push_sha)
 
-    # Ki clone into another ephemeral repo and unlock DB.
+    # Ki clone collection into an ephemeral ki repository at `anki_remote_dir`.
     msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
     root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
     os.makedirs(root)
     anki_remote_dir = os.path.join(root, md5sum)
     _clone(collection, anki_remote_dir, msg, silent=True)
-    unlock(con)
 
-    # Create remote pointing to anki repo.
+    # Create git remote pointing to anki remote repo.
     anki_remote_path = os.path.join(anki_remote_dir, ".git")
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_path)
 
-    # Pull anki remote ephemeral repo into ``last_push_repo``.
+    # Pull anki remote repo into ``last_push_repo``.
     os.chdir(last_push_repo.working_dir)
     last_push_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
@@ -240,10 +244,11 @@ def pull() -> None:
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    append_md5sum(os.path.join(cwd, ".ki"), collection)
+    append_md5sum(os.path.join(cwd, ".ki"), collection, md5sum)
 
     # Check that md5sum hasn't changed.
     assert md5(collection) == md5sum
+    unlock(con)
 
 
 @ki.command()
@@ -411,16 +416,18 @@ def push() -> None:
 
     assert os.path.isfile(new_collection)
 
-    # Backup collection file, overwrite collection, and unlock DB.
+    # Backup collection file and overwrite collection.
     backup(collection)
     shutil.copyfile(new_collection, collection)
-    unlock(con)
 
     # Append to hashes file.
-    append_md5sum(os.path.join(cwd, ".ki"), new_collection)
+    new_md5sum = md5(new_collection)
+    echo(f"Computed new md5sum: {new_md5sum}")
+    append_md5sum(os.path.join(cwd, ".ki"), new_collection, new_md5sum)
 
-    # Update LAST_PUSH commit SHA file.
+    # Update LAST_PUSH commit SHA file and unlock DB.
     update_last_push_commit_sha(repo)
+    unlock(con)
 
 
 # UTILS
@@ -704,10 +711,8 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def append_md5sum(kidir: str, collection: str, silent: bool = False) -> None:
+def append_md5sum(kidir: str, collection: str, md5sum: str, silent: bool = False) -> None:
     """Append an md5sum hash to the hashes file."""
-    md5sum = md5(collection)
-    echo(f"Computed md5sum: {md5sum}", silent)
     basename = os.path.basename(collection)
     hashes_path = os.path.join(kidir, "hashes")
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:

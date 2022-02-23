@@ -50,12 +50,20 @@ An example of the `pull` subcommand usage and its output is given below.
 $ ki pull
 ```
 ```bash
-Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
-Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Wrote md5sum to '/home/lyra/.ki/hashes'
-Cloning .anki2 database into ephemeral repository at '/tmp/ki/remote/'
-Running 'git remote add origin /tmp/ki/remote/ad7ea6d4.git'
-Running 'git pull'
+Pulling from '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Updating 5a9ef09..9c30b73
+Fast-forward
+ note1645010162168.md |  4 ++--
+ note1645222430007.md | 11 +++++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+ create mode 100644 note1645222430007.md
+
+From /tmp/tmpt5a3yd9a/ki/local/199216c39eeabe23a1da016a99ffd3e2/
+ * branch            main       -> FETCH_HEAD
+ * [new branch]      main       -> anki/main
+
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
 ```
 
 `ki` first deletes any residual ephemeral repositories in `/tmp/ki/remote/`.
