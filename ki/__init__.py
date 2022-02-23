@@ -307,7 +307,6 @@ def push() -> None:
 
         # DEBUG
         nids = list(a.col.find_notes(""))
-        logger.debug(f"Initial note count: {len(nids)}")
 
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
@@ -320,7 +319,6 @@ def push() -> None:
 
         p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
         stash_ref = p.stdout.decode()
-        logger.debug(f"Stash ref: {stash_ref}")
 
         # Stash both unstaged and staged files (including untracked).
         repo.git.stash(include_untracked=True, keep_index=True)
@@ -332,19 +330,14 @@ def push() -> None:
         # standalone function and tested without anything related to Anki.
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
 
-            logger.debug(f"Handling modified notepath {notepath}")
-
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
             if not os.path.isfile(notepath):
-                logger.debug(f"Couldn't find notepath {notepath}")
-                logger.debug("Deleting.")
                 deleted_file = os.path.basename(notepath)
                 deleted_path = os.path.join(deletions_repo.working_dir, deleted_file)
 
                 assert os.path.isfile(deleted_path)
                 nids = get_nids(deleted_path)
-                logger.debug(f"Got nids {nids} from deleted path {deleted_path}")
                 delete_notes(a, nids)
                 continue
 
@@ -404,7 +397,6 @@ def push() -> None:
 
         p = subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/stash"], check=False, capture_output=True)
         new_stash_ref = p.stdout.decode()
-        logger.debug(f"Stash ref: {new_stash_ref}")
 
         # Display warnings.
         for line in log:
@@ -412,7 +404,6 @@ def push() -> None:
 
         # DEBUG
         nids = list(a.col.find_notes(""))
-        logger.debug(f"Final note count: {len(nids)}")
 
     assert os.path.isfile(new_collection)
 
@@ -440,8 +431,6 @@ def delete_notes(apyanki: Anki, ids: Sequence[int]) -> None:
         ids = [ids]
 
     op_changes = apyanki.col.remove_notes(ids)
-    logger.debug(f"op_changes: {op_changes}")
-    logger.debug(f"op_changes (type): {type(op_changes)}")
     apyanki.modified = True
 
 
@@ -646,9 +635,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
-                logger.debug(f"a_blob: {diff.a_blob}")
-                logger.debug(f"b_blob: {diff.b_blob}")
-                logger.debug(f"diff: {diff.diff}")
         paths = [os.path.join(repo.working_dir, file) for file in files]
         paths = set(paths)
 
