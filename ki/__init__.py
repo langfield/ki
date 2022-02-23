@@ -294,13 +294,18 @@ def push() -> None:
         update_last_push_commit_sha(repo)
         return
 
-    click.secho("ki push: nontrivial push.", bold=True)
+    hashes_path = os.path.join(repo_kidir, 'hashes')
+    echo(f"Pushing to '{collection}'")
+    echo(f"Computed md5sum: {md5sum}")
+    echo(f"Verified md5sum matches latest hash in '{hashes_path}'")
 
     # Copy collection to a temp directory.
     new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
     assert not os.path.isfile(new_collection)
     assert not os.path.isdir(new_collection)
     shutil.copyfile(collection, new_collection)
+    echo(f"Generating local .anki2 file from latest commit: {sha}")
+    echo(f"Writing changes to '{new_collection}'...")
 
     # Edit the copy with `apy`.
     with Anki(path=new_collection) as a:
@@ -410,11 +415,11 @@ def push() -> None:
     # Backup collection file and overwrite collection.
     backup(collection)
     shutil.copyfile(new_collection, collection)
+    echo(f"Overwrote '{collection}'")
 
     # Append to hashes file.
     new_md5sum = md5(new_collection)
-    echo(f"Computed new md5sum: {new_md5sum}")
-    append_md5sum(os.path.join(cwd, ".ki"), new_collection, new_md5sum)
+    append_md5sum(os.path.join(cwd, ".ki"), new_collection, new_md5sum, silent=True)
 
     # Update LAST_PUSH commit SHA file and unlock DB.
     update_last_push_commit_sha(repo)
@@ -586,6 +591,7 @@ def backup(collection: str) -> None:
         click.secho("Backup already exists.", bold=True)
         return
     assert not os.path.isfile(backup_path)
+    echo(f"Writing backup of .anki2 file to '{backupsdir}'")
     shutil.copyfile(collection, backup_path)
     assert os.path.isfile(backup_path)
 
