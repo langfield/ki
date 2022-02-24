@@ -144,25 +144,25 @@ A Banach algebra, and more specifically a `\(C^*\)`-algebra
 <ol>
 <li><strong>Cloning</strong> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
 <li><strong>Downloading</strong> a collaborative deck from <a href="https://github.com/">GitHub</a>.</li>
-<li><strong>Pulling</strong> other users' changes to the deck from <a href="https://github.com/">GitHub</a>.</li>
 <li><strong>Editing</strong> the collaborative deck.</li>
-<li><strong>Pushing</strong> those edits back to <a href="https://github.com/">GitHub</a>.</li>
+<li><strong>Pulling</strong> other users' changes to the deck from <a href="https://github.com/">GitHub</a>.</li>
+<li><strong>Pushing</strong> edits back to <a href="https://github.com/">GitHub</a>.</li>
 </ol>
 <h2 id="cloning-a-collection">Cloning a collection</h2>
-<p>Before cloning, you'll need to find your <code>.anki2</code> collection file.
-This is where Anki stores the data for all your notes.</p>
+<p>Before cloning, you'll need to find our <code>.anki2</code> collection file.
+This is where Anki stores the data for all our notes.</p>
 <blockquote>
 <p><strong>Note.</strong> If you're new to Anki, or are unfamiliar with the terms <em>collection</em>,
 <em>profile</em>, <em>note</em>, or <em>card</em>, you may wish to take a look at the Anki
 <a href="https://docs.ankiweb.net/intro.html">documentation</a>.</p>
 </blockquote>
 <p>If you already know the path to the <code>.anki2</code> collection file you want to clone,
-skip to the <a href="#Running-the-ki-clone-command">section on running the clone command</a>.</p>
+skip to the section on <a href="#running-the-ki-clone-command">running the clone command</a>.</p>
 <h3 id="finding-the-anki2-collection-file">Finding the <code>.anki2</code> collection file</h3>
-<p>To find your collection file, you must first find your Anki data directory. The
+<p>To find our collection file, we must first find our Anki data directory. The
 location of this varies by operating system.</p>
 <p>In most cases, you should be able to find your data directory at the path given
-below for your respective OS:</p>
+below for our respective OS:</p>
 <h4 id="macos">MacOS</h4>
 <pre><code>~/Library/Application Support/Anki2
 </code></pre>
@@ -187,7 +187,7 @@ GNU/Linux:</p>
 <p>In particular, there is a subdirectory for each <strong>profile</strong>. In the above
 example, there is only one profile, <code>User 1</code>. But, in general, there may be
 many profiles associated with a given Anki installation.</p>
-<p>Below you can see a visual representation of the directory structure of an
+<p>Below we can see a visual representation of the directory structure of an
 Anki data directory with two profiles, <code>User 1</code>, and <code>User 2</code>:</p>
 <pre><code class="language-bash">Anki2/
 ├── addons21
@@ -211,8 +211,7 @@ Anki data directory with two profiles, <code>User 1</code>, and <code>User 2</co
     ├── collection.anki2-wal
     └── collection.media
 </code></pre>
-<p>As you can see, there is a <code>collection.anki2</code> file in each profile
-subdirectory.</p>
+<p>Note that there is a <code>collection.anki2</code> file in each profile subdirectory.</p>
 <p>If you're not sure of the name of your user profile, it can be seen in the
 title bar of the Anki desktop client:</p>
 <p align="center">
@@ -227,7 +226,79 @@ collection.anki2  collection.anki2-wal  collection.media
 <p>So the path that we want is:</p>
 <pre><code>~/.local/share/Anki2/User\ 2/collection.anki2
 </code></pre>
-<h3 id="running-the-ki-clone-command">Running the <code><a title="ki" href="#ki">ki</a> clone</code> command</h3>
+<h3 id="running-the-clone-command">Running the clone command</h3>
+<p>Now we're ready to actually clone the collection into a repository. The <code>ki
+clone&lt;code&gt; command works similarly to &lt;/code&gt;git clone</code>, in that it will create a new
+repository directory <em>within</em> the current working directory. So if we want to
+clone our collection into a new subdirectory in <code>~/</code> (the home directory on
+macOS and GNU/Linux), we would make sure we're in the home directory, and then
+run the command:</p>
+<pre><code class="language-bash">ki clone ~/.local/share/Anki2/User 2/collection.anki2
+</code></pre>
+<p>And when we do that, we should see output that looks similar to this:</p>
+<pre><code class="language-bash">lyra@oxford$ ki clone ~/.local/share/Anki2/User 2/collection.anki2
+Found .anki2 file at '/home/lyra/.local/share/Anki2/User 2/collection.anki2'
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to '/home/lyra/collection/.ki/hashes'
+Cloning into '/home/lyra/collection/'...
+100%|█████████████████████████| 28886/28886 [00:10&lt;00:00, 2883.78it/s]
+</code></pre>
+<p>If we list the contents of the home directory, we can see that <code><a title="ki" href="#ki">ki</a></code> did
+indeed create a new directory called <code>collection</code>:</p>
+<pre><code class="language-bash">lyra@oxford:~$ ls
+collection  pkgs
+</code></pre>
+<h2 id="downloading-a-collaborative-deck-from-github">Downloading a collaborative deck from GitHub</h2>
+<p>Now that we've created our first <code><a title="ki" href="#ki">ki</a></code> repository, we might want to try our hand
+at collaborating on a deck with other Anki users. We won't actually need to
+make use of the <code><a title="ki" href="#ki">ki</a></code> program to do this, because <strong><code><a title="ki" href="#ki">ki</a></code> repositories are also
+git repositories</strong>, and so we can clone collaborative decks from GitHub as
+<code>git-submodules</code> of our collection repo.</p>
+<blockquote>
+<p><strong>Note.</strong> If you're completely unfamiliar with <code>git</code>, consider reading this
+short
+<a href="https://blog.teamtreehouse.com/git-for-designers-part-1">introduction</a>.</p>
+</blockquote>
+<p>Recall that we were in our home directory at the end of the last section:</p>
+<pre><code class="language-bash">lyra@oxford:~$ ls
+collection  pkgs
+</code></pre>
+<p>To add a collaborative deck repo as a submodule, we'll first need to change
+directories to the newly cloned <code><a title="ki" href="#ki">ki</a></code> repo:</p>
+<pre><code class="language-bash">lyra@oxford:~$ cd collection/
+lyra@oxford:~/collection$ ls --classify
+algebras/ groups/ rings/
+</code></pre>
+<p>We see that we have three directories, which represent three Anki decks. This
+is just an example; you'll see directories corresponding to the top-level decks
+in our Anki collection.</p>
+<blockquote>
+<p><strong>Note.</strong> The <code>ls --classify</code> command adds a trailing <code>/</code> to the end of
+directories to distinguish them from ordinary files.</p>
+</blockquote>
+<p>Suppose we want to add the collaborative deck
+<a href="https://github.com/langfield/manifolds.git">https://github.com/langfield/manifolds.git</a>
+to our collection. We can do that by running the command:</p>
+<pre><code class="language-bash">git-submodule add https://github.com/langfield/manifolds.git
+</code></pre>
+<p>which yields the output:</p>
+<pre><code class="language-bash">lyra@oxford~/collection$ git-submodule add https://github.com/langfield/manifolds.git
+Cloning into 'manifolds'...
+remote: Counting objects: 11, done.
+remote: Compressing objects: 100% (10/10), done.
+remote: Total 11 (delta 0), reused 11 (delta 0)
+Unpacking objects: 100% (11/11), done.
+Checking connectivity... done.
+</code></pre>
+<p>And we can see that the command was successful because we have a new
+directory/deck called <code>manifolds</code> in our repo:</p>
+<pre><code class="language-bash">lyra@oxford:~$ cd collection/
+lyra@oxford:~/collection$ ls --classify
+algebras/ groups/ manifolds/ rings/
+</code></pre>
+<h2 id="editing-a-collaborative-deck">Editing a collaborative deck</h2>
+<p>After we've cloned the <code>manifolds</code> deck repository into a submodule of our <code><a title="ki" href="#ki">ki</a></code>
+repository, we may want to make some edits to the deck.</p>
 <h1 id="how-it-works">How it works</h1>
 <p><code><a title="ki" href="#ki">ki</a></code> is built on top of existing tooling implemented in the python package
 <a href="https://github.com/lervag/apy"><code>apy</code></a>, which is used to parse the Anki
@@ -367,7 +438,7 @@ regenerated the note field HTML when converting the repository back into a
 <p>And in fact, this is possible. We first fork the addon so we can add some extra
 data to our generated HTML. In particular, we'd like to add an attribute
 <code>ki-src</code> whose value is the UTF-8 encoded source code. In general, this will be
-the encoded version of the source of whatever you'd like to autoformat.</p>
+the encoded version of the source of whatever we'd like to autoformat.</p>
 <p>We also add a <code>ki-formatter</code> attribute, whose value is an identifier that
 specifies a custom python module (we must implement this) that transforms the
 (possibly edited) <code>ki-src</code> text back into a HTML element of the form seen
@@ -379,14 +450,14 @@ has to change the opening tag of the snippet above to look like:</p>
 <p>All <code><a title="ki" href="#ki">ki</a></code> needs is the original text of the code block prior to html formatting,
 and a function that can reapply the formatting to the modified text. Since the
 html table was generated by an addon, we already have a python function for
-this, and in general you can provide a <code>~/.config/ki/ki.json</code> file that maps
+this, and in general we can provide a <code>~/.config/ki/ki.json</code> file that maps
 implementation IDs to paths of python modules. The module must have a top-level
-function defined of the form <code>format(text: str) -&gt; bs4.Tag</code>. If you have an
-addon implementation, you can import it here and use it in your <code>format()</code>
-implementation. you can add a <code><a title="ki" href="#ki">ki</a></code> attribute whose value is the base64 encoding
-of the code block, and a <code>implementation</code> attribute whose value is the name of
-a function. At import-time, <code><a title="ki" href="#ki">ki</a></code> will decode this and write the human-readable
-source to the relevant markdown file instead.</p>
+function defined of the form <code>format(text: str) -&gt; bs4.Tag</code>.</p>
+<p>If we have an addon implementation, we can import it here and use it in our
+<code>format()</code> implementation. We can add a <code><a title="ki" href="#ki">ki</a></code> attribute whose value is the
+base64 encoding of the code block, and a <code>implementation</code> attribute whose value
+is the name of a function. At import-time, <code><a title="ki" href="#ki">ki</a></code> will decode this and write the
+human-readable source to the relevant markdown file instead.</p>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -1735,9 +1806,11 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <li><a href="#gnulinux">GNU/Linux</a></li>
 </ul>
 </li>
-<li><a href="#running-the-ki-clone-command">Running the ki clone command</a></li>
+<li><a href="#running-the-clone-command">Running the clone command</a></li>
 </ul>
 </li>
+<li><a href="#downloading-a-collaborative-deck-from-github">Downloading a collaborative deck from GitHub</a></li>
+<li><a href="#editing-a-collaborative-deck">Editing a collaborative deck</a></li>
 </ul>
 </li>
 <li><a href="#how-it-works">How it works</a></li>
