@@ -140,30 +140,30 @@ This section will walk through the following example workflow:
 
 1. **Cloning** an existing collection into a `ki` repository.
 2. **Downloading** a collaborative deck from [GitHub](https://github.com/).
-3. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
-4. **Editing** the collaborative deck.
-5. **Pushing** those edits back to [GitHub](https://github.com/).
+3. **Editing** the collaborative deck.
+4. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
+5. **Pushing** edits back to [GitHub](https://github.com/).
 
 ## Cloning a collection
 
-Before cloning, you'll need to find your `.anki2` collection file.
-This is where Anki stores the data for all your notes.
+Before cloning, you'll need to find our `.anki2` collection file.
+This is where Anki stores the data for all our notes.
 
 > **Note.** If you're new to Anki, or are unfamiliar with the terms *collection*,
 *profile*, *note*, or *card*, you may wish to take a look at the Anki
 [documentation](https://docs.ankiweb.net/intro.html).
 
 If you already know the path to the `.anki2` collection file you want to clone,
-skip to the [section on running the clone command][Running the clone command].
+skip to the section on [running the clone command][running the clone command].
 
 
 ### Finding the `.anki2` collection file
 
-To find your collection file, you must first find your Anki data directory. The
+To find our collection file, we must first find our Anki data directory. The
 location of this varies by operating system.
 
 In most cases, you should be able to find your data directory at the path given
-below for your respective OS:
+below for our respective OS:
 
 #### MacOS
 
@@ -202,7 +202,7 @@ In particular, there is a subdirectory for each **profile**. In the above
 example, there is only one profile, `User 1`. But, in general, there may be
 many profiles associated with a given Anki installation.
 
-Below you can see a visual representation of the directory structure of an
+Below we can see a visual representation of the directory structure of an
 Anki data directory with two profiles, `User 1`, and `User 2`:
 
 ```bash
@@ -229,8 +229,7 @@ Anki2/
     └── collection.media
 ```
 
-As you can see, there is a `collection.anki2` file in each profile
-subdirectory.
+Note that there is a `collection.anki2` file in each profile subdirectory.
 
 If you're not sure of the name of your user profile, it can be seen in the
 title bar of the Anki desktop client:
@@ -252,8 +251,97 @@ So the path that we want is:
 ~/.local/share/Anki2/User\ 2/collection.anki2
 ```
 
-### Running the `ki clone` command
-[Running the clone command]: #Running-the-ki-clone-command
+### Running the clone command
+[running the clone command]: #running-the-ki-clone-command
+
+Now we're ready to actually clone the collection into a repository. The `ki
+clone` command works similarly to `git clone`, in that it will create a new
+repository directory *within* the current working directory. So if we want to
+clone our collection into a new subdirectory in `~/` (the home directory on
+macOS and GNU/Linux), we would make sure we're in the home directory, and then
+run the command:
+```bash
+ki clone ~/.local/share/Anki2/User 2/collection.anki2
+```
+And when we do that, we should see output that looks similar to this:
+```bash
+lyra@oxford$ ki clone ~/.local/share/Anki2/User 2/collection.anki2
+Found .anki2 file at '/home/lyra/.local/share/Anki2/User 2/collection.anki2'
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to '/home/lyra/collection/.ki/hashes'
+Cloning into '/home/lyra/collection/'...
+100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
+```
+If we list the contents of the home directory, we can see that `ki` did
+indeed create a new directory called `collection`:
+```bash
+lyra@oxford:~$ ls
+collection  pkgs
+```
+
+## Downloading a collaborative deck from GitHub
+
+Now that we've created our first `ki` repository, we might want to try our hand
+at collaborating on a deck with other Anki users. We won't actually need to
+make use of the `ki` program to do this, because **`ki` repositories are also
+git repositories**, and so we can clone collaborative decks from GitHub as
+`git-submodules` of our collection repo.
+
+> **Note.** If you're completely unfamiliar with `git`, consider reading this
+> short
+> [introduction](https://blog.teamtreehouse.com/git-for-designers-part-1).
+
+Recall that we were in our home directory at the end of the last section:
+```bash
+lyra@oxford:~$ ls
+collection  pkgs
+```
+
+To add a collaborative deck repo as a submodule, we'll first need to change
+directories to the newly cloned `ki` repo:
+```bash
+lyra@oxford:~$ cd collection/
+lyra@oxford:~/collection$ ls --classify
+algebras/ groups/ rings/
+```
+We see that we have three directories, which represent three Anki decks. This
+is just an example; you'll see directories corresponding to the top-level decks
+in our Anki collection.
+
+> **Note.** The `ls --classify` command adds a trailing `/` to the end of
+> directories to distinguish them from ordinary files.
+
+Suppose we want to add the collaborative deck
+[https://github.com/langfield/manifolds.git](https://github.com/langfield/manifolds.git)
+to our collection. We can do that by running the command:
+
+```bash
+git-submodule add https://github.com/langfield/manifolds.git
+```
+which yields the output:
+```bash
+lyra@oxford~/collection$ git-submodule add https://github.com/langfield/manifolds.git
+Cloning into 'manifolds'...
+remote: Counting objects: 11, done.
+remote: Compressing objects: 100% (10/10), done.
+remote: Total 11 (delta 0), reused 11 (delta 0)
+Unpacking objects: 100% (11/11), done.
+Checking connectivity... done.
+```
+
+And we can see that the command was successful because we have a new
+directory/deck called `manifolds` in our repo:
+```bash
+lyra@oxford:~$ cd collection/
+lyra@oxford:~/collection$ ls --classify
+algebras/ groups/ manifolds/ rings/
+```
+
+## Editing a collaborative deck
+
+After we've cloned the `manifolds` deck repository into a submodule of our `ki`
+repository, we may want to make some edits to the deck.
+
 
 
 # How it works
@@ -421,7 +509,7 @@ regenerated the note field HTML when converting the repository back into a
 And in fact, this is possible. We first fork the addon so we can add some extra
 data to our generated HTML. In particular, we'd like to add an attribute
 `ki-src` whose value is the UTF-8 encoded source code. In general, this will be
-the encoded version of the source of whatever you'd like to autoformat.
+the encoded version of the source of whatever we'd like to autoformat.
 
 We also add a `ki-formatter` attribute, whose value is an identifier that
 specifies a custom python module (we must implement this) that transforms the
@@ -437,11 +525,12 @@ has to change the opening tag of the snippet above to look like:
 All `ki` needs is the original text of the code block prior to html formatting,
 and a function that can reapply the formatting to the modified text. Since the
 html table was generated by an addon, we already have a python function for
-this, and in general you can provide a `~/.config/ki/ki.json` file that maps
+this, and in general we can provide a `~/.config/ki/ki.json` file that maps
 implementation IDs to paths of python modules. The module must have a top-level
-function defined of the form `format(text: str) -> bs4.Tag`. If you have an
-addon implementation, you can import it here and use it in your `format()`
-implementation. you can add a `ki` attribute whose value is the base64 encoding
-of the code block, and a `implementation` attribute whose value is the name of
-a function. At import-time, `ki` will decode this and write the human-readable
-source to the relevant markdown file instead.
+function defined of the form `format(text: str) -> bs4.Tag`.
+
+If we have an addon implementation, we can import it here and use it in our
+`format()` implementation. We can add a `ki` attribute whose value is the
+base64 encoding of the code block, and a `implementation` attribute whose value
+is the name of a function. At import-time, `ki` will decode this and write the
+human-readable source to the relevant markdown file instead.
