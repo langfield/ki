@@ -86,7 +86,8 @@ TODO
   found.
 - Add a section in docs that explains what a `ki` repository is.
 - Try pdoc instead of pdoc3.
-
+- Convert path manipulation code to pathlib.
+- Profile code.
 
 Triage
 ------
