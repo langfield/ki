@@ -88,6 +88,8 @@ TODO
 - Try pdoc instead of pdoc3.
 - Convert path manipulation code to pathlib.
 - Profile code.
+- Use NestedText instead of markdown.
+- Add asciinema gif for simple workflow.
 
 Triage
 ------

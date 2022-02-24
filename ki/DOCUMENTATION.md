@@ -139,13 +139,16 @@ A Banach algebra, and more specifically a `\(C^*\)`-algebra
 This section will walk through the following example workflow:
 
 1. **Cloning** an existing collection into a `ki` repository.
-3. **Pushing** the collection with newly added collaborative deck back to Anki.
+2. **Editing** the note files in the repository.
+3. **Pulling** changes made in Anki into the repository.
+3. **Pushing** edits to the repository back to Anki.
 
-> **INTERNAL.** Split into two sections, interactions with Anki, and interactions with GitHub. One uses `ki` and the other uses `git`.
+> **INTERNAL.** Split into two sections, interactions with Anki, and
+> interactions with GitHub. One uses `ki` and the other uses `git`.
 
 ## Cloning a collection
 
-Before cloning, you'll need to find our `.anki2` collection file.
+Before cloning, we'll need to find our `.anki2` collection file.
 This is where Anki stores the data for all our notes.
 
 > **Note.** If you're new to Anki, or are unfamiliar with the terms *collection*,
@@ -162,7 +165,7 @@ To find our collection file, we must first find our Anki data directory. The
 location of this varies by operating system.
 
 In most cases, you should be able to find your data directory at the path given
-below for our respective OS:
+below for your respective OS:
 
 #### MacOS
 
