@@ -140,9 +140,12 @@ This section will walk through the following example workflow:
 
 1. **Cloning** an existing collection into a `ki` repository.
 2. **Downloading** a collaborative deck from [GitHub](https://github.com/).
-3. **Editing** the collaborative deck.
-4. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
-5. **Pushing** edits back to [GitHub](https://github.com/).
+3. **Pushing** the collection with newly added collaborative deck back to Anki.
+4. **Editing** the collaborative deck.
+5. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
+6. **Pushing** edits back to [GitHub](https://github.com/).
+
+> **INTERNAL.** Split into two sections, interactions with Anki, and interactions with GitHub. One uses `ki` and the other uses `git`.
 
 ## Cloning a collection
 
@@ -340,7 +343,52 @@ algebras/ groups/ manifolds/ rings/
 ## Editing a collaborative deck
 
 After we've cloned the `manifolds` deck repository into a submodule of our `ki`
-repository, we may want to make some edits to the deck.
+repository, we may want to make some edits to the deck. Lets enter the
+`manifolds` directory and see what's inside.
+
+```bash
+lyra@oxford:~/collection$ cd manifolds/
+lyra@oxford:~/collection/manifolds$ ls
+MANIFOLDS.md
+```
+
+So we see a single markdown file called `MANIFOLDS.md`, which contains the
+notes for the manifolds deck. If we had subdecks of the manifolds deck, we
+would see more subdirectories here, and each one would have a markdown file in
+it as well. Lets open this file and see what's inside.
+
+We'll use vim to open the markdown file in this example, but any text editor
+will work.
+
+> **INTERNAL.** Add manifolds content and add more notes.
+
+```bash
+lyra@oxford:~/collection/manifolds$ vi MANIFOLDS.md
+```
+```markdown
+# Note
+nid: 1636122987401
+model: Basic
+deck: manifolds
+tags:
+markdown: false
+
+## Front
+What sort of object is `\(C_0(X)\)`?
+
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
+```
+
+So we see the structure of several notes inside this file. There is a section
+for note metadata, and a section for each field.
+
+There is a typo in the second note. Lets fix it, save our changes, and go back
+to the terminal. When we run `git diff`, we can see the unstaged changes we've
+made:
+
+> **INTERNAL.** At the output of git diff here.
+
 
 
 
