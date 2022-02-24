@@ -117,39 +117,20 @@ Writing backup of .anki2 file to '/home/lyra/decks/.ki/backups'
 Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 </code></pre>
 <p>We store 5 backups of the collection prior to a push.</p>
-<blockquote>
-<p><strong>INTERNAL</strong>. It is not necessary to have a persistent "remote" copy of the
-repo to pull from. The remote can be ephemeral. It only exists when we <code><a title="ki" href="#ki">ki</a> pull</code>,
-and then <code><a title="ki" href="#ki">ki</a></code> deletes it. This is safe because we're checking the
-<code>md5sum</code> of <code>collection.anki2</code>. Notably, it is not created when we <code><a title="ki" href="#ki">ki</a> clone</code>
-or <code><a title="ki" href="#ki">ki</a> push</code>.</p>
-</blockquote>
-<h1 id="editing-notes">Editing notes</h1>
-<p>An example of a generated markdown note is given below:</p>
-<pre><code class="language-markdown"># Note
-nid: 1636122987400
-model: Basic
-deck: Decks::Mathematics::Differentiable Manifolds
-tags:
-markdown: false
-
-## Front
-What sort of object is `\(C_0(X)\)`?
-
-## Back
-A Banach algebra, and more specifically a `\(C^*\)`-algebra
-</code></pre>
 <h1 id="getting-started">Getting started</h1>
 <p>This section will walk through the following example workflow:</p>
 <ol>
 <li><strong>Cloning</strong> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
-<li><strong>Pushing</strong> the collection with newly added collaborative deck back to Anki.</li>
+<li><strong>Editing</strong> the note files in the repository.</li>
+<li><strong>Pulling</strong> changes made in Anki into the repository.</li>
+<li><strong>Pushing</strong> edits to the repository back to Anki.</li>
 </ol>
 <blockquote>
-<p><strong>INTERNAL.</strong> Split into two sections, interactions with Anki, and interactions with GitHub. One uses <code><a title="ki" href="#ki">ki</a></code> and the other uses <code>git</code>.</p>
+<p><strong>INTERNAL.</strong> Split into two sections, interactions with Anki, and
+interactions with GitHub. One uses <code><a title="ki" href="#ki">ki</a></code> and the other uses <code>git</code>.</p>
 </blockquote>
 <h2 id="cloning-a-collection">Cloning a collection</h2>
-<p>Before cloning, you'll need to find our <code>.anki2</code> collection file.
+<p>Before cloning, we'll need to find our <code>.anki2</code> collection file.
 This is where Anki stores the data for all our notes.</p>
 <blockquote>
 <p><strong>Note.</strong> If you're new to Anki, or are unfamiliar with the terms <em>collection</em>,
@@ -162,15 +143,15 @@ skip to the section on <a href="#running-the-ki-clone-command">running the clone
 <p>To find our collection file, we must first find our Anki data directory. The
 location of this varies by operating system.</p>
 <p>In most cases, you should be able to find your data directory at the path given
-below for our respective OS:</p>
+below for your respective OS:</p>
 <h4 id="macos">MacOS</h4>
-<pre><code>~/Library/Application Support/Anki2
+<pre><code class="language-bash">~/Library/Application Support/Anki2
 </code></pre>
 <h4 id="windows">Windows</h4>
-<pre><code>%APPDATA%\Anki2 
+<pre><code class="language-bash">%APPDATA%\Anki2 
 </code></pre>
 <h4 id="gnulinux">GNU/Linux</h4>
-<pre><code>~/.local/share/Anki2
+<pre><code class="language-bash">~/.local/share/Anki2
 </code></pre>
 <blockquote>
 <p><strong>Note.</strong> You can read more about the default Anki data directory locations
@@ -187,6 +168,7 @@ GNU/Linux:</p>
 <p>In particular, there is a subdirectory for each <strong>profile</strong>. In the above
 example, there is only one profile, <code>User 1</code>. But, in general, there may be
 many profiles associated with a given Anki installation.</p>
+<h4 id="multiple-profiles">Multiple profiles</h4>
 <p>Below we can see a visual representation of the directory structure of an
 Anki data directory with two profiles, <code>User 1</code>, and <code>User 2</code>:</p>
 <pre><code class="language-bash">Anki2/
@@ -217,22 +199,25 @@ title bar of the Anki desktop client:</p>
 <p align="center">
 <img width="460" src="anki.png">
 </p>
-<p>And this is what we see when we enter the profile directory for <code>User 2</code> and
-list its contents:</p>
-<pre><code>user@host:~/.local/share/Anki2$ cd User\ 2/
-user@host:~/.local/share/Anki2/User 2$ ls
-collection.anki2  collection.anki2-wal  collection.media
+<p>Most Anki installations will only have one profile, and if you haven't changed
+the default profile name, it will probably be called <code>User 1</code>. Let's enter the
+profile directory for <code>User 1</code> and list its contents:</p>
+<pre><code>user@host:~/.local/share/Anki2$ cd User\ 1/
+user@host:~/.local/share/Anki2/User 1$ ls
+backups  collection2.log  collection.anki2  collection.log  collection.media  collection.media.db2  deleted.txt
 </code></pre>
-<p>So the path that we want is:</p>
-<pre><code>~/.local/share/Anki2/User\ 2/collection.anki2
+<p>So if we want to clone <code>User 1</code>'s collection, the path that we want is:</p>
+<pre><code>~/.local/share/Anki2/User\ 1/collection.anki2
 </code></pre>
+<p>We'll pass this as a command-line argument to the <code><a title="ki" href="#ki">ki</a></code> executable in the next
+section.</p>
 <h3 id="running-the-clone-command">Running the clone command</h3>
 <p>Now we're ready to actually clone the collection into a repository. The <code>ki
 clone&lt;code&gt; command works similarly to &lt;/code&gt;git clone</code>, in that it will create a new
-repository directory <em>within</em> the current working directory. So if we want to
-clone our collection into a new subdirectory in <code>~/</code> (the home directory on
-macOS and GNU/Linux), we would make sure we're in the home directory, and then
-run the command:</p>
+directory for the repository <em>within</em> the current working directory. So if we
+want to clone our collection into a new subdirectory in <code>~/</code> (the home
+directory on macOS and GNU/Linux), we would make sure we're in the home
+directory, and then run the command:</p>
 <pre><code class="language-bash">ki clone ~/.local/share/Anki2/User 2/collection.anki2
 </code></pre>
 <p>And when we do that, we should see output that looks similar to this:</p>
@@ -247,6 +232,21 @@ Cloning into '/home/lyra/collection/'...
 indeed create a new directory called <code>collection</code>:</p>
 <pre><code class="language-bash">lyra@oxford:~$ ls
 collection  pkgs
+</code></pre>
+<h2 id="editing-notes">Editing notes</h2>
+<p>An example of a generated markdown note is given below:</p>
+<pre><code class="language-markdown"># Note
+nid: 1636122987400
+model: Basic
+deck: Decks::Mathematics::Differentiable Manifolds
+tags:
+markdown: false
+
+## Front
+What sort of object is `\(C_0(X)\)`?
+
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
 </code></pre>
 <h1 id="collaborative-decks">Collaborative decks</h1>
 <p>This section assumes knowledge of the basic <code><a title="ki" href="#ki">ki</a></code> operations and familiarity
@@ -269,10 +269,14 @@ git repositories</strong>, and so we can clone collaborative decks from GitHub a
 short
 <a href="https://blog.teamtreehouse.com/git-for-designers-part-1">introduction</a>.</p>
 </blockquote>
-<p>Recall that we were in our home directory at the end of the last section:</p>
+<p>Suppose we've cloned an Anki collection into a <code><a title="ki" href="#ki">ki</a></code> repository in our home
+directory, just like we did in the <a href="#getting-started">getting started</a> section,
+and we want to add a collaborative deck from GitHub to our collection. Let's
+walk through an example. Our home directory looks like this:</p>
 <pre><code class="language-bash">lyra@oxford:~$ ls
 collection  pkgs
 </code></pre>
+<p>And we see the repo we cloned, which is called <code>collection</code>.</p>
 <p>To add a collaborative deck repo as a submodule, we'll first need to change
 directories to the newly cloned <code><a title="ki" href="#ki">ki</a></code> repo:</p>
 <pre><code class="language-bash">lyra@oxford:~$ cd collection/
@@ -281,7 +285,7 @@ algebras/ groups/ rings/
 </code></pre>
 <p>We see that we have three directories, which represent three Anki decks. This
 is just an example; you'll see directories corresponding to the top-level decks
-in our Anki collection.</p>
+in your Anki collection.</p>
 <blockquote>
 <p><strong>Note.</strong> The <code>ls --classify</code> command adds a trailing <code>/</code> to the end of
 directories to distinguish them from ordinary files.</p>
@@ -1851,18 +1855,19 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <li><a href="#push">Push</a></li>
 </ul>
 </li>
-<li><a href="#editing-notes">Editing notes</a></li>
 <li><a href="#getting-started">Getting started</a><ul>
 <li><a href="#cloning-a-collection">Cloning a collection</a><ul>
 <li><a href="#finding-the-anki2-collection-file">Finding the .anki2 collection file</a><ul>
 <li><a href="#macos">MacOS</a></li>
 <li><a href="#windows">Windows</a></li>
 <li><a href="#gnulinux">GNU/Linux</a></li>
+<li><a href="#multiple-profiles">Multiple profiles</a></li>
 </ul>
 </li>
 <li><a href="#running-the-clone-command">Running the clone command</a></li>
 </ul>
 </li>
+<li><a href="#editing-notes">Editing notes</a></li>
 </ul>
 </li>
 <li><a href="#collaborative-decks">Collaborative decks</a><ul>

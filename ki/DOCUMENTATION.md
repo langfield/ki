@@ -110,29 +110,6 @@ Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 
 We store 5 backups of the collection prior to a push.
 
-> **INTERNAL**. It is not necessary to have a persistent "remote" copy of the
-repo to pull from. The remote can be ephemeral. It only exists when we `ki pull`,
-and then `ki` deletes it. This is safe because we're checking the
-`md5sum` of `collection.anki2`. Notably, it is not created when we `ki clone`
-or `ki push`.
-
-# Editing notes
-
-An example of a generated markdown note is given below:
-```markdown
-# Note
-nid: 1636122987400
-model: Basic
-deck: Decks::Mathematics::Differentiable Manifolds
-tags:
-markdown: false
-
-## Front
-What sort of object is `\(C_0(X)\)`?
-
-## Back
-A Banach algebra, and more specifically a `\(C^*\)`-algebra
-```
 # Getting started
 [getting started]: #getting-started
 
@@ -169,18 +146,18 @@ below for your respective OS:
 
 #### MacOS
 
-```
+```bash
 ~/Library/Application Support/Anki2
 ```
 
 #### Windows
 
-```
+```bash
 %APPDATA%\Anki2 
 ```
 
 #### GNU/Linux
-```
+```bash
 ~/.local/share/Anki2
 ```
 
@@ -203,6 +180,8 @@ user@host:~/.local/share/Anki2$ ls
 In particular, there is a subdirectory for each **profile**. In the above
 example, there is only one profile, `User 1`. But, in general, there may be
 many profiles associated with a given Anki installation.
+
+#### Multiple profiles
 
 Below we can see a visual representation of the directory structure of an
 Anki data directory with two profiles, `User 1`, and `User 2`:
@@ -240,28 +219,31 @@ title bar of the Anki desktop client:
   <img width="460" src="anki.png">
 </p>
 
-And this is what we see when we enter the profile directory for `User 2` and
-list its contents:
+Most Anki installations will only have one profile, and if you haven't changed
+the default profile name, it will probably be called `User 1`. Let's enter the
+profile directory for `User 1` and list its contents:
 ```
-user@host:~/.local/share/Anki2$ cd User\ 2/
-user@host:~/.local/share/Anki2/User 2$ ls
-collection.anki2  collection.anki2-wal  collection.media
+user@host:~/.local/share/Anki2$ cd User\ 1/
+user@host:~/.local/share/Anki2/User 1$ ls
+backups  collection2.log  collection.anki2  collection.log  collection.media  collection.media.db2  deleted.txt
 ```
 
-So the path that we want is:
+So if we want to clone `User 1`'s collection, the path that we want is:
 ```
-~/.local/share/Anki2/User\ 2/collection.anki2
+~/.local/share/Anki2/User\ 1/collection.anki2
 ```
+We'll pass this as a command-line argument to the `ki` executable in the next
+section.
 
 ### Running the clone command
 [running the clone command]: #running-the-ki-clone-command
 
 Now we're ready to actually clone the collection into a repository. The `ki
 clone` command works similarly to `git clone`, in that it will create a new
-repository directory *within* the current working directory. So if we want to
-clone our collection into a new subdirectory in `~/` (the home directory on
-macOS and GNU/Linux), we would make sure we're in the home directory, and then
-run the command:
+directory for the repository *within* the current working directory. So if we
+want to clone our collection into a new subdirectory in `~/` (the home
+directory on macOS and GNU/Linux), we would make sure we're in the home
+directory, and then run the command:
 ```bash
 ki clone ~/.local/share/Anki2/User 2/collection.anki2
 ```
@@ -279,6 +261,24 @@ indeed create a new directory called `collection`:
 ```bash
 lyra@oxford:~$ ls
 collection  pkgs
+```
+
+## Editing notes
+
+An example of a generated markdown note is given below:
+```markdown
+# Note
+nid: 1636122987400
+model: Basic
+deck: Decks::Mathematics::Differentiable Manifolds
+tags:
+markdown: false
+
+## Front
+What sort of object is `\(C_0(X)\)`?
+
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
 ```
 
 # Collaborative decks
@@ -306,11 +306,15 @@ git repositories**, and so we can clone collaborative decks from GitHub as
 > short
 > [introduction](https://blog.teamtreehouse.com/git-for-designers-part-1).
 
-Recall that we were in our home directory at the end of the last section:
+Suppose we've cloned an Anki collection into a `ki` repository in our home
+directory, just like we did in the [getting started][getting started] section,
+and we want to add a collaborative deck from GitHub to our collection. Let's
+walk through an example. Our home directory looks like this:
 ```bash
 lyra@oxford:~$ ls
 collection  pkgs
 ```
+And we see the repo we cloned, which is called `collection`.
 
 To add a collaborative deck repo as a submodule, we'll first need to change
 directories to the newly cloned `ki` repo:
@@ -321,7 +325,7 @@ algebras/ groups/ rings/
 ```
 We see that we have three directories, which represent three Anki decks. This
 is just an example; you'll see directories corresponding to the top-level decks
-in our Anki collection.
+in your Anki collection.
 
 > **Note.** The `ls --classify` command adds a trailing `/` to the end of
 > directories to distinguish them from ordinary files.
