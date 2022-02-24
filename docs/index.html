@@ -54,8 +54,8 @@ a local copy of the source code by running the following command in a terminal:<
 </ol>
 <pre><code class="language-bash">pip install anki-ki
 </code></pre>
-<h1 id="usage">Usage</h1>
-<h2 id="cloning-an-anki-collection-into-a-new-ki-repository">Cloning an Anki collection into a new <code><a title="ki" href="#ki">ki</a></code> repository</h2>
+<h1 id="usage-reference">Usage reference</h1>
+<h2 id="clone">Clone</h2>
 <p>The <code><a title="ki" href="#ki">ki</a> clone</code> command takes one required argument (the path to a <code>.anki2</code>
 file) and one optional argument (a path to a target directory). The usage is
 meant to mirror that of <code>git clone</code>.</p>
@@ -68,7 +68,7 @@ Wrote md5sum to '/home/lyra/decks/.ki/hashes'
 Cloning into '/home/lyra/decks/'...
 100%|█████████████████████████| 28886/28886 [00:10&lt;00:00, 2883.78it/s]
 </code></pre>
-<h2 id="pulling-changes-from-an-anki-collection-into-an-existing-ki-repository">Pulling changes from an Anki collection into an existing <code><a title="ki" href="#ki">ki</a></code> repository</h2>
+<h2 id="pull">Pull</h2>
 <p>Once an Anki collection has been cloned, we can <code>pull</code> changes made by the Anki
 desktop client into our repository.</p>
 <p>An example of the <code>pull</code> subcommand usage and its output is given below.</p>
@@ -100,7 +100,7 @@ keeps track of whether the collection database has changed since the last
 directory, which is then <code>git pull</code>-ed into the current repository.</p>
 <p>At this point, if the git operation fails, the user can take over and manage
 the merge themselves.</p>
-<h2 id="pushing-changes-in-a-ki-repository-to-an-anki-collection">Pushing changes in a <code><a title="ki" href="#ki">ki</a></code> repository to an Anki collection</h2>
+<h2 id="push">Push</h2>
 <p>When we want to push our changes back to the Anki desktop client, we can use
 <code><a title="ki" href="#ki">ki</a> push</code> to do that.</p>
 <p>An example of the <code>push</code> subcommand usage and its output is given below.</p>
@@ -143,11 +143,11 @@ A Banach algebra, and more specifically a `\(C^*\)`-algebra
 <p>This section will walk through the following example workflow:</p>
 <ol>
 <li><strong>Cloning</strong> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
-<li><strong>Downloading</strong> a collaborative deck from <a href="https://github.com/">GitHub</a>.</li>
-<li><strong>Editing</strong> the collaborative deck.</li>
-<li><strong>Pulling</strong> other users' changes to the deck from <a href="https://github.com/">GitHub</a>.</li>
-<li><strong>Pushing</strong> edits back to <a href="https://github.com/">GitHub</a>.</li>
+<li><strong>Pushing</strong> the collection with newly added collaborative deck back to Anki.</li>
 </ol>
+<blockquote>
+<p><strong>INTERNAL.</strong> Split into two sections, interactions with Anki, and interactions with GitHub. One uses <code><a title="ki" href="#ki">ki</a></code> and the other uses <code>git</code>.</p>
+</blockquote>
 <h2 id="cloning-a-collection">Cloning a collection</h2>
 <p>Before cloning, you'll need to find our <code>.anki2</code> collection file.
 This is where Anki stores the data for all our notes.</p>
@@ -248,7 +248,17 @@ indeed create a new directory called <code>collection</code>:</p>
 <pre><code class="language-bash">lyra@oxford:~$ ls
 collection  pkgs
 </code></pre>
-<h2 id="downloading-a-collaborative-deck-from-github">Downloading a collaborative deck from GitHub</h2>
+<h1 id="collaborative-decks">Collaborative decks</h1>
+<p>This section assumes knowledge of the basic <code><a title="ki" href="#ki">ki</a></code> operations and familiarity
+with <code>git</code>. If you haven't yet cloned your Anki collection into a <code><a title="ki" href="#ki">ki</a></code>
+repository, read the <a href="#getting-started">getting started</a> section.</p>
+<ol>
+<li><a href="#cloning-a-collaborative-deck-from-github"><strong>Cloning</strong></a> a collaborative deck from <a href="https://github.com/">GitHub</a>.</li>
+<li><a href="#editing-a-collaborative-deck"><strong>Editing</strong></a> the collaborative deck.</li>
+<li>[<strong>Pulling</strong>][pulling other users' changes from github] other users' changes to the deck from <a href="https://github.com/">GitHub</a>.</li>
+<li>[<strong>Pushing</strong>][pushing edits back to github] edits back to <a href="https://github.com/">GitHub</a>.</li>
+</ol>
+<h2 id="cloning-a-collaborative-deck-from-github">Cloning a collaborative deck from GitHub</h2>
 <p>Now that we've created our first <code><a title="ki" href="#ki">ki</a></code> repository, we might want to try our hand
 at collaborating on a deck with other Anki users. We won't actually need to
 make use of the <code><a title="ki" href="#ki">ki</a></code> program to do this, because <strong><code><a title="ki" href="#ki">ki</a></code> repositories are also
@@ -276,6 +286,7 @@ in our Anki collection.</p>
 <p><strong>Note.</strong> The <code>ls --classify</code> command adds a trailing <code>/</code> to the end of
 directories to distinguish them from ordinary files.</p>
 </blockquote>
+<h3 id="adding-the-repository-as-a-git-submodule">Adding the repository as a git submodule</h3>
 <p>Suppose we want to add the collaborative deck
 <a href="https://github.com/langfield/manifolds.git">https://github.com/langfield/manifolds.git</a>
 to our collection. We can do that by running the command:</p>
@@ -292,11 +303,17 @@ Checking connectivity... done.
 </code></pre>
 <p>And we can see that the command was successful because we have a new
 directory/deck called <code>manifolds</code> in our repo:</p>
-<pre><code class="language-bash">lyra@oxford:~$ cd collection/
-lyra@oxford:~/collection$ ls --classify
+<pre><code class="language-bash">lyra@oxford:~/collection$ ls --classify
 algebras/ groups/ manifolds/ rings/
 </code></pre>
+<p>Nice!</p>
 <h2 id="editing-a-collaborative-deck">Editing a collaborative deck</h2>
+<p>There are two ways to edit a collaborative deck locally:</p>
+<ol>
+<li>Edit the markdown files in the <code><a title="ki" href="#ki">ki</a></code> repository.</li>
+<li>Edit the deck inside the Anki desktop client.</li>
+</ol>
+<hr>
 <p>After we've cloned the <code>manifolds</code> deck repository into a submodule of our <code><a title="ki" href="#ki">ki</a></code>
 repository, we may want to make some edits to the deck. Lets enter the
 <code>manifolds</code> directory and see what's inside.</p>
@@ -1828,10 +1845,10 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <ul>
 <li><a href="#source-code">Source code</a></li>
 <li><a href="#installation">Installation</a></li>
-<li><a href="#usage">Usage</a><ul>
-<li><a href="#cloning-an-anki-collection-into-a-new-ki-repository">Cloning an Anki collection into a new ki repository</a></li>
-<li><a href="#pulling-changes-from-an-anki-collection-into-an-existing-ki-repository">Pulling changes from an Anki collection into an existing ki repository</a></li>
-<li><a href="#pushing-changes-in-a-ki-repository-to-an-anki-collection">Pushing changes in a ki repository to an Anki collection</a></li>
+<li><a href="#usage-reference">Usage reference</a><ul>
+<li><a href="#clone">Clone</a></li>
+<li><a href="#pull">Pull</a></li>
+<li><a href="#push">Push</a></li>
 </ul>
 </li>
 <li><a href="#editing-notes">Editing notes</a></li>
@@ -1846,7 +1863,13 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 <li><a href="#running-the-clone-command">Running the clone command</a></li>
 </ul>
 </li>
-<li><a href="#downloading-a-collaborative-deck-from-github">Downloading a collaborative deck from GitHub</a></li>
+</ul>
+</li>
+<li><a href="#collaborative-decks">Collaborative decks</a><ul>
+<li><a href="#cloning-a-collaborative-deck-from-github">Cloning a collaborative deck from GitHub</a><ul>
+<li><a href="#adding-the-repository-as-a-git-submodule">Adding the repository as a git submodule</a></li>
+</ul>
+</li>
 <li><a href="#editing-a-collaborative-deck">Editing a collaborative deck</a></li>
 </ul>
 </li>
