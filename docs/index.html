@@ -298,7 +298,44 @@ algebras/ groups/ manifolds/ rings/
 </code></pre>
 <h2 id="editing-a-collaborative-deck">Editing a collaborative deck</h2>
 <p>After we've cloned the <code>manifolds</code> deck repository into a submodule of our <code><a title="ki" href="#ki">ki</a></code>
-repository, we may want to make some edits to the deck.</p>
+repository, we may want to make some edits to the deck. Lets enter the
+<code>manifolds</code> directory and see what's inside.</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ cd manifolds/
+lyra@oxford:~/collection/manifolds$ ls
+MANIFOLDS.md
+</code></pre>
+<p>So we see a single markdown file called <code>MANIFOLDS.md</code>, which contains the
+notes for the manifolds deck. If we had subdecks of the manifolds deck, we
+would see more subdirectories here, and each one would have a markdown file in
+it as well. Lets open this file and see what's inside.</p>
+<p>We'll use vim to open the markdown file in this example, but any text editor
+will work.</p>
+<blockquote>
+<p><strong>INTERNAL.</strong> Add manifolds content and add more notes.</p>
+</blockquote>
+<pre><code class="language-bash">lyra@oxford:~/collection/manifolds$ vi MANIFOLDS.md
+</code></pre>
+<pre><code class="language-markdown"># Note
+nid: 1636122987401
+model: Basic
+deck: manifolds
+tags:
+markdown: false
+
+## Front
+What sort of object is `\(C_0(X)\)`?
+
+## Back
+A Banach algebra, and more specifically a `\(C^*\)`-algebra
+</code></pre>
+<p>So we see the structure of several notes inside this file. There is a section
+for note metadata, and a section for each field.</p>
+<p>There is a typo in the second note. Lets fix it, save our changes, and go back
+to the terminal. When we run <code>git diff</code>, we can see the unstaged changes we've
+made:</p>
+<blockquote>
+<p><strong>INTERNAL.</strong> At the output of git diff here.</p>
+</blockquote>
 <h1 id="how-it-works">How it works</h1>
 <p><code><a title="ki" href="#ki">ki</a></code> is built on top of existing tooling implemented in the python package
 <a href="https://github.com/lervag/apy"><code>apy</code></a>, which is used to parse the Anki
