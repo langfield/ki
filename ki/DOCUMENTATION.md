@@ -22,9 +22,9 @@ git clone git@github.com:langfield/ki.git
 pip install anki-ki
 ```
 
-# Usage
+# Usage reference
 
-## Cloning an Anki collection into a new `ki` repository
+## Clone
 
 The `ki clone` command takes one required argument (the path to a `.anki2`
 file) and one optional argument (a path to a target directory). The usage is
@@ -43,7 +43,7 @@ Cloning into '/home/lyra/decks/'...
 100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
 ```
 
-## Pulling changes from an Anki collection into an existing `ki` repository
+## Pull
 
 Once an Anki collection has been cloned, we can `pull` changes made by the Anki
 desktop client into our repository.
@@ -86,7 +86,7 @@ directory, which is then `git pull`-ed into the current repository.
 At this point, if the git operation fails, the user can take over and manage
 the merge themselves.
 
-## Pushing changes in a `ki` repository to an Anki collection
+## Push
 
 When we want to push our changes back to the Anki desktop client, we can use
 `ki push` to do that.
@@ -133,17 +133,13 @@ What sort of object is `\(C_0(X)\)`?
 ## Back
 A Banach algebra, and more specifically a `\(C^*\)`-algebra
 ```
-
 # Getting started
+[getting started]: #getting-started
 
 This section will walk through the following example workflow:
 
 1. **Cloning** an existing collection into a `ki` repository.
-2. **Downloading** a collaborative deck from [GitHub](https://github.com/).
 3. **Pushing** the collection with newly added collaborative deck back to Anki.
-4. **Editing** the collaborative deck.
-5. **Pulling** other users' changes to the deck from [GitHub](https://github.com/).
-6. **Pushing** edits back to [GitHub](https://github.com/).
 
 > **INTERNAL.** Split into two sections, interactions with Anki, and interactions with GitHub. One uses `ki` and the other uses `git`.
 
@@ -282,7 +278,20 @@ lyra@oxford:~$ ls
 collection  pkgs
 ```
 
-## Downloading a collaborative deck from GitHub
+# Collaborative decks
+
+This section assumes knowledge of the basic `ki` operations and familiarity
+with `git`. If you haven't yet cloned your Anki collection into a `ki`
+repository, read the [getting started][getting started] section.
+
+1. [**Cloning**][cloning a collaborative deck from github] a collaborative deck from [GitHub](https://github.com/).
+2. [**Editing**][editing a collaborative deck] the collaborative deck.
+3. [**Pulling**][pulling other users' changes from github] other users' changes to the deck from [GitHub](https://github.com/).
+4. [**Pushing**][pushing edits back to github] edits back to [GitHub](https://github.com/).
+
+
+## Cloning a collaborative deck from GitHub
+[cloning a collaborative deck from github]: #cloning-a-collaborative-deck-from-github
 
 Now that we've created our first `ki` repository, we might want to try our hand
 at collaborating on a deck with other Anki users. We won't actually need to
@@ -314,6 +323,8 @@ in our Anki collection.
 > **Note.** The `ls --classify` command adds a trailing `/` to the end of
 > directories to distinguish them from ordinary files.
 
+### Adding the repository as a git submodule
+
 Suppose we want to add the collaborative deck
 [https://github.com/langfield/manifolds.git](https://github.com/langfield/manifolds.git)
 to our collection. We can do that by running the command:
@@ -335,12 +346,22 @@ Checking connectivity... done.
 And we can see that the command was successful because we have a new
 directory/deck called `manifolds` in our repo:
 ```bash
-lyra@oxford:~$ cd collection/
 lyra@oxford:~/collection$ ls --classify
 algebras/ groups/ manifolds/ rings/
 ```
 
+Nice!
+
 ## Editing a collaborative deck
+[editing a collaborative deck]: #editing-a-collaborative-deck
+
+There are two ways to edit a collaborative deck locally:
+
+1. Edit the markdown files in the `ki` repository.
+2. Edit the deck inside the Anki desktop client.
+
+
+---
 
 After we've cloned the `manifolds` deck repository into a submodule of our `ki`
 repository, we may want to make some edits to the deck. Lets enter the
