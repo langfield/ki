@@ -2,28 +2,24 @@
 file: note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: (header field+)
-field: "### " FIELDNAME "\n" ((FIELDLINE "\n") | "\n")* "\n"*
+note: header /[\s\S]+/
+field: "### " ANKINAME "\n" FIELDLINE*
 
 // A ``header`` is sequence of metadata rules, all required.
 header: (TITLE NID MODEL DECK tags MARKDOWN) "\n"+
 
 // A ``tags`` object is allowed to be empty.
 tags: "tags:\n"
-    | ("tags: " [TAGNAME ("," TAGNAME)*]) "\n"
+    | ("tags: " [ANKINAME ("," ANKINAME)*]) "\n"
 
 // Titles are alphameric + some limited punctuation.
 TITLE: "## " /[ a-zA-Z0-9_-]/+ "\n"
 NID: "nid: " INT "\n"
-MODEL: "model: " MODELNAME "\n"
-DECK: "deck: " DECKNAME "\n"
+MODEL: "model: " ANKINAME "\n"
+DECK: "deck: " ANKINAME "\n"
 MARKDOWN: "markdown: " ("true" | "false") "\n"
-TAGNAME: ANKINAME
-DECKNAME: ANKINAME
-MODELNAME: ANKINAME
-FIELDNAME: ANKINAME
 ANKINAME: /[^#^\/\n\s].{0,}/
-FIELDLINE: /(?!##).+/
+FIELDLINE: /(?!##)(?:.|\n)+/
 
 %import common.ESCAPED_STRING
 %import common.INT
