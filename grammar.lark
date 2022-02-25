@@ -3,7 +3,7 @@ file: note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
 note: (header field+)
-field: "## " FIELDNAME "\n" ((FIELDLINE "\n") | "\n")* "\n"*
+field: "### " FIELDNAME "\n" ((FIELDLINE "\n") | "\n")* "\n"*
 
 // A ``header`` is sequence of metadata rules, all required.
 header: (TITLE NID MODEL DECK tags MARKDOWN) "\n"+
@@ -13,7 +13,7 @@ tags: "tags:\n"
     | ("tags: " [TAGNAME ("," TAGNAME)*]) "\n"
 
 // Titles are alphameric + some limited punctuation.
-TITLE: "# " /[ a-zA-Z0-9_-]/+ "\n"
+TITLE: "## " /[ a-zA-Z0-9_-]/+ "\n"
 NID: "nid: " INT "\n"
 MODEL: "model: " MODELNAME "\n"
 DECK: "deck: " DECKNAME "\n"
@@ -23,7 +23,7 @@ DECKNAME: ANKINAME
 MODELNAME: ANKINAME
 FIELDNAME: ANKINAME
 ANKINAME: /[^#^\/\n\s].{0,}/
-FIELDLINE: /[^#\n].{0,}/
+FIELDLINE: /(?!##).+/
 
 %import common.ESCAPED_STRING
 %import common.INT

@@ -1,4 +1,5 @@
 from pathlib import Path
+from tqdm import tqdm
 from lark import Lark
 from loguru import logger
 
@@ -10,7 +11,7 @@ parser = Lark(grammar, start="file")
 tree = parser.parse(note)
 logger.debug(tree.pretty())
 
-for path in (Path.home() / "collection").iterdir():
-    logger.debug(path)
-    note = path.read_text()
-    parser.parse(note)
+for path in tqdm(set((Path.home() / "collection").iterdir())):
+    if path.suffix == ".md":
+        note = path.read_text()
+        parser.parse(note)
