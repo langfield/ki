@@ -120,16 +120,11 @@ Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
 <h1 id="getting-started">Getting started</h1>
 <p>This section will walk through the following example workflow:</p>
 <ol>
-<li><strong>Cloning</strong> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
-<li><strong>Editing</strong> the note files in the repository.</li>
-<li><strong>Pulling</strong> changes made in Anki into the repository.</li>
-<li><strong>Pushing</strong> edits to the repository back to Anki.</li>
+<li><a href="#cloning-a-collection"><strong>Cloning</strong></a> an existing collection into a <code><a title="ki" href="#ki">ki</a></code> repository.</li>
+<li><a href="#editing-notes"><strong>Editing</strong></a> the note files in the repository.</li>
+<li><a href="#pushing-committed-changes"><strong>Pushing</strong></a> those edits back to Anki.</li>
+<li><a href="#pulling-changes-from-anki"><strong>Pulling</strong></a> changes made in Anki into the repository.</li>
 </ol>
-<blockquote>
-<p><strong>INTERNAL.</strong> Split into two sections, interactions with Anki, and
-interactions with GitHub. One uses <code><a title="ki" href="#ki">ki</a></code> and the other uses <code>git</code>.</p>
-</blockquote>
-<h2 id="cloning-a-collection">Cloning a collection</h2>
 <p>Before cloning, we'll need to find our <code>.anki2</code> collection file.
 This is where Anki stores the data for all our notes.</p>
 <blockquote>
@@ -148,7 +143,7 @@ below for your respective OS:</p>
 <pre><code class="language-bash">~/Library/Application Support/Anki2
 </code></pre>
 <h4 id="windows">Windows</h4>
-<pre><code class="language-bash">%APPDATA%\Anki2 
+<pre><code class="language-bash">%APPDATA%\Anki2
 </code></pre>
 <h4 id="gnulinux">GNU/Linux</h4>
 <pre><code class="language-bash">~/.local/share/Anki2
@@ -212,17 +207,19 @@ backups  collection2.log  collection.anki2  collection.log  collection.media  co
 <p>We'll pass this as a command-line argument to the <code><a title="ki" href="#ki">ki</a></code> executable in the next
 section.</p>
 <h3 id="running-the-clone-command">Running the clone command</h3>
-<p>Now we're ready to actually clone the collection into a repository. The <code>ki
-clone&lt;code&gt; command works similarly to &lt;/code&gt;git clone</code>, in that it will create a new
-directory for the repository <em>within</em> the current working directory. So if we
-want to clone our collection into a new subdirectory in <code>~/</code> (the home
-directory on macOS and GNU/Linux), we would make sure we're in the home
-directory, and then run the command:</p>
-<pre><code class="language-bash">ki clone ~/.local/share/Anki2/User 2/collection.anki2
+<p>Now we're ready to actually clone the collection into a repository. The <code><a title="ki" href="#ki">ki</a> clone</code>
+command works similarly to <code>git clone</code>, in that it will create a new directory
+for the repository <em>within</em> the current working directory. So if we want to
+clone our collection into a new subdirectory in <code>~/</code> (the home directory on
+macOS and GNU/Linux), we would first make sure we're in the home directory.
+Second, we need to check that <strong>Anki is closed</strong> before cloning. Nothing bad
+will happen if we clone while Anki is open, but the command will fail because
+the database is locked. Once we've done that, we can run the command:</p>
+<pre><code class="language-bash">ki clone ~/.local/share/Anki2/User 1/collection.anki2
 </code></pre>
-<p>And when we do that, we should see output that looks similar to this:</p>
-<pre><code class="language-bash">lyra@oxford$ ki clone ~/.local/share/Anki2/User 2/collection.anki2
-Found .anki2 file at '/home/lyra/.local/share/Anki2/User 2/collection.anki2'
+<p>And we should see output that looks similar to this:</p>
+<pre><code class="language-bash">lyra@oxford$ ki clone ~/.local/share/Anki2/User 1/collection.anki2
+Found .anki2 file at '/home/lyra/.local/share/Anki2/User 1/collection.anki2'
 Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
 Wrote md5sum to '/home/lyra/collection/.ki/hashes'
 Cloning into '/home/lyra/collection/'...
@@ -234,20 +231,161 @@ indeed create a new directory called <code>collection</code>:</p>
 collection  pkgs
 </code></pre>
 <h2 id="editing-notes">Editing notes</h2>
-<p>An example of a generated markdown note is given below:</p>
+<p>Now that we've successfully cloned our Anki collection into a <code><a title="ki" href="#ki">ki</a></code> repository,
+we can start editing notes! Our home directory looks like this:</p>
+<pre><code class="language-bash">lyra@oxford:~$ ls
+collection  pkgs
+</code></pre>
+<p>And we see the repo we cloned, which is called <code>collection</code>.</p>
+<p>Let's change directories to the newly cloned <code><a title="ki" href="#ki">ki</a></code> repo and take a look at
+what's inside:</p>
+<pre><code class="language-bash">lyra@oxford:~$ cd collection/
+lyra@oxford:~/collection$ ls --classify
+algebras/ manifolds/ rings/
+</code></pre>
+<p>We see that we have three directories, which represent three Anki decks. This
+is just an example; you'll see directories corresponding to the top-level decks
+in your Anki collection.</p>
+<blockquote>
+<p><strong>Note.</strong> The <code>ls --classify</code> command adds a trailing <code>/</code> to the end of
+directories to distinguish them from ordinary files.</p>
+</blockquote>
+<p>Lets enter the <code>manifolds</code> directory and see what's inside.</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ cd manifolds/
+lyra@oxford:~/collection/manifolds$ ls
+MANIFOLDS.md
+</code></pre>
+<p>So we see a single markdown file called <code>MANIFOLDS.md</code>, which contains the
+notes for the manifolds deck. If we had subdecks of the manifolds deck, we
+would see more subdirectories here, and each one would have a markdown file in
+it as well. Lets open this file and see what's inside.</p>
+<p>We'll use vim to open the markdown file in this example, but any text editor
+will work.</p>
+<pre><code class="language-bash">lyra@oxford:~/collection/manifolds$ vi MANIFOLDS.md
+</code></pre>
 <pre><code class="language-markdown"># Note
-nid: 1636122987400
+nid: 1622849751948
 model: Basic
-deck: Decks::Mathematics::Differentiable Manifolds
+deck: manifolds
 tags:
 markdown: false
 
 ## Front
-What sort of object is `\(C_0(X)\)`?
+Diffeomorphism
 
 ## Back
-A Banach algebra, and more specifically a `\(C^*\)`-algebra
+A smooth surjective map between manifolds which has a smooth inverse.
+
+# Note
+nid: 1566621764508
+model: Basic
+deck: manifolds
+tags:
+markdown: false
+
+## Front
+distribution (on a smooth manifold)
+
+## Back
+A distribution on \(M\) of rank \(k\) is a rank-\(k\) subbundle of \(TM\)
 </code></pre>
+<p>So we see the structure of two notes inside this file. For each note, there is
+a section for note metadata, and a section for each field.</p>
+<p>There is a typo in the first note. It says <code>smooth surjective map</code>, but it
+should say <code>smooth bijective map</code>. Lets fix it, save our changes, and go back
+to the terminal. When we go back up to the root of the repository and run <code>git
+status</code>, we can see which files we've changed.</p>
+<blockquote>
+<p><strong>INTERNAL.</strong> Add the output of git status here.</p>
+</blockquote>
+<p>And running <code>git diff</code> shows us the content of the unstaged changes:</p>
+<blockquote>
+<p><strong>INTERNAL.</strong> Add the output of git diff here.</p>
+</blockquote>
+<p>Then we can commit our changes as usual.</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ git add manifolds/MANIFOLDS.md
+lyra@oxford:~/collection$ git commit -m &quot;Fix typo in diffeomorphism definition: 'surjective' -&gt; 'bijective'&quot;
+</code></pre>
+<p>At this point we would usually <code>git push</code>, but if we try that in a <code><a title="ki" href="#ki">ki</a></code>
+repository, we'll see this:</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ git push
+fatal: No configured push destination.
+Either specify the URL from the command-line or configure a remote repository using
+
+    git remote add &lt;name&gt; &lt;url&gt;
+
+and then push using the remote name
+
+    git push &lt;name&gt;
+
+</code></pre>
+<p>Since we're not pushing to an ordinary <code>git</code> remote, but to the Anki SQLite3
+database, we must use <code><a title="ki" href="#ki">ki</a> push</code> instead, which is covered briefly in the next
+section.</p>
+<h2 id="pushing-committed-changes-back-to-anki">Pushing committed changes back to Anki</h2>
+<p>This part is super easy! Similar to when we cloned, we must remember to <strong>close
+Anki</strong> before pushing, or the command will fail (gracefully). All right, now we
+just run the command:</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ ki push
+Pushing to '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Verified md5sum matches latest hash in '/home/lyra/decks/.ki/hashes'
+Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49
+Writing changes to '/tmp/tmpyiids2qm/original.anki2'...
+100%|█████████████████████████████████| 2/2 [00:00&lt;00:00, 1081.56it/s]
+Database was modified.
+Writing backup of .anki2 file to '/home/lyra/decks/.ki/backups'
+Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+</code></pre>
+<p>As the output suggests, <code><a title="ki" href="#ki">ki</a></code> saves a backup of our collection each time we
+<code>push</code>, just in case we wish to hard-revert a change you've made.</p>
+<p>Now we can open Anki and view the changes we've made in the note browser!</p>
+<h2 id="pulling-changes-from-anki-into-the-repository">Pulling changes from Anki into the repository</h2>
+<p>So now we know how to make changes from the filesystem and push them back to
+Anki, but suppose that after we cloned our repository, we made some edits
+<em>within</em> Anki, and we'd like those to show up in our repository? For this,
+we'll need to <strong>close Anki</strong>, and then run the following command:</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ ki pull
+Pulling from '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Updating 5a9ef09..9c30b73
+Fast-forward
+ note1645010162168.md |  4 ++--
+ note1645222430007.md | 11 +++++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+ create mode 100644 note1645222430007.md
+
+From /tmp/tmpt5a3yd9a/ki/local/199216c39eeabe23a1da016a99ffd3e2/
+ * branch            main       -&gt; FETCH_HEAD
+ * [new branch]      main       -&gt; anki/main
+
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
+</code></pre>
+<p>And we're done! Our repository is up to date, as <code><a title="ki" href="#ki">ki</a></code> will tell us if we try to pull again:</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ ki pull
+ki pull: up to date.
+</code></pre>
+<h3 id="merge-conflicts">Merge conflicts</h3>
+<p>Occasionally, when we edit the same lines in the same note fields in both Anki
+and our local repository, we may encounter a merge conflict:</p>
+<pre><code class="language-bash">lyra@oxford:~/collection$ ki pull
+Pulling from '/home/lyra/.local/share/Anki2/User 1/collection.anki2'
+Computed md5sum: debeb6689f0b83d520ff913067c598e9
+Auto-merging note1645788806304.md
+CONFLICT (add/add): Merge conflict in note1645788806304.md
+Automatic merge failed; fix conflicts and then commit the result.
+
+From /tmp/tmpgkq4ilfy/ki/local/debeb6689f0b83d520ff913067c598e9/
+ * branch            main       -&gt; FETCH_HEAD
+ * [new branch]      main       -&gt; anki/main
+
+Wrote md5sum to '/home/mal/collection/.ki/hashes'
+</code></pre>
+<p>This is expected behavior, and since the process of resolving merge conflicts
+is the same for <code><a title="ki" href="#ki">ki</a></code> repositories as <code>git</code> repositories (since <code><a title="ki" href="#ki">ki</a></code>
+repositories <em>are</em> <code>git</code> repositories), we refer to
+<a href="https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-a-git-repository">StackOverflow</a>
+for how to proceed.</p>
 <h1 id="collaborative-decks">Collaborative decks</h1>
 <p>This section assumes knowledge of the basic <code><a title="ki" href="#ki">ki</a></code> operations and familiarity
 with <code>git</code>. If you haven't yet cloned your Anki collection into a <code><a title="ki" href="#ki">ki</a></code>
@@ -319,44 +457,7 @@ algebras/ groups/ manifolds/ rings/
 </ol>
 <hr>
 <p>After we've cloned the <code>manifolds</code> deck repository into a submodule of our <code><a title="ki" href="#ki">ki</a></code>
-repository, we may want to make some edits to the deck. Lets enter the
-<code>manifolds</code> directory and see what's inside.</p>
-<pre><code class="language-bash">lyra@oxford:~/collection$ cd manifolds/
-lyra@oxford:~/collection/manifolds$ ls
-MANIFOLDS.md
-</code></pre>
-<p>So we see a single markdown file called <code>MANIFOLDS.md</code>, which contains the
-notes for the manifolds deck. If we had subdecks of the manifolds deck, we
-would see more subdirectories here, and each one would have a markdown file in
-it as well. Lets open this file and see what's inside.</p>
-<p>We'll use vim to open the markdown file in this example, but any text editor
-will work.</p>
-<blockquote>
-<p><strong>INTERNAL.</strong> Add manifolds content and add more notes.</p>
-</blockquote>
-<pre><code class="language-bash">lyra@oxford:~/collection/manifolds$ vi MANIFOLDS.md
-</code></pre>
-<pre><code class="language-markdown"># Note
-nid: 1636122987401
-model: Basic
-deck: manifolds
-tags:
-markdown: false
-
-## Front
-What sort of object is `\(C_0(X)\)`?
-
-## Back
-A Banach algebra, and more specifically a `\(C^*\)`-algebra
-</code></pre>
-<p>So we see the structure of several notes inside this file. There is a section
-for note metadata, and a section for each field.</p>
-<p>There is a typo in the second note. Lets fix it, save our changes, and go back
-to the terminal. When we run <code>git diff</code>, we can see the unstaged changes we've
-made:</p>
-<blockquote>
-<p><strong>INTERNAL.</strong> At the output of git diff here.</p>
-</blockquote>
+repository, we may want to make some edits to the deck.</p>
 <h1 id="how-it-works">How it works</h1>
 <p><code><a title="ki" href="#ki">ki</a></code> is built on top of existing tooling implemented in the python package
 <a href="https://github.com/lervag/apy"><code>apy</code></a>, which is used to parse the Anki
@@ -1856,7 +1957,6 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 </ul>
 </li>
 <li><a href="#getting-started">Getting started</a><ul>
-<li><a href="#cloning-a-collection">Cloning a collection</a><ul>
 <li><a href="#finding-the-anki2-collection-file">Finding the .anki2 collection file</a><ul>
 <li><a href="#macos">MacOS</a></li>
 <li><a href="#windows">Windows</a></li>
@@ -1865,9 +1965,12 @@ def update_last_push_commit_sha(repo: git.Repo) -&gt; None:
 </ul>
 </li>
 <li><a href="#running-the-clone-command">Running the clone command</a></li>
+<li><a href="#editing-notes">Editing notes</a></li>
+<li><a href="#pushing-committed-changes-back-to-anki">Pushing committed changes back to Anki</a></li>
+<li><a href="#pulling-changes-from-anki-into-the-repository">Pulling changes from Anki into the repository</a><ul>
+<li><a href="#merge-conflicts">Merge conflicts</a></li>
 </ul>
 </li>
-<li><a href="#editing-notes">Editing notes</a></li>
 </ul>
 </li>
 <li><a href="#collaborative-decks">Collaborative decks</a><ul>
