@@ -830,6 +830,7 @@ def markdown_file_to_notes(filename: Union[str, Path]):
 
     # Ensure each note has all necessary properties.
     for note in notes:
+
         # Parse markdown flag.
         note['markdown'] = note['markdown'] in ('true', 'yes')
 
@@ -841,7 +842,7 @@ def markdown_file_to_notes(filename: Union[str, Path]):
 
 @beartype
 def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
-    """Get data from file"""
+    """Get data from file."""
     notes = []
     note = {}
     codeblock = False

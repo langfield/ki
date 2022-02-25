@@ -9,3 +9,4 @@ gitpython
 checksumdir
 bitstring
 tqdm
+lark
