@@ -1,7 +1,7 @@
 from pathlib import Path
 from tqdm import tqdm
 from lark import Lark
-from lark.exceptions import UnexpectedToken
+from lark.exceptions import UnexpectedToken, UnexpectedCharacters
 from loguru import logger
 import pytest
 
@@ -34,14 +34,29 @@ def main():
             parser.parse(note)
 
 
-def test_parser():
+def test_parser_goods():
+    """Try all good note examples."""
+    parser = get_parser()
+    goods = Path("tests/data/notes/good.md").read_text().split("---\n")
+    logger.info(f"Length goods: {len(goods)}")
+    for good in goods:
+        try:
+            parser.parse(good)
+        except UnexpectedToken as err:
+            logger.error(f"\n{good}")
+            raise err
+
+
+def test_parser_bads():
+    """Try all bad note examples."""
     parser = get_parser()
     bads = Path("tests/data/notes/bad.md").read_text().split("---\n")
     logger.info(f"Length bads: {len(bads)}")
     for bad in bads:
         try:
             parser.parse(bad)
+            logger.error(f"\n{bad}")
             assert False, "Should raise an error"
-        except UnexpectedToken as err:
+        except (UnexpectedToken, UnexpectedCharacters) as err:
             logger.info(err)
             continue

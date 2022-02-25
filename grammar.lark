@@ -1,8 +1,11 @@
 // A ``file`` is a sequence of 0 or more ``note`` rules.
-file: note*
+file: "\n"* note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: header /[\s\S]+/
+note: header body
+
+body: ("\n"* field)+
+
 field: "### " ANKINAME "\n" FIELDLINE*
 
 // A ``header`` is sequence of metadata rules, all required.
@@ -12,14 +15,21 @@ header: (TITLE NID MODEL DECK tags MARKDOWN) "\n"+
 tags: "tags:\n"
     | ("tags: " [ANKINAME ("," ANKINAME)*]) "\n"
 
-// Titles are alphameric + some limited punctuation.
-TITLE: "## " /[ a-zA-Z0-9_-]/+ "\n"
+// Titles are alphameric + some limited punctuation, and must start with a
+// nonspace char. Exactly 1 space between #s and start-of-title.
+TITLE: "## " VARIABLECHAR (" " | VARIABLECHAR)* "\n"
+
 NID: "nid: " INT "\n"
 MODEL: "model: " ANKINAME "\n"
+// MODEL: "model: Basic\n"
 DECK: "deck: " ANKINAME "\n"
 MARKDOWN: "markdown: " ("true" | "false") "\n"
-ANKINAME: /[^#^\/\n\s].{0,}/
+
+// Anki strips leading and trailing spaces from field names (you can test this
+// in the desktop client). So we disallow leading and trailing whitespace.
+ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
 FIELDLINE: /(?!##)(?:.|\n)+/
+VARIABLECHAR: /[a-zA-Z0-9_-]/
 
 %import common.ESCAPED_STRING
 %import common.INT
