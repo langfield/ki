@@ -444,7 +444,26 @@ def push() -> None:
 
 @beartype
 def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
-    """Parse nids from markdown file of notes."""
+    """
+    Parse nids from markdown file of notes.
+
+    Parameters
+    ----------
+    path : str
+        Path to a markdown file containing `ki`-style Anki notes.
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        List of notemaps with the nids casted to integers.
+
+    Raises
+    ------
+    KeyError
+        When there's no `nid` field.
+    ValueError
+        When the `nid` is not coercable to an integer.
+    """
     # Support multiple notes-per-file.
     notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
     casted_notemaps = []
@@ -453,17 +472,23 @@ def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
             nid = int(notemap["nid"])
             notemap["nid"] = nid
             casted_notemaps.append(notemap)
-        except KeyError as err:
-            logger.error("Failed to parse nid.")
-            logger.error(f"notemap: {notemap}")
-            logger.error(f"path: {path}")
+        except (KeyError, ValueError) as err:
+            if isinstance(err, KeyError):
+                logger.error("Failed to parse nid.")
+                logger.error(f"notemap: {notemap}")
+                logger.error(f"path: {path}")
+            else:
+                logger.error("Parsed nid is not an integer.")
+                logger.error(f"notemap: {notemap}")
+                logger.error(f"path: {path}")
+                logger.error(f"nid: {notemap['nid']}")
             raise err
     return casted_notemaps
 
 
 @beartype
 def get_nids(path: str) -> List[int]:
-    """Get just nids from a markdown note."""
+    """Get nids from a markdown file."""
     notemaps = parse_markdown_notes(path)
     return [notemap["nid"] for notemap in notemaps]
 

@@ -451,7 +451,7 @@ Wrote md5sum to '/home/mal/collection/.ki/hashes'
 
 This is expected behavior, and since the process of resolving merge conflicts
 is the same for `ki` repositories as `git` repositories (since `ki`
-repositories *are* `git` repositories), we refer to
+repositories *are* git repositories), we refer to
 [StackOverflow](https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-a-git-repository)
 for how to proceed.
 
