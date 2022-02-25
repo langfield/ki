@@ -364,7 +364,9 @@ def test_clone_creates_directory():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
+        logger.debug(f"Before clone {os.listdir()}")
         clone(runner, collection_path)
+        logger.debug(f"After clone {os.listdir()}")
 
         assert os.path.isdir(REPODIR)
 
@@ -827,15 +829,6 @@ def test_push_deletes_added_notes():
 
 
 # UTILS
-
-
-def test_get_default_clone_directory():
-    """Does it generate the right path?"""
-    path = ki.get_default_clone_directory("collection.anki2")
-    assert path == os.path.abspath("./collection")
-
-    path = ki.get_default_clone_directory("sensors.anki2")
-    assert path == os.path.abspath("./sensors")
 
 
 def test_parse_markdown_notes():

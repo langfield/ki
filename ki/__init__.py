@@ -31,6 +31,7 @@ import tempfile
 import warnings
 import subprocess
 import configparser
+from pathlib import Path
 
 import git
 import anki
@@ -44,7 +45,7 @@ from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Iterator, Sequence, Iterable, Optional
+from beartype.typing import List, Dict, Any, Iterator, Sequence, Iterable, Optional, Union
 
 from ki.note import KiNote
 
@@ -91,22 +92,24 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
-    repo = _clone(collection, directory, msg="Initial commit", silent=False)
+    colpath = Path(collection)
+    targetdir = Path(directory) if directory != "" else None
+    repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
     update_last_push_commit_sha(repo)
 
 
 @beartype
-def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
+def _clone(colpath: Path, targetdir: Optional[Path], msg: str, silent: bool) -> git.Repo:
     """
     Clone an Anki collection into a directory.
 
     Parameters
     ----------
-    collection : str
+    colpath : pathlib.Path
         The path to a `.anki2` collection file.
-    directory : str
+    targetdir : Optional[pathlib.Path]
         A path to a directory to clone the collection into.
-        Note: we check that this directory does not yet exist.
+        Note: we check that this directory is empty.
     msg : str
         Message for initial commit.
     silent : bool
@@ -117,56 +120,55 @@ def _clone(collection: str, directory: str, msg: str, silent: bool) -> git.Repo:
     git.Repo
         The cloned repository.
     """
-    collection = os.path.abspath(collection)
-    if not os.path.isfile(collection):
+    colpath = colpath.resolve()
+    if not colpath.is_file():
         raise FileNotFoundError
-    echo(f"Found .anki2 file at '{collection}'", silent=silent)
+    echo(f"Found .anki2 file at '{colpath}'", silent=silent)
 
     # Create default target directory.
-    if directory == "":
-        directory = get_default_clone_directory(collection)
-    if os.path.isdir(directory):
-        if len(os.listdir(directory)) > 0:
+    if targetdir is None:
+        targetdir = Path.cwd() / colpath.stem
+    if targetdir.is_dir():
+        if len(set(targetdir.iterdir())) > 0:
             raise FileExistsError
     else:
-        os.mkdir(directory)
+        logger.debug(f"Trying to create target directory at: {targetdir}")
+        targetdir.mkdir()
+        assert targetdir.is_dir()
 
     # Create .ki subdirectory.
-    kidir = os.path.join(directory, ".ki/")
-    os.mkdir(kidir)
+    kidir = targetdir / ".ki/"
+    kidir.mkdir()
 
     # Create config file.
-    config_path = os.path.join(kidir, "config")
+    config_path = kidir / "config"
     config = configparser.ConfigParser()
-    config["remote"] = {"path": collection}
+    config["remote"] = {"path": colpath}
     with open(config_path, "w", encoding="UTF-8") as config_file:
         config.write(config_file)
 
     # Append to hashes file.
-    md5sum = md5(collection)
+    md5sum = md5(colpath)
     echo(f"Computed md5sum: {md5sum}", silent)
-    append_md5sum(kidir, collection, md5sum, silent)
-    echo(f"Cloning into '{directory}'...", silent=silent)
+    append_md5sum(kidir, colpath, md5sum, silent)
+    echo(f"Cloning into '{targetdir}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
-    ignore_path = os.path.join(directory, ".gitignore")
-    with open(ignore_path, "w", encoding="UTF-8") as ignore_file:
-        ignore_file.write(".ki/\n")
+    ignore_path = targetdir / ".gitignore"
+    ignore_path.write_text(".ki/\n")
 
     # Open deck with `apy`, and dump notes and markdown files.
-    query = ""
-    with Anki(path=collection) as a:
-        nids = list(a.col.find_notes(query))
+    with Anki(path=colpath) as a:
+        nids = list(a.col.find_notes(query=""))
         for i in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
 
             # TODO: Support multiple notes per-file.
             note = KiNote(a, a.col.getNote(i))
-            note_path = os.path.join(directory, f"note{note.n.id}.md")
-            with open(note_path, "w", encoding="UTF-8") as note_file:
-                note_file.write(str(note))
+            note_path = targetdir / f"note{note.n.id}.md"
+            note_path.write_text(str(note))
 
     # Initialize git repo and commit contents.
-    repo = git.Repo.init(directory)
+    repo = git.Repo.init(targetdir)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
@@ -184,35 +186,34 @@ def pull() -> None:
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
 
     # Lock DB and get hash.
-    collection = open_repo()
-    con = lock(collection)
-    md5sum = md5(collection)
+    colpath = open_repo()
+    con = lock(colpath)
+    md5sum = md5(colpath)
 
     # Quit if hash matches last pull.
-    if md5sum in get_latest_collection_hash():
+    if md5sum in (Path.cwd() / ".ki/hashes").read_text().split("\n")[-1]:
         click.secho("ki pull: up to date.", bold=True)
         unlock(con)
         return
 
-    echo(f"Pulling from '{collection}'")
+    echo(f"Pulling from '{colpath}'")
     echo(f"Computed md5sum: {md5sum}")
 
     # Git clone `repo` at commit SHA of last successful `push()`.
-    cwd = os.getcwd()
+    cwd = Path.cwd()
     repo = git.Repo(cwd)
     last_push_sha = get_last_push_sha(repo)
-    last_push_repo = get_ephemeral_repo("ki/local/", repo, md5sum, last_push_sha)
+    last_push_repo = get_ephemeral_repo(Path("ki/local"), repo, md5sum, last_push_sha)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_dir`.
-    msg = f"Fetch changes from DB at '{collection}' with md5sum '{md5sum}'"
-    root = os.path.join(tempfile.mkdtemp(), "ki/", "remote/")
-    os.makedirs(root)
-    anki_remote_dir = os.path.join(root, md5sum)
-    _clone(collection, anki_remote_dir, msg, silent=True)
+    msg = f"Fetch changes from DB at '{colpath}' with md5sum '{md5sum}'"
+    root = Path(tempfile.mkdtemp()) / "ki" / "remote"
+    root.mkdir(parents=True)
+    anki_remote_dir = root / md5sum
+    _clone(colpath, anki_remote_dir, msg, silent=True)
 
     # Create git remote pointing to anki remote repo.
-    anki_remote_path = os.path.join(anki_remote_dir, ".git")
-    anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_path)
+    anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_dir / ".git")
 
     # Pull anki remote repo into ``last_push_repo``.
     os.chdir(last_push_repo.working_dir)
@@ -235,7 +236,7 @@ def pull() -> None:
 
     # Create remote pointing to ``last_push`` repo and pull into ``repo``.
     os.chdir(cwd)
-    last_push_remote_path = os.path.join(last_push_repo.working_dir, ".git")
+    last_push_remote_path = Path(last_push_repo.working_dir) / ".git"
     last_push_remote = repo.create_remote(REMOTE_NAME, last_push_remote_path)
     repo.git.config("pull.rebase", "false")
     p = subprocess.run(
@@ -248,10 +249,10 @@ def pull() -> None:
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    append_md5sum(os.path.join(cwd, ".ki"), collection, md5sum)
+    append_md5sum(cwd / ".ki", colpath, md5sum)
 
     # Check that md5sum hasn't changed.
-    assert md5(collection) == md5sum
+    assert md5(colpath) == md5sum
     unlock(con)
 
 
@@ -267,30 +268,29 @@ def push() -> None:
     4. Add/edit/delete notes using `apy`.
     """
     # Lock DB, get path to collection, and compute hash.
-    collection = open_repo()
-    con = lock(collection)
-    md5sum = md5(collection)
+    colpath = open_repo()
+    con = lock(colpath)
+    md5sum = md5(colpath)
 
     # Quit if hash doesn't match last pull.
-    if md5sum not in get_latest_collection_hash():
-        failed: str = f"Failed to push some refs to '{collection}'\n{HINT}"
+    if md5sum not in (Path.cwd() / ".ki/hashes").read_text().split("\n")[-1]:
+        failed: str = f"Failed to push some refs to '{colpath}'\n{HINT}"
         click.secho(failed, fg="yellow", bold=True)
         unlock(con)
         return
 
     # Clone latest commit into a staging repo.
-    cwd = os.getcwd()
+    cwd = Path.cwd()
     repo = git.Repo(cwd)
     sha = str(repo.head.commit)
-    staging_repo = get_ephemeral_repo("ki/local/", repo, md5sum, sha)
+    staging_repo = get_ephemeral_repo(Path("ki/local"), repo, md5sum, sha)
 
     # Copy `.ki/` directory into the staging repo.
-    repo_kidir = os.path.join(cwd, ".ki/")
-    staging_repo_kidir = os.path.join(staging_repo.working_dir, ".ki/")
-    shutil.copytree(repo_kidir, staging_repo_kidir)
+    staging_repo_kidir = Path(staging_repo.working_dir) / ".ki"
+    shutil.copytree(cwd / ".ki", staging_repo_kidir)
 
     # Get all notes changed between LAST_PUSH and HEAD.
-    notepaths: Iterator[str] = get_note_files_changed_since_last_push(staging_repo)
+    notepaths: Iterator[Path] = get_note_files_changed_since_last_push(staging_repo)
 
     # If there are no changes, update LAST_PUSH commit and quit.
     if len(set(notepaths)) == 0:
@@ -298,28 +298,26 @@ def push() -> None:
         update_last_push_commit_sha(repo)
         return
 
-    hashes_path = os.path.join(repo_kidir, "hashes")
-    echo(f"Pushing to '{collection}'")
+    echo(f"Pushing to '{colpath}'")
     echo(f"Computed md5sum: {md5sum}")
-    echo(f"Verified md5sum matches latest hash in '{hashes_path}'")
+    echo(f"Verified md5sum matches latest hash in '{cwd / '.ki' / 'hashes'}'")
 
     # Copy collection to a temp directory.
-    new_collection = os.path.join(tempfile.mkdtemp(), os.path.basename(collection))
-    assert not os.path.isfile(new_collection)
-    assert not os.path.isdir(new_collection)
-    shutil.copyfile(collection, new_collection)
+    new_colpath = Path(tempfile.mkdtemp()) / colpath.name
+    assert not new_colpath.exists()
+    shutil.copyfile(colpath, new_colpath)
     echo(f"Generating local .anki2 file from latest commit: {sha}")
-    echo(f"Writing changes to '{new_collection}'...")
+    echo(f"Writing changes to '{new_colpath}'...")
 
     # Edit the copy with `apy`.
-    with Anki(path=new_collection) as a:
+    with Anki(path=new_colpath) as a:
 
         # DEBUG
-        nids = list(a.col.find_notes(""))
+        nids = list(a.col.find_notes(query=""))
 
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
-        deletions_repo = get_ephemeral_repo("ki/deleted/", repo, md5sum, last_push_sha)
+        deletions_repo = get_ephemeral_repo(Path("ki/deleted"), repo, md5sum, last_push_sha)
 
         # Gather logging statements to display.
         log: List[str] = []
@@ -345,11 +343,10 @@ def push() -> None:
 
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
-            if not os.path.isfile(notepath):
-                deleted_file = os.path.basename(notepath)
-                deleted_path = os.path.join(deletions_repo.working_dir, deleted_file)
+            if not notepath.is_file():
+                deleted_path = Path(deletions_repo.working_dir) / notepath.name
 
-                assert os.path.isfile(deleted_path)
+                assert deleted_path.is_file()
                 nids = get_nids(deleted_path)
                 a.col.remove_notes(nids)
                 a.modified = True
@@ -383,21 +380,19 @@ def push() -> None:
 
                 # Get paths to note in local repo, as distinct from staging repo.
                 note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
-                repo_notepath = os.path.join(repo.working_dir, note_relpath)
+                repo_notepath = Path(repo.working_dir) / note_relpath
 
                 # If this is not an entirely new file, remove it.
-                if os.path.isfile(repo_notepath):
-                    os.remove(repo_notepath)
+                if repo_notepath.is_file():
+                    repo_notepath.unlink()
 
                 # Construct markdown file contents and write.
                 content: str = ""
                 for note in notes:
                     content += f"{str(note)}\n\n"
                 first_nid = notes[0].n.id
-                parent = os.path.abspath(os.path.join(repo_notepath, os.pardir))
-                new_notepath = os.path.join(parent, f"note{first_nid}.md")
-                with open(new_notepath, "w", encoding="UTF-8") as note_file:
-                    note_file.write(content)
+                new_notepath = repo_notepath.parent / f"note{first_nid}.md"
+                new_notepath.write_text(content)
                 for nid in new_nids:
                     new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
                     new_nid_path_map[nid] = new_note_relpath
@@ -421,18 +416,18 @@ def push() -> None:
             click.secho(line, bold=True, fg="yellow")
 
         # DEBUG
-        nids = list(a.col.find_notes(""))
+        nids = list(a.col.find_notes(query=""))
 
-    assert os.path.isfile(new_collection)
+    assert new_colpath.is_file()
 
     # Backup collection file and overwrite collection.
-    backup(collection)
-    shutil.copyfile(new_collection, collection)
-    echo(f"Overwrote '{collection}'")
+    backup(colpath)
+    shutil.copyfile(new_colpath, colpath)
+    echo(f"Overwrote '{colpath}'")
 
     # Append to hashes file.
-    new_md5sum = md5(new_collection)
-    append_md5sum(os.path.join(cwd, ".ki"), new_collection, new_md5sum, silent=True)
+    new_md5sum = md5(new_colpath)
+    append_md5sum(cwd / ".ki", new_colpath, new_md5sum, silent=True)
 
     # Update LAST_PUSH commit SHA file and unlock DB.
     update_last_push_commit_sha(repo)
@@ -443,13 +438,13 @@ def push() -> None:
 
 
 @beartype
-def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
+def parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
     """
     Parse nids from markdown file of notes.
 
     Parameters
     ----------
-    path : str
+    path : pathlib.Path
         Path to a markdown file containing `ki`-style Anki notes.
 
     Returns
@@ -487,38 +482,15 @@ def parse_markdown_notes(path: str) -> List[Dict[str, Any]]:
 
 
 @beartype
-def get_nids(path: str) -> List[int]:
+def get_nids(path: Path) -> List[int]:
     """Get nids from a markdown file."""
     notemaps = parse_markdown_notes(path)
     return [notemap["nid"] for notemap in notemaps]
 
 
+# TODO: Remove Union[].
 @beartype
-def get_default_clone_directory(collection_path: str) -> str:
-    """ "
-    Get the default clone directory path.
-
-    This should just be the name of the collection (which is usually a file
-    called `collection.anki2`) so this will usually be `./collection/`.
-
-    Parameters
-    ----------
-    collection_path : str
-        The path to a `.anki2` collection file.
-
-    Returns
-    -------
-    str
-        The path to clone into.
-    """
-    basename = os.path.basename(collection_path)
-    sections = os.path.splitext(basename)
-    assert len(sections) == 2
-    return os.path.abspath(sections[0])
-
-
-@beartype
-def md5(path: str) -> str:
+def md5(path: Union[str, Path]) -> str:
     """Compute md5sum of file at `path`."""
     hash_md5 = hashlib.md5()
     with open(path, "rb") as f:
@@ -528,8 +500,10 @@ def md5(path: str) -> str:
 
 
 @beartype
-def is_anki_note(path: str) -> bool:
+def is_anki_note(path: Path) -> bool:
     """Check if file is an `apy`-style markdown anki note."""
+    path = str(path)
+
     # Ought to have markdown file extension.
     if path[-3:] != ".md":
         return False
@@ -579,55 +553,48 @@ def update_apy_note(note: KiNote, notemap: Dict[str, Any]) -> None:
 
 
 @beartype
-def open_repo() -> str:
+def open_repo() -> Path:
     """Get collection path from `.ki/` directory."""
     # Check that config file exists.
-    config_path = os.path.join(os.getcwd(), ".ki/", "config")
-    if not os.path.isfile(config_path):
+    config_path = Path.cwd() / ".ki/" / "config"
+    if not config_path.is_file():
         raise FileNotFoundError
 
     # Parse config file.
     config = configparser.ConfigParser()
     config.read(config_path)
-    collection = config["remote"]["path"]
+    colpath = Path(config["remote"]["path"])
 
-    if not os.path.isfile(collection):
+    if not colpath.is_file():
         raise FileNotFoundError
 
-    return collection
+    return colpath
 
 
 @beartype
-def get_latest_collection_hash() -> str:
-    """Get the last collection hash stored in `.ki/hashes`."""
-    kidir = os.path.join(os.getcwd(), ".ki/")
-    hashes_path = os.path.join(kidir, "hashes")
-    with open(hashes_path, "r", encoding="UTF-8") as hashes_file:
-        return hashes_file.readlines()[-1]
-
-
-@beartype
-def backup(collection: str) -> None:
+def backup(colpath: Union[str, Path]) -> None:
     """Backup collection to `.ki/backups`."""
-    md5sum = md5(collection)
-    backupsdir = os.path.join(os.getcwd(), ".ki/", "backups")
-    assert not os.path.isfile(backupsdir)
-    if not os.path.isdir(backupsdir):
-        os.mkdir(backupsdir)
-    backup_path = os.path.join(backupsdir, f"{md5sum}.anki2")
-    if os.path.isfile(backup_path):
+    colpath = Path(colpath)
+    md5sum = md5(colpath)
+    backupsdir = Path.cwd() / ".ki" / "backups"
+    assert not backupsdir.is_file()
+    if not backupsdir.is_dir():
+        backupsdir.mkdir()
+    backup_path = backupsdir / f"{md5sum}.anki2"
+    if backup_path.is_file():
         click.secho("Backup already exists.", bold=True)
         return
-    assert not os.path.isfile(backup_path)
+    assert not backup_path.is_file()
     echo(f"Writing backup of .anki2 file to '{backupsdir}'")
-    shutil.copyfile(collection, backup_path)
-    assert os.path.isfile(backup_path)
+    shutil.copyfile(colpath, backup_path)
+    assert backup_path.is_file()
 
 
+# TODO: Remove Union[].
 @beartype
-def lock(collection: str) -> sqlite3.Connection:
+def lock(colpath: Union[str, Path]) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
-    con = sqlite3.connect(collection)
+    con = sqlite3.connect(colpath)
     con.isolation_level = "EXCLUSIVE"
     con.execute("BEGIN EXCLUSIVE")
     return con
@@ -643,14 +610,12 @@ def unlock(con: sqlite3.Connection) -> None:
 @beartype
 def get_last_push_sha(repo: git.Repo) -> str:
     """Get LAST_PUSH SHA."""
-    last_push_path = os.path.join(repo.working_dir, ".ki/", "last_push")
-    with open(last_push_path, "r", encoding="UTF-8") as last_push_file:
-        sha = last_push_file.read()
-    return sha
+    last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
+    return last_push_path.read_text()
 
 
 @beartype
-def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
+def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
     paths: Iterator[str]
     last_push_sha = get_last_push_sha(repo)
@@ -669,12 +634,12 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
             for diff in diff_index.iter_change_type(change_type):
                 files.append(diff.a_path)
                 files.append(diff.b_path)
-        paths = [os.path.join(repo.working_dir, file) for file in files]
+        paths = [Path(repo.working_dir) / file for file in files]
         paths = set(paths)
 
     changed = []
     for path in paths:
-        if os.path.isfile(path) and not is_anki_note(path):
+        if path.is_file() and not is_anki_note(path):
             continue
         changed.append(path)
 
@@ -682,13 +647,13 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[str]:
 
 
 @beartype
-def get_ephemeral_repo(suffix: str, repo: git.Repo, md5sum: str, sha: str) -> git.Repo:
+def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> git.Repo:
     """
     Clone the git repo at `repo` into an ephemeral repo.
 
     Parameters
     ----------
-    suffix : str
+    suffix : pathlib.Path
         /tmp/.../ path suffix, e.g. `ki/local/`.
     repo : git.Repo
         The git repository to clone.
@@ -703,10 +668,10 @@ def get_ephemeral_repo(suffix: str, repo: git.Repo, md5sum: str, sha: str) -> gi
         The cloned repository.
     """
     # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
-    assert os.path.isdir(repo.working_dir)
-    root = os.path.join(tempfile.mkdtemp(), suffix)
-    os.makedirs(root)
-    target = os.path.join(root, md5sum)
+    assert Path(repo.working_dir).is_dir()
+    root = Path(tempfile.mkdtemp()) / suffix
+    root.mkdir(parents=True)
+    target = root / md5sum
     git.Repo.clone_from(repo.working_dir, target, branch=repo.active_branch)
 
     # Do a reset --hard to the given SHA.
@@ -718,9 +683,8 @@ def get_ephemeral_repo(suffix: str, repo: git.Repo, md5sum: str, sha: str) -> gi
 @beartype
 def update_last_push_commit_sha(repo: git.Repo) -> None:
     """Dump the SHA of current HEAD commit to ``last_push file``."""
-    last_push_path = os.path.join(repo.working_dir, ".ki/", "last_push")
-    with open(last_push_path, "w", encoding="UTF-8") as last_push_file:
-        last_push_file.write(f"{str(repo.head.commit)}")
+    last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
+    last_push_path.write_text(f"{str(repo.head.commit)}")
 
 
 @beartype
@@ -732,13 +696,12 @@ def echo(string: str, silent: bool = False) -> None:
 
 @beartype
 def append_md5sum(
-    kidir: str, collection: str, md5sum: str, silent: bool = False
+    kidir: Path, colpath: Path, md5sum: str, silent: bool = False
 ) -> None:
     """Append an md5sum hash to the hashes file."""
-    basename = os.path.basename(collection)
-    hashes_path = os.path.join(kidir, "hashes")
+    hashes_path = kidir / "hashes"
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {basename}")
+        hashes_file.write(f"{md5sum}  {colpath.name}")
     echo(f"Wrote md5sum to '{hashes_path}'", silent)
 
 
