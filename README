@@ -86,10 +86,11 @@ TODO
   found.
 - Add a section in docs that explains what a `ki` repository is.
 - Try pdoc instead of pdoc3.
-- Convert path manipulation code to pathlib.
+- Convert path manipulation code to pathlib. (DONE)
 - Profile code.
 - Use NestedText instead of markdown.
 - Add asciinema gif for simple workflow.
+- Test that strange targetdirs are handled well.
 
 Triage
 ------
