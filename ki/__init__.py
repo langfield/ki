@@ -802,92 +802,46 @@ def _add_note(
 
 @beartype
 def markdown_file_to_notes(filename: Union[str, Path]):
-    """Parse notes data from Markdown file
+    """
+    Parse notes data from a Markdown file.
 
     The following example should adequately specify the syntax.
 
-        //input.md
-        model: Basic
-        tags: marked
+    ```
+    # Note 1
+    nid: 1
+    model: Model
+    tags: silly-tag
+    markdown: true
 
-        # Note 1
-        ## Front
-        Question?
+    ## Front
+    Question?
 
-        ## Back
-        Answer.
-
-        # Note 2
-        tag: silly-tag
-
-        ## Front
-        Question?
-
-        ## Back
-        Answer
-
-        # Note 3
-        model: NewModel
-        markdown: false (default is true)
-
-        ## NewFront
-        FieldOne
-
-        ## NewBack
-        FieldTwo
-
-        ## FieldThree
-        FieldThree
+    ## Back
+    Answer.
+    ```
     """
     try:
-        defaults, notes = _parse_file(filename)
+        notes = _parse_file(filename)
     except KeyError as e:
-        click.echo(f'Error {e.__class__} when parsing {filename}!')
-        click.echo('This may typically be due to bad Markdown formatting.')
-        raise click.Abort()
+        logger.error(f'Error {e.__class__} when parsing {filename}!')
+        logger.error('Bad markdown formatting.')
+        raise e
 
-    # Parse markdown flag
-    if 'markdown' in defaults:
-        defaults['markdown'] = defaults['markdown'] in ('true', 'yes')
-    elif 'md' in defaults:
-        defaults['markdown'] = defaults['md'] in ('true', 'yes')
-        defaults.pop('md')
-
-    # Remove comma from tag list
-    if 'tags' in defaults:
-        defaults['tags'] = defaults['tags'].replace(',', '')
-
-    # Add some explicit defaults (unless added in file)
-    defaults = {**{
-        'model': 'Basic',
-        'markdown': True,
-        'tags': '',
-    }, **defaults}
-
-    # Ensure each note has all necessary properties
+    # Ensure each note has all necessary properties.
     for note in notes:
-        # Parse markdown flag
-        if 'markdown' in note:
-            note['markdown'] = note['markdown'] in ('true', 'yes')
-        elif 'md' in note:
-            note['markdown'] = note['md'] in ('true', 'yes')
-            note.pop('md')
+        # Parse markdown flag.
+        note['markdown'] = note['markdown'] in ('true', 'yes')
 
-        # Remove comma from tag list
-        if 'tags' in note:
-            note['tags'] = note['tags'].replace(',', '')
-
-        # note = {**defaults, **note}
-        note.update({k: v for k, v in defaults.items()
-                     if k not in note})
+        # Remove comma from tag list.
+        note['tags'] = note['tags'].replace(',', '')
 
     return notes
 
 
 @beartype
-def _parse_file(filename: Union[str, Path]):
+def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
     """Get data from file"""
-    defaults = {}
     notes = []
     note = {}
     codeblock = False
@@ -932,8 +886,6 @@ def _parse_file(filename: Union[str, Path]):
                     if field:
                         note['fields'][field] = note['fields'][field].strip()
                         notes.append(note)
-                    else:
-                        defaults.update(note)
 
                 note = {'title': title, 'fields': {}}
                 field = None
@@ -954,4 +906,4 @@ def _parse_file(filename: Union[str, Path]):
         note['fields'][field] = note['fields'][field].strip()
         notes.append(note)
 
-    return defaults, notes
+    return notes
