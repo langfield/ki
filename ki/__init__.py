@@ -45,7 +45,16 @@ from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Iterator, Sequence, Iterable, Optional, Union
+from beartype.typing import (
+    List,
+    Dict,
+    Any,
+    Iterator,
+    Sequence,
+    Iterable,
+    Optional,
+    Union,
+)
 
 from ki.note import KiNote
 
@@ -99,7 +108,9 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def _clone(colpath: Path, targetdir: Optional[Path], msg: str, silent: bool) -> git.Repo:
+def _clone(
+    colpath: Path, targetdir: Optional[Path], msg: str, silent: bool
+) -> git.Repo:
     """
     Clone an Anki collection into a directory.
 
@@ -317,7 +328,9 @@ def push() -> None:
 
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
-        deletions_repo = get_ephemeral_repo(Path("ki/deleted"), repo, md5sum, last_push_sha)
+        deletions_repo = get_ephemeral_repo(
+            Path("ki/deleted"), repo, md5sum, last_push_sha
+        )
 
         # Gather logging statements to display.
         log: List[str] = []
