@@ -30,6 +30,7 @@ import sqlite3
 import tempfile
 import warnings
 import subprocess
+import collections
 import configparser
 from pathlib import Path
 
@@ -42,7 +43,7 @@ from tqdm import tqdm
 from loguru import logger
 
 from apy.anki import Anki, Note
-from apy.convert import markdown_to_html, plain_to_html, markdown_file_to_notes
+from apy.convert import markdown_to_html, plain_to_html
 
 from beartype import beartype
 from beartype.typing import (
@@ -58,6 +59,7 @@ from beartype.typing import (
 
 from ki.note import KiNote
 
+Notemap = collections.namedtuple("Notemap", ["nid"])
 
 logging.basicConfig(level=logging.INFO)
 
@@ -795,3 +797,161 @@ def _add_note(
         )
 
     return KiNote(apyanki, note)
+
+
+
+@beartype
+def markdown_file_to_notes(filename: Union[str, Path]):
+    """Parse notes data from Markdown file
+
+    The following example should adequately specify the syntax.
+
+        //input.md
+        model: Basic
+        tags: marked
+
+        # Note 1
+        ## Front
+        Question?
+
+        ## Back
+        Answer.
+
+        # Note 2
+        tag: silly-tag
+
+        ## Front
+        Question?
+
+        ## Back
+        Answer
+
+        # Note 3
+        model: NewModel
+        markdown: false (default is true)
+
+        ## NewFront
+        FieldOne
+
+        ## NewBack
+        FieldTwo
+
+        ## FieldThree
+        FieldThree
+    """
+    try:
+        defaults, notes = _parse_file(filename)
+    except KeyError as e:
+        click.echo(f'Error {e.__class__} when parsing {filename}!')
+        click.echo('This may typically be due to bad Markdown formatting.')
+        raise click.Abort()
+
+    # Parse markdown flag
+    if 'markdown' in defaults:
+        defaults['markdown'] = defaults['markdown'] in ('true', 'yes')
+    elif 'md' in defaults:
+        defaults['markdown'] = defaults['md'] in ('true', 'yes')
+        defaults.pop('md')
+
+    # Remove comma from tag list
+    if 'tags' in defaults:
+        defaults['tags'] = defaults['tags'].replace(',', '')
+
+    # Add some explicit defaults (unless added in file)
+    defaults = {**{
+        'model': 'Basic',
+        'markdown': True,
+        'tags': '',
+    }, **defaults}
+
+    # Ensure each note has all necessary properties
+    for note in notes:
+        # Parse markdown flag
+        if 'markdown' in note:
+            note['markdown'] = note['markdown'] in ('true', 'yes')
+        elif 'md' in note:
+            note['markdown'] = note['md'] in ('true', 'yes')
+            note.pop('md')
+
+        # Remove comma from tag list
+        if 'tags' in note:
+            note['tags'] = note['tags'].replace(',', '')
+
+        # note = {**defaults, **note}
+        note.update({k: v for k, v in defaults.items()
+                     if k not in note})
+
+    return notes
+
+
+@beartype
+def _parse_file(filename: Union[str, Path]):
+    """Get data from file"""
+    defaults = {}
+    notes = []
+    note = {}
+    codeblock = False
+    field = None
+    with open(filename, 'r', encoding='utf8') as f:
+        for line in f:
+            if codeblock:
+                if field:
+                    note['fields'][field] += line
+                match = re.match(r'```\s*$', line)
+                if match:
+                    codeblock = False
+                continue
+
+            match = re.match(r'```\w*\s*$', line)
+            if match:
+                codeblock = True
+                if field:
+                    note['fields'][field] += line
+                continue
+
+            if not field:
+                match = re.match(r'(\w+): (.*)', line)
+                if match:
+                    k, v = match.groups()
+                    k = k.lower()
+                    if k == 'tag':
+                        k = 'tags'
+                    note[k] = v.strip()
+                    continue
+
+            match = re.match(r'(#+)\s*(.*)', line)
+            if not match:
+                if field:
+                    note['fields'][field] += line
+                continue
+
+            level, title = match.groups()
+
+            if len(level) == 1:
+                if note:
+                    if field:
+                        note['fields'][field] = note['fields'][field].strip()
+                        notes.append(note)
+                    else:
+                        defaults.update(note)
+
+                note = {'title': title, 'fields': {}}
+                field = None
+                continue
+
+            if len(level) == 2:
+                if field:
+                    note['fields'][field] = note['fields'][field].strip()
+
+                if title in note:
+                    click.echo(f'Error when parsing {filename}!')
+                    raise click.Abort()
+
+                field = title
+                note['fields'][field] = ''
+
+    if note and field:
+        note['fields'][field] = note['fields'][field].strip()
+        notes.append(note)
+
+    return defaults, notes

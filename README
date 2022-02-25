@@ -27,7 +27,7 @@ TODO
 - Handle merge conflicts better. (DONE)
 - Test that uncommitted changes do not get pushed. (DONE)
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent. (DONE)
-- Test hashes and backups gets committed or ignored.
+- Test hashes and backups get committed or ignored.
 - Test that parser handles leading '#' characters (currently doesn't).
 - Test warnings are captured.
 - Test that the existence of a backup file with an up-to-date checksum doesn't
@@ -70,6 +70,7 @@ TODO
   git ref FETCH_HEAD. (DONE)
 - Make notemap a namedtuple, dataclass, or Namespace (figure out which is
   best).
+- Convert notemaps into namedtuples.
 - Test warnings are displayed for duplicate notes.
 - Test pure note deletion doesn't raise deprecation warning.
 - Test that push does not work if there are uncommitted changes.
@@ -80,7 +81,6 @@ TODO
   works as intended.
 - Test that push works when adding notes and with changes to the working tree
   or untracked files (uncommitted stuff).
-- Convert notemaps into namedtuples.
 - Test that clone cleans up directory if it aborts due to invalid DB path.
 - Test the media folder is cloned, and that a warning is printed if it isn't
   found.
@@ -88,9 +88,11 @@ TODO
 - Try pdoc instead of pdoc3.
 - Convert path manipulation code to pathlib. (DONE)
 - Profile code.
-- Use NestedText instead of markdown.
+- Use NestedText instead of markdown. (NO)
 - Add asciinema gif for simple workflow.
 - Test that strange targetdirs are handled well.
+- Test branches work as expected.
+
 
 Triage
 ------
