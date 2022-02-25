@@ -472,6 +472,8 @@ def parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
     ValueError
         When the `nid` is not coercable to an integer.
     """
+    path = Path(path)
+
     # Support multiple notes-per-file.
     notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
     casted_notemaps = []
@@ -482,14 +484,14 @@ def parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
             casted_notemaps.append(notemap)
         except (KeyError, ValueError) as err:
             if isinstance(err, KeyError):
-                logger.error("Failed to parse nid.")
-                logger.error(f"notemap: {notemap}")
-                logger.error(f"path: {path}")
+                logger.warning("Failed to parse nid.")
+                logger.warning(f"notemap: {notemap}")
+                logger.warning(f"path: {path}")
             else:
-                logger.error("Parsed nid is not an integer.")
-                logger.error(f"notemap: {notemap}")
-                logger.error(f"path: {path}")
-                logger.error(f"nid: {notemap['nid']}")
+                logger.warning("Parsed nid is not an integer.")
+                logger.warning(f"notemap: {notemap}")
+                logger.warning(f"path: {path}")
+                logger.warning(f"nid: {notemap['nid']}")
             raise err
     return casted_notemaps
 
@@ -501,7 +503,6 @@ def get_nids(path: Path) -> List[int]:
     return [notemap["nid"] for notemap in notemaps]
 
 
-# TODO: Remove Union[].
 @beartype
 def md5(path: Union[str, Path]) -> str:
     """Compute md5sum of file at `path`."""
@@ -585,9 +586,8 @@ def open_repo() -> Path:
 
 
 @beartype
-def backup(colpath: Union[str, Path]) -> None:
+def backup(colpath: Path) -> None:
     """Backup collection to `.ki/backups`."""
-    colpath = Path(colpath)
     md5sum = md5(colpath)
     backupsdir = Path.cwd() / ".ki" / "backups"
     assert not backupsdir.is_file()
@@ -603,9 +603,8 @@ def backup(colpath: Union[str, Path]) -> None:
     assert backup_path.is_file()
 
 
-# TODO: Remove Union[].
 @beartype
-def lock(colpath: Union[str, Path]) -> sqlite3.Connection:
+def lock(colpath: os.PathLike) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
     con = sqlite3.connect(colpath)
     con.isolation_level = "EXCLUSIVE"
