@@ -9,6 +9,7 @@ from lark.exceptions import UnexpectedToken, UnexpectedCharacters, UnexpectedInp
 
 ASCII_CONTROLS = ["\0", "\a", "\b", "\t", "\n", "\v", "\f", "\r"]
 
+
 def get_parser():
     """Return a parser."""
     # Read grammar.
@@ -59,12 +60,9 @@ def test_too_many_hashes_for_title():
         parser.parse(note)
     err = exc.value
     assert err.line == 2
-    assert err.column == 3
-    assert err.expected == set(["TITLENAME"])
-    assert err.token == "# Note\n"
-    assert len(err.token_history) == 1
-    prev = err.token_history.pop()
-    assert str(prev) == "##"
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.token_history == None
 
 
 TOO_FEW_HASHES_TITLE = r"""
@@ -93,9 +91,7 @@ def test_too_few_hashes_for_title():
     assert err.line == 2
     assert err.column == 1
     assert err.token == "# Note\n"
-    assert len(err.token_history) == 1
-    prev = err.token_history.pop()
-    assert str(prev) == "\n"
+    assert err.token_history == None
 
 
 TOO_FEW_HASHES_FIELDNAME = r"""
@@ -124,7 +120,7 @@ def test_too_few_hashes_for_fieldname():
     assert err.line == 9
     assert err.column == 1
     assert err.token == "##"
-    assert err.expected == set(["FIELDHEADER"])
+    assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "markdown: false\n\n"
@@ -154,12 +150,12 @@ def test_too_many_hashes_for_fieldname():
         parser.parse(note)
     err = exc.value
     assert err.line == 9
-    assert err.column == 1
-    assert err.token == "##"
-    assert err.expected == set(["FIELDHEADER"])
+    assert err.column == 4
+    assert err.token == "# Front\n"
+    assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "markdown: false\n\n"
+    assert str(prev) == "###"
 
 
 MISSING_FIELDNAME = r"""
@@ -186,12 +182,12 @@ def test_missing_fieldname():
         parser.parse(note)
     err = exc.value
     assert err.line == 9
-    assert err.column == 1
-    assert err.token == "##"
-    assert err.expected == set(["FIELDHEADER"])
+    assert err.column == 8
+    assert err.token == "\n"
+    assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "markdown: false\n\n"
+    assert str(prev) == "###"
 
 
 MISSING_TITLE = r"""
@@ -305,26 +301,46 @@ r
 s
 """
 
-BAD_FIELDNAME_CHARS = [":", "{", "}", "\""]
-BAD_FIELDNAMES = ["aa:aa", "aa{aa", "aa}aa", "aa\"aa"]
+BAD_FIELDNAME_CHARS = [":", "{", "}", '"']
 
-def test_fieldname_validation():
+
+def test_bad_field_single_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
     parser = get_parser()
-    for name in BAD_FIELDNAME_CHARS + BAD_FIELDNAMES:
-        note = template.replace("@@@@@", name)
+    for fieldname in BAD_FIELDNAME_CHARS:
+        note = template.replace("@@@@@", fieldname)
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        debug_lark_error(note, err)
         assert err.line == 9
-        assert err.column == 1
-        assert err.token == "##"
-        assert err.expected == set(["FIELDHEADER"])
+        assert err.column == 5
+        assert err.token == fieldname + "\n"
+        assert err.expected == set(["ANKINAME"])
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
-        assert str(prev) == "markdown: false\n\n"
+        assert str(prev) == "###"
+
+
+BAD_FIELDNAMES = ["aa:aa", "aa{aa", "aa}aa", 'aa"aa']
+
+
+def test_bad_field_multi_char_name_validation():
+    """Do invalid fieldname characters raise an error?"""
+    template = FIELDNAME_VALIDATION
+    parser = get_parser()
+    for fieldname in BAD_FIELDNAMES:
+        note = template.replace("@@@@@", fieldname)
+        with pytest.raises(UnexpectedInput) as exc:
+            parser.parse(note)
+        err = exc.value
+        assert err.line == 9
+        assert err.column == 7
+        assert err.token == fieldname[2:] + "\n"
+        assert err.expected == set(["NEWLINE"])
+        assert len(err.token_history) == 1
+        prev = err.token_history.pop()
+        assert str(prev) == fieldname[:2]
 
 
 def test_parser_goods():
