@@ -1,13 +1,18 @@
 """Tests for markdown note Lark grammar."""
+import pprint
 from pathlib import Path
 
 import pytest
+import prettyprinter as pp
+
 from tqdm import tqdm
 from loguru import logger
 from beartype import beartype
 
 from lark import Lark
 from lark.exceptions import UnexpectedToken, UnexpectedInput, UnexpectedCharacters
+
+from ki import NoteTransformer
 
 # pylint: disable=too-many-lines
 
@@ -538,22 +543,47 @@ def test_parser_goods():
             raise err
 
 
+def test_transformer():
+    """Try out transformer."""
+    parser = get_parser()
+    note = Path("tests/data/notes/note123412341234.md").read_text(encoding="UTF-8")
+    tree = parser.parse(note)
+    transformer = NoteTransformer()
+    out = transformer.transform(tree)
+    pp.cpprint(out)
+
+
+def test_transformer_goods():
+    """Try all good note examples."""
+    parser = get_parser()
+    transformer = NoteTransformer()
+    goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
+    for good in goods:
+        try:
+            tree = parser.parse(good)
+            out = transformer.transform(tree)
+            pp.cpprint(out)
+        except UnexpectedToken as err:
+            logger.error(f"\n{good}")
+            raise err
+
+
+
 def main():
     """Parse all notes in main collection."""
+    parse_collection()
+
+
+def parse_collection():
+    """Parse all notes in a collection."""
     parser = get_parser()
-
-    # Read example note.
-    note = Path("tests/data/notes/note123412341234.md").read_text(encoding="UTF-8")
-
-    # Parse.
-    tree = parser.parse(note)
-    logger.debug(tree.pretty())
-
-    # Parse all notes in a collection.
+    transformer = NoteTransformer()
     for path in tqdm(set((Path.home() / "collection").iterdir())):
         if path.suffix == ".md":
             note = path.read_text()
-            parser.parse(note)
+            tree = parser.parse(note)
+            out = transformer.transform(tree)
+            pp.cpprint(out)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ import click
 import gitdb
 from bs4 import MarkupResemblesLocatorWarning
 from tqdm import tqdm
+from lark import Lark, Transformer
 from loguru import logger
 
 from apy.anki import Anki, Note
@@ -799,7 +800,6 @@ def _add_note(
     return KiNote(apyanki, note)
 
 
-
 @beartype
 def markdown_file_to_notes(filename: Union[str, Path]):
     """
@@ -824,18 +824,18 @@ def markdown_file_to_notes(filename: Union[str, Path]):
     try:
         notes = _parse_file(filename)
     except KeyError as e:
-        logger.error(f'Error {e.__class__} when parsing {filename}!')
-        logger.error('Bad markdown formatting.')
+        logger.error(f"Error {e.__class__} when parsing {filename}!")
+        logger.error("Bad markdown formatting.")
         raise e
 
     # Ensure each note has all necessary properties.
     for note in notes:
 
         # Parse markdown flag.
-        note['markdown'] = note['markdown'] in ('true', 'yes')
+        note["markdown"] = note["markdown"] in ("true", "yes")
 
         # Remove comma from tag list.
-        note['tags'] = note['tags'].replace(',', '')
+        note["tags"] = note["tags"].replace(",", "")
 
     return notes
 
@@ -847,37 +847,37 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
     note = {}
     codeblock = False
     field = None
-    with open(filename, 'r', encoding='utf8') as f:
+    with open(filename, "r", encoding="utf8") as f:
         for line in f:
             if codeblock:
                 if field:
-                    note['fields'][field] += line
-                match = re.match(r'```\s*$', line)
+                    note["fields"][field] += line
+                match = re.match(r"```\s*$", line)
                 if match:
                     codeblock = False
                 continue
 
-            match = re.match(r'```\w*\s*$', line)
+            match = re.match(r"```\w*\s*$", line)
             if match:
                 codeblock = True
                 if field:
-                    note['fields'][field] += line
+                    note["fields"][field] += line
                 continue
 
             if not field:
-                match = re.match(r'(\w+): (.*)', line)
+                match = re.match(r"(\w+): (.*)", line)
                 if match:
                     k, v = match.groups()
                     k = k.lower()
-                    if k == 'tag':
-                        k = 'tags'
+                    if k == "tag":
+                        k = "tags"
                     note[k] = v.strip()
                     continue
 
-            match = re.match(r'(#+)\s*(.*)', line)
+            match = re.match(r"(#+)\s*(.*)", line)
             if not match:
                 if field:
-                    note['fields'][field] += line
+                    note["fields"][field] += line
                 continue
 
             level, title = match.groups()
@@ -885,26 +885,125 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
             if len(level) == 1:
                 if note:
                     if field:
-                        note['fields'][field] = note['fields'][field].strip()
+                        note["fields"][field] = note["fields"][field].strip()
                         notes.append(note)
 
-                note = {'title': title, 'fields': {}}
+                note = {"title": title, "fields": {}}
                 field = None
                 continue
 
             if len(level) == 2:
                 if field:
-                    note['fields'][field] = note['fields'][field].strip()
+                    note["fields"][field] = note["fields"][field].strip()
 
                 if title in note:
-                    click.echo(f'Error when parsing {filename}!')
+                    click.echo(f"Error when parsing {filename}!")
                     raise click.Abort()
 
                 field = title
-                note['fields'][field] = ''
+                note["fields"][field] = ""
 
     if note and field:
-        note['fields'][field] = note['fields'][field].strip()
+        note["fields"][field] = note["fields"][field].strip()
         notes.append(note)
 
     return notes
+
+
+Header = collections.namedtuple(
+    "Header", ["title", "nid", "model", "deck", "tags", "markdown"]
+)
+Field = collections.namedtuple("Field", ["title", "content"])
+Note = collections.namedtuple("Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"])
+
+
+class NoteTransformer(Transformer):
+    r"""
+    file
+      note
+        header
+          title     Note
+          nid: 123412341234
+
+          model: Basic
+
+          deck      a
+          tags      None
+          markdown: false
+
+
+        field
+          fieldheader
+            ###
+            Front
+          r
+
+
+        field
+          fieldheader
+            ###
+            Back
+          s
+    """
+
+    def file(self, f):
+        return f
+
+    def note(self, n):
+        assert len(n) >= 2
+        header = n[0]
+        fields = n[1:]
+        return Note(*header, fields)
+
+    def header(self, h):
+        return Header(*h)
+
+    def title(self, t):
+        """``title: "##" TITLENAME "\n"+``"""
+        return t[0]
+
+    def tags(self, t):
+        return t
+
+    def field(self, f):
+        assert len(f) >= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = "".join(lines)
+        return Field(fheader, content)
+
+    def fieldheader(self, f):
+        """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
+        return f[1]
+
+    def deck(self, d):
+        """``deck: "deck:" DECKNAME "\n"``"""
+        return d[0]
+
+    def NID(self, n):
+        """Could be empty!"""
+        nid = re.sub(r"^nid:", "", str(n)).strip()
+        return nid
+
+    def MODEL(self, m):
+        model = re.sub(r"^model:", "", str(m)).strip()
+        return model
+
+    def MARKDOWN(self, m):
+        md = re.sub(r"^markdown:", "", str(m)).strip()
+        return md
+
+    def DECKNAME(self, d):
+        return str(d).strip()
+
+    def FIELDLINE(self, f):
+        return str(f)
+
+    def TITLENAME(self, t):
+        return str(t)
+
+    def ANKINAME(self, a):
+        return str(a)
+
+    def TAGNAME(self, t):
+        return str(t)

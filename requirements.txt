@@ -10,3 +10,4 @@ checksumdir
 bitstring
 tqdm
 lark
+prettyprinter
