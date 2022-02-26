@@ -1,11 +1,13 @@
+"""Tests for markdown note Lark grammar."""
 from pathlib import Path
 
 import pytest
 from tqdm import tqdm
-from lark import Lark
 from loguru import logger
 from beartype import beartype
-from lark.exceptions import UnexpectedToken, UnexpectedCharacters, UnexpectedInput
+
+from lark import Lark
+from lark.exceptions import UnexpectedToken, UnexpectedInput
 
 ASCII_CONTROLS = ["\0", "\a", "\b", "\t", "\n", "\v", "\f", "\r"]
 
@@ -62,7 +64,7 @@ def test_too_many_hashes_for_title():
     assert err.line == 2
     assert err.column == 1
     assert err.token == "###"
-    assert err.token_history == None
+    assert err.token_history is None
 
 
 TOO_FEW_HASHES_TITLE = r"""
@@ -91,7 +93,7 @@ def test_too_few_hashes_for_title():
     assert err.line == 2
     assert err.column == 1
     assert err.token == "# Note\n"
-    assert err.token_history == None
+    assert err.token_history is None
 
 
 TOO_FEW_HASHES_FIELDNAME = r"""
@@ -368,7 +370,7 @@ def test_fieldname_start_validation():
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
-    goods = Path("tests/data/notes/good.md").read_text().split("---\n")
+    goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
     logger.info(f"Length goods: {len(goods)}")
     for good in goods:
         try:
@@ -379,10 +381,11 @@ def test_parser_goods():
 
 
 def main():
+    """Parse all notes in main collection."""
     parser = get_parser()
 
     # Read example note.
-    note = Path("tests/data/notes/note123412341234.md").read_text()
+    note = Path("tests/data/notes/note123412341234.md").read_text(encoding="UTF-8")
 
     # Parse.
     tree = parser.parse(note)
