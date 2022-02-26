@@ -14,7 +14,7 @@ header: (title NID MODEL deck tags MARKDOWN)
 
 // A ``tags`` object is allowed to be empty.
 // We do NOT check that tags do not contain whitespace, because this is difficult.
-tags: ("tags:" [ANKINAME ("," ANKINAME)*]) "\n"+
+tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
 
 // Titles are alphameric + some limited punctuation, and must start with a
 // nonspace char. Exactly 1 space between #s and start-of-title.
@@ -33,6 +33,7 @@ FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client).
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
+TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
 TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
