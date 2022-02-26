@@ -19,7 +19,8 @@ tags: ("tags:" [ANKINAME ("," ANKINAME)*]) "\n"+
 // nonspace char. Exactly 1 space between #s and start-of-title.
 title: "##" TITLENAME "\n"+
 
-NID: "nid:" " "* INT "\n"+
+// NID field is allowed to be empty.
+NID: "nid:" " "* INT? "\n"+
 MODEL: "model:" " "* ANKINAME "\n"+
 DECK: "deck:" " "* ANKINAME "\n"+
 MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
