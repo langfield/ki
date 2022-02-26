@@ -1,51 +1,85 @@
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ FILE + NOTE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 // A ``file`` is a sequence of 0 or more ``note`` rules.
 file: "\n"* note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
 note: header field+
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ FIELD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 // Only allow one newline after a field, but it can have many newlines within
 // it, and fields can be empty.
 field: fieldheader FIELDLINE*
 fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+
+FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
+FIELDSENTINEL: "###"
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``header`` is sequence of metadata rules, all required.
 header: (title NID MODEL deck tags MARKDOWN)
 
-// A ``tags`` object is allowed to be empty.
-// We do NOT check that tags do not contain whitespace, because this is difficult.
-tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
+
+// === TITLE ===
 
 // Titles are alphameric + some limited punctuation, and must start with a
 // nonspace char. Exactly 1 space between #s and start-of-title.
 title: "##" TITLENAME "\n"+
+TITLENAME: TITLECHAR (" " | TITLECHAR)*
+TITLECHAR: /[a-zA-Z0-9_-]/
 
-// Anki allows empty deck component names, but we do not, because that is insane.
-deck: "deck:" DECKNAME "\n"
+
+// === NID =====
 
 // NID field is allowed to be empty.
 NID: "nid:" " "* INT? "\n"+
+
+
+// === MODEL ===
+
 MODEL: "model:" " "* ANKINAME "\n"+
-MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
-FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
+
+
+// === DECK ====
+
+// Deck names look like ``<component>[::<component>]*``.
+// Anki allows empty deck component names, but we do not, because that is
+// insane.
+deck: "deck:" DECKNAME "\n"
 DECKNAME: DECKCOMPONENTNAME (DECKDELIMITER DECKCOMPONENTNAME)*
+DECKCOMPONENTNAME: DECKNONSPACECHAR+ (DECKCHAR+ DECKNONSPACECHAR+)*
+DECKCHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\r\n]/
+DECKNONSPACECHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\s]/
+DECKSENTINEL: "deck:"
+DECKDELIMITER: "::"
+
+
+// === TAGS ====
+
+// A ``tags`` object is allowed to be empty.
+// We do NOT check that tags do not contain whitespace, because this is
+// difficult.
+tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
+TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
+MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ COMMON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// === CHARS ===
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client).
-TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
-TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
-DECKCOMPONENTNAME: DECKNONSPACECHAR+ (DECKCHAR+ DECKNONSPACECHAR+)*
-
-DECKSENTINEL: "deck:"
-DECKDELIMITER: "::"
-FIELDSENTINEL: "###"
-
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
-DECKCHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\r\n]/
-DECKNONSPACECHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\s]/
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
-VARIABLECHAR: /[a-zA-Z0-9_-]/
+
+
+// === IMPORTS ===
 
 %import common.ESCAPED_STRING
 %import common.INT
