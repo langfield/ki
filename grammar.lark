@@ -25,7 +25,7 @@ NID: "nid:" " "* INT? "\n"+
 MODEL: "model:" " "* ANKINAME "\n"+
 DECK: "deck:" " "* ANKINAME "\n"+
 MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
-FIELDLINE: /(?!##)(?:.)+/ "\n"+
+FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client). So we disallow leading and trailing whitespace.
