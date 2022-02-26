@@ -123,7 +123,7 @@ def test_too_few_hashes_for_fieldname():
     err = exc.value
     assert err.line == 9
     assert err.column == 1
-    assert err.token == "##"
+    assert err.token == "## Front"
     assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -153,9 +153,10 @@ def test_too_many_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
+    debug_lark_error(note, err)
     assert err.line == 9
     assert err.column == 4
-    assert err.token == "# Front\n"
+    assert err.token == "# Front"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -324,7 +325,7 @@ def test_bad_field_single_char_name_validation():
         prev = err.token_history.pop()
         assert str(prev) == "###"
         if isinstance(err, UnexpectedToken):
-            assert err.token == char + "\n"
+            assert err.token in char + "\n"
             assert err.expected == set(["ANKINAME"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
@@ -346,7 +347,7 @@ def test_bad_field_multi_char_name_validation():
         prev = err.token_history.pop()
         assert str(prev) == fieldname[:2]
         if isinstance(err, UnexpectedToken):
-            assert err.token == fieldname[2:] + "\n"
+            assert err.token in fieldname[2:] + "\n"
             assert err.expected == set(["NEWLINE"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
@@ -371,7 +372,7 @@ def test_fieldname_start_validation():
         prev = err.token_history.pop()
         assert str(prev) == "###"
         if isinstance(err, UnexpectedToken):
-            assert err.token == fieldname + "\n"
+            assert err.token in fieldname + "\n"
             assert err.expected == set(["ANKINAME"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char

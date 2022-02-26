@@ -30,13 +30,17 @@ DECKSENTINEL: "deck:"
 FIELDSENTINEL: "###"
 MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
-DECKNAME: ANKINAME (DECKDELIMITER ANKINAME)*
+DECKNAME: DECKCOMPONENTNAME (DECKDELIMITER DECKCOMPONENTNAME)*
 DECKDELIMITER: "::"
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client).
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
 TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
+// DECKCOMPONENTNAME: /[^\0\x07\x08\x0b\x0c"\r\n]/+
+DECKCOMPONENTNAME: DECKNONSPACECHAR DECKCHAR*
+DECKCHAR: /[^\0\x07\x08\x0b\x0c"\r\n]/
+DECKNONSPACECHAR: /[^\0\x07\x08\x0b\x0c"\s]/
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
 TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
