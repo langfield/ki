@@ -343,6 +343,28 @@ def test_bad_field_multi_char_name_validation():
         assert str(prev) == fieldname[:2]
 
 
+BAD_START_FIELDNAME_CHARS = ["#", "/", "^"]
+
+
+def test_fieldname_start_validation():
+    """Do bad start characters in fieldnames raise an error?"""
+    template = FIELDNAME_VALIDATION
+    parser = get_parser()
+    for char in BAD_START_FIELDNAME_CHARS:
+        fieldname = char + "a"
+        note = template.replace("@@@@@", fieldname)
+        with pytest.raises(UnexpectedInput) as exc:
+            parser.parse(note)
+        err = exc.value
+        assert err.line == 9
+        assert err.column == 5
+        assert err.token == fieldname + "\n"
+        assert err.expected == set(["ANKINAME"])
+        assert len(err.token_history) == 1
+        prev = err.token_history.pop()
+        assert str(prev) == "###"
+
+
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
