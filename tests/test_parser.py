@@ -1,5 +1,4 @@
 """Tests for markdown note Lark grammar."""
-import pprint
 from pathlib import Path
 
 import pytest
@@ -401,7 +400,7 @@ def test_field_content_validation():
         field = char + "a"
         note = template.replace("@@@@@", field)
         with pytest.raises(UnexpectedCharacters) as exc:
-            tree = parser.parse(note)
+            parser.parse(note)
         err = exc.value
         assert err.line == 10
         assert err.column == 1
@@ -409,6 +408,46 @@ def test_field_content_validation():
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
         assert str(prev) == "\n"
+
+
+DECK_VALIDATION = r"""
+## a
+nid: 123412341234
+model: a
+deck: @@@@@
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+BAD_DECK_CHARS = ['"'] + BAD_ASCII_CONTROLS
+
+
+def test_deck_validation():
+    """Do ascii control characters and quotes in deck names raise an error?"""
+    template = DECK_VALIDATION
+    parser = get_parser()
+    for char in BAD_DECK_CHARS:
+        deck = char + "a"
+        note = template.replace("@@@@@", deck)
+        with pytest.raises(UnexpectedInput) as exc:
+            parser.parse(note)
+        err = exc.value
+        assert err.line == 5
+        assert err.column == 7
+        assert len(err.token_history) == 1
+        prev = err.token_history.pop()
+        assert str(prev) == "deck:"
+        if isinstance(err, UnexpectedToken):
+            assert err.token == deck + "\n"
+            assert err.expected == set(["ANKINAME"])
+        if isinstance(err, UnexpectedCharacters):
+            assert err.char == char
 
 
 def test_parser_goods():

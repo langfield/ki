@@ -12,6 +12,20 @@ r
 s
 
 ---
+## Note
+nid: 123412341234
+model: Basic
+deck: abcdefg999
+tags:
+markdown: false
+
+### Front
+r
+
+### Back
+s
+
+---
 ## Nota
 nid: 123412341234
 model: Basic

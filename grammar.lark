@@ -8,10 +8,9 @@ note: header field+
 // it, and fields can be empty.
 field: fieldheader FIELDLINE*
 fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+
-FIELDSENTINEL: "###"
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (title NID MODEL DECK tags MARKDOWN)
+header: (title NID MODEL deck tags MARKDOWN)
 
 // A ``tags`` object is allowed to be empty.
 tags: ("tags:" [ANKINAME ("," ANKINAME)*]) "\n"+
@@ -20,16 +19,18 @@ tags: ("tags:" [ANKINAME ("," ANKINAME)*]) "\n"+
 // nonspace char. Exactly 1 space between #s and start-of-title.
 title: "##" TITLENAME "\n"+
 
+deck: "deck:" ANKINAME "\n"
+
 // NID field is allowed to be empty.
 NID: "nid:" " "* INT? "\n"+
 MODEL: "model:" " "* ANKINAME "\n"+
-DECK: "deck:" " "* ANKINAME "\n"+
+DECKSENTINEL: "deck:"
+FIELDSENTINEL: "###"
 MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client). So we disallow leading and trailing whitespace.
-// ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
