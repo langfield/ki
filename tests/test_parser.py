@@ -9,7 +9,8 @@ from beartype import beartype
 from lark import Lark
 from lark.exceptions import UnexpectedToken, UnexpectedInput
 
-ASCII_CONTROLS = ["\0", "\a", "\b", "\t", "\n", "\v", "\f", "\r"]
+
+BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
 
 def get_parser():
@@ -303,7 +304,7 @@ r
 s
 """
 
-BAD_FIELDNAME_CHARS = [":", "{", "}", '"']
+BAD_FIELDNAME_CHARS = [":", "{", "}", '"'] + BAD_ASCII_CONTROLS
 
 
 def test_bad_field_single_char_name_validation():
@@ -324,14 +325,12 @@ def test_bad_field_single_char_name_validation():
         assert str(prev) == "###"
 
 
-BAD_FIELDNAMES = ["aa:aa", "aa{aa", "aa}aa", 'aa"aa']
-
-
 def test_bad_field_multi_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
     parser = get_parser()
-    for fieldname in BAD_FIELDNAMES:
+    for char in BAD_FIELDNAME_CHARS:
+        fieldname = "aa" + char + "aa"
         note = template.replace("@@@@@", fieldname)
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
@@ -345,7 +344,7 @@ def test_bad_field_multi_char_name_validation():
         assert str(prev) == fieldname[:2]
 
 
-BAD_START_FIELDNAME_CHARS = ["#", "/", "^"]
+BAD_START_FIELDNAME_CHARS = ["#", "/", "^"] + BAD_FIELDNAME_CHARS
 
 
 def test_fieldname_start_validation():
@@ -371,7 +370,7 @@ def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
     goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
-    logger.info(f"Length goods: {len(goods)}")
+    logger.info(f"goods (len): {len(goods)}")
     for good in goods:
         try:
             parser.parse(good)

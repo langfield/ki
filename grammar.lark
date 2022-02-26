@@ -31,8 +31,8 @@ FIELDLINE: /(?!##)(?:.)+/ "\n"+
 // in the desktop client). So we disallow leading and trailing whitespace.
 // ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
-STARTENDCHAR: /[^#^\/\s:{}"]/
-ANKICHAR: /[^\s:{}"]/
+STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
+ANKICHAR: /[^\s:{}"\0\x07\x08]/
 TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
 VARIABLECHAR: /[a-zA-Z0-9_-]/
 
