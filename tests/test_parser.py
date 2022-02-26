@@ -153,7 +153,6 @@ def test_too_many_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    debug_lark_error(note, err)
     assert err.line == 9
     assert err.column == 4
     assert err.token == "# Front"
