@@ -110,6 +110,7 @@ Won't fix
 ---------
 pdoc3 doesn't generate docstrings for click commands
 clone doesn't work on ankiweb deck URLs
+comments aren't supported in notes
 
 
 On pushing new notes

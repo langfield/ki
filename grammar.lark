@@ -2,14 +2,12 @@
 file: "\n"* note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: header body
-
-body: ("\n"* field)+
+note: header ("\n"* field)+
 
 field: "### " ANKINAME "\n" FIELDLINE*
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (TITLE NID MODEL DECK tags MARKDOWN) "\n"+
+header: (title NID MODEL DECK tags MARKDOWN) "\n"+
 
 // A ``tags`` object is allowed to be empty.
 tags: "tags:\n"
@@ -17,7 +15,7 @@ tags: "tags:\n"
 
 // Titles are alphameric + some limited punctuation, and must start with a
 // nonspace char. Exactly 1 space between #s and start-of-title.
-TITLE: "## " VARIABLECHAR (" " | VARIABLECHAR)* "\n"
+title: "## " TITLENAME "\n"
 
 NID: "nid: " INT "\n"
 MODEL: "model: " ANKINAME "\n"
@@ -29,6 +27,7 @@ MARKDOWN: "markdown: " ("true" | "false") "\n"
 // in the desktop client). So we disallow leading and trailing whitespace.
 ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
 FIELDLINE: /(?!##)(?:.|\n)+/
+TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
 VARIABLECHAR: /[a-zA-Z0-9_-]/
 
 %import common.ESCAPED_STRING

@@ -60,3 +60,6 @@ def test_parser_bads():
         except (UnexpectedToken, UnexpectedCharacters) as err:
             logger.info(err)
             continue
+
+if __name__ == "__main__":
+    main()
