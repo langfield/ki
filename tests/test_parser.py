@@ -476,10 +476,8 @@ def test_tag_validation():
     for char in BAD_TAG_CHARS:
         tags = f"subtle, {char}, heimdall"
         note = template.replace("@@@@@", tags)
-        logger.debug(f"char: {repr(char)}")
         with pytest.raises(UnexpectedInput) as exc:
-            tree = parser.parse(note)
-            logger.debug(f"\n{tree.pretty()}")
+            parser.parse(note)
         err = exc.value
         assert err.line == 6
         assert err.column in (15, 16)
@@ -487,7 +485,6 @@ def test_tag_validation():
         prev = err.token_history.pop()
         assert str(prev) == ","
         if isinstance(err, UnexpectedToken):
-            logger.debug(f"tags: {tags.split(',')}")
             remainder = ",".join(tags.split(",")[1:]) + "\n"
             assert err.token in remainder
             assert err.expected == set(["TAGNAME"])
