@@ -450,6 +450,50 @@ def test_deck_validation():
             assert err.char == char
 
 
+TAG_VALIDATION = r"""
+## a
+nid: 123412341234
+model: 0a
+deck: a0
+tags: @@@@@
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+BAD_TAG_CHARS = ['"', "\u3000", " "] + BAD_ASCII_CONTROLS
+
+
+def test_tag_validation():
+    """Do ascii control characters and quotes in tag names raise an error?"""
+    template = TAG_VALIDATION
+    parser = get_parser()
+    for char in BAD_TAG_CHARS:
+        tags = f"subtle, {char}, heimdall"
+        note = template.replace("@@@@@", tags)
+        logger.debug(f"char: {repr(char)}")
+        with pytest.raises(UnexpectedInput) as exc:
+            tree = parser.parse(note)
+            logger.debug(f"\n{tree.pretty()}")
+        err = exc.value
+        debug_lark_error(note, err)
+        assert err.line == 6
+        assert err.column == 15
+        assert len(err.token_history) == 1
+        prev = err.token_history.pop()
+        assert str(prev) == "subtle,"
+        if isinstance(err, UnexpectedToken):
+            logger.debug(f"tags: {tags.split(',')}")
+            remainder = ",".join(tags.split(",")[1:]) + "\n"
+            assert " " + err.token == remainder
+            assert err.expected == set(["NEWLINE", "COMMA"])
+        if isinstance(err, UnexpectedCharacters):
+            assert err.char == char
+
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
