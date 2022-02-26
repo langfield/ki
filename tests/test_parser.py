@@ -446,7 +446,7 @@ def test_deck_validation():
         assert str(prev) == "deck:"
         if isinstance(err, UnexpectedToken):
             assert err.token == deck + "\n"
-            assert err.expected == set(["ANKINAME"])
+            assert err.expected == set(["DECKNAME"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 

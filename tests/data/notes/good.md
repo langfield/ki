@@ -1,6 +1,20 @@
 ## Note
 nid: 123412341234
 model: Basic
+deck: ab::ab ab::44 44 ab 44::hi
+tags: heimdall, thor, loki, 4387
+markdown: false
+
+### Front
+r
+
+### Back
+s
+
+---
+## Note
+nid: 123412341234
+model: Basic
 deck: a
 tags: heimdall, thor, loki, 4387
 markdown: false

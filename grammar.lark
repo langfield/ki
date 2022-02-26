@@ -20,7 +20,8 @@ tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
 // nonspace char. Exactly 1 space between #s and start-of-title.
 title: "##" TITLENAME "\n"+
 
-deck: "deck:" ANKINAME "\n"
+// Anki allows empty deck component names, but we do not, because that is insane.
+deck: "deck:" DECKNAME "\n"
 
 // NID field is allowed to be empty.
 NID: "nid:" " "* INT? "\n"+
@@ -29,6 +30,8 @@ DECKSENTINEL: "deck:"
 FIELDSENTINEL: "###"
 MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
+DECKNAME: ANKINAME (DECKDELIMITER ANKINAME)*
+DECKDELIMITER: "::"
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client).
