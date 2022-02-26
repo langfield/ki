@@ -251,7 +251,7 @@ def test_missing_model():
     err = exc.value
     assert err.line == 4
     assert err.column == 1
-    assert err.token == "model"
+    assert err.token == "model:"
     assert err.expected == set(["MODEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -283,7 +283,7 @@ def test_whitespace_model():
     err = exc.value
     assert err.line == 4
     assert err.column == 1
-    assert err.token == "model"
+    assert err.token == "model:"
     assert err.expected == set(["MODEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -490,6 +490,39 @@ def test_tag_validation():
             assert err.expected == set(["TAGNAME"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
+
+
+ONLY_COLON_DECK_NAME = r"""
+##a
+nid: 123412341234
+model: a
+deck: ::
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_colon_deck_name():
+    """Does a deck name of '::' raise a parse error?"""
+    note = ONLY_COLON_DECK_NAME
+    parser = get_parser()
+    with pytest.raises(UnexpectedToken) as exc:
+        tree = parser.parse(note)
+        logger.debug(f"\n{tree.pretty()}")
+    err = exc.value
+    assert err.line == 5
+    assert err.column == 7
+    assert err.token == "::\n"
+    assert err.expected == set(["DECKNAME"])
+    assert len(err.token_history) == 1
+    prev = err.token_history.pop()
+    assert str(prev) == "deck:"
 
 
 def test_parser_goods():
