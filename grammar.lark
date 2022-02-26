@@ -1,13 +1,16 @@
 // A ``file`` is a sequence of 0 or more ``note`` rules.
-file: "\n"* note*
+file: note*
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: header ("\n"* field)+
+note: header field+
 
-field: "### " ANKINAME "\n" FIELDLINE*
+// Only allow one newline after a field, but it can have many newlines within
+// it, and fields can be empty.
+field: FIELDHEADER ("\n"* FIELDLINE+)* "\n"
+FIELDHEADER: "### " ANKINAME "\n"
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (title NID MODEL DECK tags MARKDOWN) "\n"+
+header: (title NID MODEL DECK tags MARKDOWN) "\n"
 
 // A ``tags`` object is allowed to be empty.
 tags: "tags:\n"
@@ -19,14 +22,13 @@ title: "## " TITLENAME "\n"
 
 NID: "nid: " INT "\n"
 MODEL: "model: " ANKINAME "\n"
-// MODEL: "model: Basic\n"
 DECK: "deck: " ANKINAME "\n"
 MARKDOWN: "markdown: " ("true" | "false") "\n"
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client). So we disallow leading and trailing whitespace.
 ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
-FIELDLINE: /(?!##)(?:.|\n)+/
+FIELDLINE: /(?!##)(?:.)+/ "\n"
 TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
 VARIABLECHAR: /[a-zA-Z0-9_-]/
 

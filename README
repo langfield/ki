@@ -113,6 +113,59 @@ clone doesn't work on ankiweb deck URLs
 comments aren't supported in notes
 
 
+Deck names, field names, notetype names
+---------------------------------------
+```
+/// Fix the name of the field if it's valid. Otherwise explain why it's not.
+pub(crate) fn fix_name(&mut self) -> Result<()> {
+    if self.name.is_empty() {
+        return Err(AnkiError::invalid_input("Empty field name"));
+    }
+    let bad_chars = |c| c == ':' || c == '{' || c == '}' || c == '"';
+    if self.name.contains(bad_chars) {
+        self.name = self.name.replace(bad_chars, "");
+    }
+    // and leading/trailing whitespace and special chars
+    let bad_start_chars = |c: char| c == '#' || c == '/' || c == '^' || c.is_whitespace();
+    let trimmed = self.name.trim().trim_start_matches(bad_start_chars);
+    if trimmed.is_empty() {
+        return Err(AnkiError::invalid_input(
+            "Field name: ".to_owned() + &self.name,
+        ));
+    }
+    if trimmed.len() != self.name.len() {
+        self.name = trimmed.into();
+    }
+    Ok(())
+}
+```
+
+```
+fn invalid_char_for_field(c: char) -> bool {
+    c.is_ascii_control() && c != '\n' && c != '\t'
+}
+```
+
+```
+fn invalid_char_for_deck_component(c: char) -> bool {
+    c.is_ascii_control() || c == '"'
+}
+```
+
+```
+fn invalid_char_for_tag(c: char) -> bool {
+    c.is_ascii_control() || is_tag_separator(c) || c == '"'
+}
+```
+
+```
+fn is_tag_separator(c: char) -> bool {
+    c == ' ' || c == '\u{3000}'
+}
+```
+
+
+
 On pushing new notes
 --------------------
 We must use nids as the filename so that edits to fields don't require edits to
