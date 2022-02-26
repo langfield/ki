@@ -7,6 +7,7 @@ from loguru import logger
 from beartype import beartype
 from lark.exceptions import UnexpectedToken, UnexpectedCharacters, UnexpectedInput
 
+ASCII_CONTROLS = ["\0", "\a", "\b", "\t", "\n", "\v", "\f", "\r"]
 
 def get_parser():
     """Return a parser."""
@@ -191,6 +192,139 @@ def test_missing_fieldname():
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "markdown: false\n\n"
+
+
+MISSING_TITLE = r"""
+##
+nid: 123412341234
+model: Basic
+deck: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_missing_title():
+    """Does a missing title raise a parse error?"""
+    note = MISSING_TITLE
+    parser = get_parser()
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 2
+    assert err.column == 3
+    assert err.token == "\n"
+    assert err.expected == set(["TITLENAME"])
+    assert len(err.token_history) == 1
+    prev = err.token_history.pop()
+    assert str(prev) == "##"
+
+
+MISSING_MODEL = r"""
+##a
+nid: 123412341234
+model:
+deck: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_missing_model():
+    """Does a missing model raise a parse error?"""
+    note = MISSING_MODEL
+    parser = get_parser()
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 4
+    assert err.column == 1
+    assert err.token == "model"
+    assert err.expected == set(["MODEL"])
+    assert len(err.token_history) == 1
+    prev = err.token_history.pop()
+    assert str(prev) == "nid: 123412341234\n"
+
+
+WHITESPACE_MODEL = r"""
+##a
+nid: 123412341234
+model:          	
+deck: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_whitespace_model():
+    """Does a whitespace model raise a parse error?"""
+    note = WHITESPACE_MODEL
+    parser = get_parser()
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 4
+    assert err.column == 1
+    assert err.token == "model"
+    assert err.expected == set(["MODEL"])
+    assert len(err.token_history) == 1
+    prev = err.token_history.pop()
+    assert str(prev) == "nid: 123412341234\n"
+
+
+FIELDNAME_VALIDATION = r"""
+## a
+nid: 123412341234
+model: a
+deck: a
+tags:
+markdown: false
+
+### @@@@@
+r
+
+### b
+s
+"""
+
+BAD_FIELDNAME_CHARS = [":", "{", "}", "\""]
+BAD_FIELDNAMES = ["aa:aa", "aa{aa", "aa}aa", "aa\"aa"]
+
+def test_fieldname_validation():
+    """Do invalid fieldname characters raise an error?"""
+    template = FIELDNAME_VALIDATION
+    parser = get_parser()
+    for name in BAD_FIELDNAME_CHARS + BAD_FIELDNAMES:
+        note = template.replace("@@@@@", name)
+        with pytest.raises(UnexpectedInput) as exc:
+            parser.parse(note)
+        err = exc.value
+        debug_lark_error(note, err)
+        assert err.line == 9
+        assert err.column == 1
+        assert err.token == "##"
+        assert err.expected == set(["FIELDHEADER"])
+        assert len(err.token_history) == 1
+        prev = err.token_history.pop()
+        assert str(prev) == "markdown: false\n\n"
 
 
 def test_parser_goods():

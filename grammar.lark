@@ -6,8 +6,9 @@ note: header field+
 
 // Only allow one newline after a field, but it can have many newlines within
 // it, and fields can be empty.
-field: FIELDHEADER FIELDLINE*
-FIELDHEADER: "###" " "* ANKINAME "\n"+
+field: fieldheader FIELDLINE*
+fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+
+FIELDSENTINEL: "###"
 
 // A ``header`` is sequence of metadata rules, all required.
 header: (title NID MODEL DECK tags MARKDOWN)
@@ -28,7 +29,10 @@ FIELDLINE: /(?!##)(?:.)+/ "\n"+
 
 // Anki strips leading and trailing spaces from field names (you can test this
 // in the desktop client). So we disallow leading and trailing whitespace.
-ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
+// ANKINAME: /[^#^\/\s]\S{0,}([\t ]+\S+)*/
+ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
+STARTENDCHAR: /[^#^\/\s:{}"]/
+ANKICHAR: /[^\s:{}"]/
 TITLENAME: VARIABLECHAR (" " | VARIABLECHAR)*
 VARIABLECHAR: /[a-zA-Z0-9_-]/
 
