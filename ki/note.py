@@ -12,6 +12,7 @@ class KiNote(Note):
     This is distinct from the anki ``Note`` class, which is accessible using
     ``self.n``.
     """
+
     def __init__(self, anki, note):
         super().__init__(anki, note)
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)

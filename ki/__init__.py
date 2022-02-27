@@ -33,6 +33,7 @@ import subprocess
 import collections
 import configparser
 from pathlib import Path
+from dataclasses import dataclass
 
 import git
 import anki
@@ -62,15 +63,37 @@ from beartype.typing import (
 
 from ki.note import KiNote
 
-Header = collections.namedtuple(
-    "Header", ["title", "nid", "model", "deck", "tags", "markdown"]
-)
-Field = collections.namedtuple("Field", ["title", "content"])
-FlatNote = collections.namedtuple(
-    "Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"]
-)
-
 logging.basicConfig(level=logging.INFO)
+
+
+@beartype
+@dataclass(frozen=True)
+class Field:
+    title: str
+    content: str
+
+
+@beartype
+@dataclass(frozen=True)
+class FlatNote:
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool
+    fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
+class Header:
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool
 
 
 TQDM_NUM_COLS = 70
@@ -381,16 +404,14 @@ def push() -> None:
             new_nids = set()
 
             # Loop over nids and edit/add/delete notes.
-            for notemap in parse_markdown_notes(notepath):
-                nid = notemap["nid"]
+            for flatnote in parse_markdown_notes(notepath):
                 try:
-                    note: KiNote = KiNote(a, a.col.get_note(nid))
-                    update_apy_note(note, notemap)
+                    note: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
+                    update_kinote(note, flatnote)
                     notes.append(note)
                 except anki.errors.NotFoundError:
-                    log.append(f"Couldn't find note with nid: '{nid}'")
-                    note: KiNote = add_note_from_notemap(a, notemap)
-                    log.append(f"Couldn't find note with nid: '{nid}'")
+                    note: KiNote = add_note_from_flatnote(a, flatnote)
+                    log.append(f"Couldn't find note with nid: '{flatnote.nid}'")
                     log.append(f"Assigned new nid: '{note.n.id}'")
                     new_nids.add(note.n.id)
                     notes.append(note)
@@ -461,12 +482,14 @@ def push() -> None:
 # UTILS
 
 
-def parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
+@beartype
+def parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     return lark_parse_markdown_notes(path)
     # return apy_parse_markdown_notes(path)
 
 
-def lark_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
+@beartype
+def lark_parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     """Parse with lark."""
     # Read grammar.
     grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
@@ -477,28 +500,7 @@ def lark_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
     transformer = NoteTransformer()
     tree = parser.parse(Path(path).read_text())
     flatnotes: List[FlatNote] = transformer.transform(tree)
-
-    notemaps = []
-    for flatnote in flatnotes:
-        assert isinstance(flatnote, FlatNote)
-
-        # Construct fields map.
-        fields = {}
-        for field in flatnote.fields:
-            fields[field.title] = field.content
-
-        notemap = {
-            "title": flatnote.title,
-            "nid": int(flatnote.nid),
-            "model": flatnote.model,
-            "deck": flatnote.deck,
-            "tags": " ".join(flatnote.tags),
-            "markdown": flatnote.markdown == "true",
-            "fields": fields,
-        }
-        notemaps.append(notemap)
-
-    return notemaps
+    return flatnotes
 
 
 @beartype
@@ -550,8 +552,8 @@ def apy_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
 @beartype
 def get_nids(path: Path) -> List[int]:
     """Get nids from a markdown file."""
-    notemaps = parse_markdown_notes(path)
-    return [notemap["nid"] for notemap in notemaps]
+    flatnotes = parse_markdown_notes(path)
+    return [flatnote.nid for flatnote in flatnotes]
 
 
 @beartype
@@ -584,37 +586,35 @@ def is_anki_note(path: Path) -> bool:
 
 
 @beartype
-def update_apy_note(note: KiNote, notemap: Dict[str, Any]) -> None:
+def update_kinote(note: KiNote, flatnote: FlatNote) -> None:
     """Update an `apy` Note in a collection."""
-    new_tags = notemap["tags"].split()
-    if new_tags != note.n.tags:
-        note.n.tags = new_tags
+    if flatnote.tags != note.n.tags:
+        note.n.tags = flatnote.tags
 
-    new_deck = notemap.get("deck", None)
-    if new_deck is not None and new_deck != note.get_deck():
-        note.set_deck(new_deck)
+    if flatnote.deck is not None and flatnote.deck != note.get_deck():
+        note.set_deck(flatnote.deck)
 
-    for i, value in enumerate(notemap["fields"].values()):
-        if notemap["markdown"]:
+    for i, value in enumerate(flatnote.fields.values()):
+        if flatnote.markdown:
             note.n.fields[i] = markdown_to_html(value)
         else:
             note.n.fields[i] = plain_to_html(value)
 
     note.n.flush()
     note.a.modified = True
-    fields_health_check = note.n.fields_check()
+    health = note.n.fields_check()
 
-    if fields_health_check == 1:
+    if health == 1:
         logger.warning(f"Found empty note:\n {note}")
         return
-    if fields_health_check == 2:
+    if health == 2:
         logger.warning(f"Found duplicate note:\n {note}")
         return
 
-    if fields_health_check:
+    if health:
         logger.warning(f"Found duplicate or empty note:\n {note}")
-        logger.warning(f"Fields health check: {fields_health_check}")
-        logger.warning(f"Fields health check (type): {type(fields_health_check)}")
+        logger.warning(f"Fields health check: {health}")
+        logger.warning(f"Fields health check (type): {type(health)}")
 
 
 @beartype
@@ -769,35 +769,26 @@ def append_md5sum(
 
 
 @beartype
-def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> KiNote:
-    """Add a note given its `apy` parsed notemap."""
-    model_name = notemap["model"]
+def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
+    """
+    Add a note given its FlatNote representation.
 
+    This class just validates that the fields given in the note match the notetype.
+    """
     # Set current notetype for collection to `model_name`.
-    model = apyanki.set_model(model_name)
-
+    model = apyanki.set_model(flatnote.model)
     model_field_names = [field["name"] for field in model["flds"]]
 
-    field_names = notemap["fields"].keys()
-    field_values = notemap["fields"].values()
-
-    if len(field_names) != len(model_field_names):
-        click.echo(f"Error: Not enough fields for model {model_name}!")
+    if len(flatnote.fields.keys()) != len(model_field_names):
+        logger.error(f"Not enough fields for model {flatnote.model}!")
         apyanki.modified = False
-        raise click.Abort()
+        raise ValueError
 
-    for x, y in zip(model_field_names, field_names):
+    for x, y in zip(model_field_names, flatnote.fields.keys()):
         if x != y:
-            click.echo("Warning: Inconsistent field names " f"({x} != {y})")
+            logger.warning("Inconsistent field names " f"({x} != {y})")
 
-    # pylint: disable=protected-access
-    note = _add_note(
-        apyanki,
-        field_values,
-        f"{notemap['tags']}",
-        notemap["markdown"],
-        notemap.get("deck"),
-    )
+    note = _add_note(apyanki, flatnote)
 
     return note
 
@@ -805,46 +796,36 @@ def add_note_from_notemap(apyanki: Anki, notemap: Dict[str, Any]) -> KiNote:
 @beartype
 def _add_note(
     apyanki: Anki,
-    fields: Iterable[str],
-    tags: str,
-    markdown: bool = True,
-    deck: Optional[str] = None,
+    flatnote: FlatNote,
 ) -> KiNote:
     """Add new note to collection. Apy method."""
+    # Recall that we call ``apyanki.set_model(flatnote.model)`` above.
     notetype = apyanki.col.models.current(for_deck=False)
     note = apyanki.col.new_note(notetype)
 
     # Create new deck if deck does not exist.
-    if deck is not None:
-        note.note_type()["did"] = apyanki.col.decks.id(deck)
+    note.note_type()["did"] = apyanki.col.decks.id(flatnote.deck)
 
-    if markdown:
-        note.fields = [markdown_to_html(x) for x in fields]
+    if flatnote.markdown:
+        note.fields = [markdown_to_html(x) for x in flatnote.fields.values()]
     else:
-        note.fields = [plain_to_html(x) for x in fields]
+        note.fields = [plain_to_html(x) for x in flatnote.fields.values()]
 
-    for tag in tags.strip().split():
+    for tag in flatnote.tags:
         note.add_tag(tag)
 
-    fields_health_check: int = note.fields_check()
-    if fields_health_check == 0:
+    if note.fields_check() == 0:
         apyanki.col.addNote(note)
         apyanki.modified = True
-    elif fields_health_check == 2:
-        logger.warning(
-            f"\nDetected duplicate note while trying to add new note with nid {note.id}."
-        )
-        logger.warning(
-            f"Note type and field values of note {note.id} exactly match an existing note."
-        )
+    elif note.fields_check() == 2:
+        logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
+        logger.warning(f"Notetype/fields of note {note.id} match existing note.")
         logger.warning("Note was not added to collection!")
-        logger.warning(f"First field: {list(fields)[0]}")
-        logger.warning(f"Fields health check: {fields_health_check}")
+        logger.warning(f"First field: {list(flatnote.fields.values())[0]}")
+        logger.warning(f"Fields health check: {note.fields_check()}")
     else:
         logger.error(f"Failed to add note '{note.id}'.")
-        logger.error(
-            f"Note failed fields health check with error code: {fields_health_check}"
-        )
+        logger.error(f"Note failed fields check with error code: {note.fields_check()}")
 
     return KiNote(apyanki, note)
 
@@ -991,18 +972,34 @@ class NoteTransformer(Transformer):
     # pylint: disable=no-self-use, missing-function-docstring
 
     @beartype
-    def file(self, filetree: List[FlatNote]) -> List[FlatNote]:
-        return filetree
+    def file(self, flatnotes: List[FlatNote]) -> List[FlatNote]:
+        return flatnotes
 
     @beartype
     def note(self, n: List[Union[Header, Field]]) -> FlatNote:
         assert len(n) >= 2
+
         header = n[0]
         fields = n[1:]
-        return FlatNote(*header, fields)
+        assert isinstance(header, Header)
+        assert isinstance(fields[0], Field)
+
+        fieldmap: Dict[str, str] = {}
+        for field in fields:
+            fieldmap[field.title] = field.content
+
+        return FlatNote(
+            header.title,
+            header.nid,
+            header.model,
+            header.deck,
+            header.tags,
+            header.markdown,
+            fieldmap,
+        )
 
     @beartype
-    def header(self, h: List[Union[str, List[str]]]) -> Header:
+    def header(self, h: List[Union[str, int, bool, List[str]]]) -> Header:
         return Header(*h)
 
     @beartype
@@ -1036,10 +1033,10 @@ class NoteTransformer(Transformer):
         return d[0]
 
     @beartype
-    def NID(self, t: Token) -> str:
+    def NID(self, t: Token) -> int:
         """Could be empty!"""
         nid = re.sub(r"^nid:", "", str(t)).strip()
-        return nid
+        return int(nid)
 
     @beartype
     def MODEL(self, t: Token) -> str:
@@ -1047,120 +1044,10 @@ class NoteTransformer(Transformer):
         return model
 
     @beartype
-    def MARKDOWN(self, t: Token) -> str:
+    def MARKDOWN(self, t: Token) -> bool:
         md = re.sub(r"^markdown:", "", str(t)).strip()
-        return md
-
-    @beartype
-    def DECKNAME(self, t: Token) -> str:
-        return str(t).strip()
-
-    @beartype
-    def FIELDLINE(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def TITLENAME(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def ANKINAME(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def TAGNAME(self, t: Token) -> str:
-        return str(t)
-
-class NotemapTransformer(Transformer):
-    r"""
-    file
-      note
-        header
-          title     Note
-          nid: 123412341234
-
-          model: Basic
-
-          deck      a
-          tags      None
-          markdown: false
-
-
-        field
-          fieldheader
-            ###
-            Front
-          r
-
-
-        field
-          fieldheader
-            ###
-            Back
-          s
-    """
-    # pylint: disable=no-self-use, missing-function-docstring
-
-    @beartype
-    def file(self, filetree: List[dict]) -> List[dict]:
-        return filetree
-
-    @beartype
-    def note(self, n: List[Union[Header, Field]]) -> FlatNote:
-        assert len(n) >= 2
-        header = n[0]
-        fields = n[1:]
-        return FlatNote(*header, fields)
-
-    @beartype
-    def header(self, h: List[Union[str, List[str]]]) -> Header:
-        return Header(*h)
-
-    @beartype
-    def title(self, t: List[str]) -> str:
-        """``title: "##" TITLENAME "\n"+``"""
-        assert len(t) == 1
-        return t[0]
-
-    @beartype
-    def tags(self, tags: List[Optional[str]]) -> List[str]:
-        return [tag for tag in tags if tag is not None]
-
-    @beartype
-    def field(self, f: List[str]) -> Field:
-        assert len(f) >= 1
-        fheader = f[0]
-        lines = f[1:]
-        content = "".join(lines)
-        return Field(fheader, content)
-
-    @beartype
-    def fieldheader(self, f: List[str]) -> str:
-        """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
-        assert len(f) == 2
-        return f[1]
-
-    @beartype
-    def deck(self, d: List[str]) -> str:
-        """``deck: "deck:" DECKNAME "\n"``"""
-        assert len(d) == 1
-        return d[0]
-
-    @beartype
-    def NID(self, t: Token) -> str:
-        """Could be empty!"""
-        nid = re.sub(r"^nid:", "", str(t)).strip()
-        return nid
-
-    @beartype
-    def MODEL(self, t: Token) -> str:
-        model = re.sub(r"^model:", "", str(t)).strip()
-        return model
-
-    @beartype
-    def MARKDOWN(self, t: Token) -> str:
-        md = re.sub(r"^markdown:", "", str(t)).strip()
-        return md
+        assert md in ("true", "false")
+        return md == "true"
 
     @beartype
     def DECKNAME(self, t: Token) -> str:
