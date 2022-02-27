@@ -292,19 +292,15 @@ def test_no_op_pull_push_cycle_is_idempotent():
 
         os.chdir(REPODIR)
         out = pull(runner)
-        logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
         out = pull(runner)
-        logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
         out = pull(runner)
-        logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
         out = pull(runner)
-        logger.debug(f"Out: {out}")
         assert "Merge made by the" not in out
         push(runner)
 
@@ -366,9 +362,7 @@ def test_clone_creates_directory():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        logger.debug(f"Before clone {os.listdir()}")
         clone(runner, collection_path)
-        logger.debug(f"After clone {os.listdir()}")
 
         assert os.path.isdir(REPODIR)
 
@@ -605,8 +599,6 @@ def test_push_writes_changes_correctly():
         assert found_0
 
         # Check NOTE_2 was added.
-        logger.debug(f"old: {old_notes}")
-        logger.debug(f"new: {new_notes}")
         assert len(old_notes) == len(new_notes) == 2
 
 
@@ -753,7 +745,6 @@ def test_push_deletes_notes():
 
         # Remove a note file.
         os.chdir(REPODIR)
-        logger.debug(f"not zero contents: {Path(NOTE_0).read_text()}")
         assert os.path.isfile(NOTE_0)
         os.remove(NOTE_0)
 
@@ -797,10 +788,8 @@ def test_push_deletes_added_notes():
 
         # Push changes.
         os.chdir(REPODIR)
-        logger.debug(f"pre-push contents: {os.listdir()}")
         out = push(runner)
         logger.debug(f"\nPUSH:\n{out}")
-        logger.debug(f"post-push contents: {os.listdir()}")
 
         # Make sure 2 new files actually got added.
         post_push_contents = os.listdir()

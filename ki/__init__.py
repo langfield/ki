@@ -411,8 +411,7 @@ def push() -> None:
                     notes.append(note)
                 except anki.errors.NotFoundError:
                     note: KiNote = add_note_from_flatnote(a, flatnote)
-                    log.append(f"Couldn't find note with nid: '{flatnote.nid}'")
-                    log.append(f"Assigned new nid: '{note.n.id}'")
+                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
                     new_nids.add(note.n.id)
                     notes.append(note)
                     reassigned = True
@@ -1034,9 +1033,12 @@ class NoteTransformer(Transformer):
 
     @beartype
     def NID(self, t: Token) -> int:
-        """Could be empty!"""
+        """Return ``-1`` if empty."""
         nid = re.sub(r"^nid:", "", str(t)).strip()
-        return int(nid)
+        try:
+            return int(nid)
+        except ValueError:
+            return -1
 
     @beartype
     def MODEL(self, t: Token) -> str:
