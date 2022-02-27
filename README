@@ -69,8 +69,7 @@ TODO
 - Use terminology other than FETCH_HEAD, because this no longer represents the
   git ref FETCH_HEAD. (DONE)
 - Make notemap a namedtuple, dataclass, or Namespace (figure out which is
-  best).
-- Convert notemaps into namedtuples.
+  best). (DONE)
 - Test warnings are displayed for duplicate notes.
 - Test pure note deletion doesn't raise deprecation warning.
 - Test that push does not work if there are uncommitted changes.
@@ -94,6 +93,7 @@ TODO
 - Test branches work as expected.
 - Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
 - Remove all beautiful soup usage.
+- Test decknames with leadings dots and resulting collisons from stripping dots.
 
 
 Triage

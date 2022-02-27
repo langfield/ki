@@ -33,11 +33,15 @@ COLLECTIONS_PATH = os.path.join(TEST_DATA_PATH, "collections/")
 COLLECTION_FILENAME = "collection.anki2"
 ORIG_COLLECTION_FILENAME = "original.anki2"
 EDITED_COLLECTION_FILENAME = "edited.anki2"
+MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
 COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
 )
 EDITED_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, EDITED_COLLECTION_FILENAME)
+)
+MULTIDECK_COLLECTION_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, MULTIDECK_COLLECTION_FILENAME)
 )
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "gitrepo/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
@@ -104,6 +108,16 @@ def get_collection_path() -> str:
     tempdir = tempfile.mkdtemp()
     collection_path = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, collection_path)
+    assert os.path.isfile(collection_path)
+    return collection_path
+
+@beartype
+def get_multideck_collection_path() -> str:
+    """Put `collection.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    collection_path = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
+    shutil.copyfile(MULTIDECK_COLLECTION_PATH, collection_path)
     assert os.path.isfile(collection_path)
     return collection_path
 
@@ -405,11 +419,36 @@ def test_clone_generates_expected_notes():
         # Clone collection in cwd.
         clone(runner, collection_path)
 
+        # Check that deck directory is created.
+        assert os.path.isdir(os.path.join(REPODIR, "Default"))
+
         # Compute hashes.
         cloned_md5 = ki.md5(cloned_note_path)
         true_md5 = ki.md5(true_note_path)
 
         assert cloned_md5 == true_md5
+
+
+def test_clone_generates_deck_tree_correctly():
+    """Does generated FS tree match example collection?"""
+    true_note_path = os.path.abspath(os.path.join(GITREPO_PATH, NOTE_0))
+    cloned_note_path = os.path.join(REPODIR, NOTE_0)
+    collection_path = get_multideck_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Check that deck directory is created.
+        assert os.path.isdir(os.path.join(REPODIR, "Default"))
+
+        # Compute hashes.
+        cloned_md5 = ki.md5(cloned_note_path)
+        true_md5 = ki.md5(true_note_path)
+
+        assert cloned_md5 == true_md5
+
 
 
 def test_clone_generates_ki_subdirectory():

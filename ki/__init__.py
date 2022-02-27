@@ -39,6 +39,7 @@ import git
 import anki
 import click
 import gitdb
+import prettyprinter as pp
 from tqdm import tqdm
 from loguru import logger
 from pyinstrument import Profiler
@@ -206,6 +207,45 @@ def _clone(
     # Open deck with `apy`, and dump notes and markdown files.
     with Anki(path=colpath) as a:
         nids = list(a.col.find_notes(query=""))
+
+        # Map deck names to manifest paths (files containing notes).
+        manifest_paths: Dict[str, Path] = {}
+
+        # TODO: Move this into a separate function.
+        decknames = [name_id.name for name_id in a.col.decks.all_names_and_ids()]
+        for deckname in decknames:
+            components = deckname.split("::")
+
+            # Strip leading periods so we don't get hidden folders.
+            # TODO: Check that this doesn't cause collisions.
+            components = [re.sub(r"^\.", r"", comp) for comp in components]
+            leaf = components[-1]
+            deck_path = Path(targetdir, *components)
+            deck_path.mkdir(parents=True, exist_ok=True)
+            manifest_paths[deckname] = deck_path / f"{leaf}.md"
+
+        written = set()
+        for deckname, path in tqdm(
+            sorted(list(manifest_paths.items()), key=lambda x: len(x[0]), reverse=True),
+            ncols=TQDM_NUM_COLS,
+            disable=silent,
+        ):
+            logger.debug(f"Writing notes for {deckname} to {path}")
+            escaped_deckname = deckname.replace(r"::", r"\:\:")
+            query = f"deck:{deckname}"
+            payload = ""
+            nids = list(a.col.find_notes(query=query))
+            for nid in nids:
+                if nid not in written:
+                    note = KiNote(a, a.col.getNote(nid))
+                    if note.deck != deckname:
+                        raise ValueError(f"note.deck: {note.deck}, deckname: {deckname}, note id: {note.n.id}")
+                    assert nid == note.n.id
+                    payload += "\n" + str(note) + "\n"
+                    written.add(nid)
+            path.write_text(payload)
+
+        """
         for nid in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
 
             # TODO: Support multiple notes per-file.
@@ -214,6 +254,7 @@ def _clone(
 
             note_path = targetdir / f"note{nid}.md"
             note_path.write_text(str(note))
+        """
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
@@ -221,6 +262,30 @@ def _clone(
     _ = repo.index.commit(msg)
 
     return repo
+
+
+# NOTE: Unnecessary.
+@beartype
+def dfs(a: Anki, node: anki.decks.DeckTreeNode, parent: Path) -> Dict[int, str]:
+    """Return a mapping from nids to paths."""
+    written: Dict[int, str] = {}
+
+    # Write for all children.
+    for child in node.children:
+
+        # Modify in-place with new nids.
+        written.update(dfs(child))
+
+    # Write for ``node``.
+    query = f"deck:{node.name}"
+    logger.debug(f"Query: {query}")
+    for nid in a.col.find_notes(query=query):
+        if nid not in written:
+
+            write(nid)
+
+    # Return all written ``nid``s.
+    return written.union(set(node.nids))
 
 
 @ki.command()

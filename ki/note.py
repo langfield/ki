@@ -10,6 +10,7 @@ from apy.convert import markdown_to_html, html_to_markdown, _italize
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 
+
 class KiNote(Note):
     """
     A subclass of ``apy.Note`` for parsing syntax-highlighted code in note fields.
@@ -75,28 +76,34 @@ def is_generated_html(html: str) -> bool:
 def html_to_screen(html, pprint=True, parseable=False):
     """Convert html for printing to screen"""
     if not pprint:
-        soup = bs4.BeautifulSoup(html.replace('\n', ''),
-                             features='html5lib').next.next.next
-        return "".join([el.prettify() if isinstance(el, bs4.Tag) else el
-                        for el in soup.contents])
+        soup = bs4.BeautifulSoup(
+            html.replace("\n", ""), features="html5lib"
+        ).next.next.next
+        return "".join(
+            [el.prettify() if isinstance(el, bs4.Tag) else el for el in soup.contents]
+        )
 
-    html = re.sub(r'\<style\>.*\<\/style\>', '', html, flags=re.S)
+    html = re.sub(r"\<style\>.*\<\/style\>", "", html, flags=re.S)
 
     generated = is_generated_html(html)
     if generated:
         plain = html_to_markdown(html)
         if html != markdown_to_html(plain):
-            html_clean = re.sub(r' data-original-markdown="[^"]*"', '', html)
+            html_clean = re.sub(r' data-original-markdown="[^"]*"', "", html)
             if parseable:
-                plain += ("\n\n### Current HTML → Markdown\n"
-                          f"{markdownify.markdownify(html_clean)}")
+                plain += (
+                    "\n\n### Current HTML → Markdown\n"
+                    f"{markdownify.markdownify(html_clean)}"
+                )
                 plain += f"\n### Current HTML\n{html_clean}"
             else:
                 plain += "\n"
                 plain += click.style(
                     "The current HTML value is inconsistent with Markdown!",
-                    fg='red', bold=True)
-                plain += "\n" + click.style(html_clean, fg='white')
+                    fg="red",
+                    bold=True,
+                )
+                plain += "\n" + click.style(html_clean, fg="white")
     else:
         plain = html
 
@@ -106,16 +113,16 @@ def html_to_screen(html, pprint=True, parseable=False):
     plain = plain.replace(r"\\}", r"\}")
     plain = plain.replace(r"\*}", r"*}")
 
-    plain = plain.replace(r'&lt;', '<')
-    plain = plain.replace(r'&gt;', '>')
-    plain = plain.replace(r'&amp;', '&')
-    plain = plain.replace(r'&nbsp;', ' ')
+    plain = plain.replace(r"&lt;", "<")
+    plain = plain.replace(r"&gt;", ">")
+    plain = plain.replace(r"&amp;", "&")
+    plain = plain.replace(r"&nbsp;", " ")
 
-    plain = plain.replace('<br>', '\n')
-    plain = plain.replace('<br/>', '\n')
-    plain = plain.replace('<br />', '\n')
-    plain = plain.replace('<div>', '\n')
-    plain = plain.replace('</div>', '')
+    plain = plain.replace("<br>", "\n")
+    plain = plain.replace("<br/>", "\n")
+    plain = plain.replace("<br />", "\n")
+    plain = plain.replace("<div>", "\n")
+    plain = plain.replace("</div>", "")
 
     # For convenience: Fix mathjax escaping (but only if the html is generated)
     if generated:
@@ -124,25 +131,19 @@ def html_to_screen(html, pprint=True, parseable=False):
         plain = plain.replace(r"\(", r"(")
         plain = plain.replace(r"\)", r")")
 
-    plain = re.sub(r'\<b\>\s*\<\/b\>', '', plain)
+    plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
 
     if not parseable:
-        plain = re.sub(r'\*\*(.*?)\*\*',
-                       click.style(r'\1', bold=True),
-                       plain, re.S)
+        plain = re.sub(r"\*\*(.*?)\*\*", click.style(r"\1", bold=True), plain, re.S)
 
-        plain = re.sub(r'\<b\>(.*?)\<\/b\>',
-                       click.style(r'\1', bold=True),
-                       plain, re.S)
+        plain = re.sub(r"\<b\>(.*?)\<\/b\>", click.style(r"\1", bold=True), plain, re.S)
 
-        plain = re.sub(r'_(.*?)_', _italize(r'\1'), plain, re.S)
+        plain = re.sub(r"_(.*?)_", _italize(r"\1"), plain, re.S)
 
-        plain = re.sub(r'\<i\>(.*?)\<\/i\>', _italize(r'\1'), plain, re.S)
+        plain = re.sub(r"\<i\>(.*?)\<\/i\>", _italize(r"\1"), plain, re.S)
 
-        plain = re.sub(r'\<u\>(.*?)\<\/u\>',
-                       click.style(r'\1', underline=True),
-                       plain, re.S)
+        plain = re.sub(
+            r"\<u\>(.*?)\<\/u\>", click.style(r"\1", underline=True), plain, re.S
+        )
 
     return plain.strip()
-
-
