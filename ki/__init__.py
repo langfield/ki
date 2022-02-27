@@ -45,7 +45,7 @@ from loguru import logger
 from lark import Lark, Transformer
 from lark.lexer import Token
 
-from apy.anki import Anki, Note
+from apy.anki import Anki
 from apy.convert import markdown_to_html, plain_to_html
 
 from beartype import beartype
@@ -62,7 +62,11 @@ from beartype.typing import (
 
 from ki.note import KiNote
 
-Notemap = collections.namedtuple("Notemap", ["nid"])
+Header = collections.namedtuple(
+    "Header", ["title", "nid", "model", "deck", "tags", "markdown"]
+)
+Field = collections.namedtuple("Field", ["title", "content"])
+FlatNote = collections.namedtuple("Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"])
 
 logging.basicConfig(level=logging.INFO)
 
@@ -914,11 +918,6 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
     return notes
 
 
-Header = collections.namedtuple(
-    "Header", ["title", "nid", "model", "deck", "tags", "markdown"]
-)
-Field = collections.namedtuple("Field", ["title", "content"])
-Note = collections.namedtuple("Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"])
 
 
 class NoteTransformer(Transformer):
@@ -950,15 +949,15 @@ class NoteTransformer(Transformer):
           s
     """
     @beartype
-    def file(self, filetree: List[Note]) -> List[Note]:
+    def file(self, filetree: List[FlatNote]) -> List[FlatNote]:
         return filetree
 
     @beartype
-    def note(self, n: List[Union[Header, Field]]) -> Note:
+    def note(self, n: List[Union[Header, Field]]) -> FlatNote:
         assert len(n) >= 2
         header = n[0]
         fields = n[1:]
-        return Note(*header, fields)
+        return FlatNote(*header, fields)
 
     @beartype
     def header(self, h: List[Union[str, List[str]]]) -> Header:
