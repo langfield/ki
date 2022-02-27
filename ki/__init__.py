@@ -203,21 +203,17 @@ def _clone(
     ignore_path = targetdir / ".gitignore"
     ignore_path.write_text(".ki/\n")
 
-    profiler = Profiler()
-    profiler.start()
-
     # Open deck with `apy`, and dump notes and markdown files.
     with Anki(path=colpath) as a:
         nids = list(a.col.find_notes(query=""))
-        for i in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
+        for nid in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
 
             # TODO: Support multiple notes per-file.
-            note = KiNote(a, a.col.getNote(i))
-            note_path = targetdir / f"note{note.n.id}.md"
-            note_path.write_text(str(note))
+            note = KiNote(a, a.col.getNote(nid))
+            assert nid == note.n.id
 
-    profiler.stop()
-    Path("profile.html").write_text(profiler.output_html())
+            note_path = targetdir / f"note{nid}.md"
+            note_path.write_text(str(note))
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
