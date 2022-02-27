@@ -567,7 +567,6 @@ def test_transformer_goods():
             raise err
 
 
-
 def main():
     """Parse all notes in main collection."""
     parse_collection()

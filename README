@@ -93,6 +93,7 @@ TODO
 - Test that strange targetdirs are handled well.
 - Test branches work as expected.
 - Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
+- Remove all beautiful soup usage.
 
 
 Triage

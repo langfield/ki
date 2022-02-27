@@ -39,9 +39,11 @@ import git
 import anki
 import click
 import gitdb
-from bs4 import MarkupResemblesLocatorWarning
 from tqdm import tqdm
 from loguru import logger
+from pyinstrument import Profiler
+
+from bs4 import MarkupResemblesLocatorWarning
 
 from lark import Lark, Transformer
 from lark.lexer import Token
@@ -61,7 +63,7 @@ from beartype.typing import (
     Union,
 )
 
-from ki.note import KiNote
+from ki.note import KiNote, is_generated_html
 
 logging.basicConfig(level=logging.INFO)
 
@@ -201,6 +203,9 @@ def _clone(
     ignore_path = targetdir / ".gitignore"
     ignore_path.write_text(".ki/\n")
 
+    profiler = Profiler()
+    profiler.start()
+
     # Open deck with `apy`, and dump notes and markdown files.
     with Anki(path=colpath) as a:
         nids = list(a.col.find_notes(query=""))
@@ -210,6 +215,9 @@ def _clone(
             note = KiNote(a, a.col.getNote(i))
             note_path = targetdir / f"note{note.n.id}.md"
             note_path.write_text(str(note))
+
+    profiler.stop()
+    Path("profile.html").write_text(profiler.output_html())
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
