@@ -206,55 +206,53 @@ def _clone(
 
     # Open deck with `apy`, and dump notes and markdown files.
     with Anki(path=colpath) as a:
-        nids = list(a.col.find_notes(query=""))
+        all_nids = list(a.col.find_notes(query=""))
 
-        # Map deck names to manifest paths (files containing notes).
-        manifest_paths: Dict[str, Path] = {}
+        # Map decknames to sets of nids and nids to KiNotes.
+        nidmap = {}
+        kinotes = {}
+        for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
+            note = KiNote(a, a.col.getNote(nid))
+            kinotes[nid] = note
+            assert nid == note.n.id
 
-        # TODO: Move this into a separate function.
-        decknames = [name_id.name for name_id in a.col.decks.all_names_and_ids()]
-        for deckname in decknames:
-            components = deckname.split("::")
+            nids = nidmap.get(note.deck, set())
+            assert nid not in nids
+            nids.add(nid)
+            nidmap[note.deck] = nids
+
+        written = set()
+
+        # Construct paths for each deck manifest.
+        for deckname in sorted(list(nidmap.keys()), key=lambda name: len(name), reverse=True):
+            logger.debug(deckname)
 
             # Strip leading periods so we don't get hidden folders.
-            # TODO: Check that this doesn't cause collisions.
+            components = deckname.split("::")
             components = [re.sub(r"^\.", r"", comp) for comp in components]
             leaf = components[-1]
             deck_path = Path(targetdir, *components)
             deck_path.mkdir(parents=True, exist_ok=True)
-            manifest_paths[deckname] = deck_path / f"{leaf}.md"
-
-        written = set()
-        for deckname, path in tqdm(
-            sorted(list(manifest_paths.items()), key=lambda x: len(x[0]), reverse=True),
-            ncols=TQDM_NUM_COLS,
-            disable=silent,
-        ):
-            logger.debug(f"Writing notes for {deckname} to {path}")
-            escaped_deckname = deckname.replace(r"::", r"\:\:")
-            query = f"deck:{deckname}"
+            manifest_path = deck_path / f"{leaf}.md"
             payload = ""
-            nids = list(a.col.find_notes(query=query))
-            for nid in nids:
-                if nid not in written:
-                    note = KiNote(a, a.col.getNote(nid))
-                    if note.deck != deckname:
-                        raise ValueError(f"note.deck: {note.deck}, deckname: {deckname}, note id: {note.n.id}")
-                    assert nid == note.n.id
-                    payload += "\n" + str(note) + "\n"
-                    written.add(nid)
-            path.write_text(payload)
 
-        """
-        for nid in tqdm(nids, ncols=TQDM_NUM_COLS, disable=silent):
+            for nid in nidmap[deckname]:
+                assert nid not in written
+                kinote = kinotes[nid]
+                if kinote.deck != deckname:
+                    raise ValueError(f"kinote.deck: {kinote.deck}, deckname: {deckname}, kinote id: {kinote.n.id}")
+                old_payload = payload
+                payload += "\n" + str(kinote) + "\n"
+                if f"{deckname}::" in payload:
+                    logger.debug(f"\n{old_payload}")
+                    logger.debug(f"\n{payload}")
+                    raise ValueError(f"Found bad deck card: {deckname}, \n{kinote}")
+                written.add(nid)
 
-            # TODO: Support multiple notes per-file.
-            note = KiNote(a, a.col.getNote(nid))
-            assert nid == note.n.id
+            if payload == "":
+                logger.debug(f"Empty manifest: {deckname}")
+            manifest_path.write_text(payload)
 
-            note_path = targetdir / f"note{nid}.md"
-            note_path.write_text(str(note))
-        """
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
@@ -262,30 +260,6 @@ def _clone(
     _ = repo.index.commit(msg)
 
     return repo
-
-
-# NOTE: Unnecessary.
-@beartype
-def dfs(a: Anki, node: anki.decks.DeckTreeNode, parent: Path) -> Dict[int, str]:
-    """Return a mapping from nids to paths."""
-    written: Dict[int, str] = {}
-
-    # Write for all children.
-    for child in node.children:
-
-        # Modify in-place with new nids.
-        written.update(dfs(child))
-
-    # Write for ``node``.
-    query = f"deck:{node.name}"
-    logger.debug(f"Query: {query}")
-    for nid in a.col.find_notes(query=query):
-        if nid not in written:
-
-            write(nid)
-
-    # Return all written ``nid``s.
-    return written.union(set(node.nids))
 
 
 @ki.command()
