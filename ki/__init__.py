@@ -40,8 +40,10 @@ import click
 import gitdb
 from bs4 import MarkupResemblesLocatorWarning
 from tqdm import tqdm
-from lark import Lark, Transformer
 from loguru import logger
+
+from lark import Lark, Transformer
+from lark.lexer import Token
 
 from apy.anki import Anki, Note
 from apy.convert import markdown_to_html, plain_to_html
@@ -945,65 +947,83 @@ class NoteTransformer(Transformer):
             Back
           s
     """
+    @beartype
+    def file(self, filetree: List[Note]) -> List[Note]:
+        return filetree
 
-    def file(self, f):
-        return f
-
-    def note(self, n):
+    @beartype
+    def note(self, n: List[Union[Header, Field]]) -> Note:
         assert len(n) >= 2
         header = n[0]
         fields = n[1:]
         return Note(*header, fields)
 
-    def header(self, h):
+    @beartype
+    def header(self, h: List[Union[str, List[str]]]) -> Header:
         return Header(*h)
 
-    def title(self, t):
+    @beartype
+    def title(self, t: List[str]) -> str:
         """``title: "##" TITLENAME "\n"+``"""
+        assert len(t) == 1
         return t[0]
 
-    def tags(self, t):
-        return t
+    @beartype
+    def tags(self, tags: List[Optional[str]]) -> List[str]:
+        return [tag for tag in tags if tag is not None]
 
-    def field(self, f):
+    @beartype
+    def field(self, f: List[str]) -> Field:
         assert len(f) >= 1
         fheader = f[0]
         lines = f[1:]
         content = "".join(lines)
         return Field(fheader, content)
 
-    def fieldheader(self, f):
+    @beartype
+    def fieldheader(self, f: List[str]) -> str:
         """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
+        assert len(f) == 2
         return f[1]
 
-    def deck(self, d):
+    @beartype
+    def deck(self, d: List[str]) -> str:
         """``deck: "deck:" DECKNAME "\n"``"""
+        assert len(d) == 1
         return d[0]
 
-    def NID(self, n):
+    @beartype
+    def NID(self, t: Token) -> str:
         """Could be empty!"""
-        nid = re.sub(r"^nid:", "", str(n)).strip()
+        nid = re.sub(r"^nid:", "", str(t)).strip()
         return nid
 
-    def MODEL(self, m):
-        model = re.sub(r"^model:", "", str(m)).strip()
+    @beartype
+    def MODEL(self, t: Token) -> str:
+        model = re.sub(r"^model:", "", str(t)).strip()
         return model
 
-    def MARKDOWN(self, m):
-        md = re.sub(r"^markdown:", "", str(m)).strip()
+    @beartype
+    def MARKDOWN(self, t: Token) -> str:
+        md = re.sub(r"^markdown:", "", str(t)).strip()
         return md
 
-    def DECKNAME(self, d):
-        return str(d).strip()
+    @beartype
+    def DECKNAME(self, t: Token) -> str:
+        return str(t).strip()
 
-    def FIELDLINE(self, f):
-        return str(f)
-
-    def TITLENAME(self, t):
+    @beartype
+    def FIELDLINE(self, t: Token) -> str:
         return str(t)
 
-    def ANKINAME(self, a):
-        return str(a)
+    @beartype
+    def TITLENAME(self, t: Token) -> str:
+        return str(t)
 
-    def TAGNAME(self, t):
+    @beartype
+    def ANKINAME(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def TAGNAME(self, t: Token) -> str:
         return str(t)
