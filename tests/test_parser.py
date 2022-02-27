@@ -546,7 +546,7 @@ def test_parser_goods():
 def test_transformer():
     """Try out transformer."""
     parser = get_parser()
-    note = Path("tests/data/notes/note123412341234.md").read_text(encoding="UTF-8")
+    note = Path("tests/data/notes/noteLARK.md").read_text(encoding="UTF-8")
     tree = parser.parse(note)
     transformer = NoteTransformer()
     out = transformer.transform(tree)

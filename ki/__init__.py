@@ -383,6 +383,7 @@ def push() -> None:
                     update_apy_note(note, notemap)
                     notes.append(note)
                 except anki.errors.NotFoundError:
+                    log.append(f"Couldn't find note with nid: '{nid}'")
                     note: KiNote = add_note_from_notemap(a, notemap)
                     log.append(f"Couldn't find note with nid: '{nid}'")
                     log.append(f"Assigned new nid: '{note.n.id}'")
@@ -530,7 +531,7 @@ def is_anki_note(path: Path) -> bool:
         lines = md_file.readlines()
     if len(lines) < 2:
         return False
-    if lines[0] != "# Note\n":
+    if lines[0] != "## Note\n":
         return False
     if not re.match(r"^nid: [0-9]+$", lines[1]):
         return False
@@ -884,7 +885,7 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
 
             level, title = match.groups()
 
-            if len(level) == 1:
+            if len(level) == 2:
                 if note:
                     if field:
                         note["fields"][field] = note["fields"][field].strip()
@@ -894,7 +895,7 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
                 field = None
                 continue
 
-            if len(level) == 2:
+            if len(level) == 3:
                 if field:
                     note["fields"][field] = note["fields"][field].strip()
 
@@ -907,6 +908,7 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
 
     if note and field:
         note["fields"][field] = note["fields"][field].strip()
+        note["tags"] = ""
         notes.append(note)
 
     return notes

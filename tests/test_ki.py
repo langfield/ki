@@ -603,6 +603,8 @@ def test_push_writes_changes_correctly():
         assert found_0
 
         # Check NOTE_2 was added.
+        logger.debug(f"old: {old_notes}")
+        logger.debug(f"new: {new_notes}")
         assert len(old_notes) == len(new_notes) == 2
 
 
