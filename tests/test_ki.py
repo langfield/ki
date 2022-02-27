@@ -5,6 +5,7 @@ import random
 import shutil
 import tempfile
 import subprocess
+from pathlib import Path
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
@@ -12,6 +13,7 @@ import git
 import pytest
 import bitstring
 import checksumdir
+from lark.exceptions import UnexpectedToken
 from loguru import logger
 from apy.anki import Anki
 from click.testing import CliRunner
@@ -751,6 +753,7 @@ def test_push_deletes_notes():
 
         # Remove a note file.
         os.chdir(REPODIR)
+        logger.debug(f"not zero contents: {Path(NOTE_0).read_text()}")
         assert os.path.isfile(NOTE_0)
         os.remove(NOTE_0)
 
@@ -835,7 +838,7 @@ def test_push_deletes_added_notes():
 
 def test_parse_markdown_notes():
     """Does ki raise an error when it fails to parse nid?"""
-    with pytest.raises(ValueError):
+    with pytest.raises(UnexpectedToken):
         ki.parse_markdown_notes(NOTE_5_PATH)
-    with pytest.raises(KeyError):
+    with pytest.raises(UnexpectedToken):
         ki.parse_markdown_notes(NOTE_6_PATH)

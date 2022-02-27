@@ -66,7 +66,9 @@ Header = collections.namedtuple(
     "Header", ["title", "nid", "model", "deck", "tags", "markdown"]
 )
 Field = collections.namedtuple("Field", ["title", "content"])
-FlatNote = collections.namedtuple("Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"])
+FlatNote = collections.namedtuple(
+    "Note", ["title", "nid", "model", "deck", "tags", "markdown", "fields"]
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -152,7 +154,6 @@ def _clone(
         if len(set(targetdir.iterdir())) > 0:
             raise FileExistsError
     else:
-        logger.debug(f"Trying to create target directory at: {targetdir}")
         targetdir.mkdir()
         assert targetdir.is_dir()
 
@@ -460,8 +461,48 @@ def push() -> None:
 # UTILS
 
 
-@beartype
 def parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
+    return lark_parse_markdown_notes(path)
+    # return apy_parse_markdown_notes(path)
+
+
+def lark_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
+    """Parse with lark."""
+    # Read grammar.
+    grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
+    grammar = grammar_path.read_text()
+
+    # Instantiate parser.
+    parser = Lark(grammar, start="file", parser="lalr")
+    transformer = NoteTransformer()
+    tree = parser.parse(Path(path).read_text())
+    flatnotes: List[FlatNote] = transformer.transform(tree)
+
+    notemaps = []
+    for flatnote in flatnotes:
+        assert isinstance(flatnote, FlatNote)
+
+        # Construct fields map.
+        fields = {}
+        for field in flatnote.fields:
+            fields[field.title] = field.content
+
+        notemap = {
+            "title": flatnote.title,
+            "nid": int(flatnote.nid),
+            "model": flatnote.model,
+            "deck": flatnote.deck,
+            "tags": " ".join(flatnote.tags),
+            "markdown": flatnote.markdown == "true",
+            "fields": fields,
+        }
+        notemaps.append(notemap)
+
+    return notemaps
+
+
+@beartype
+def apy_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
     """
     Parse nids from markdown file of notes.
 
@@ -773,8 +814,9 @@ def _add_note(
     notetype = apyanki.col.models.current(for_deck=False)
     note = apyanki.col.new_note(notetype)
 
+    # Create new deck if deck does not exist.
     if deck is not None:
-        note.note_type()["did"] = apyanki.deck_name_to_id[deck]
+        note.note_type()["did"] = apyanki.col.decks.id(deck)
 
     if markdown:
         note.fields = [markdown_to_html(x) for x in fields]
@@ -918,8 +960,6 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
     return notes
 
 
-
-
 class NoteTransformer(Transformer):
     r"""
     file
@@ -948,8 +988,121 @@ class NoteTransformer(Transformer):
             Back
           s
     """
+    # pylint: disable=no-self-use, missing-function-docstring
+
     @beartype
     def file(self, filetree: List[FlatNote]) -> List[FlatNote]:
+        return filetree
+
+    @beartype
+    def note(self, n: List[Union[Header, Field]]) -> FlatNote:
+        assert len(n) >= 2
+        header = n[0]
+        fields = n[1:]
+        return FlatNote(*header, fields)
+
+    @beartype
+    def header(self, h: List[Union[str, List[str]]]) -> Header:
+        return Header(*h)
+
+    @beartype
+    def title(self, t: List[str]) -> str:
+        """``title: "##" TITLENAME "\n"+``"""
+        assert len(t) == 1
+        return t[0]
+
+    @beartype
+    def tags(self, tags: List[Optional[str]]) -> List[str]:
+        return [tag for tag in tags if tag is not None]
+
+    @beartype
+    def field(self, f: List[str]) -> Field:
+        assert len(f) >= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = "".join(lines)
+        return Field(fheader, content)
+
+    @beartype
+    def fieldheader(self, f: List[str]) -> str:
+        """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
+        assert len(f) == 2
+        return f[1]
+
+    @beartype
+    def deck(self, d: List[str]) -> str:
+        """``deck: "deck:" DECKNAME "\n"``"""
+        assert len(d) == 1
+        return d[0]
+
+    @beartype
+    def NID(self, t: Token) -> str:
+        """Could be empty!"""
+        nid = re.sub(r"^nid:", "", str(t)).strip()
+        return nid
+
+    @beartype
+    def MODEL(self, t: Token) -> str:
+        model = re.sub(r"^model:", "", str(t)).strip()
+        return model
+
+    @beartype
+    def MARKDOWN(self, t: Token) -> str:
+        md = re.sub(r"^markdown:", "", str(t)).strip()
+        return md
+
+    @beartype
+    def DECKNAME(self, t: Token) -> str:
+        return str(t).strip()
+
+    @beartype
+    def FIELDLINE(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def TITLENAME(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def ANKINAME(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def TAGNAME(self, t: Token) -> str:
+        return str(t)
+
+class NotemapTransformer(Transformer):
+    r"""
+    file
+      note
+        header
+          title     Note
+          nid: 123412341234
+
+          model: Basic
+
+          deck      a
+          tags      None
+          markdown: false
+
+
+        field
+          fieldheader
+            ###
+            Front
+          r
+
+
+        field
+          fieldheader
+            ###
+            Back
+          s
+    """
+    # pylint: disable=no-self-use, missing-function-docstring
+
+    @beartype
+    def file(self, filetree: List[dict]) -> List[dict]:
         return filetree
 
     @beartype

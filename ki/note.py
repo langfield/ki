@@ -12,6 +12,9 @@ class KiNote(Note):
     This is distinct from the anki ``Note`` class, which is accessible using
     ``self.n``.
     """
+    def __init__(self, anki, note):
+        super().__init__(anki, note)
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)
 
     @beartype
     def __repr__(self) -> str:
@@ -22,9 +25,7 @@ class KiNote(Note):
             f"model: {self.model_name}",
         ]
 
-        if self.a.n_decks > 1:
-            lines += [f"deck: {self.get_deck()}"]
-
+        lines += [f"deck: {self.get_deck()}"]
         lines += [f"tags: {self.get_tag_string()}"]
 
         if not any(is_generated_html(x) for x in self.n.values()):
@@ -38,3 +39,20 @@ class KiNote(Note):
             lines.append("")
 
         return "\n".join(lines)
+
+    def get_deck(self):
+        """Return which deck the note belongs to"""
+        return self.deck
+
+    def set_deck(self, deck):
+        """Move note to deck"""
+        if not isinstance(deck, str):
+            raise Exception('Argument "deck" should be string!')
+
+        newdid = self.a.col.decks.id(deck)
+        cids = [c.id for c in self.n.cards()]
+
+        if cids:
+            self.a.col.decks.setDeck(cids, newdid)
+            self.a.modified = True
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)
