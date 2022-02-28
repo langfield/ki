@@ -352,7 +352,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
                 written.add(nid)
 
     shutil.rmtree(root)
-    logger.debug(f"Collision ratio: {collisions} / {len(written)}")
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)

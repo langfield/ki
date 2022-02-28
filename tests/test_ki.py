@@ -53,10 +53,10 @@ MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
 
 NOTE_0 = "Default/a.md"
-NOTE_1 = "note1645222430007.md"
+NOTE_1 = "Default/f.md"
 NOTE_2 = "note123412341234.md"
 NOTE_3 = "note 3.md"
-NOTE_4 = "note1645027705329.md"
+NOTE_4 = "Default/c.md"
 NOTE_5 = "alpha_nid.md"
 NOTE_6 = "no_nid.md"
 
@@ -596,7 +596,6 @@ def test_pull_unchanged_collection_is_no_op():
 # PUSH
 
 
-@pytest.mark.xfail
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
