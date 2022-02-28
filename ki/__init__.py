@@ -154,15 +154,30 @@ def clone(collection: str, directory: str = "") -> None:
     """
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
     colpath = Path(collection)
+
+    colpath = colpath.resolve()
+    if not colpath.is_file():
+        echo(f"Failed: couln't find file '{colpath}'")
+        return
+
+    # Create default target directory.
     targetdir = Path(directory) if directory != "" else None
-    repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
-    update_last_push_commit_sha(repo)
+    if targetdir is None:
+        targetdir = Path.cwd() / colpath.stem
+
+    # Clean up nicely if the call fails.
+    try:
+        repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
+        update_last_push_commit_sha(repo)
+    except Exception as _err:
+        echo("Failed: exiting.")
+        if targetdir.is_dir():
+            shutil.rmtree(targetdir)
+    return
 
 
 @beartype
-def _clone(
-    colpath: Path, targetdir: Optional[Path], msg: str, silent: bool
-) -> git.Repo:
+def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     """
     Clone an Anki collection into a directory.
 
@@ -185,7 +200,8 @@ def _clone(
     """
     colpath = colpath.resolve()
     if not colpath.is_file():
-        raise FileNotFoundError
+        echo(f"Failed: couln't find file '{colpath}'")
+        raise click.Abort()
     echo(f"Found .anki2 file at '{colpath}'", silent=silent)
 
     # Create default target directory.
@@ -193,10 +209,10 @@ def _clone(
         targetdir = Path.cwd() / colpath.stem
     if targetdir.is_dir():
         if len(set(targetdir.iterdir())) > 0:
+            echo(f"fatal: destination path '{targetdir}' already exists and is not an empty directory.")
             raise FileExistsError
     else:
         targetdir.mkdir()
-        assert targetdir.is_dir()
 
     # Create .ki subdirectory.
     kidir = targetdir / ".ki/"
