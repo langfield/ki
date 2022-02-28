@@ -31,12 +31,12 @@ import tempfile
 import warnings
 import subprocess
 import collections
+import unicodedata
 import configparser
 from pathlib import Path
 from dataclasses import dataclass
 
 import git
-import anki
 import click
 import gitdb
 import prettyprinter as pp
@@ -48,6 +48,8 @@ from bs4 import MarkupResemblesLocatorWarning
 
 from lark import Lark, Transformer
 from lark.lexer import Token
+
+import anki
 
 from apy.anki import Anki
 from apy.convert import markdown_to_html, plain_to_html
@@ -62,6 +64,7 @@ from beartype.typing import (
     Iterable,
     Optional,
     Union,
+    Tuple,
 )
 
 from ki.note import KiNote, is_generated_html
@@ -69,9 +72,15 @@ from ki.note import KiNote, is_generated_html
 logging.basicConfig(level=logging.INFO)
 
 
+LARK = True
+MAX_FIELNAME_LEN = 30
+
+
 @beartype
 @dataclass(frozen=True)
 class Field:
+    """Field content pair."""
+
     title: str
     content: str
 
@@ -79,6 +88,8 @@ class Field:
 @beartype
 @dataclass(frozen=True)
 class FlatNote:
+    """Flat (as possible) representation of a note."""
+
     title: str
     nid: int
     model: str
@@ -91,6 +102,8 @@ class FlatNote:
 @beartype
 @dataclass(frozen=True)
 class Header:
+    """Note metadata."""
+
     title: str
     nid: int
     model: str
@@ -222,36 +235,57 @@ def _clone(
             nidmap[note.deck] = nids
 
         written = set()
+        collisions = 0
 
         # Construct paths for each deck manifest.
         for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
-            logger.debug(deckname)
 
             # Strip leading periods so we don't get hidden folders.
             components = deckname.split("::")
             components = [re.sub(r"^\.", r"", comp) for comp in components]
-            leaf = components[-1]
-            deck_path = Path(targetdir, *components)
-            deck_path.mkdir(parents=True, exist_ok=True)
-            manifest_path = deck_path / f"{leaf}.md"
+            deckpath = Path(targetdir, *components)
+            deckpath.mkdir(parents=True, exist_ok=True)
 
-            # Construct manifest payload.
-            payload = ""
+            # Keep track of sort field for all seen notetypes.
+            sortfmap = {}
+
+            # Dump note payloads to FS.
             for nid in nidmap[deckname]:
                 assert nid not in written
                 kinote = kinotes[nid]
-                if kinote.deck != deckname:
-                    raise ValueError(
-                        f"kinote.deck: {kinote.deck}, deckname: {deckname}, kinote id: {kinote.n.id}"
-                    )
-                old_payload = payload
-                payload += "\n" + str(kinote) + "\n"
-                if f"{deckname}::" in payload:
-                    raise ValueError(f"Found bad deck card: {deckname}, \n{kinote}")
+
+                # Get notetype from kinote.
+                notetype: Union[anki.models.NotetypeDict, None] = kinote.n.note_type()
+                assert notetype is not None
+
+                # Get the sort field name, and cache it in a dictionary.
+                ntname = notetype["name"]
+                sort_fieldname = sortfmap.get(ntname, get_sort_fieldname(a, notetype))
+                sortfmap[ntname] = sort_fieldname
+
+                # Get the filename for this note.
+                assert sort_fieldname in kinote.n
+                field_text = kinote.n[sort_fieldname]
+
+                # Construct filename, stripping HTML tags and sanitizing (quickly).
+                field_text = plain_to_html(field_text)
+                field_text = re.sub("<[^<]+?>", "", field_text)
+                filename = field_text[:MAX_FIELNAME_LEN]
+                filename = slugify(filename)
+                basepath = deckpath / f"{filename}"
+                notepath = basepath.with_suffix(".md")
+
+                # Dump payload to filesystem.
+                i = 1
+                while notepath.exists():
+                    notepath = Path(f"{basepath}_{i}").with_suffix(".md")
+                    i += 1
+                if i > 1:
+                    collisions += 1
+                notepath.write_text(str(kinote), encoding="UTF-8")
                 written.add(nid)
 
-            # Dump payload.
-            manifest_path.write_text(payload)
+    logger.debug(f"Collision ratio: {collisions} / {len(written)}")
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
@@ -259,6 +293,23 @@ def _clone(
     _ = repo.index.commit(msg)
 
     return repo
+
+
+def get_sort_fieldname(a: Anki, notetype: anki.models.NotetypeDict) -> str:
+    """Return the sort field name of a model."""
+    # Get fieldmap from notetype.
+    fieldmap: Dict[str, Tuple[int, anki.models.FieldDict]]
+    fieldmap = a.col.models.field_map(notetype)
+
+    # Map field indices to field names.
+    fieldnames: Dict[int, str] = {}
+    for fieldname, (idx, _) in fieldmap.items():
+        assert idx not in fieldnames
+        fieldnames[idx] = fieldname
+
+    # Get sort fieldname.
+    sort_idx = a.col.models.sort_idx(notetype)
+    return fieldnames[sort_idx]
 
 
 @ki.command()
@@ -525,8 +576,10 @@ def push() -> None:
 
 @beartype
 def parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
-    return lark_parse_markdown_notes(path)
-    # return apy_parse_markdown_notes(path)
+    """Allow for choosing which parser is used."""
+    if LARK:
+        return lark_parse_markdown_notes(path)
+    return apy_parse_markdown_notes(path)
 
 
 @beartype
@@ -534,12 +587,12 @@ def lark_parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     """Parse with lark."""
     # Read grammar.
     grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
-    grammar = grammar_path.read_text()
+    grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.
     parser = Lark(grammar, start="file", parser="lalr")
     transformer = NoteTransformer()
-    tree = parser.parse(Path(path).read_text())
+    tree = parser.parse(Path(path).read_text(encoding="UTF-8"))
     flatnotes: List[FlatNote] = transformer.transform(tree)
     return flatnotes
 
@@ -980,6 +1033,28 @@ def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
         notes.append(note)
 
     return notes
+
+
+@beartype
+def slugify(value: str, allow_unicode: bool = False) -> str:
+    """
+    Taken from https://github.com/django/django/blob/master/django/utils/text.py
+    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
+    dashes to single dashes. Remove characters that aren't alphanumerics,
+    underscores, or hyphens. Convert to lowercase. Also strip leading and
+    trailing whitespace, dashes, and underscores.
+    """
+    value = str(value)
+    if allow_unicode:
+        value = unicodedata.normalize("NFKC", value)
+    else:
+        value = (
+            unicodedata.normalize("NFKD", value)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+    value = re.sub(r"[^\w\s-]", "", value.lower())
+    return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
 class NoteTransformer(Transformer):
