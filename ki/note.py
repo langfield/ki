@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """A module containing a class for Anki notes."""
 import re
+import subprocess
+
 import bs4
+import anki
 import click
 import markdownify
+
 from beartype import beartype
-from apy.anki import Note
+from beartype.typing import Dict, List
+
+from apy.anki import Note, Anki
 from apy.convert import markdown_to_html, html_to_markdown, _italize
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
@@ -13,19 +19,44 @@ GENERATED_HTML_SENTINEL = "data-original-markdown"
 
 class KiNote(Note):
     """
-    A subclass of ``apy.Note`` for parsing syntax-highlighted code in note fields.
+    A subclass of ``apy.Note`` for applying transformations to HTML in note
+    fields. This is distinct from the anki ``Note`` class, which is accessible
+    using ``self.n``.
 
-    This is distinct from the anki ``Note`` class, which is accessible using
-    ``self.n``.
+    Parameters
+    ----------
+    a : apy.anki.Anki
+        Wrapper around Anki collection.
+    note : anki.notes.Note
+        Anki Note instance.
     """
 
-    def __init__(self, anki, note):
-        super().__init__(anki, note)
+    @beartype
+    def __init__(self, a: Anki, note: anki.notes.Note):
+
+        super().__init__(a, note)
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
+
+        # Populate parsed fields.
+        self.fields: Dict[str, str] = {}
+        for key, val in self.n.items():
+            self.fields[key] = html_to_screen(val, parseable=True)
 
     @beartype
     def __repr__(self) -> str:
         """Convert note to Markdown format"""
+        lines = self.get_header_lines()
+
+        for key, val in self.n.items():
+            lines.append("### " + key)
+            lines.append(html_to_screen(val, parseable=True))
+            lines.append("")
+
+        return "\n".join(lines)
+
+    @beartype
+    def get_header_lines(self) -> List[str]:
+        """Get header of markdown representation of note."""
         lines = [
             "## Note",
             f"nid: {self.n.id}",
@@ -39,23 +70,16 @@ class KiNote(Note):
             lines += ["markdown: false"]
 
         lines += [""]
+        return lines
 
-        for key, val in self.n.items():
-            lines.append("### " + key)
-            lines.append(html_to_screen(val, parseable=True))
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def get_deck(self):
+    @beartype
+    def get_deck(self) -> str:
         """Return which deck the note belongs to"""
         return self.deck
 
-    def set_deck(self, deck):
-        """Move note to deck"""
-        if not isinstance(deck, str):
-            raise Exception('Argument "deck" should be string!')
-
+    @beartype
+    def set_deck(self, deck: str) -> None:
+        """Move note to deck."""
         newdid = self.a.col.decks.id(deck)
         cids = [c.id for c in self.n.cards()]
 
@@ -147,3 +171,15 @@ def html_to_screen(html, pprint=True, parseable=False):
         )
 
     return plain.strip()
+
+
+def tidy(plain: str) -> str:
+    """Run some html through tidy. SLOW."""
+    p = subprocess.run(
+        ["tidy", "-i", "-ashtml", "-utf8", "-q"],
+        input=plain.strip(),
+        text=True,
+        check=False,
+        capture_output=True,
+    )
+    plain = p.stdout

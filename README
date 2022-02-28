@@ -94,6 +94,14 @@ TODO
 - Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
 - Remove all beautiful soup usage.
 - Test decknames with leadings dots and resulting collisons from stripping dots.
+- Handle problem of notes with cards in distinct decks by symlinking notes,
+  making the choice of where the ground-truth note lives arbitrarily (perhaps
+  by choosing the deck with shortest name).
+- Test that bug is squashed: slugify filters all characters from filename
+  causes files to not be put in appropriate directory. (More likely without
+  allowing UTF-8).
+- Add this for html detection https://stackoverflow.com/a/70585604
+- Do fieldnames have to be distinct within a model?
 
 
 Triage

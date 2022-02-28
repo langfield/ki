@@ -21,6 +21,7 @@ __version__ = "0.0.1a"
 
 import os
 import re
+import glob
 import pprint
 import shutil
 import logging
@@ -65,6 +66,7 @@ from beartype.typing import (
     Optional,
     Union,
     Tuple,
+    Generator,
 )
 
 from ki.note import KiNote, is_generated_html
@@ -73,7 +75,17 @@ logging.basicConfig(level=logging.INFO)
 
 
 LARK = True
+BATCH_SIZE = 500
+HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
+REMOTE_NAME = "anki"
+CHANGE_TYPES = "A D R M T".split()
+TQDM_NUM_COLS = 70
 MAX_FIELNAME_LEN = 30
+HINT = (
+    "hint: Updates were rejected because the tip of your current branch is behind\n"
+    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
+    + "hint: 'ki pull ...') before pushing again."
+)
 
 
 @beartype
@@ -110,16 +122,6 @@ class Header:
     deck: str
     tags: List[str]
     markdown: bool
-
-
-TQDM_NUM_COLS = 70
-CHANGE_TYPES = "A D R M T".split()
-REMOTE_NAME = "anki"
-HINT = (
-    "hint: Updates were rejected because the tip of your current branch is behind\n"
-    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
-    + "hint: 'ki pull ...') before pushing again."
-)
 
 
 # pylint: disable=invalid-name
@@ -221,18 +223,45 @@ def _clone(
     with Anki(path=colpath) as a:
         all_nids = list(a.col.find_notes(query=""))
 
+        # Create temp directory for htmlfield text files.
+        root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
+        root.mkdir(parents=True, exist_ok=True)
+
+        # Map nids to maps of the form {fieldname -> htmlpath}.
+        fieldtext_path_maps: Dict[int, Dict[str, Path]] = {}
+
         # Map decknames to sets of nids and nids to KiNotes.
         nidmap = {}
         kinotes = {}
         for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
-            note = KiNote(a, a.col.getNote(nid))
-            kinotes[nid] = note
-            assert nid == note.n.id
+            kinote = KiNote(a, a.col.getNote(nid))
+            assert nid == kinote.n.id
 
-            nids = nidmap.get(note.deck, set())
+            # Check if fieldtext is HTML, and write to file if so.
+            fieldtext_paths: Dict[str, Path] = {}
+            for fieldname, fieldtext in kinote.fields.items():
+                if re.search(HTML_REGEX, fieldtext):
+                    htmlpath = root / f"{nid}{slugify(fieldname, allow_unicode=True)}"
+                    htmlpath.write_text(fieldtext)
+                    fieldtext_paths[fieldname] = htmlpath
+
+            # Save paths for tidyable fields for this note.
+            if len(fieldtext_paths) > 0:
+                fieldtext_path_maps[nid] = fieldtext_paths
+
+            kinotes[nid] = kinote
+
+            nids = nidmap.get(kinote.deck, set())
             assert nid not in nids
             nids.add(nid)
-            nidmap[note.deck] = nids
+            nidmap[kinote.deck] = nids
+
+        # Spin up subprocesses for tidying field HTML in-place.
+        batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
+        for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+            pathsline = " ".join(batch)
+            command = f"tidy -q -m -i -omit -utf8 --tidy-mark no {pathsline}"
+            subprocess.run(command, shell=True, check=False, capture_output=True)
 
         written = set()
         collisions = 0
@@ -255,7 +284,7 @@ def _clone(
                 kinote = kinotes[nid]
 
                 # Get notetype from kinote.
-                notetype: Union[anki.models.NotetypeDict, None] = kinote.n.note_type()
+                notetype: Union[Dict[str, Any], None] = kinote.n.note_type()
                 assert notetype is not None
 
                 # Get the sort field name, and cache it in a dictionary.
@@ -271,20 +300,42 @@ def _clone(
                 field_text = plain_to_html(field_text)
                 field_text = re.sub("<[^<]+?>", "", field_text)
                 filename = field_text[:MAX_FIELNAME_LEN]
-                filename = slugify(filename)
+                filename = slugify(filename, allow_unicode=True)
                 basepath = deckpath / f"{filename}"
                 notepath = basepath.with_suffix(".md")
 
-                # Dump payload to filesystem.
+                # Construct path to note file.
                 i = 1
                 while notepath.exists():
                     notepath = Path(f"{basepath}_{i}").with_suffix(".md")
                     i += 1
                 if i > 1:
                     collisions += 1
-                notepath.write_text(str(kinote), encoding="UTF-8")
+
+                # Get tidied html if it exists.
+                tidyfields = {}
+                if nid in fieldtext_path_maps:
+                    fieldtext_paths = fieldtext_path_maps[nid]
+                    for fieldname, fieldtext in kinote.fields.items():
+                        if fieldname in fieldtext_paths:
+                            htmlpath = fieldtext_paths[fieldname]
+                            fieldtext = htmlpath.read_text()
+                        tidyfields[fieldname] = fieldtext
+                else:
+                    tidyfields = kinote.fields
+
+                # Construct note repr from tidyfields map.
+                lines = kinote.get_header_lines()
+                for fieldname, fieldtext in tidyfields.items():
+                    lines.append("### " + fieldname)
+                    lines.append(fieldtext)
+                    lines.append("")
+
+                # Dump payload to filesystem.
+                notepath.write_text("\n".join(lines), encoding="UTF-8")
                 written.add(nid)
 
+    shutil.rmtree(root)
     logger.debug(f"Collision ratio: {collisions} / {len(written)}")
 
     # Initialize git repo and commit contents.
@@ -295,10 +346,11 @@ def _clone(
     return repo
 
 
-def get_sort_fieldname(a: Anki, notetype: anki.models.NotetypeDict) -> str:
+@beartype
+def get_sort_fieldname(a: Anki, notetype: Dict[str, Any]) -> str:
     """Return the sort field name of a model."""
     # Get fieldmap from notetype.
-    fieldmap: Dict[str, Tuple[int, anki.models.FieldDict]]
+    fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
     fieldmap = a.col.models.field_map(notetype)
 
     # Map field indices to field names.
@@ -310,6 +362,13 @@ def get_sort_fieldname(a: Anki, notetype: anki.models.NotetypeDict) -> str:
     # Get sort fieldname.
     sort_idx = a.col.models.sort_idx(notetype)
     return fieldnames[sort_idx]
+
+
+@beartype
+def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
 
 
 @ki.command()
