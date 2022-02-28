@@ -224,7 +224,7 @@ def _clone(
         written = set()
 
         # Construct paths for each deck manifest.
-        for deckname in sorted(list(nidmap.keys()), key=lambda name: len(name), reverse=True):
+        for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
             logger.debug(deckname)
 
             # Strip leading periods so we don't get hidden folders.
@@ -234,25 +234,24 @@ def _clone(
             deck_path = Path(targetdir, *components)
             deck_path.mkdir(parents=True, exist_ok=True)
             manifest_path = deck_path / f"{leaf}.md"
-            payload = ""
 
+            # Construct manifest payload.
+            payload = ""
             for nid in nidmap[deckname]:
                 assert nid not in written
                 kinote = kinotes[nid]
                 if kinote.deck != deckname:
-                    raise ValueError(f"kinote.deck: {kinote.deck}, deckname: {deckname}, kinote id: {kinote.n.id}")
+                    raise ValueError(
+                        f"kinote.deck: {kinote.deck}, deckname: {deckname}, kinote id: {kinote.n.id}"
+                    )
                 old_payload = payload
                 payload += "\n" + str(kinote) + "\n"
                 if f"{deckname}::" in payload:
-                    logger.debug(f"\n{old_payload}")
-                    logger.debug(f"\n{payload}")
                     raise ValueError(f"Found bad deck card: {deckname}, \n{kinote}")
                 written.add(nid)
 
-            if payload == "":
-                logger.debug(f"Empty manifest: {deckname}")
+            # Dump payload.
             manifest_path.write_text(payload)
-
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir)
