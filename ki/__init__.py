@@ -245,8 +245,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
             command = f"tidy -q -m -i -omit -utf8 --tidy-mark no {pathsline}"
             subprocess.run(command, shell=True, check=False, capture_output=True)
 
-        written = set()
-
         # Construct paths for each deck manifest.
         for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
 
@@ -261,7 +259,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
 
             # Dump note payloads to FS.
             for nid in nidmap[deckname]:
-                assert nid not in written
                 kinote = kinotes[nid]
 
                 # Get notetype from kinote.
@@ -295,7 +292,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
 
                 # Dump payload to filesystem.
                 notepath.write_text("\n".join(lines), encoding="UTF-8")
-                written.add(nid)
 
     shutil.rmtree(root)
 
