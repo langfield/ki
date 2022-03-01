@@ -88,9 +88,6 @@ HINT = (
 )
 
 
-
-
-
 @click.group()
 @click.version_option()
 @beartype
@@ -249,7 +246,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
             subprocess.run(command, shell=True, check=False, capture_output=True)
 
         written = set()
-        collisions = 0
 
         # Construct paths for each deck manifest.
         for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
@@ -276,26 +272,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
                 ntname = notetype["name"]
                 sort_fieldname = sortfmap.get(ntname, get_sort_fieldname(a, notetype))
                 sortfmap[ntname] = sort_fieldname
-
-                # Get the filename for this note.
-                assert sort_fieldname in kinote.n
-                field_text = kinote.n[sort_fieldname]
-
-                # Construct filename, stripping HTML tags and sanitizing (quickly).
-                field_text = plain_to_html(field_text)
-                field_text = re.sub("<[^<]+?>", "", field_text)
-                filename = field_text[:MAX_FIELNAME_LEN]
-                filename = slugify(filename, allow_unicode=True)
-                basepath = deckpath / f"{filename}"
-                notepath = basepath.with_suffix(".md")
-
-                # Construct path to note file.
-                i = 1
-                while notepath.exists():
-                    notepath = Path(f"{basepath}_{i}").with_suffix(".md")
-                    i += 1
-                if i > 1:
-                    collisions += 1
+                notepath = get_notepath(kinote, sort_fieldname, deckpath)
 
                 # Get tidied html if it exists.
                 tidyfields = {}
@@ -331,29 +308,26 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
 
 
 @beartype
-def get_sort_fieldname(a: Anki, notetype: Dict[str, Any]) -> str:
-    """Return the sort field name of a model."""
-    # Get fieldmap from notetype.
-    fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
-    fieldmap = a.col.models.field_map(notetype)
+def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
+    """Get notepath from sort field name."""
+    # Get the filename for this note.
+    assert sort_fieldname in kinote.n
+    field_text = kinote.n[sort_fieldname]
 
-    # Map field indices to field names.
-    fieldnames: Dict[int, str] = {}
-    for fieldname, (idx, _) in fieldmap.items():
-        assert idx not in fieldnames
-        fieldnames[idx] = fieldname
+    # Construct filename, stripping HTML tags and sanitizing (quickly).
+    field_text = plain_to_html(field_text)
+    field_text = re.sub("<[^<]+?>", "", field_text)
+    filename = field_text[:MAX_FIELNAME_LEN]
+    filename = slugify(filename, allow_unicode=True)
+    basepath = deckpath / f"{filename}"
+    notepath = basepath.with_suffix(".md")
 
-    # Get sort fieldname.
-    sort_idx = a.col.models.sort_idx(notetype)
-    return fieldnames[sort_idx]
+    i = 1
+    while notepath.exists():
+        notepath = Path(f"{basepath}_{i}").with_suffix(".md")
+        i += 1
 
-
-@beartype
-def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
-
+    return notepath
 
 @ki.command()
 @beartype
@@ -492,9 +466,6 @@ def push() -> None:
     # Edit the copy with `apy`.
     with Anki(path=new_colpath) as a:
 
-        # DEBUG
-        nids = list(a.col.find_notes(query=""))
-
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
         deletions_repo = get_ephemeral_repo(
@@ -503,7 +474,6 @@ def push() -> None:
 
         # Gather logging statements to display.
         log: List[str] = []
-
         new_nid_path_map = {}
 
         p = subprocess.run(
@@ -529,34 +499,27 @@ def push() -> None:
                 deleted_path = Path(deletions_repo.working_dir) / notepath.name
 
                 assert deleted_path.is_file()
-                nids = get_nids(deleted_path)
+                flatnotes = parse_markdown_notes(deleted_path)
+                nids = [flatnote.nid for flatnote in flatnotes]
                 a.col.remove_notes(nids)
                 a.modified = True
                 continue
 
-            # Track whether Anki reassigned any nids.
-            reassigned = False
-            notes: List[KiNote] = []
-            new_nids = set()
+            # Get flatnote from parser, and add/edit/delete in collection.
+            flatnotes = parse_markdown_notes(notepath)
+            assert len(flatnotes) == 1
+            flatnote = flatnotes[0]
 
-            # Loop over nids and edit/add/delete notes.
-            for flatnote in parse_markdown_notes(notepath):
-                try:
-                    note: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
-                    update_kinote(note, flatnote)
-                    notes.append(note)
-                except anki.errors.NotFoundError:
-                    note: KiNote = add_note_from_flatnote(a, flatnote)
-                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
-                    new_nids.add(note.n.id)
-                    notes.append(note)
-                    reassigned = True
+            # If a note with this nid exists in DB, update it.
+            # TODO: If relevant prefix of sort field has changed, we regenerate the file.
+            try:
+                note: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
+                update_kinote(note, flatnote)
 
-            # If we reassigned any nids, we must regenerate the whole file.
-            if reassigned:
-                assert len(notes) > 0
-                if len(notes) > 1:
-                    logger.warning("MULTIPLE NOTES IN A SINGLE FILE!")
+            # Otherwise, we generate/reassign an nid for it.
+            except anki.errors.NotFoundError:
+                note: KiNote = add_note_from_flatnote(a, flatnote)
+                log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
 
                 # Get paths to note in local repo, as distinct from staging repo.
                 note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
@@ -567,20 +530,18 @@ def push() -> None:
                     repo_notepath.unlink()
 
                 # Construct markdown file contents and write.
-                content: str = ""
-                for note in notes:
-                    content += f"{str(note)}\n\n"
-                first_nid = notes[0].n.id
+                # TODO: Replace with logic in `_clone()`.
+                first_nid = note.n.id
                 new_notepath = repo_notepath.parent / f"note{first_nid}.md"
-                new_notepath.write_text(content)
-                for nid in new_nids:
-                    new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
-                    new_nid_path_map[nid] = new_note_relpath
+                new_notepath.write_text(str(note))
+
+                new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
+                new_nid_path_map[note.n.id] = new_note_relpath
 
         if len(new_nid_path_map) > 0:
             msg = "Generated new nid(s).\n\n"
             for new_nid, path in new_nid_path_map.items():
-                msg += f"Wrote new '{new_nid}' in file {path}\n"
+                msg += f"Wrote note '{new_nid}' in file {path}\n"
             repo.git.add(all=True)
             _ = repo.index.commit(msg)
 
@@ -594,9 +555,6 @@ def push() -> None:
         # Display warnings.
         for line in log:
             click.secho(line, bold=True, fg="yellow")
-
-        # DEBUG
-        nids = list(a.col.find_notes(query=""))
 
     assert new_colpath.is_file()
 
@@ -618,15 +576,32 @@ def push() -> None:
 
 
 @beartype
-def parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
-    """Allow for choosing which parser is used."""
-    if LARK:
-        return lark_parse_markdown_notes(path)
-    return apy_parse_markdown_notes(path)
+def get_sort_fieldname(a: Anki, notetype: Dict[str, Any]) -> str:
+    """Return the sort field name of a model."""
+    # Get fieldmap from notetype.
+    fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
+    fieldmap = a.col.models.field_map(notetype)
+
+    # Map field indices to field names.
+    fieldnames: Dict[int, str] = {}
+    for fieldname, (idx, _) in fieldmap.items():
+        assert idx not in fieldnames
+        fieldnames[idx] = fieldname
+
+    # Get sort fieldname.
+    sort_idx = a.col.models.sort_idx(notetype)
+    return fieldnames[sort_idx]
 
 
 @beartype
-def lark_parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
+def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
+@beartype
+def parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     """Parse with lark."""
     # Read grammar.
     grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
@@ -638,59 +613,6 @@ def lark_parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     tree = parser.parse(Path(path).read_text(encoding="UTF-8"))
     flatnotes: List[FlatNote] = transformer.transform(tree)
     return flatnotes
-
-
-@beartype
-def apy_parse_markdown_notes(path: Union[str, Path]) -> List[Dict[str, Any]]:
-    """
-    Parse nids from markdown file of notes.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to a markdown file containing `ki`-style Anki notes.
-
-    Returns
-    -------
-    List[Dict[str, Any]]
-        List of notemaps with the nids casted to integers.
-
-    Raises
-    ------
-    KeyError
-        When there's no `nid` field.
-    ValueError
-        When the `nid` is not coercable to an integer.
-    """
-    path = Path(path)
-
-    # Support multiple notes-per-file.
-    notemaps: List[Dict[str, Any]] = markdown_file_to_notes(path)
-    casted_notemaps = []
-    for notemap in notemaps:
-        try:
-            nid = int(notemap["nid"])
-            notemap["nid"] = nid
-            casted_notemaps.append(notemap)
-        except (KeyError, ValueError) as err:
-            if isinstance(err, KeyError):
-                logger.warning("Failed to parse nid.")
-                logger.warning(f"notemap: {notemap}")
-                logger.warning(f"path: {path}")
-            else:
-                logger.warning("Parsed nid is not an integer.")
-                logger.warning(f"notemap: {notemap}")
-                logger.warning(f"path: {path}")
-                logger.warning(f"nid: {notemap['nid']}")
-            raise err
-    return casted_notemaps
-
-
-@beartype
-def get_nids(path: Path) -> List[int]:
-    """Get nids from a markdown file."""
-    flatnotes = parse_markdown_notes(path)
-    return [flatnote.nid for flatnote in flatnotes]
 
 
 @beartype
@@ -906,12 +828,8 @@ def append_md5sum(
 
 
 @beartype
-def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
-    """
-    Add a note given its FlatNote representation.
-
-    This class just validates that the fields given in the note match the notetype.
-    """
+def validate_flatnote(apyanki: Anki, flatnote: FlatNote) -> None:
+    """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
     model = apyanki.set_model(flatnote.model)
     model_field_names = [field["name"] for field in model["flds"]]
@@ -925,17 +843,12 @@ def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
         if x != y:
             logger.warning("Inconsistent field names " f"({x} != {y})")
 
-    note = _add_note(apyanki, flatnote)
-
-    return note
-
 
 @beartype
-def _add_note(
-    apyanki: Anki,
-    flatnote: FlatNote,
-) -> KiNote:
-    """Add new note to collection. Apy method."""
+def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
+    """Add a note given its FlatNote representation."""
+    validate_flatnote(apyanki, flatnote)
+
     # Recall that we call ``apyanki.set_model(flatnote.model)`` above.
     notetype = apyanki.col.models.current(for_deck=False)
     note = apyanki.col.new_note(notetype)
@@ -965,117 +878,6 @@ def _add_note(
         logger.error(f"Note failed fields check with error code: {note.fields_check()}")
 
     return KiNote(apyanki, note)
-
-
-@beartype
-def markdown_file_to_notes(filename: Union[str, Path]):
-    """
-    Parse notes data from a Markdown file.
-
-    The following example should adequately specify the syntax.
-
-    ```
-    # Note 1
-    nid: 1
-    model: Model
-    tags: silly-tag
-    markdown: true
-
-    ## Front
-    Question?
-
-    ## Back
-    Answer.
-    ```
-    """
-    try:
-        notes = _parse_file(filename)
-    except KeyError as e:
-        logger.error(f"Error {e.__class__} when parsing {filename}!")
-        logger.error("Bad markdown formatting.")
-        raise e
-
-    # Ensure each note has all necessary properties.
-    for note in notes:
-
-        # Parse markdown flag.
-        note["markdown"] = note["markdown"] in ("true", "yes")
-
-        # Remove comma from tag list.
-        note["tags"] = note["tags"].replace(",", "")
-
-    return notes
-
-
-@beartype
-def _parse_file(filename: Union[str, Path]) -> List[Dict[str, Any]]:
-    """Get data from file."""
-    notes = []
-    note = {}
-    codeblock = False
-    field = None
-    with open(filename, "r", encoding="utf8") as f:
-        for line in f:
-            if codeblock:
-                if field:
-                    note["fields"][field] += line
-                match = re.match(r"```\s*$", line)
-                if match:
-                    codeblock = False
-                continue
-
-            match = re.match(r"```\w*\s*$", line)
-            if match:
-                codeblock = True
-                if field:
-                    note["fields"][field] += line
-                continue
-
-            if not field:
-                match = re.match(r"(\w+): (.*)", line)
-                if match:
-                    k, v = match.groups()
-                    k = k.lower()
-                    if k == "tag":
-                        k = "tags"
-                    note[k] = v.strip()
-                    continue
-
-            match = re.match(r"(#+)\s*(.*)", line)
-            if not match:
-                if field:
-                    note["fields"][field] += line
-                continue
-
-            level, title = match.groups()
-
-            if len(level) == 2:
-                if note:
-                    if field:
-                        note["fields"][field] = note["fields"][field].strip()
-                        notes.append(note)
-
-                note = {"title": title, "fields": {}}
-                field = None
-                continue
-
-            if len(level) == 3:
-                if field:
-                    note["fields"][field] = note["fields"][field].strip()
-
-                if title in note:
-                    click.echo(f"Error when parsing {filename}!")
-                    raise click.Abort()
-
-                field = title
-                note["fields"][field] = ""
-
-    if note and field:
-        note["fields"][field] = note["fields"][field].strip()
-        note["tags"] = ""
-        notes.append(note)
-
-    return notes
 
 
 @beartype

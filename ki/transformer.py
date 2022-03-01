@@ -16,6 +16,7 @@ from beartype.typing import (
 
 # pylint: disable=invalid-name, too-few-public-methods
 
+
 @beartype
 @dataclass(frozen=True)
 class Field:
@@ -50,7 +51,6 @@ class Header:
     deck: str
     tags: List[str]
     markdown: bool
-
 
 
 class NoteTransformer(Transformer):
