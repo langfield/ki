@@ -8,3 +8,4 @@ documentation:
 	rm -rf html/
 clean:
 	rm -rf docs/*.html
+	rm -rf *.egg-info
