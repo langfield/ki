@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import setuptools
-import ki as package
 
 
 def read_file(filename):
@@ -9,13 +8,13 @@ def read_file(filename):
         return file.read()
 
 setuptools.setup(
-    name=package.__name__.replace('_', '-'),
-    version=package.__version__,
-    description=package.__doc__.strip().split('\n')[0],
-    url=package.__url__,
-    author=package.__author__,
-    author_email=package.__email__,
-    license=package.__license__,
+    name='ki',
+    version='0.0.1a',
+    description='',
+    url='',
+    author='',
+    author_email='',
+    license='',
     packages=["ki"],
     install_requires=read_file('requirements.txt'),
     entry_points={
