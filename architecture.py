@@ -4,28 +4,44 @@ from pathlib import Path
 
 
 def _clone():
-    paths: Dict[int, Path] = {}
+
+    # Create temp directory for htmlfield text files.
+    root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
+    root.mkdir(parents=True, exist_ok=True)
+
+    paths: Dict[str, Path] = {}
     decks: Dict[str, List[KiNote]] = {}
+
     for nid in collection:
         kinote = KiNote(nid)
         decks[kinote.deck] = decks.get(kinote.deck, []) + [kinote]
-        for field in kinote:
-            if has_html(field):
-                paths[nid] = dump(field)
+        for fieldname, fieldtext in kinote.fields.items():
+            if re.search(HTML_REGEX, fieldtext):
+                fid = get_field_note_id(nid, fieldname)
+                paths[fid] = dump(fieldname, fieldtext, root)
     tidy(paths)
     for deckname in sorted(set(decks.keys()), key=len, reverse=True):
         deckpath = get_and_create_deckpath(deckname)
         for kinote in decks[deckname]:
-            notepath = get_notepath(kinote, deckpath)
+            sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
+            notepath = get_notepath(kinote, sort_fieldname, deckpath)
             payload = get_tidy_payload(kinote, paths)
             notepath.write_text(payload, encoding="UTF-8")
 
 
-def dump(field: str) -> Path:
-    pass
+def dump(fieldname: str, fieldtext: str, root: Path) -> Path:
+    htmlpath = root / f"{nid}{slugify(fieldname, allow_unicode=True)}"
+    htmlpath.write_text(fieldtext)
+    return htmlpath
 
-def tidy(paths: Dict[int, Path]) -> None:
-    pass
+def tidy(paths: Dict[str, Path]) -> None:
+    """Spin up subprocesses for tidying field HTML in-place."""
+    path_strings = [str(path) for path in paths.values()]
+    batches = list(get_batches(path_strings), BATCH_SIZE))
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+        pathsline = " ".join(batch)
+        command = f"tidy -q -m -i -omit -utf8 --tidy-mark no {pathsline}"
+        subprocess.run(command, shell=True, check=False, capture_output=True)
 
 def get_and_create_deckpath(deckname: str) -> Path:
     # Strip leading periods so we don't get hidden folders.
@@ -34,3 +50,29 @@ def get_and_create_deckpath(deckname: str) -> Path:
     deckpath = Path(targetdir, *components)
     deckpath.mkdir(parents=True, exist_ok=True)
     return deckpath
+
+
+def get_field_note_id(nid: int, fieldname: str) -> str:
+    """A str ID that uniquely identifies field-note pairs."""
+    return f"{nid}{slugify(fieldname, allow_unicode=True)}"
+
+
+def get_tidy_payload(kinote: KiNote, paths: Dict[str, Path]) -> str:
+    """Get the payload for the note (HTML-tidied if necessary)."""
+    # Get tidied html if it exists.
+    tidyfields = {}
+    for fieldname, fieldtext in kinote.fields.items():
+        fid = get_field_note_id(kinote.n.id, fieldname)
+        if fid in paths:
+            tidyfields[fieldname] = paths[fid].read_text()
+        tidyfields[fieldname] = fieldtext
+
+    # Construct note repr from tidyfields map.
+    lines = kinote.get_header_lines()
+    for fieldname, fieldtext in tidyfields.items():
+        lines.append("### " + fieldname)
+        lines.append(fieldtext)
+        lines.append("")
+
+    # Dump payload to filesystem.
+    return "\n".join(lines)

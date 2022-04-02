@@ -575,6 +575,8 @@ def push() -> None:
 @beartype
 def get_sort_fieldname(a: Anki, notetype: Dict[str, Any]) -> str:
     """Return the sort field name of a model."""
+    assert notetype is not None
+
     # Get fieldmap from notetype.
     fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
     fieldmap = a.col.models.field_map(notetype)
