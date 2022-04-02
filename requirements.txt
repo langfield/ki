@@ -11,3 +11,5 @@ bitstring
 tqdm
 lark
 prettyprinter
+beartype
+pyinstrument
