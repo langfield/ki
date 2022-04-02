@@ -13,12 +13,6 @@ projects.
 
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name
 
-__author__ = ""
-__email__ = ""
-__license__ = "AGPLv3"
-__url__ = ""
-__version__ = "0.0.1a"
-
 import os
 import re
 import glob
