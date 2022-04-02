@@ -72,6 +72,7 @@ LARK = True
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
+BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 70
 MAX_FIELNAME_LEN = 30
@@ -290,7 +291,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     shutil.rmtree(root)
 
     # Initialize git repo and commit contents.
-    repo = git.Repo.init(targetdir)
+    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
@@ -361,6 +362,7 @@ def pull() -> None:
 
     # Pull anki remote repo into ``last_push_repo``.
     os.chdir(last_push_repo.working_dir)
+    logger.debug(f"Pulling into {last_push_repo.working_dir}");
     last_push_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
@@ -371,11 +373,16 @@ def pull() -> None:
             "--strategy-option",
             "theirs",
             REMOTE_NAME,
-            "main",
+            BRANCH_NAME,
         ],
-        check=True,
+        check=False,
         capture_output=True,
     )
+    pull_stderr = p.stderr.decode()
+    logger.debug(f"\n{pull_stderr}")
+    if p.returncode != 0:
+        raise ValueError
+
     last_push_repo.delete_remote(anki_remote)
 
     # Create remote pointing to ``last_push`` repo and pull into ``repo``.
@@ -384,7 +391,7 @@ def pull() -> None:
     last_push_remote = repo.create_remote(REMOTE_NAME, last_push_remote_path)
     repo.git.config("pull.rebase", "false")
     p = subprocess.run(
-        ["git", "pull", "-v", REMOTE_NAME, "main"],
+        ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
         check=False,
         capture_output=True,
     )
