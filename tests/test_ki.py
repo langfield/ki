@@ -883,3 +883,8 @@ def test_parse_markdown_notes():
         ki.parse_markdown_notes(NOTE_5_PATH)
     with pytest.raises(UnexpectedToken):
         ki.parse_markdown_notes(NOTE_6_PATH)
+
+
+def test_clone_helper_checks_for_colpath_existence():
+    with pytest.raises(FileNotFoundError):
+        ki._clone(Path("/tmp/NONEXISTENT_PATH.anki2"), Path("/tmp/TARGET"), "", False)

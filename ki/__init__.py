@@ -159,12 +159,10 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     colpath = colpath.resolve()
     if not colpath.is_file():
         echo(f"Failed: couln't find file '{colpath}'")
-        raise click.Abort()
+        raise FileNotFoundError
     echo(f"Found .anki2 file at '{colpath}'", silent=silent)
 
     # Create default target directory.
-    if targetdir is None:
-        targetdir = Path.cwd() / colpath.stem
     if targetdir.is_dir():
         if len(set(targetdir.iterdir())) > 0:
             echo(
