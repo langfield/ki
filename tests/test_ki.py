@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import copy
+import pprint
 import random
 import shutil
 import tempfile
@@ -17,6 +19,7 @@ import checksumdir
 from lark.exceptions import UnexpectedToken
 from loguru import logger
 from apy.anki import Anki
+from pytest_mock import MockerFixture
 from click.testing import CliRunner
 
 from beartype import beartype
@@ -24,6 +27,7 @@ from beartype.typing import List
 
 import ki
 from ki.note import KiNote
+from ki.transformer import FlatNote
 from ki.architecture import dump_field
 
 
@@ -917,3 +921,28 @@ def test_is_anki_note():
 
         Path("note.md").write_text("## Note\nnid: 000000000000000\n")
         assert ki.is_anki_note(Path("note.md")) == True
+
+
+def test_update_kinote():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "TITLE\ndata"
+        flatnote = FlatNote("title", 0, "model", "deck", ["tag"], True, {"field1": field})
+        logger.debug(f"Flatnote tags: {flatnote.tags}")
+        logger.debug(f"KiNote tags: {kinote.n.tags}")
+        logger.debug(f"KiNote deck: {kinote.get_deck()}")
+
+        assert kinote.n.tags == []
+        assert kinote.get_deck() == "Default"
+        assert "TITLE" not in kinote.n.fields[0]
+
+        ki.update_kinote(kinote, flatnote)
+
+        assert kinote.n.tags == ["tag"]
+        assert kinote.get_deck() == "deck"
+        assert "TITLE" in kinote.n.fields[0]
+        assert "</p>" in kinote.n.fields[0]
+        logger.debug(f"Kinote fields:\n{pprint.pformat(kinote.n.fields)}")
