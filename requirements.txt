@@ -13,3 +13,5 @@ lark
 prettyprinter
 beartype
 pyinstrument
+coverage
+pytest-mock
