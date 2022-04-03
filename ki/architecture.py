@@ -15,7 +15,7 @@ HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 TQDM_NUM_COLS = 70
 
 
-def _clone(colpath: Path, targetdir: Path, silent: bool):
+def _write_notes(colpath: Path, targetdir: Path, silent: bool):
 
     # Create temp directory for htmlfield text files.
     root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
@@ -33,7 +33,7 @@ def _clone(colpath: Path, targetdir: Path, silent: bool):
             for fieldname, fieldtext in kinote.fields.items():
                 if re.search(HTML_REGEX, fieldtext):
                     fid = get_field_note_id(nid, fieldname)
-                    paths[fid] = dump(fid, fieldtext, root)
+                    paths[fid] = dump_field(fid, fieldtext, root)
         tidy(paths, silent)
         for deckname in sorted(set(decks.keys()), key=len, reverse=True):
             deckpath = get_and_create_deckpath(deckname, targetdir)
@@ -44,7 +44,7 @@ def _clone(colpath: Path, targetdir: Path, silent: bool):
                 notepath.write_text(payload, encoding="UTF-8")
 
 
-def dump(fid: str, fieldtext: str, root: Path) -> Path:
+def dump_field(fid: str, fieldtext: str, root: Path) -> Path:
     """Dump field with given fid to a unique path."""
     htmlpath = root / fid
     htmlpath.write_text(fieldtext)

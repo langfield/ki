@@ -24,6 +24,7 @@ from beartype.typing import List
 
 import ki
 from ki.note import KiNote
+from ki.architecture import dump_field
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
