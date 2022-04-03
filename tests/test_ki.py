@@ -888,3 +888,32 @@ def test_parse_markdown_notes():
 def test_clone_helper_checks_for_colpath_existence():
     with pytest.raises(FileNotFoundError):
         ki._clone(Path("/tmp/NONEXISTENT_PATH.anki2"), Path("/tmp/TARGET"), "", False)
+
+
+def test_get_batches():
+    batches = list(ki.get_batches(["0", "1", "2", "3"], n=2))
+    assert batches == [["0", "1"], ["2", "3"]]
+
+
+def test_is_anki_note():
+    assert ki.is_anki_note(Path("note.mda")) == False
+    assert ki.is_anki_note(Path("note.amd")) == False
+    assert ki.is_anki_note(Path("note.md.txt")) == False
+    assert ki.is_anki_note(Path("note.nd")) == False
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        Path("note.md").write_text("")
+        assert ki.is_anki_note(Path("note.md")) == False
+
+        Path("note.md").write_text("one line")
+        assert ki.is_anki_note(Path("note.md")) == False
+
+        Path("note.md").write_text("### Note\n## Note\n")
+        assert ki.is_anki_note(Path("note.md")) == False
+
+        Path("note.md").write_text("## Note\nnid: 00000000000000a\n")
+        assert ki.is_anki_note(Path("note.md")) == False
+
+        Path("note.md").write_text("## Note\nnid: 000000000000000\n")
+        assert ki.is_anki_note(Path("note.md")) == True

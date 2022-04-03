@@ -9,3 +9,8 @@ documentation:
 clean:
 	rm -rf docs/*.html
 	rm -rf *.egg-info
+	rm -rf htmlcov/
+test:
+	coverage run -m pytest tests/
+report:
+	coverage html
