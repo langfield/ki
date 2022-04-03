@@ -209,7 +209,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
         nidmap = {}
         kinotes = {}
         for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
-            kinote = KiNote(a, a.col.getNote(nid))
+            kinote = KiNote(a, a.col.get_note(nid))
             assert nid == kinote.n.id
 
             # Check if fieldtext is HTML, and write to file if so.

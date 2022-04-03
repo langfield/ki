@@ -183,7 +183,7 @@ def get_notes(collection: str) -> List[KiNote]:
     with Anki(path=collection) as a:
         notes: List[KiNote] = []
         for i in set(a.col.find_notes(query)):
-            notes.append(KiNote(a, a.col.getNote(i)))
+            notes.append(KiNote(a, a.col.get_note(i)))
     return notes
 
 

@@ -28,7 +28,7 @@ def _write_notes(colpath: Path, targetdir: Path, silent: bool):
     with Anki(path=colpath) as a:
         all_nids = list(a.col.find_notes(query=""))
         for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
-            kinote = KiNote(a, a.col.getNote(nid))
+            kinote = KiNote(a, a.col.get_note(nid))
             decks[kinote.deck] = decks.get(kinote.deck, []) + [kinote]
             for fieldname, fieldtext in kinote.fields.items():
                 if re.search(HTML_REGEX, fieldtext):

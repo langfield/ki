@@ -84,7 +84,7 @@ class KiNote(Note):
         cids = [c.id for c in self.n.cards()]
 
         if cids:
-            self.a.col.decks.setDeck(cids, newdid)
+            self.a.col.decks.set_deck(cids, newdid)
             self.a.modified = True
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
 
