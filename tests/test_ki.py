@@ -651,6 +651,7 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 # PUSH
 
 
+@pytest.mark.xfail
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
