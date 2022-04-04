@@ -62,7 +62,7 @@ from beartype.typing import (
     Generator,
 )
 
-from ki.note import KiNote, is_generated_html
+from ki.note import KiNote
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -220,54 +220,6 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     _ = repo.index.commit(msg)
 
     return repo
-
-
-@beartype
-def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
-    """Get notepath from sort field name."""
-    # Get the filename for this note.
-    assert sort_fieldname in kinote.n
-    field_text = kinote.n[sort_fieldname]
-
-    # Construct filename, stripping HTML tags and sanitizing (quickly).
-    field_text = plain_to_html(field_text)
-    field_text = re.sub("<[^<]+?>", "", field_text)
-    filename = field_text[:MAX_FIELNAME_LEN]
-    filename = slugify(filename, allow_unicode=True)
-    basepath = deckpath / f"{filename}"
-    notepath = basepath.with_suffix(".md")
-
-    i = 1
-    while notepath.exists():
-        notepath = Path(f"{basepath}_{i}").with_suffix(".md")
-        i += 1
-
-    return notepath
-
-
-@beartype
-def git_subprocess_pull(remote: str, branch: str) -> int:
-    """Pull remote into branch using a subprocess call."""
-    p = subprocess.run(
-        [
-            "git",
-            "pull",
-            "-v",
-            "--allow-unrelated-histories",
-            "--strategy-option",
-            "theirs",
-            remote,
-            branch,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    pull_stderr = p.stderr.decode()
-    logger.debug(f"\n{pull_stderr}")
-    logger.debug(f"Return code: {p.returncode}")
-    if p.returncode != 0:
-        raise ValueError(pull_stderr)
-    return p.returncode
 
 
 @ki.command()
@@ -940,3 +892,51 @@ def get_tidy_payload(kinote: KiNote, paths: Dict[str, Path]) -> str:
 
     # Dump payload to filesystem.
     return "\n".join(lines)
+
+
+@beartype
+def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
+    """Get notepath from sort field name."""
+    # Get the filename for this note.
+    assert sort_fieldname in kinote.n
+    field_text = kinote.n[sort_fieldname]
+
+    # Construct filename, stripping HTML tags and sanitizing (quickly).
+    field_text = plain_to_html(field_text)
+    field_text = re.sub("<[^<]+?>", "", field_text)
+    filename = field_text[:MAX_FIELNAME_LEN]
+    filename = slugify(filename, allow_unicode=True)
+    basepath = deckpath / f"{filename}"
+    notepath = basepath.with_suffix(".md")
+
+    i = 1
+    while notepath.exists():
+        notepath = Path(f"{basepath}_{i}").with_suffix(".md")
+        i += 1
+
+    return notepath
+
+
+@beartype
+def git_subprocess_pull(remote: str, branch: str) -> int:
+    """Pull remote into branch using a subprocess call."""
+    p = subprocess.run(
+        [
+            "git",
+            "pull",
+            "-v",
+            "--allow-unrelated-histories",
+            "--strategy-option",
+            "theirs",
+            remote,
+            branch,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    pull_stderr = p.stderr.decode()
+    logger.debug(f"\n{pull_stderr}")
+    logger.debug(f"Return code: {p.returncode}")
+    if p.returncode != 0:
+        raise ValueError(pull_stderr)
+    return p.returncode
