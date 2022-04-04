@@ -923,30 +923,111 @@ def test_is_anki_note():
         assert ki.is_anki_note(Path("note.md")) is True
 
 
-def test_update_kinote():
+def test_update_kinote_raises_error_on_too_few_fields():
+    """Do we raise an error when the field names don't match up?"""
+    collection_path = get_collection_path()
+    query = ""
+
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "data"
+
+        # Note that "Back" field is missing.
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field})
+
+        with pytest.raises(ValueError):
+            ki.update_kinote(kinote, flatnote)
+
+
+def test_update_kinote_raises_error_on_too_many_fields():
+    """Do we raise an error when the field names don't match up?"""
+    collection_path = get_collection_path()
+    query = ""
+
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "data"
+
+        # Note that "Back" field is missing.
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field, "Left": field})
+
+        with pytest.raises(ValueError):
+            ki.update_kinote(kinote, flatnote)
+
+
+def test_update_kinote_raises_error_wrong_field_name():
+    """Do we raise an error when the field names don't match up?"""
+    collection_path = get_collection_path()
+    query = ""
+
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "data"
+
+        # Note that "Back" field is missing.
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Backus": field})
+
+        with pytest.raises(ValueError):
+            ki.update_kinote(kinote, flatnote)
+
+
+def test_update_kinote_sets_tags():
+    """Do we update tags of anki note?"""
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "data"
+        flatnote = FlatNote("title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field})
+
+        assert kinote.n.tags == []
+        ki.update_kinote(kinote, flatnote)
+        assert kinote.n.tags == ["tag"]
+
+
+def test_update_kinote_sets_deck():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "data"
+        flatnote = FlatNote("title", 0, "Basic", "deck", [], False, {"Front": field, "Back": field})
+
+        assert kinote.get_deck() == "Default"
+        ki.update_kinote(kinote, flatnote)
+        assert kinote.get_deck() == "deck"
+
+def test_update_kinote_sets_field_contents():
     collection_path = get_collection_path()
     query = ""
     with Anki(path=collection_path) as a:
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "TITLE\ndata"
-        flatnote = FlatNote("title", 0, "model", "deck", ["tag"], True, {"field1": field})
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], True, {"Front": field, "Back": field})
 
-        assert kinote.n.tags == []
-        assert kinote.get_deck() == "Default"
         assert "TITLE" not in kinote.n.fields[0]
 
         ki.update_kinote(kinote, flatnote)
 
-        assert kinote.n.tags == ["tag"]
-        assert kinote.get_deck() == "deck"
         assert "TITLE" in kinote.n.fields[0]
         assert "</p>" in kinote.n.fields[0]
 
+
+def test_update_kinote_removes_field_contents():
+    collection_path = get_collection_path()
+    query = ""
     with Anki(path=collection_path) as a:
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
-        flatnote = FlatNote("title", 0, "model", "deck", ["tag"], True, {})
+        field = "c"
+        flatnote = FlatNote("title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field})
 
+        assert "a" in kinote.n.fields[0]
         ki.update_kinote(kinote, flatnote)
-        assert len(kinote.n.fields) == 0
+        assert "a" not in kinote.n.fields[0]
