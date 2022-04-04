@@ -1126,3 +1126,52 @@ def test_add_note_from_flatnote_returns_kinote():
         )
         result = ki.add_note_from_flatnote(a, flatnote)
         assert isinstance(result, KiNote)
+
+
+def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        field = "*hello*"
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", ["tag"], True, {"Front": field, "Back": field}
+        )
+        result = ki.add_note_from_flatnote(a, flatnote)
+        assert isinstance(result, KiNote)
+        assert "<em>hello</em>" in result.n.fields[0]
+
+
+def test_get_note_files_changed_since_last_push(capfd):
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        repo = git.Repo(REPODIR)
+
+        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
+        last_push_path.write_text("")
+
+        changed = list(map(str, ki.get_note_files_changed_since_last_push(repo)))
+        captured = capfd.readouterr()
+        assert changed == ['collection/Default/c.md', 'collection/Default/a.md']
+        assert "last_push" not in captured.err
+
+
+def test_get_note_files_changed_since_last_push_when_last_push_file_is_missing(capfd):
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        repo = git.Repo(REPODIR)
+
+        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
+        os.remove(last_push_path)
+
+        changed = list(map(str, ki.get_note_files_changed_since_last_push(repo)))
+        captured = capfd.readouterr()
+        assert changed == ['collection/Default/c.md', 'collection/Default/a.md']
+        assert "last_push" in captured.err

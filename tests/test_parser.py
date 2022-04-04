@@ -533,7 +533,6 @@ def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
     goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
-    logger.info(f"goods (len): {len(goods)}")
     for good in goods:
         try:
             parser.parse(good)
@@ -548,8 +547,7 @@ def test_transformer():
     note = Path("tests/data/notes/noteLARK.md").read_text(encoding="UTF-8")
     tree = parser.parse(note)
     transformer = NoteTransformer()
-    out = transformer.transform(tree)
-    pp.cpprint(out)
+    transformer.transform(tree)
 
 
 def test_transformer_goods():
