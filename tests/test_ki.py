@@ -115,12 +115,15 @@ def get_collection_path() -> str:
     assert os.path.isfile(collection_path)
     return collection_path
 
+
 @beartype
 def get_multideck_collection_path() -> str:
     """Put `collection.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
-    collection_path = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
+    collection_path = os.path.abspath(
+        os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME)
+    )
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, collection_path)
     assert os.path.isfile(collection_path)
     return collection_path
@@ -456,7 +459,6 @@ def test_clone_generates_deck_tree_correctly():
         true_md5 = ki.md5(true_note_path)
 
         assert cloned_md5 == true_md5
-
 
 
 def test_clone_generates_ki_subdirectory():
@@ -951,7 +953,15 @@ def test_update_kinote_raises_error_on_too_many_fields():
         field = "data"
 
         # Note that "Back" field is missing.
-        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field, "Left": field})
+        flatnote = FlatNote(
+            "title",
+            0,
+            "Basic",
+            "Default",
+            [],
+            False,
+            {"Front": field, "Back": field, "Left": field},
+        )
 
         with pytest.raises(ValueError):
             ki.update_kinote(kinote, flatnote)
@@ -968,7 +978,9 @@ def test_update_kinote_raises_error_wrong_field_name():
         field = "data"
 
         # Note that "Back" field is missing.
-        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Backus": field})
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", [], False, {"Front": field, "Backus": field}
+        )
 
         with pytest.raises(ValueError):
             ki.update_kinote(kinote, flatnote)
@@ -982,7 +994,15 @@ def test_update_kinote_sets_tags():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "data"
-        flatnote = FlatNote("title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title",
+            0,
+            "Basic",
+            "Default",
+            ["tag"],
+            False,
+            {"Front": field, "Back": field},
+        )
 
         assert kinote.n.tags == []
         ki.update_kinote(kinote, flatnote)
@@ -996,11 +1016,14 @@ def test_update_kinote_sets_deck():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "data"
-        flatnote = FlatNote("title", 0, "Basic", "deck", [], False, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title", 0, "Basic", "deck", [], False, {"Front": field, "Back": field}
+        )
 
         assert kinote.get_deck() == "Default"
         ki.update_kinote(kinote, flatnote)
         assert kinote.get_deck() == "deck"
+
 
 def test_update_kinote_sets_field_contents():
     collection_path = get_collection_path()
@@ -1009,7 +1032,9 @@ def test_update_kinote_sets_field_contents():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "TITLE\ndata"
-        flatnote = FlatNote("title", 0, "Basic", "Default", [], True, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", [], True, {"Front": field, "Back": field}
+        )
 
         assert "TITLE" not in kinote.n.fields[0]
 
@@ -1026,7 +1051,9 @@ def test_update_kinote_removes_field_contents():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "c"
-        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field}
+        )
 
         assert "a" in kinote.n.fields[0]
         ki.update_kinote(kinote, flatnote)
@@ -1040,7 +1067,15 @@ def test_update_kinote_raises_error_on_nonexistent_notetype_name():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "c"
-        flatnote = FlatNote("title", 0, "nonbasic", "Default", [], False, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title",
+            0,
+            "nonbasic",
+            "Default",
+            [],
+            False,
+            {"Front": field, "Back": field},
+        )
 
         with pytest.raises(FileNotFoundError):
             ki.update_kinote(kinote, flatnote)
@@ -1053,7 +1088,9 @@ def test_display_fields_health_warning():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "c"
-        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field})
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field}
+        )
         ki.display_fields_health_warning(1, kinote.n, flatnote)
         ki.display_fields_health_warning(3, kinote.n, flatnote)
 

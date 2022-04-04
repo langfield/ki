@@ -322,6 +322,7 @@ def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
 
     return notepath
 
+
 @ki.command()
 @beartype
 def pull() -> None:
@@ -882,9 +883,10 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
     return KiNote(a, note)
 
 
-
 @beartype
-def display_fields_health_warning(health: int, note: anki.notes.Note, flatnote: FlatNote) -> None:
+def display_fields_health_warning(
+    health: int, note: anki.notes.Note, flatnote: FlatNote
+) -> None:
     """Display warnings when Anki's fields health check fails."""
     if health == 1:
         logger.warning(f"Found empty note:\n {note}")
@@ -900,8 +902,9 @@ def display_fields_health_warning(health: int, note: anki.notes.Note, flatnote: 
 
     if health != 0:
         logger.error(f"Failed to process note '{note.id}'.")
-        logger.error(f"Note failed fields check with unknown error code: {note.fields_check()}")
-
+        logger.error(
+            f"Note failed fields check with unknown error code: {note.fields_check()}"
+        )
 
 
 @beartype
