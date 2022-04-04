@@ -35,6 +35,8 @@ class KiNote(Note):
     def __init__(self, a: Anki, note: anki.notes.Note):
 
         super().__init__(a, note)
+
+        # TODO: Remove implicit assumption that all cards are in the same deck.
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
 
         # Populate parsed fields.
@@ -74,7 +76,8 @@ class KiNote(Note):
 
     @beartype
     def get_deck(self) -> str:
-        """Return which deck the note belongs to"""
+        """Return which deck the note belongs to."""
+        # TODO: Remove implicit assumption that all cards are in the same deck.
         return self.deck
 
     @beartype
@@ -86,6 +89,7 @@ class KiNote(Note):
         if cids:
             self.a.col.set_deck(cids, newdid)
             self.a.modified = True
+        # TODO: Remove implicit assumption that all cards are in the same deck.
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
 
 
