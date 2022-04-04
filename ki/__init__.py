@@ -742,19 +742,27 @@ def unlock(con: sqlite3.Connection) -> None:
 def get_last_push_sha(repo: git.Repo) -> str:
     """Get LAST_PUSH SHA."""
     last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
-    return last_push_path.read_text()
+    try:
+        return last_push_path.read_text()
+    except FileNotFoundError:
+        logger.warning(f"Couldn't find '.ki/last_push' file!")
+        return ""
 
 
 @beartype
 def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
-    paths: Iterator[str]
+    paths: Iterator[Path]
     last_push_sha = get_last_push_sha(repo)
 
     # Treat case where there is no last push.
     if last_push_sha == "":
-        dir_entries: Iterator[os.DirEntry] = os.scandir(repo.working_dir)
-        paths = map(lambda entry: entry.path, dir_entries)
+        p = subprocess.run(
+            ["find", ".", "-type", "f"],
+            check=False,
+            capture_output=True,
+        )
+        paths = map(Path, p.stdout.decode().split())
 
     else:
         # Use a `DiffIndex` to get the changed files.
@@ -770,7 +778,9 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
 
     changed = []
     for path in paths:
-        if path.is_file() and not is_anki_note(path):
+        # TODO: This may need to be changed to support submodules.
+        assert path.is_file()
+        if not is_anki_note(path):
             continue
         changed.append(path)
 
