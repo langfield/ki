@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>ki.transformer API documentation</title>
+<meta name="description" content="A Lark transformer for the ki note grammar." />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+<style>.homelink{display:block;font-size:2em;font-weight:bold;color:#555;padding-bottom:.5em;border-bottom:1px solid silver}.homelink:hover{color:inherit}.homelink img{max-width:20%;max-height:5em;margin:auto;margin-bottom:.3em}</style>
+<link rel="canonical" href="ki/transformer.html">
+<link rel="icon" href="u1F367-shavedice.svg">
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>ki.transformer</code></h1>
+</header>
+<section id="section-intro">
+<p>A Lark transformer for the ki note grammar.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">#!/usr/bin/env python3
+&#34;&#34;&#34;A Lark transformer for the ki note grammar.&#34;&#34;&#34;
+import re
+from dataclasses import dataclass
+
+from lark import Transformer
+from lark.lexer import Token
+
+from beartype import beartype
+from beartype.typing import (
+    List,
+    Dict,
+    Optional,
+    Union,
+)
+
+# pylint: disable=invalid-name, too-few-public-methods
+
+
+@beartype
+@dataclass(frozen=True)
+class Field:
+    &#34;&#34;&#34;Field content pair.&#34;&#34;&#34;
+
+    title: str
+    content: str
+
+
+@beartype
+@dataclass(frozen=True)
+class FlatNote:
+    &#34;&#34;&#34;Flat (as possible) representation of a note.&#34;&#34;&#34;
+
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool
+    fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
+class Header:
+    &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
+
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool
+
+
+class NoteTransformer(Transformer):
+    r&#34;&#34;&#34;
+    file
+      note
+        header
+          title     Note
+          nid: 123412341234
+
+          model: Basic
+
+          deck      a
+          tags      None
+          markdown: false
+
+
+        field
+          fieldheader
+            ###
+            Front
+          r
+
+
+        field
+          fieldheader
+            ###
+            Back
+          s
+    &#34;&#34;&#34;
+    # pylint: disable=no-self-use, missing-function-docstring
+
+    @beartype
+    def file(self, flatnotes: List[FlatNote]) -&gt; List[FlatNote]:
+        return flatnotes
+
+    @beartype
+    def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
+        assert len(n) &gt;= 2
+
+        header = n[0]
+        fields = n[1:]
+        assert isinstance(header, Header)
+        assert isinstance(fields[0], Field)
+
+        fieldmap: Dict[str, str] = {}
+        for field in fields:
+            fieldmap[field.title] = field.content
+
+        return FlatNote(
+            header.title,
+            header.nid,
+            header.model,
+            header.deck,
+            header.tags,
+            header.markdown,
+            fieldmap,
+        )
+
+    @beartype
+    def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+        return Header(*h)
+
+    @beartype
+    def title(self, t: List[str]) -&gt; str:
+        &#34;&#34;&#34;``title: &#34;##&#34; TITLENAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(t) == 1
+        return t[0]
+
+    @beartype
+    def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+        return [tag for tag in tags if tag is not None]
+
+    @beartype
+    def field(self, f: List[str]) -&gt; Field:
+        assert len(f) &gt;= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = &#34;&#34;.join(lines)
+        return Field(fheader, content)
+
+    @beartype
+    def fieldheader(self, f: List[str]) -&gt; str:
+        &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(f) == 2
+        return f[1]
+
+    @beartype
+    def deck(self, d: List[str]) -&gt; str:
+        &#34;&#34;&#34;
+        Lark syntax:
+        ``deck: &#34;deck:&#34; DECKNAME &#34;\n&#34;``
+
+        This is guaranteed to be nonempty.
+        &#34;&#34;&#34;
+        assert len(d) == 1
+        assert len(d[0]) &gt; 0
+        return d[0]
+
+    @beartype
+    def NID(self, t: Token) -&gt; int:
+        &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
+        nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
+        try:
+            return int(nid)
+        except ValueError:
+            return -1
+
+    @beartype
+    def MODEL(self, t: Token) -&gt; str:
+        model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+        return model
+
+    @beartype
+    def MARKDOWN(self, t: Token) -&gt; bool:
+        md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
+        assert md in (&#34;true&#34;, &#34;false&#34;)
+        return md == &#34;true&#34;
+
+    @beartype
+    def DECKNAME(self, t: Token) -&gt; str:
+        return str(t).strip()
+
+    @beartype
+    def FIELDLINE(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TITLENAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def ANKINAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TAGNAME(self, t: Token) -&gt; str:
+        return str(t)</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="ki.transformer.Field"><code class="flex name class">
+<span>class <span class="ident">Field</span></span>
+<span>(</span><span>title: str, content: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Field content pair.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class Field:
+    &#34;&#34;&#34;Field content pair.&#34;&#34;&#34;
+
+    title: str
+    content: str</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.transformer.Field.content"><code class="name">var <span class="ident">content</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Field.title"><code class="name">var <span class="ident">title</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.transformer.FlatNote"><code class="flex name class">
+<span>class <span class="ident">FlatNote</span></span>
+<span>(</span><span>title: str, nid: int, model: str, deck: str, tags: list[str], markdown: bool, fields: dict[str, str])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Flat (as possible) representation of a note.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class FlatNote:
+    &#34;&#34;&#34;Flat (as possible) representation of a note.&#34;&#34;&#34;
+
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool
+    fields: Dict[str, str]</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.transformer.FlatNote.deck"><code class="name">var <span class="ident">deck</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.fields"><code class="name">var <span class="ident">fields</span> : dict[str, str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.tags"><code class="name">var <span class="ident">tags</span> : list[str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.FlatNote.title"><code class="name">var <span class="ident">title</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.transformer.Header"><code class="flex name class">
+<span>class <span class="ident">Header</span></span>
+<span>(</span><span>title: str, nid: int, model: str, deck: str, tags: list[str], markdown: bool)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Note metadata.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class Header:
+    &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
+
+    title: str
+    nid: int
+    model: str
+    deck: str
+    tags: List[str]
+    markdown: bool</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.transformer.Header.deck"><code class="name">var <span class="ident">deck</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Header.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Header.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Header.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Header.tags"><code class="name">var <span class="ident">tags</span> : list[str]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.transformer.Header.title"><code class="name">var <span class="ident">title</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.transformer.NoteTransformer"><code class="flex name class">
+<span>class <span class="ident">NoteTransformer</span></span>
+<span>(</span><span>visit_tokens: bool = True)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>file
+note
+header
+title
+Note
+nid: 123412341234</p>
+<pre><code>  model: Basic
+
+  deck      a
+  tags      None
+  markdown: false
+
+
+field
+  fieldheader
+    ###
+    Front
+  r
+
+
+field
+  fieldheader
+    ###
+    Back
+  s
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class NoteTransformer(Transformer):
+    r&#34;&#34;&#34;
+    file
+      note
+        header
+          title     Note
+          nid: 123412341234
+
+          model: Basic
+
+          deck      a
+          tags      None
+          markdown: false
+
+
+        field
+          fieldheader
+            ###
+            Front
+          r
+
+
+        field
+          fieldheader
+            ###
+            Back
+          s
+    &#34;&#34;&#34;
+    # pylint: disable=no-self-use, missing-function-docstring
+
+    @beartype
+    def file(self, flatnotes: List[FlatNote]) -&gt; List[FlatNote]:
+        return flatnotes
+
+    @beartype
+    def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
+        assert len(n) &gt;= 2
+
+        header = n[0]
+        fields = n[1:]
+        assert isinstance(header, Header)
+        assert isinstance(fields[0], Field)
+
+        fieldmap: Dict[str, str] = {}
+        for field in fields:
+            fieldmap[field.title] = field.content
+
+        return FlatNote(
+            header.title,
+            header.nid,
+            header.model,
+            header.deck,
+            header.tags,
+            header.markdown,
+            fieldmap,
+        )
+
+    @beartype
+    def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+        return Header(*h)
+
+    @beartype
+    def title(self, t: List[str]) -&gt; str:
+        &#34;&#34;&#34;``title: &#34;##&#34; TITLENAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(t) == 1
+        return t[0]
+
+    @beartype
+    def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+        return [tag for tag in tags if tag is not None]
+
+    @beartype
+    def field(self, f: List[str]) -&gt; Field:
+        assert len(f) &gt;= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = &#34;&#34;.join(lines)
+        return Field(fheader, content)
+
+    @beartype
+    def fieldheader(self, f: List[str]) -&gt; str:
+        &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(f) == 2
+        return f[1]
+
+    @beartype
+    def deck(self, d: List[str]) -&gt; str:
+        &#34;&#34;&#34;
+        Lark syntax:
+        ``deck: &#34;deck:&#34; DECKNAME &#34;\n&#34;``
+
+        This is guaranteed to be nonempty.
+        &#34;&#34;&#34;
+        assert len(d) == 1
+        assert len(d[0]) &gt; 0
+        return d[0]
+
+    @beartype
+    def NID(self, t: Token) -&gt; int:
+        &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
+        nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
+        try:
+            return int(nid)
+        except ValueError:
+            return -1
+
+    @beartype
+    def MODEL(self, t: Token) -&gt; str:
+        model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+        return model
+
+    @beartype
+    def MARKDOWN(self, t: Token) -&gt; bool:
+        md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
+        assert md in (&#34;true&#34;, &#34;false&#34;)
+        return md == &#34;true&#34;
+
+    @beartype
+    def DECKNAME(self, t: Token) -&gt; str:
+        return str(t).strip()
+
+    @beartype
+    def FIELDLINE(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TITLENAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def ANKINAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TAGNAME(self, t: Token) -&gt; str:
+        return str(t)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>lark.visitors.Transformer</li>
+<li>lark.visitors._Decoratable</li>
+<li>abc.ABC</li>
+<li>typing.Generic</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="ki.transformer.NoteTransformer.ANKINAME"><code class="name flex">
+<span>def <span class="ident">ANKINAME</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def ANKINAME(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.DECKNAME"><code class="name flex">
+<span>def <span class="ident">DECKNAME</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def DECKNAME(self, t: Token) -&gt; str:
+    return str(t).strip()</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.FIELDLINE"><code class="name flex">
+<span>def <span class="ident">FIELDLINE</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def FIELDLINE(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.MARKDOWN"><code class="name flex">
+<span>def <span class="ident">MARKDOWN</span></span>(<span>self, t: lark.lexer.Token) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def MARKDOWN(self, t: Token) -&gt; bool:
+    md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
+    assert md in (&#34;true&#34;, &#34;false&#34;)
+    return md == &#34;true&#34;</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.MODEL"><code class="name flex">
+<span>def <span class="ident">MODEL</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def MODEL(self, t: Token) -&gt; str:
+    model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+    return model</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.NID"><code class="name flex">
+<span>def <span class="ident">NID</span></span>(<span>self, t: lark.lexer.Token) ‑> int</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Return <code>-1</code> if empty.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def NID(self, t: Token) -&gt; int:
+    &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
+    nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
+    try:
+        return int(nid)
+    except ValueError:
+        return -1</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.TAGNAME"><code class="name flex">
+<span>def <span class="ident">TAGNAME</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def TAGNAME(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.TITLENAME"><code class="name flex">
+<span>def <span class="ident">TITLENAME</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def TITLENAME(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.deck"><code class="name flex">
+<span>def <span class="ident">deck</span></span>(<span>self, d: list[str]) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Lark syntax:
+<code>deck: "deck:" DECKNAME "
+"</code></p>
+<pre><code>    This is guaranteed to be nonempty.
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def deck(self, d: List[str]) -&gt; str:
+    &#34;&#34;&#34;
+    Lark syntax:
+    ``deck: &#34;deck:&#34; DECKNAME &#34;\n&#34;``
+
+    This is guaranteed to be nonempty.
+    &#34;&#34;&#34;
+    assert len(d) == 1
+    assert len(d[0]) &gt; 0
+    return d[0]</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.field"><code class="name flex">
+<span>def <span class="ident">field</span></span>(<span>self, f: list[str]) ‑> <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def field(self, f: List[str]) -&gt; Field:
+    assert len(f) &gt;= 1
+    fheader = f[0]
+    lines = f[1:]
+    content = &#34;&#34;.join(lines)
+    return Field(fheader, content)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.fieldheader"><code class="name flex">
+<span>def <span class="ident">fieldheader</span></span>(<span>self, f: list[str]) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p><code>fieldheader: FIELDSENTINEL " "* ANKINAME "
+"+</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def fieldheader(self, f: List[str]) -&gt; str:
+    &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+    assert len(f) == 2
+    return f[1]</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.file"><code class="name flex">
+<span>def <span class="ident">file</span></span>(<span>self, flatnotes: list[<a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a>]) ‑> list[<a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def file(self, flatnotes: List[FlatNote]) -&gt; List[FlatNote]:
+    return flatnotes</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.header"><code class="name flex">
+<span>def <span class="ident">header</span></span>(<span>self, h: list[typing.Union[str, int, bool, list[str]]]) ‑> <a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+    return Header(*h)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.note"><code class="name flex">
+<span>def <span class="ident">note</span></span>(<span>self, n: list[typing.Union[<a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a>, <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a>]]) ‑> <a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
+    assert len(n) &gt;= 2
+
+    header = n[0]
+    fields = n[1:]
+    assert isinstance(header, Header)
+    assert isinstance(fields[0], Field)
+
+    fieldmap: Dict[str, str] = {}
+    for field in fields:
+        fieldmap[field.title] = field.content
+
+    return FlatNote(
+        header.title,
+        header.nid,
+        header.model,
+        header.deck,
+        header.tags,
+        header.markdown,
+        fieldmap,
+    )</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.tags"><code class="name flex">
+<span>def <span class="ident">tags</span></span>(<span>self, tags: list[typing.Optional[str]]) ‑> list[str]</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+    return [tag for tag in tags if tag is not None]</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.title"><code class="name flex">
+<span>def <span class="ident">title</span></span>(<span>self, t: list[str]) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p><code>title: "##" TITLENAME "
+"+</code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def title(self, t: List[str]) -&gt; str:
+    &#34;&#34;&#34;``title: &#34;##&#34; TITLENAME &#34;\n&#34;+``&#34;&#34;&#34;
+    assert len(t) == 1
+    return t[0]</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<header>
+<a class="homelink" rel="home" title="ki Home" href="index.html">
+<img src="u1F367-shavedice.svg" alt=""> ki
+</a>
+</header>
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="ki" href="index.html">ki</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></code></h4>
+<ul class="">
+<li><code><a title="ki.transformer.Field.content" href="#ki.transformer.Field.content">content</a></code></li>
+<li><code><a title="ki.transformer.Field.title" href="#ki.transformer.Field.title">title</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a></code></h4>
+<ul class="two-column">
+<li><code><a title="ki.transformer.FlatNote.deck" href="#ki.transformer.FlatNote.deck">deck</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.fields" href="#ki.transformer.FlatNote.fields">fields</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.markdown" href="#ki.transformer.FlatNote.markdown">markdown</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.model" href="#ki.transformer.FlatNote.model">model</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.nid" href="#ki.transformer.FlatNote.nid">nid</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.tags" href="#ki.transformer.FlatNote.tags">tags</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.title" href="#ki.transformer.FlatNote.title">title</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a></code></h4>
+<ul class="two-column">
+<li><code><a title="ki.transformer.Header.deck" href="#ki.transformer.Header.deck">deck</a></code></li>
+<li><code><a title="ki.transformer.Header.markdown" href="#ki.transformer.Header.markdown">markdown</a></code></li>
+<li><code><a title="ki.transformer.Header.model" href="#ki.transformer.Header.model">model</a></code></li>
+<li><code><a title="ki.transformer.Header.nid" href="#ki.transformer.Header.nid">nid</a></code></li>
+<li><code><a title="ki.transformer.Header.tags" href="#ki.transformer.Header.tags">tags</a></code></li>
+<li><code><a title="ki.transformer.Header.title" href="#ki.transformer.Header.title">title</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.transformer.NoteTransformer" href="#ki.transformer.NoteTransformer">NoteTransformer</a></code></h4>
+<ul class="two-column">
+<li><code><a title="ki.transformer.NoteTransformer.ANKINAME" href="#ki.transformer.NoteTransformer.ANKINAME">ANKINAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.DECKNAME" href="#ki.transformer.NoteTransformer.DECKNAME">DECKNAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.FIELDLINE" href="#ki.transformer.NoteTransformer.FIELDLINE">FIELDLINE</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.MARKDOWN" href="#ki.transformer.NoteTransformer.MARKDOWN">MARKDOWN</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.MODEL" href="#ki.transformer.NoteTransformer.MODEL">MODEL</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.NID" href="#ki.transformer.NoteTransformer.NID">NID</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.TAGNAME" href="#ki.transformer.NoteTransformer.TAGNAME">TAGNAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.TITLENAME" href="#ki.transformer.NoteTransformer.TITLENAME">TITLENAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.deck" href="#ki.transformer.NoteTransformer.deck">deck</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.field" href="#ki.transformer.NoteTransformer.field">field</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.fieldheader" href="#ki.transformer.NoteTransformer.fieldheader">fieldheader</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.file" href="#ki.transformer.NoteTransformer.file">file</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.header" href="#ki.transformer.NoteTransformer.header">header</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.note" href="#ki.transformer.NoteTransformer.note">note</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.tags" href="#ki.transformer.NoteTransformer.tags">tags</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.title" href="#ki.transformer.NoteTransformer.title">title</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>

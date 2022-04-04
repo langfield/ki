@@ -32,24 +32,143 @@
 </summary>
 <pre><code class="python">#!/usr/bin/env python3
 &#34;&#34;&#34;A module containing a class for Anki notes.&#34;&#34;&#34;
-from apy.anki import Note
+import re
+import subprocess
+
+import bs4
+import anki
+import click
+import markdownify
+
 from beartype import beartype
-from beartype.typing import List
+from beartype.typing import Dict, List
+
+from apy.anki import Note, Anki
+from apy.convert import markdown_to_html, html_to_markdown, _italize
+
+GENERATED_HTML_SENTINEL = &#34;data-original-markdown&#34;
 
 
 class KiNote(Note):
     &#34;&#34;&#34;
-    A subclass of ``apy.Note`` for parsing syntax-highlighted code in note fields.
+    A subclass of ``apy.Note`` for applying transformations to HTML in note
+    fields. This is distinct from the anki ``Note`` class, which is accessible
+    using ``self.n``.
 
-    This is distinct from the anki ``Note`` class, which is accessible using
-    ``self.n``.
+    Parameters
+    ----------
+    a : apy.anki.Anki
+        Wrapper around Anki collection.
+    note : anki.notes.Note
+        Anki Note instance.
     &#34;&#34;&#34;
 
     @beartype
-    def __repr__(self):
-        apy_note_repr: str = super().__repr__()
-        _apy_note_lines: List[str] = apy_note_repr.split(&#34;\n&#34;)
-        return apy_note_repr</code></pre>
+    def __init__(self, a: Anki, note: anki.notes.Note):
+
+        super().__init__(a, note)
+
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)
+
+        # Populate parsed fields.
+        self.fields: Dict[str, str] = {}
+        for key, field in self.n.items():
+            self.fields[key] = html_to_screen(field)
+
+    @beartype
+    def __repr__(self) -&gt; str:
+        &#34;&#34;&#34;Convert note to Markdown format&#34;&#34;&#34;
+        lines = self.get_header_lines()
+
+        for key, field in self.n.items():
+            lines.append(&#34;### &#34; + key)
+            lines.append(html_to_screen(field))
+            lines.append(&#34;&#34;)
+
+        return &#34;\n&#34;.join(lines)
+
+    @beartype
+    def get_header_lines(self) -&gt; List[str]:
+        &#34;&#34;&#34;Get header of markdown representation of note.&#34;&#34;&#34;
+        lines = [
+            &#34;## Note&#34;,
+            f&#34;nid: {self.n.id}&#34;,
+            f&#34;model: {self.model_name}&#34;,
+        ]
+
+        lines += [f&#34;deck: {self.get_deck()}&#34;]
+        lines += [f&#34;tags: {self.get_tag_string()}&#34;]
+
+        if not any(GENERATED_HTML_SENTINEL in field for field in self.n.values()):
+            lines += [&#34;markdown: false&#34;]
+
+        lines += [&#34;&#34;]
+        return lines
+
+    @beartype
+    def get_deck(self) -&gt; str:
+        &#34;&#34;&#34;Return which deck the note belongs to.&#34;&#34;&#34;
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        return self.deck
+
+    @beartype
+    def set_deck(self, deck: str) -&gt; None:
+        &#34;&#34;&#34;Move note to deck.&#34;&#34;&#34;
+        newdid = self.a.col.decks.id(deck)
+        cids = [c.id for c in self.n.cards()]
+
+        if cids:
+            self.a.col.set_deck(cids, newdid)
+            self.a.modified = True
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)
+
+
+@beartype
+def html_to_screen(html: str) -&gt; str:
+    &#34;&#34;&#34;Convert html for printing to screen.&#34;&#34;&#34;
+    html = re.sub(r&#34;\&lt;style\&gt;.*\&lt;\/style\&gt;&#34;, &#34;&#34;, html, flags=re.S)
+
+    generated = GENERATED_HTML_SENTINEL in html
+    if generated:
+        plain = html_to_markdown(html)
+        if html != markdown_to_html(plain):
+            html_clean = re.sub(r&#39; data-original-markdown=&#34;[^&#34;]*&#34;&#39;, &#34;&#34;, html)
+            plain += (
+                &#34;\n\n### Current HTML → Markdown\n&#34;
+                f&#34;{markdownify.markdownify(html_clean)}&#34;
+            )
+            plain += f&#34;\n### Current HTML\n{html_clean}&#34;
+    else:
+        plain = html
+
+    # For convenience: Un-escape some common LaTeX constructs
+    plain = plain.replace(r&#34;\\\\&#34;, r&#34;\\&#34;)
+    plain = plain.replace(r&#34;\\{&#34;, r&#34;\{&#34;)
+    plain = plain.replace(r&#34;\\}&#34;, r&#34;\}&#34;)
+    plain = plain.replace(r&#34;\*}&#34;, r&#34;*}&#34;)
+
+    plain = plain.replace(r&#34;&amp;lt;&#34;, &#34;&lt;&#34;)
+    plain = plain.replace(r&#34;&amp;gt;&#34;, &#34;&gt;&#34;)
+    plain = plain.replace(r&#34;&amp;amp;&#34;, &#34;&amp;&#34;)
+    plain = plain.replace(r&#34;&amp;nbsp;&#34;, &#34; &#34;)
+
+    plain = plain.replace(&#34;&lt;br&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;br/&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;br /&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;div&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;/div&gt;&#34;, &#34;&#34;)
+
+    # For convenience: Fix mathjax escaping (but only if the html is generated)
+    if generated:
+        plain = plain.replace(r&#34;\[&#34;, r&#34;[&#34;)
+        plain = plain.replace(r&#34;\]&#34;, r&#34;]&#34;)
+        plain = plain.replace(r&#34;\(&#34;, r&#34;(&#34;)
+        plain = plain.replace(r&#34;\)&#34;, r&#34;)&#34;)
+
+    plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
+    return plain.strip()</code></pre>
 </details>
 </section>
 <section>
@@ -57,40 +176,235 @@ class KiNote(Note):
 <section>
 </section>
 <section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="ki.note.html_to_screen"><code class="name flex">
+<span>def <span class="ident">html_to_screen</span></span>(<span>html: str) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Convert html for printing to screen.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def html_to_screen(html: str) -&gt; str:
+    &#34;&#34;&#34;Convert html for printing to screen.&#34;&#34;&#34;
+    html = re.sub(r&#34;\&lt;style\&gt;.*\&lt;\/style\&gt;&#34;, &#34;&#34;, html, flags=re.S)
+
+    generated = GENERATED_HTML_SENTINEL in html
+    if generated:
+        plain = html_to_markdown(html)
+        if html != markdown_to_html(plain):
+            html_clean = re.sub(r&#39; data-original-markdown=&#34;[^&#34;]*&#34;&#39;, &#34;&#34;, html)
+            plain += (
+                &#34;\n\n### Current HTML → Markdown\n&#34;
+                f&#34;{markdownify.markdownify(html_clean)}&#34;
+            )
+            plain += f&#34;\n### Current HTML\n{html_clean}&#34;
+    else:
+        plain = html
+
+    # For convenience: Un-escape some common LaTeX constructs
+    plain = plain.replace(r&#34;\\\\&#34;, r&#34;\\&#34;)
+    plain = plain.replace(r&#34;\\{&#34;, r&#34;\{&#34;)
+    plain = plain.replace(r&#34;\\}&#34;, r&#34;\}&#34;)
+    plain = plain.replace(r&#34;\*}&#34;, r&#34;*}&#34;)
+
+    plain = plain.replace(r&#34;&amp;lt;&#34;, &#34;&lt;&#34;)
+    plain = plain.replace(r&#34;&amp;gt;&#34;, &#34;&gt;&#34;)
+    plain = plain.replace(r&#34;&amp;amp;&#34;, &#34;&amp;&#34;)
+    plain = plain.replace(r&#34;&amp;nbsp;&#34;, &#34; &#34;)
+
+    plain = plain.replace(&#34;&lt;br&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;br/&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;br /&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;div&gt;&#34;, &#34;\n&#34;)
+    plain = plain.replace(&#34;&lt;/div&gt;&#34;, &#34;&#34;)
+
+    # For convenience: Fix mathjax escaping (but only if the html is generated)
+    if generated:
+        plain = plain.replace(r&#34;\[&#34;, r&#34;[&#34;)
+        plain = plain.replace(r&#34;\]&#34;, r&#34;]&#34;)
+        plain = plain.replace(r&#34;\(&#34;, r&#34;(&#34;)
+        plain = plain.replace(r&#34;\)&#34;, r&#34;)&#34;)
+
+    plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
+    return plain.strip()</code></pre>
+</details>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
 <dt id="ki.note.KiNote"><code class="flex name class">
 <span>class <span class="ident">KiNote</span></span>
-<span>(</span><span>anki, note)</span>
+<span>(</span><span>a: apy.anki.Anki, note: anki.notes.Note)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>A subclass of <code>apy.Note</code> for parsing syntax-highlighted code in note fields.</p>
-<p>This is distinct from the anki <code>Note</code> class, which is accessible using
-<code>self.n</code>.</p></div>
+<div class="desc"><p>A subclass of <code>apy.Note</code> for applying transformations to HTML in note
+fields. This is distinct from the anki <code>Note</code> class, which is accessible
+using <code>self.n</code>.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>a</code></strong> :&ensp;<code>apy.anki.Anki</code></dt>
+<dd>Wrapper around Anki collection.</dd>
+<dt><strong><code>note</code></strong> :&ensp;<code>anki.notes.Note</code></dt>
+<dd>Anki Note instance.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class KiNote(Note):
     &#34;&#34;&#34;
-    A subclass of ``apy.Note`` for parsing syntax-highlighted code in note fields.
+    A subclass of ``apy.Note`` for applying transformations to HTML in note
+    fields. This is distinct from the anki ``Note`` class, which is accessible
+    using ``self.n``.
 
-    This is distinct from the anki ``Note`` class, which is accessible using
-    ``self.n``.
+    Parameters
+    ----------
+    a : apy.anki.Anki
+        Wrapper around Anki collection.
+    note : anki.notes.Note
+        Anki Note instance.
     &#34;&#34;&#34;
 
     @beartype
-    def __repr__(self):
-        apy_note_repr: str = super().__repr__()
-        _apy_note_lines: List[str] = apy_note_repr.split(&#34;\n&#34;)
-        return apy_note_repr</code></pre>
+    def __init__(self, a: Anki, note: anki.notes.Note):
+
+        super().__init__(a, note)
+
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)
+
+        # Populate parsed fields.
+        self.fields: Dict[str, str] = {}
+        for key, field in self.n.items():
+            self.fields[key] = html_to_screen(field)
+
+    @beartype
+    def __repr__(self) -&gt; str:
+        &#34;&#34;&#34;Convert note to Markdown format&#34;&#34;&#34;
+        lines = self.get_header_lines()
+
+        for key, field in self.n.items():
+            lines.append(&#34;### &#34; + key)
+            lines.append(html_to_screen(field))
+            lines.append(&#34;&#34;)
+
+        return &#34;\n&#34;.join(lines)
+
+    @beartype
+    def get_header_lines(self) -&gt; List[str]:
+        &#34;&#34;&#34;Get header of markdown representation of note.&#34;&#34;&#34;
+        lines = [
+            &#34;## Note&#34;,
+            f&#34;nid: {self.n.id}&#34;,
+            f&#34;model: {self.model_name}&#34;,
+        ]
+
+        lines += [f&#34;deck: {self.get_deck()}&#34;]
+        lines += [f&#34;tags: {self.get_tag_string()}&#34;]
+
+        if not any(GENERATED_HTML_SENTINEL in field for field in self.n.values()):
+            lines += [&#34;markdown: false&#34;]
+
+        lines += [&#34;&#34;]
+        return lines
+
+    @beartype
+    def get_deck(self) -&gt; str:
+        &#34;&#34;&#34;Return which deck the note belongs to.&#34;&#34;&#34;
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        return self.deck
+
+    @beartype
+    def set_deck(self, deck: str) -&gt; None:
+        &#34;&#34;&#34;Move note to deck.&#34;&#34;&#34;
+        newdid = self.a.col.decks.id(deck)
+        cids = [c.id for c in self.n.cards()]
+
+        if cids:
+            self.a.col.set_deck(cids, newdid)
+            self.a.modified = True
+        # TODO: Remove implicit assumption that all cards are in the same deck.
+        self.deck = self.a.col.decks.name(self.n.cards()[0].did)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>apy.note.Note</li>
 </ul>
+<h3>Methods</h3>
+<dl>
+<dt id="ki.note.KiNote.get_deck"><code class="name flex">
+<span>def <span class="ident">get_deck</span></span>(<span>self) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Return which deck the note belongs to.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_deck(self) -&gt; str:
+    &#34;&#34;&#34;Return which deck the note belongs to.&#34;&#34;&#34;
+    # TODO: Remove implicit assumption that all cards are in the same deck.
+    return self.deck</code></pre>
+</details>
+</dd>
+<dt id="ki.note.KiNote.get_header_lines"><code class="name flex">
+<span>def <span class="ident">get_header_lines</span></span>(<span>self) ‑> list[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get header of markdown representation of note.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_header_lines(self) -&gt; List[str]:
+    &#34;&#34;&#34;Get header of markdown representation of note.&#34;&#34;&#34;
+    lines = [
+        &#34;## Note&#34;,
+        f&#34;nid: {self.n.id}&#34;,
+        f&#34;model: {self.model_name}&#34;,
+    ]
+
+    lines += [f&#34;deck: {self.get_deck()}&#34;]
+    lines += [f&#34;tags: {self.get_tag_string()}&#34;]
+
+    if not any(GENERATED_HTML_SENTINEL in field for field in self.n.values()):
+        lines += [&#34;markdown: false&#34;]
+
+    lines += [&#34;&#34;]
+    return lines</code></pre>
+</details>
+</dd>
+<dt id="ki.note.KiNote.set_deck"><code class="name flex">
+<span>def <span class="ident">set_deck</span></span>(<span>self, deck: str) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Move note to deck.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def set_deck(self, deck: str) -&gt; None:
+    &#34;&#34;&#34;Move note to deck.&#34;&#34;&#34;
+    newdid = self.a.col.decks.id(deck)
+    cids = [c.id for c in self.n.cards()]
+
+    if cids:
+        self.a.col.set_deck(cids, newdid)
+        self.a.modified = True
+    # TODO: Remove implicit assumption that all cards are in the same deck.
+    self.deck = self.a.col.decks.name(self.n.cards()[0].did)</code></pre>
+</details>
+</dd>
+</dl>
 </dd>
 </dl>
 </section>
@@ -111,10 +425,20 @@ class KiNote(Note):
 <li><code><a title="ki" href="index.html">ki</a></code></li>
 </ul>
 </li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="ki.note.html_to_screen" href="#ki.note.html_to_screen">html_to_screen</a></code></li>
+</ul>
+</li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
 <h4><code><a title="ki.note.KiNote" href="#ki.note.KiNote">KiNote</a></code></h4>
+<ul class="">
+<li><code><a title="ki.note.KiNote.get_deck" href="#ki.note.KiNote.get_deck">get_deck</a></code></li>
+<li><code><a title="ki.note.KiNote.get_header_lines" href="#ki.note.KiNote.get_header_lines">get_header_lines</a></code></li>
+<li><code><a title="ki.note.KiNote.set_deck" href="#ki.note.KiNote.set_deck">set_deck</a></code></li>
+</ul>
 </li>
 </ul>
 </li>
