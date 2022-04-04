@@ -1287,3 +1287,39 @@ def test_tidy_html_recursively():
                 ki.tidy_html_recursively(root, False)
         finally:
             os.environ["PATH"] = old_path
+
+
+def test_create_deckpath():
+    deckname = "aa::bb::cc"
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        root = Path(".")
+        path = ki.create_deckpath(deckname, root)
+        assert path.is_dir()
+        assert os.path.isdir("aa/bb/cc")
+
+
+def test_create_deckpath_strips_leading_periods():
+    deckname = ".aa::bb::.cc"
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        root = Path(".")
+        path = ki.create_deckpath(deckname, root)
+        assert path.is_dir()
+        assert os.path.isdir("aa/bb/cc")
+
+
+def test_get_tidy_payload():
+    collection_path = get_collection_path()
+    query = ""
+    runner = CliRunner()
+    with runner.isolated_filesystem(), Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        fid = "1645010162168front"
+        path = Path(fid)
+        heyoo = "HEYOOOOO"
+        path.write_text(heyoo)
+        result = ki.get_tidy_payload(kinote, {fid: path})
+        assert heyoo in result
+        assert "\nb\n" in result
