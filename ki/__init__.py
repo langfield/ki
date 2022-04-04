@@ -211,95 +211,8 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     ignore_path = targetdir / ".gitignore"
     ignore_path.write_text(".ki/\n")
 
-    # Open deck with `apy`, and dump notes and markdown files.
-    with Anki(path=colpath) as a:
-        all_nids = list(a.col.find_notes(query=""))
-
-        # Create temp directory for htmlfield text files.
-        root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
-        root.mkdir(parents=True, exist_ok=True)
-
-        # Map nids to maps of the form {fieldname -> htmlpath}.
-        fieldtext_path_maps: Dict[int, Dict[str, Path]] = {}
-
-        # Map decknames to sets of nids and nids to KiNotes.
-        nidmap = {}
-        kinotes = {}
-        for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
-            kinote = KiNote(a, a.col.get_note(nid))
-            assert nid == kinote.n.id
-
-            # Check if fieldtext is HTML, and write to file if so.
-            fieldtext_paths: Dict[str, Path] = {}
-            for fieldname, fieldtext in kinote.fields.items():
-                if re.search(HTML_REGEX, fieldtext):
-                    htmlpath = root / f"{nid}{slugify(fieldname, allow_unicode=True)}"
-                    htmlpath.write_text(fieldtext)
-                    fieldtext_paths[fieldname] = htmlpath
-
-            # Save paths for tidyable fields for this note.
-            if len(fieldtext_paths) > 0:
-                fieldtext_path_maps[nid] = fieldtext_paths
-
-            kinotes[nid] = kinote
-
-            nids = nidmap.get(kinote.deck, set())
-            assert nid not in nids
-            nids.add(nid)
-            nidmap[kinote.deck] = nids
-
-        # Spin up subprocesses for tidying field HTML in-place.
-        tidy_html_recursively(root, silent)
-
-        # Construct paths for each deck manifest.
-        for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
-
-            # Strip leading periods so we don't get hidden folders.
-            components = deckname.split("::")
-            components = [re.sub(r"^\.", r"", comp) for comp in components]
-            deckpath = Path(targetdir, *components)
-            deckpath.mkdir(parents=True, exist_ok=True)
-
-            # Keep track of sort field for all seen notetypes.
-            sortfmap = {}
-
-            # Dump note payloads to FS.
-            for nid in nidmap[deckname]:
-                kinote = kinotes[nid]
-
-                # Get notetype from kinote.
-                notetype: Union[Dict[str, Any], None] = kinote.n.note_type()
-                assert notetype is not None
-
-                # Get the sort field name, and cache it in a dictionary.
-                ntname = notetype["name"]
-                sort_fieldname = sortfmap.get(ntname, get_sort_fieldname(a, notetype))
-                sortfmap[ntname] = sort_fieldname
-                notepath = get_notepath(kinote, sort_fieldname, deckpath)
-
-                # Get tidied html if it exists.
-                tidyfields = {}
-                if nid in fieldtext_path_maps:
-                    fieldtext_paths = fieldtext_path_maps[nid]
-                    for fieldname, fieldtext in kinote.fields.items():
-                        if fieldname in fieldtext_paths:
-                            htmlpath = fieldtext_paths[fieldname]
-                            fieldtext = htmlpath.read_text()
-                        tidyfields[fieldname] = fieldtext
-                else:
-                    tidyfields = kinote.fields
-
-                # Construct note repr from tidyfields map.
-                lines = kinote.get_header_lines()
-                for fieldname, fieldtext in tidyfields.items():
-                    lines.append("### " + fieldname)
-                    lines.append(fieldtext)
-                    lines.append("")
-
-                # Dump payload to filesystem.
-                notepath.write_text("\n".join(lines), encoding="UTF-8")
-
-    shutil.rmtree(root)
+    # Write notes to disk.
+    write_notes(colpath, targetdir, silent)
 
     # Initialize git repo and commit contents.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
@@ -985,6 +898,8 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
                 notepath = get_notepath(kinote, sort_fieldname, deckpath)
                 payload = get_tidy_payload(kinote, paths)
                 notepath.write_text(payload, encoding="UTF-8")
+
+    shutil.rmtree(root)
 
 
 @beartype
