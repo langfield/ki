@@ -1081,7 +1081,7 @@ def test_update_kinote_raises_error_on_nonexistent_notetype_name():
             ki.update_kinote(kinote, flatnote)
 
 
-def test_display_fields_health_warning():
+def test_display_fields_health_warning_catches_missing_clozes(capfd):
     collection_path = get_collection_path()
     query = ""
     with Anki(path=collection_path) as a:
@@ -1089,10 +1089,23 @@ def test_display_fields_health_warning():
         kinote = KiNote(a, a.col.get_note(i))
         field = "c"
         flatnote = FlatNote(
-            "title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field}
+            "title", 0, "Cloze", "Default", [], False, {"Text": field, "Back Extra": ""}
         )
-        ki.display_fields_health_warning(kinote.n, flatnote)
-        ki.display_fields_health_warning(kinote.n, flatnote)
+        result = ki.add_note_from_flatnote(a, flatnote)
+        captured = capfd.readouterr()
+        assert result is None
+        assert "unknown error code" in captured.err
+
+
+def test_display_fields_health_warning_catches_empty_notes():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        note = a.col.get_note(i)
+        note.fields = []
+        health = ki.display_fields_health_warning(note)
+        assert health == 1
 
 
 def test_slugify():
@@ -1103,14 +1116,13 @@ def test_slugify():
     assert result == ""
 
 
-def test_add_note_from_flatnote():
+def test_add_note_from_flatnote_returns_kinote():
     collection_path = get_collection_path()
     query = ""
     with Anki(path=collection_path) as a:
-        # i = set(a.col.find_notes(query)).pop()
-        # kinote = KiNote(a, a.col.get_note(i))
-        field = "c"
+        field = "x"
         flatnote = FlatNote(
-            "title", 0, "Basic", "Default", ["tag"], True, {"Front": field, "Back": field}
+            "title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field}
         )
-        ki.add_note_from_flatnote(a, flatnote)
+        result = ki.add_note_from_flatnote(a, flatnote)
+        assert isinstance(result, KiNote)
