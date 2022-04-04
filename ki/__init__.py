@@ -67,6 +67,9 @@ from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
 
+FieldDict = Dict[str, Any]
+NotetypeDict = Dict[str, Any]
+TemplateDict = Dict[str, Union[str, int, None]]
 
 LARK = True
 BATCH_SIZE = 500
@@ -127,6 +130,7 @@ def clone(collection: str, directory: str = "") -> None:
     try:
         repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
         update_last_push_commit_sha(repo)
+    # pylint: disable=broad-except
     except Exception as _err:
         echo("Failed: exiting.")
         if targetdir.is_dir():
@@ -360,7 +364,7 @@ def pull() -> None:
 
     # Pull anki remote repo into ``last_push_repo``.
     os.chdir(last_push_repo.working_dir)
-    logger.debug(f"Pulling into {last_push_repo.working_dir}");
+    logger.debug(f"Pulling into {last_push_repo.working_dir}")
     last_push_repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         [
@@ -642,35 +646,77 @@ def is_anki_note(path: Path) -> bool:
 
 
 @beartype
-def update_kinote(note: KiNote, flatnote: FlatNote) -> None:
-    """Update an `apy` Note in a collection."""
-    if flatnote.tags != note.n.tags:
-        note.n.tags = flatnote.tags
+def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
+    """
+    Update an `apy` Note in a collection.
 
-    if flatnote.deck is not None and flatnote.deck != note.get_deck():
-        note.set_deck(flatnote.deck)
+    Currently fails if the model has changed. It does not update the model name
+    of the KiNote, and it also assumes that the field names have not changed.
+    """
+    kinote.n.tags = flatnote.tags
+    kinote.set_deck(flatnote.deck)
 
-    for i, value in enumerate(flatnote.fields.values()):
+    # Get new notetype from collection (None if nonexistent).
+    notetype: Optional[NotetypeDict] = kinote.n.col.models.by_name(flatnote.model)
+
+    # If notetype doesn't exist, create it.
+    if notetype is None:
+        old_notetype = kinote.n.note_type()
+        new_notetype = create_new_notetype(kinote, flatnote)
+
+        # Get map sending field ordinals to field ordinals (just identity map on ``old_notetype``.
+        field_map: Dict[str, Tuple[int, FieldDict]] = kinote.n.col.models.field_map(old_notetype)
+        ords = [pair[0] for pair in field_map.values()]
+        field_ord_map = {idx: idx for idx in ords}
+
+        # Change notetype of ``kinote``.
+        kinote.n.col.models.change(
+            kinote.n.note_type(),
+            [kinote.n.id],
+            new_notetype,
+            field_ord_map,
+            None,
+        )
+
+        # Delete all field values.
+        kinote.n.fields = []
+
+    else:
+        new_field_names = list(flatnote.fields.keys())
+        old_field_names = list(kinote.n.keys())
+        if new_field_names != old_field_names:
+            raise ValueError(f"Field mismatch:\nold: {old_field_names}\nnew: {new_field_names}")
+
+    for key, field in flatnote.fields.items():
         if flatnote.markdown:
-            note.n.fields[i] = markdown_to_html(value)
+            kinote.n[key] = markdown_to_html(field)
         else:
-            note.n.fields[i] = plain_to_html(value)
+            kinote.n[key] = plain_to_html(field)
 
-    note.n.flush()
-    note.a.modified = True
-    health = note.n.fields_check()
+    kinote.n.flush()
+    kinote.a.modified = True
+    display_fields_health_warning(kinote.n.fields_check(), kinote.n, flatnote)
 
-    if health == 1:
-        logger.warning(f"Found empty note:\n {note}")
-        return
-    if health == 2:
-        logger.warning(f"Found duplicate note:\n {note}")
-        return
 
-    if health:
-        logger.warning(f"Found duplicate or empty note:\n {note}")
-        logger.warning(f"Fields health check: {health}")
-        logger.warning(f"Fields health check (type): {type(health)}")
+@beartype
+def create_new_notetype(kinote: KiNote, flatnote: FlatNote) -> NotetypeDict:
+    """Construct new model, add each field from ``flatnote`` to the notetype dict,"""
+    col = kinote.n.col
+    notetype: Dict[str, Any] = col.models.new(flatnote.model)
+    for field_name in flatnote.fields.keys():
+        field = col.models.new_field(field_name)
+
+        # Mutate ``notetype`` in-place, makes no changes to ``col`` state.
+        col.models.add_field(notetype, field)
+
+    template = col.models.new_template(flatnote.model)
+
+    # Mutate ``notetype`` in-place, makes no changes to ``col`` state.
+    col.models.add_template(notetype, template)
+
+    # Add model to collection.
+    col.models.add(notetype)
+    return col.models.by_name(flatnote.model)
 
 
 @beartype
@@ -825,15 +871,15 @@ def append_md5sum(
 
 
 @beartype
-def validate_flatnote(apyanki: Anki, flatnote: FlatNote) -> None:
+def validate_flatnote(a: Anki, flatnote: FlatNote) -> None:
     """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
-    model = apyanki.set_model(flatnote.model)
+    model = a.set_model(flatnote.model)
     model_field_names = [field["name"] for field in model["flds"]]
 
     if len(flatnote.fields.keys()) != len(model_field_names):
         logger.error(f"Not enough fields for model {flatnote.model}!")
-        apyanki.modified = False
+        a.modified = False
         raise ValueError
 
     for x, y in zip(model_field_names, flatnote.fields.keys()):
@@ -842,16 +888,17 @@ def validate_flatnote(apyanki: Anki, flatnote: FlatNote) -> None:
 
 
 @beartype
-def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
+def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
     """Add a note given its FlatNote representation."""
-    validate_flatnote(apyanki, flatnote)
+    validate_flatnote(a, flatnote)
 
-    # Recall that we call ``apyanki.set_model(flatnote.model)`` above.
-    notetype = apyanki.col.models.current(for_deck=False)
-    note = apyanki.col.new_note(notetype)
+    # Note that we call ``a.set_model(flatnote.model)`` above, so the current
+    # model is the model given in ``flatnote``.
+    notetype = a.col.models.current(for_deck=False)
+    note = a.col.new_note(notetype)
 
     # Create new deck if deck does not exist.
-    note.note_type()["did"] = apyanki.col.decks.id(flatnote.deck)
+    note.note_type()["did"] = a.col.decks.id(flatnote.deck)
 
     if flatnote.markdown:
         note.fields = [markdown_to_html(x) for x in flatnote.fields.values()]
@@ -861,20 +908,35 @@ def add_note_from_flatnote(apyanki: Anki, flatnote: FlatNote) -> KiNote:
     for tag in flatnote.tags:
         note.add_tag(tag)
 
-    if note.fields_check() == 0:
-        apyanki.col.addNote(note)
-        apyanki.modified = True
-    elif note.fields_check() == 2:
+    health = note.fields_check()
+    display_fields_health_warning(health, note, flatnote)
+    if health == 0:
+        a.col.addNote(note)
+        a.modified = True
+
+    return KiNote(a, note)
+
+
+
+@beartype
+def display_fields_health_warning(health: int, note: anki.notes.Note, flatnote: FlatNote) -> None:
+    """Display warnings when Anki's fields health check fails."""
+    if health == 1:
+        logger.warning(f"Found empty note:\n {note}")
+        logger.warning(f"Fields health check code: {note.fields_check()}")
+        return
+    if health == 2:
         logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
         logger.warning(f"Notetype/fields of note {note.id} match existing note.")
         logger.warning("Note was not added to collection!")
         logger.warning(f"First field: {list(flatnote.fields.values())[0]}")
-        logger.warning(f"Fields health check: {note.fields_check()}")
-    else:
-        logger.error(f"Failed to add note '{note.id}'.")
-        logger.error(f"Note failed fields check with error code: {note.fields_check()}")
+        logger.warning(f"Fields health check code: {note.fields_check()}")
+        return
 
-    return KiNote(apyanki, note)
+    if health != 0:
+        logger.error(f"Failed to process note '{note.id}'.")
+        logger.error(f"Note failed fields check with unknown error code: {note.fields_check()}")
+
 
 
 @beartype
