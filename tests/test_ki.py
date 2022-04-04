@@ -35,6 +35,7 @@ COLLECTION_FILENAME = "collection.anki2"
 ORIG_COLLECTION_FILENAME = "original.anki2"
 EDITED_COLLECTION_FILENAME = "edited.anki2"
 MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
+HTML_COLLECTION_FILENAME = "html.anki2"
 COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
 )
@@ -44,10 +45,14 @@ EDITED_COLLECTION_PATH = os.path.abspath(
 MULTIDECK_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, MULTIDECK_COLLECTION_FILENAME)
 )
+HTML_COLLECTION_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, HTML_COLLECTION_FILENAME)
+)
 GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "original/")
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
+HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
@@ -118,13 +123,26 @@ def get_collection_path() -> str:
 
 @beartype
 def get_multideck_collection_path() -> str:
-    """Put `collection.anki2` in a tempdir and return its abspath."""
+    """Put `multideck.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     collection_path = os.path.abspath(
         os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME)
     )
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, collection_path)
+    assert os.path.isfile(collection_path)
+    return collection_path
+
+
+@beartype
+def get_html_collection_path() -> str:
+    """Put `html.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    collection_path = os.path.abspath(
+        os.path.join(tempdir, HTML_COLLECTION_FILENAME)
+    )
+    shutil.copyfile(HTML_COLLECTION_PATH, collection_path)
     assert os.path.isfile(collection_path)
     return collection_path
 
@@ -370,6 +388,21 @@ def test_clone_creates_directory():
         assert os.path.isdir(REPODIR)
 
 
+def test_clone_handles_html():
+    """Does it tidy html and stuff?"""
+    collection_path = get_html_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert os.path.isdir(HTML_REPODIR)
+
+        path = Path(".") / "html" / "Default" / "あだ名.md"
+        contents = path.read_text()
+        assert "<!DOCTYPE html>" in contents
+
+
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     collection_path = get_collection_path()
@@ -384,6 +417,26 @@ def test_clone_errors_when_directory_is_populated():
         # Should error out because directory already exists.
         out = clone(runner, collection_path)
         assert "is not an empty" in out
+
+
+def test_clone_cleans_up_on_error():
+    """Does it clean up on nontrivial errors?"""
+    collection_path = get_html_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        clone(runner, collection_path)
+        assert os.path.isdir(HTML_REPODIR)
+        shutil.rmtree(HTML_REPODIR)
+        old_path = os.environ["PATH"]
+        try:
+            os.environ["PATH"] = ""
+            out = clone(runner, collection_path)
+            assert "No such file or directory: 'tidy'" in out
+            assert "Failed: exiting." in out
+            assert not os.path.isdir(HTML_REPODIR)
+        finally:
+            os.environ["PATH"] = old_path
 
 
 def test_clone_succeeds_when_directory_exists_but_is_empty():
@@ -1086,7 +1139,7 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     query = ""
     with Anki(path=collection_path) as a:
         i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
+        KiNote(a, a.col.get_note(i))
         field = "c"
         flatnote = FlatNote(
             "title", 0, "Cloze", "Default", [], False, {"Text": field, "Back Extra": ""}
@@ -1118,7 +1171,6 @@ def test_slugify():
 
 def test_add_note_from_flatnote_returns_kinote():
     collection_path = get_collection_path()
-    query = ""
     with Anki(path=collection_path) as a:
         field = "x"
         flatnote = FlatNote(
@@ -1130,7 +1182,6 @@ def test_add_note_from_flatnote_returns_kinote():
 
 def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
     collection_path = get_collection_path()
-    query = ""
     with Anki(path=collection_path) as a:
         field = "*hello*"
         flatnote = FlatNote(
@@ -1205,3 +1256,34 @@ def test_git_subprocess_pull():
         # Pull, poorly.
         with pytest.raises(ValueError):
             ki.git_subprocess_pull("anki", "main")
+
+
+def test_get_notepath():
+    collection_path = get_collection_path()
+    query = ""
+    runner = CliRunner()
+    with runner.isolated_filesystem(), Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+
+        deckpath = Path(".")
+        dupe_path = deckpath / "a.md"
+        dupe_path.write_text("ay")
+        notepath = ki.get_notepath(kinote, "Front", deckpath)
+        assert str(notepath) == "a_1.md"
+
+
+def test_tidy_html_recursively():
+    """Does tidy wrapper print a nice error when tidy is missing?"""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        root = Path(".")
+        file = root / "a.html"
+        file.write_text("ay")
+        old_path = os.environ["PATH"]
+        try:
+            os.environ["PATH"] = ""
+            with pytest.raises(FileNotFoundError):
+                ki.tidy_html_recursively(root, False)
+        finally:
+            os.environ["PATH"] = old_path
