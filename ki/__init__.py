@@ -131,11 +131,24 @@ def clone(collection: str, directory: str = "") -> None:
         repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
         update_last_push_commit_sha(repo)
     # pylint: disable=broad-except
-    except Exception as _err:
+    except Exception as err:
+        echo(str(err))
         echo("Failed: exiting.")
-        if targetdir.is_dir():
+        if targetdir.is_dir() and not isinstance(err, FileExistsError):
             shutil.rmtree(targetdir)
     return
+
+
+def tidy_html_recursively(root: Path, silent: bool) -> int:
+    """Call html5-tidy on each file in ``root``, editing in-place."""
+    # Spin up subprocesses for tidying field HTML in-place.
+    batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+
+        # Fail silently here, so as to not bother user with tidy warnings.
+        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
+        command += batch
+        subprocess.run(command, check=False, capture_output=True)
 
 
 @beartype
@@ -236,11 +249,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
             nidmap[kinote.deck] = nids
 
         # Spin up subprocesses for tidying field HTML in-place.
-        batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
-        for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
-            pathsline = " ".join(batch)
-            command = f"tidy -q -m -i -omit -utf8 --tidy-mark no {pathsline}"
-            subprocess.run(command, shell=True, check=False, capture_output=True)
+        tidy_html_recursively(root, silent)
 
         # Construct paths for each deck manifest.
         for deckname in sorted(list(nidmap.keys()), key=len, reverse=True):
@@ -325,6 +334,7 @@ def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
 
 @beartype
 def git_subprocess_pull(remote: str, branch: str) -> int:
+    """Pull remote into branch using a subprocess call."""
     p = subprocess.run(
         [
             "git",
@@ -333,8 +343,8 @@ def git_subprocess_pull(remote: str, branch: str) -> int:
             "--allow-unrelated-histories",
             "--strategy-option",
             "theirs",
-            REMOTE_NAME,
-            BRANCH_NAME,
+            remote,
+            branch,
         ],
         check=False,
         capture_output=True,
@@ -751,7 +761,7 @@ def get_last_push_sha(repo: git.Repo) -> str:
     try:
         return last_push_path.read_text()
     except FileNotFoundError:
-        logger.warning(f"Couldn't find '.ki/last_push' file!")
+        logger.warning("Couldn't find '.ki/last_push' file!")
         return ""
 
 
