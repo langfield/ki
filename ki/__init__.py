@@ -518,25 +518,27 @@ def push() -> None:
 
             # Otherwise, we generate/reassign an nid for it.
             except anki.errors.NotFoundError:
-                note: KiNote = add_note_from_flatnote(a, flatnote)
-                log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
+                note: Optional[KiNote] = add_note_from_flatnote(a, flatnote)
 
-                # Get paths to note in local repo, as distinct from staging repo.
-                note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
-                repo_notepath = Path(repo.working_dir) / note_relpath
+                if note is not None:
+                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
 
-                # If this is not an entirely new file, remove it.
-                if repo_notepath.is_file():
-                    repo_notepath.unlink()
+                    # Get paths to note in local repo, as distinct from staging repo.
+                    note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
+                    repo_notepath = Path(repo.working_dir) / note_relpath
 
-                # Construct markdown file contents and write.
-                # TODO: Replace with logic in `_clone()`.
-                first_nid = note.n.id
-                new_notepath = repo_notepath.parent / f"note{first_nid}.md"
-                new_notepath.write_text(str(note))
+                    # If this is not an entirely new file, remove it.
+                    if repo_notepath.is_file():
+                        repo_notepath.unlink()
 
-                new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
-                new_nid_path_map[note.n.id] = new_note_relpath
+                    # Construct markdown file contents and write.
+                    # TODO: Replace with logic in `_clone()`.
+                    first_nid = note.n.id
+                    new_notepath = repo_notepath.parent / f"note{first_nid}.md"
+                    new_notepath.write_text(str(note))
+
+                    new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
+                    new_nid_path_map[note.n.id] = new_note_relpath
 
         if len(new_nid_path_map) > 0:
             msg = "Generated new nid(s).\n\n"
@@ -680,7 +682,7 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
     # Flush note, mark collection as modified, and display any warnings.
     kinote.n.flush()
     kinote.a.modified = True
-    display_fields_health_warning(kinote.n.fields_check(), kinote.n, flatnote)
+    display_fields_health_warning(kinote.n, flatnote)
 
 
 @beartype
@@ -851,8 +853,8 @@ def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> None:
 
 
 @beartype
-def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
-    """Add a note given its FlatNote representation."""
+def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
+    """Add a note given its FlatNote representation, provided it passes health check."""
     # TODO: Does this assume model exists?
     model = a.set_model(flatnote.model)
     validate_flatnote_fields(model, flatnote)
@@ -873,38 +875,36 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
     for tag in flatnote.tags:
         note.add_tag(tag)
 
-    health = note.fields_check()
-    display_fields_health_warning(health, note, flatnote)
+    health = display_fields_health_warning(note, flatnote)
 
+    result = None
     if health == 0:
         a.col.addNote(note)
         a.modified = True
+        result = KiNote(a, note)
 
-    return KiNote(a, note)
+    return result
 
 
 @beartype
-def display_fields_health_warning(
-    health: int, note: anki.notes.Note, flatnote: FlatNote
-) -> None:
+def display_fields_health_warning(note: anki.notes.Note, flatnote: FlatNote) -> int:
     """Display warnings when Anki's fields health check fails."""
+    health = note.fields_check()
     if health == 1:
         logger.warning(f"Found empty note:\n {note}")
-        logger.warning(f"Fields health check code: {note.fields_check()}")
-        return
-    if health == 2:
+        logger.warning(f"Fields health check code: {health}")
+    elif health == 2:
         logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
         logger.warning(f"Notetype/fields of note {note.id} match existing note.")
         logger.warning("Note was not added to collection!")
         logger.warning(f"First field: {list(flatnote.fields.values())[0]}")
-        logger.warning(f"Fields health check code: {note.fields_check()}")
-        return
-
-    if health != 0:
+        logger.warning(f"Fields health check code: {health}")
+    elif health != 0:
         logger.error(f"Failed to process note '{note.id}'.")
         logger.error(
-            f"Note failed fields check with unknown error code: {note.fields_check()}"
+            f"Note failed fields check with unknown error code: {health}"
         )
+    return health
 
 
 @beartype
