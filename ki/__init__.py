@@ -659,64 +659,29 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
     # Get new notetype from collection (None if nonexistent).
     notetype: Optional[NotetypeDict] = kinote.n.col.models.by_name(flatnote.model)
 
-    # If notetype doesn't exist, create it.
+    # If notetype doesn't exist, raise an error.
     if notetype is None:
-        old_notetype = kinote.n.note_type()
-        new_notetype = create_new_notetype(kinote, flatnote)
+        msg = f"Notetype '{flatnote.model}' doesn't exist. "
+        msg += "Create it in Anki before adding notes via ki."
+        raise ValueError(msg)
 
-        # Get map sending field ordinals to field ordinals (just identity map on ``old_notetype``.
-        field_map: Dict[str, Tuple[int, FieldDict]] = kinote.n.col.models.field_map(old_notetype)
-        ords = [pair[0] for pair in field_map.values()]
-        field_ord_map = {idx: idx for idx in ords}
+    # Validate field keys against notetype.
+    new_field_names = list(flatnote.fields.keys())
+    old_field_names = list(kinote.n.keys())
+    if new_field_names != old_field_names:
+        raise ValueError(f"Field mismatch:\nold: {old_field_names}\nnew: {new_field_names}")
 
-        # Change notetype of ``kinote``.
-        kinote.n.col.models.change(
-            kinote.n.note_type(),
-            [kinote.n.id],
-            new_notetype,
-            field_ord_map,
-            None,
-        )
-
-        # Delete all field values.
-        kinote.n.fields = []
-
-    else:
-        new_field_names = list(flatnote.fields.keys())
-        old_field_names = list(kinote.n.keys())
-        if new_field_names != old_field_names:
-            raise ValueError(f"Field mismatch:\nold: {old_field_names}\nnew: {new_field_names}")
-
+    # Set field values.
     for key, field in flatnote.fields.items():
         if flatnote.markdown:
             kinote.n[key] = markdown_to_html(field)
         else:
             kinote.n[key] = plain_to_html(field)
 
+    # Flush note, mark collection as modified, and display any warnings.
     kinote.n.flush()
     kinote.a.modified = True
     display_fields_health_warning(kinote.n.fields_check(), kinote.n, flatnote)
-
-
-@beartype
-def create_new_notetype(kinote: KiNote, flatnote: FlatNote) -> NotetypeDict:
-    """Construct new model, add each field from ``flatnote`` to the notetype dict,"""
-    col = kinote.n.col
-    notetype: Dict[str, Any] = col.models.new(flatnote.model)
-    for field_name in flatnote.fields.keys():
-        field = col.models.new_field(field_name)
-
-        # Mutate ``notetype`` in-place, makes no changes to ``col`` state.
-        col.models.add_field(notetype, field)
-
-    template = col.models.new_template(flatnote.model)
-
-    # Mutate ``notetype`` in-place, makes no changes to ``col`` state.
-    col.models.add_template(notetype, template)
-
-    # Add model to collection.
-    col.models.add(notetype)
-    return col.models.by_name(flatnote.model)
 
 
 @beartype
