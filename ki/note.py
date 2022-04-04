@@ -41,17 +41,17 @@ class KiNote(Note):
 
         # Populate parsed fields.
         self.fields: Dict[str, str] = {}
-        for key, val in self.n.items():
-            self.fields[key] = html_to_screen(val, parseable=True)
+        for key, field in self.n.items():
+            self.fields[key] = html_to_screen(field)
 
     @beartype
     def __repr__(self) -> str:
         """Convert note to Markdown format"""
         lines = self.get_header_lines()
 
-        for key, val in self.n.items():
+        for key, field in self.n.items():
             lines.append("### " + key)
-            lines.append(html_to_screen(val, parseable=True))
+            lines.append(html_to_screen(field))
             lines.append("")
 
         return "\n".join(lines)
@@ -68,7 +68,7 @@ class KiNote(Note):
         lines += [f"deck: {self.get_deck()}"]
         lines += [f"tags: {self.get_tag_string()}"]
 
-        if not any(is_generated_html(x) for x in self.n.values()):
+        if not any(GENERATED_HTML_SENTINEL in field for field in self.n.values()):
             lines += ["markdown: false"]
 
         lines += [""]
@@ -94,44 +94,20 @@ class KiNote(Note):
 
 
 @beartype
-def is_generated_html(html: str) -> bool:
-    """Check if text is a generated HTML"""
-    if html is None:
-        return False
-    return GENERATED_HTML_SENTINEL in html
-
-
-def html_to_screen(html, pprint=True, parseable=False):
-    """Convert html for printing to screen"""
-    if not pprint:
-        soup = bs4.BeautifulSoup(
-            html.replace("\n", ""), features="html5lib"
-        ).next.next.next
-        return "".join(
-            [el.prettify() if isinstance(el, bs4.Tag) else el for el in soup.contents]
-        )
-
+def html_to_screen(html: str) -> str:
+    """Convert html for printing to screen."""
     html = re.sub(r"\<style\>.*\<\/style\>", "", html, flags=re.S)
 
-    generated = is_generated_html(html)
+    generated = GENERATED_HTML_SENTINEL in html
     if generated:
         plain = html_to_markdown(html)
         if html != markdown_to_html(plain):
             html_clean = re.sub(r' data-original-markdown="[^"]*"', "", html)
-            if parseable:
-                plain += (
-                    "\n\n### Current HTML → Markdown\n"
-                    f"{markdownify.markdownify(html_clean)}"
-                )
-                plain += f"\n### Current HTML\n{html_clean}"
-            else:
-                plain += "\n"
-                plain += click.style(
-                    "The current HTML value is inconsistent with Markdown!",
-                    fg="red",
-                    bold=True,
-                )
-                plain += "\n" + click.style(html_clean, fg="white")
+            plain += (
+                "\n\n### Current HTML → Markdown\n"
+                f"{markdownify.markdownify(html_clean)}"
+            )
+            plain += f"\n### Current HTML\n{html_clean}"
     else:
         plain = html
 
@@ -160,30 +136,4 @@ def html_to_screen(html, pprint=True, parseable=False):
         plain = plain.replace(r"\)", r")")
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
-
-    if not parseable:
-        plain = re.sub(r"\*\*(.*?)\*\*", click.style(r"\1", bold=True), plain, re.S)
-
-        plain = re.sub(r"\<b\>(.*?)\<\/b\>", click.style(r"\1", bold=True), plain, re.S)
-
-        plain = re.sub(r"_(.*?)_", _italize(r"\1"), plain, re.S)
-
-        plain = re.sub(r"\<i\>(.*?)\<\/i\>", _italize(r"\1"), plain, re.S)
-
-        plain = re.sub(
-            r"\<u\>(.*?)\<\/u\>", click.style(r"\1", underline=True), plain, re.S
-        )
-
     return plain.strip()
-
-
-def tidy(plain: str) -> str:
-    """Run some html through tidy. SLOW."""
-    p = subprocess.run(
-        ["tidy", "-i", "-ashtml", "-utf8", "-q"],
-        input=plain.strip(),
-        text=True,
-        check=False,
-        capture_output=True,
-    )
-    plain = p.stdout
