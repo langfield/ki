@@ -682,7 +682,7 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
     # Flush note, mark collection as modified, and display any warnings.
     kinote.n.flush()
     kinote.a.modified = True
-    display_fields_health_warning(kinote.n, flatnote)
+    display_fields_health_warning(kinote.n)
 
 
 @beartype
@@ -875,7 +875,7 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
     for tag in flatnote.tags:
         note.add_tag(tag)
 
-    health = display_fields_health_warning(note, flatnote)
+    health = display_fields_health_warning(note)
 
     result = None
     if health == 0:
@@ -887,7 +887,7 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
 
 
 @beartype
-def display_fields_health_warning(note: anki.notes.Note, flatnote: FlatNote) -> int:
+def display_fields_health_warning(note: anki.notes.Note) -> int:
     """Display warnings when Anki's fields health check fails."""
     health = note.fields_check()
     if health == 1:
@@ -897,7 +897,7 @@ def display_fields_health_warning(note: anki.notes.Note, flatnote: FlatNote) -> 
         logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
         logger.warning(f"Notetype/fields of note {note.id} match existing note.")
         logger.warning("Note was not added to collection!")
-        logger.warning(f"First field: {list(flatnote.fields.values())[0]}")
+        logger.warning(f"First field: {note.fields[0]}")
         logger.warning(f"Fields health check code: {health}")
     elif health != 0:
         logger.error(f"Failed to process note '{note.id}'.")
