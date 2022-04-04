@@ -140,8 +140,14 @@ class NoteTransformer(Transformer):
 
     @beartype
     def deck(self, d: List[str]) -> str:
-        """``deck: "deck:" DECKNAME "\n"``"""
+        """
+        Lark syntax:
+        ``deck: "deck:" DECKNAME "\n"``
+
+        This is guaranteed to be nonempty.
+        """
         assert len(d) == 1
+        assert len(d[0]) > 0
         return d[0]
 
     @beartype
