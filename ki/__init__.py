@@ -323,6 +323,30 @@ def get_notepath(kinote: KiNote, sort_fieldname: str, deckpath: Path) -> Path:
     return notepath
 
 
+@beartype
+def git_subprocess_pull(remote: str, branch: str) -> int:
+    p = subprocess.run(
+        [
+            "git",
+            "pull",
+            "-v",
+            "--allow-unrelated-histories",
+            "--strategy-option",
+            "theirs",
+            REMOTE_NAME,
+            BRANCH_NAME,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    pull_stderr = p.stderr.decode()
+    logger.debug(f"\n{pull_stderr}")
+    logger.debug(f"Return code: {p.returncode}")
+    if p.returncode != 0:
+        raise ValueError(pull_stderr)
+    return p.returncode
+
+
 @ki.command()
 @beartype
 def pull() -> None:
@@ -367,25 +391,7 @@ def pull() -> None:
     os.chdir(last_push_repo.working_dir)
     logger.debug(f"Pulling into {last_push_repo.working_dir}")
     last_push_repo.git.config("pull.rebase", "false")
-    p = subprocess.run(
-        [
-            "git",
-            "pull",
-            "-v",
-            "--allow-unrelated-histories",
-            "--strategy-option",
-            "theirs",
-            REMOTE_NAME,
-            BRANCH_NAME,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    pull_stderr = p.stderr.decode()
-    logger.debug(f"\n{pull_stderr}")
-    if p.returncode != 0:
-        raise ValueError
-
+    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
     last_push_repo.delete_remote(anki_remote)
 
     # Create remote pointing to ``last_push`` repo and pull into ``repo``.
