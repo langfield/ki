@@ -282,25 +282,6 @@ def test_computes_and_stores_md5sum():
             assert "199216c39eeabe23a1da016a99ffd3e2  collection.anki2" in hashes
 
 
-def test_pull_avoids_unnecessary_merge_conflicts():
-    """Does ki prevent gratuitous merge conflicts?"""
-    collection_path = get_collection_path()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, collection_path)
-        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
-
-        # Edit collection.
-        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
-
-        # Pull edited collection.
-        os.chdir(REPODIR)
-        out = pull(runner)
-        assert "Automatic merge failed; fix" not in out
-
-
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
     collection_path = get_collection_path()
@@ -593,6 +574,25 @@ def test_pull_unchanged_collection_is_no_op():
         new_hash = checksum_git_repository(REPODIR)
 
         assert orig_hash == new_hash
+
+
+def test_pull_avoids_unnecessary_merge_conflicts():
+    """Does ki prevent gratuitous merge conflicts?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
+
+        # Pull edited collection.
+        os.chdir(REPODIR)
+        out = pull(runner)
+        assert "Automatic merge failed; fix" not in out
 
 
 # PUSH
@@ -1175,3 +1175,33 @@ def test_get_note_files_changed_since_last_push_when_last_push_file_is_missing(c
         captured = capfd.readouterr()
         assert changed == ['collection/Default/c.md', 'collection/Default/a.md']
         assert "last_push" in captured.err
+
+
+def test_backup_is_no_op_when_backup_already_exists(capfd):
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        clone(runner, collection_path)
+        os.chdir(REPODIR)
+
+        ki.backup(Path(collection_path))
+        ki.backup(Path(collection_path))
+        captured = capfd.readouterr()
+        assert "Backup already exists." in captured.out
+
+
+def test_git_subprocess_pull():
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
+        os.chdir(REPODIR)
+
+        # Pull, poorly.
+        with pytest.raises(ValueError):
+            ki.git_subprocess_pull("anki", "main")
