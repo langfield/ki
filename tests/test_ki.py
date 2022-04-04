@@ -1323,3 +1323,39 @@ def test_get_tidy_payload():
         result = ki.get_tidy_payload(kinote, {fid: path})
         assert heyoo in result
         assert "\nb\n" in result
+
+
+def test_write_notes_generates_deck_tree_correctly():
+    """Does generated FS tree match example collection?"""
+    true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
+    cloned_note_path = os.path.join(MULTIDECK_REPODIR, MULTI_NOTE_PATH)
+    collection_path = get_multideck_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        targetdir = Path(MULTIDECK_REPODIR)
+        targetdir.mkdir()
+        ki.write_notes(Path(collection_path), targetdir, silent=False)
+
+        # Check that deck directory is created and all subdirectories.
+        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
+        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/bb/cc"))
+        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
+
+        # Compute hashes.
+        cloned_md5 = ki.md5(cloned_note_path)
+        true_md5 = ki.md5(true_note_path)
+
+        assert cloned_md5 == true_md5
+
+
+
+def test_write_notes_handles_html():
+    """Does generated repo handle html okay?"""
+    collection_path = get_html_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        targetdir = Path(HTML_REPODIR)
+        targetdir.mkdir()
+        ki.write_notes(Path(collection_path), targetdir, silent=False)
