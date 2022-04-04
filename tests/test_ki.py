@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
-import copy
-import pprint
 import random
 import shutil
 import tempfile
@@ -12,14 +10,12 @@ from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import git
-import click
 import pytest
 import bitstring
 import checksumdir
 from lark.exceptions import UnexpectedToken
 from loguru import logger
 from apy.anki import Anki
-from pytest_mock import MockerFixture
 from click.testing import CliRunner
 
 from beartype import beartype
@@ -28,7 +24,6 @@ from beartype.typing import List
 import ki
 from ki.note import KiNote
 from ki.transformer import FlatNote
-from ki.architecture import dump_field
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
@@ -890,37 +885,42 @@ def test_parse_markdown_notes():
 
 
 def test_clone_helper_checks_for_colpath_existence():
+    """Does``_clone()`` check that the collection path exists?"""
     with pytest.raises(FileNotFoundError):
+
+        # pylint: disable=protected-access
         ki._clone(Path("/tmp/NONEXISTENT_PATH.anki2"), Path("/tmp/TARGET"), "", False)
 
 
 def test_get_batches():
+    """Does it get batches from a list of strings?"""
     batches = list(ki.get_batches(["0", "1", "2", "3"], n=2))
     assert batches == [["0", "1"], ["2", "3"]]
 
 
 def test_is_anki_note():
-    assert ki.is_anki_note(Path("note.mda")) == False
-    assert ki.is_anki_note(Path("note.amd")) == False
-    assert ki.is_anki_note(Path("note.md.txt")) == False
-    assert ki.is_anki_note(Path("note.nd")) == False
+    """Do asserts in ``is_anki_note()`` actually do anything?"""
+    assert ki.is_anki_note(Path("note.mda")) is False
+    assert ki.is_anki_note(Path("note.amd")) is False
+    assert ki.is_anki_note(Path("note.md.txt")) is False
+    assert ki.is_anki_note(Path("note.nd")) is False
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        Path("note.md").write_text("")
-        assert ki.is_anki_note(Path("note.md")) == False
+        Path("note.md").write_text("", encoding="UTF-8")
+        assert ki.is_anki_note(Path("note.md")) is False
 
-        Path("note.md").write_text("one line")
-        assert ki.is_anki_note(Path("note.md")) == False
+        Path("note.md").write_text("one line", encoding="UTF-8")
+        assert ki.is_anki_note(Path("note.md")) is False
 
-        Path("note.md").write_text("### Note\n## Note\n")
-        assert ki.is_anki_note(Path("note.md")) == False
+        Path("note.md").write_text("### Note\n## Note\n", encoding="UTF-8")
+        assert ki.is_anki_note(Path("note.md")) is False
 
-        Path("note.md").write_text("## Note\nnid: 00000000000000a\n")
-        assert ki.is_anki_note(Path("note.md")) == False
+        Path("note.md").write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
+        assert ki.is_anki_note(Path("note.md")) is False
 
-        Path("note.md").write_text("## Note\nnid: 000000000000000\n")
-        assert ki.is_anki_note(Path("note.md")) == True
+        Path("note.md").write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
+        assert ki.is_anki_note(Path("note.md")) is True
 
 
 def test_update_kinote():
@@ -931,9 +931,6 @@ def test_update_kinote():
         kinote = KiNote(a, a.col.get_note(i))
         field = "TITLE\ndata"
         flatnote = FlatNote("title", 0, "model", "deck", ["tag"], True, {"field1": field})
-        logger.debug(f"Flatnote tags: {flatnote.tags}")
-        logger.debug(f"KiNote tags: {kinote.n.tags}")
-        logger.debug(f"KiNote deck: {kinote.get_deck()}")
 
         assert kinote.n.tags == []
         assert kinote.get_deck() == "Default"
@@ -945,4 +942,11 @@ def test_update_kinote():
         assert kinote.get_deck() == "deck"
         assert "TITLE" in kinote.n.fields[0]
         assert "</p>" in kinote.n.fields[0]
-        logger.debug(f"Kinote fields:\n{pprint.pformat(kinote.n.fields)}")
+
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        flatnote = FlatNote("title", 0, "model", "deck", ["tag"], True, {})
+
+        ki.update_kinote(kinote, flatnote)
+        assert len(kinote.n.fields) == 0

@@ -1,5 +1,4 @@
 """Tests for markdown note Lark grammar."""
-import pprint
 from pathlib import Path
 
 import pytest
@@ -561,7 +560,7 @@ def test_transformer_goods():
     for good in goods:
         try:
             tree = parser.parse(good)
-            out = transformer.transform(tree)
+            transformer.transform(tree)
         except UnexpectedToken as err:
             logger.error(f"\n{good}")
             raise err
@@ -581,8 +580,7 @@ def parse_collection():
     for path in tqdm(set((Path.home() / "collection").iterdir())):
         if path.suffix == ".md":
             note = path.read_text()
-            out = parser.parse(note)
-            # pp.cpprint(out)
+            parser.parse(note)
 
 
 if __name__ == "__main__":
