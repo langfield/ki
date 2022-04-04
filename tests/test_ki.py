@@ -1026,8 +1026,41 @@ def test_update_kinote_removes_field_contents():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
         field = "c"
-        flatnote = FlatNote("title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field})
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field})
 
         assert "a" in kinote.n.fields[0]
         ki.update_kinote(kinote, flatnote)
         assert "a" not in kinote.n.fields[0]
+
+
+def test_update_kinote_raises_error_on_nonexistent_notetype_name():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "c"
+        flatnote = FlatNote("title", 0, "nonbasic", "Default", [], False, {"Front": field, "Back": field})
+
+        with pytest.raises(FileNotFoundError):
+            ki.update_kinote(kinote, flatnote)
+
+
+def test_display_fields_health_warning():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        i = set(a.col.find_notes(query)).pop()
+        kinote = KiNote(a, a.col.get_note(i))
+        field = "c"
+        flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field})
+        ki.display_fields_health_warning(1, kinote.n, flatnote)
+        ki.display_fields_health_warning(3, kinote.n, flatnote)
+
+
+def test_slugify():
+    text = "\u1234"
+    result = ki.slugify(text, allow_unicode=False)
+
+    # Filter out Ethiopian syllable see.
+    assert result == ""
