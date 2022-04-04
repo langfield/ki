@@ -1091,8 +1091,8 @@ def test_display_fields_health_warning():
         flatnote = FlatNote(
             "title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field}
         )
-        ki.display_fields_health_warning(1, kinote.n, flatnote)
-        ki.display_fields_health_warning(3, kinote.n, flatnote)
+        ki.display_fields_health_warning(kinote.n, flatnote)
+        ki.display_fields_health_warning(kinote.n, flatnote)
 
 
 def test_slugify():
@@ -1101,3 +1101,16 @@ def test_slugify():
 
     # Filter out Ethiopian syllable see.
     assert result == ""
+
+
+def test_add_note_from_flatnote():
+    collection_path = get_collection_path()
+    query = ""
+    with Anki(path=collection_path) as a:
+        # i = set(a.col.find_notes(query)).pop()
+        # kinote = KiNote(a, a.col.get_note(i))
+        field = "c"
+        flatnote = FlatNote(
+            "title", 0, "Basic", "Default", ["tag"], True, {"Front": field, "Back": field}
+        )
+        ki.add_note_from_flatnote(a, flatnote)
