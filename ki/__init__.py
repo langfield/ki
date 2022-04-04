@@ -663,13 +663,11 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
     if notetype is None:
         msg = f"Notetype '{flatnote.model}' doesn't exist. "
         msg += "Create it in Anki before adding notes via ki."
-        raise ValueError(msg)
+        raise FileNotFoundError(msg)
 
     # Validate field keys against notetype.
-    new_field_names = list(flatnote.fields.keys())
-    old_field_names = list(kinote.n.keys())
-    if new_field_names != old_field_names:
-        raise ValueError(f"Field mismatch:\nold: {old_field_names}\nnew: {new_field_names}")
+    old_model = kinote.n.note_type()
+    validate_flatnote_fields(old_model, flatnote)
 
     # Set field values.
     for key, field in flatnote.fields.items():
@@ -836,26 +834,27 @@ def append_md5sum(
 
 
 @beartype
-def validate_flatnote(a: Anki, flatnote: FlatNote) -> None:
+def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> None:
     """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
-    model = a.set_model(flatnote.model)
     model_field_names = [field["name"] for field in model["flds"]]
 
     if len(flatnote.fields.keys()) != len(model_field_names):
         logger.error(f"Not enough fields for model {flatnote.model}!")
-        a.modified = False
         raise ValueError
 
     for x, y in zip(model_field_names, flatnote.fields.keys()):
         if x != y:
-            logger.warning("Inconsistent field names " f"({x} != {y})")
+            logger.error("Inconsistent field names " f"({x} != {y})")
+            raise ValueError
 
 
 @beartype
 def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
     """Add a note given its FlatNote representation."""
-    validate_flatnote(a, flatnote)
+    # TODO: Does this assume model exists?
+    model = a.set_model(flatnote.model)
+    validate_flatnote_fields(model, flatnote)
 
     # Note that we call ``a.set_model(flatnote.model)`` above, so the current
     # model is the model given in ``flatnote``.
@@ -875,6 +874,7 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> KiNote:
 
     health = note.fields_check()
     display_fields_health_warning(health, note, flatnote)
+
     if health == 0:
         a.col.addNote(note)
         a.modified = True
