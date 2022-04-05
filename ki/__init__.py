@@ -334,10 +334,10 @@ def push() -> None:
     shutil.copytree(cwd / ".ki", staging_repo_kidir)
 
     # Get all notes changed between LAST_PUSH and HEAD.
-    notepaths: Iterator[Path] = get_note_files_changed_since_last_push(staging_repo)
+    deltas: Iterator[Delta] = get_note_files_changed_since_last_push(staging_repo)
 
     # If there are no changes, update LAST_PUSH commit and quit.
-    if len(set(notepaths)) == 0:
+    if len(set(deltas)) == 0:
         click.secho("ki push: up to date.", bold=True)
         update_last_push_commit_sha(repo)
         return
@@ -381,12 +381,12 @@ def push() -> None:
         # actually parsing notes and constructing Anki-specific objects. This
         # is just a series of filesystem ops. They should be put in a
         # standalone function and tested without anything related to Anki.
-        for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
-            note_relpath = notepath.relative_to(staging_repo.working_dir)
+        for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
+            note_relpath = delta.path.relative_to(staging_repo.working_dir)
 
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
-            if not notepath.is_file():
+            if delta.status == GitChangeType.DELETED:
                 deleted_path = Path(deletions_repo.working_dir) / note_relpath
 
                 assert deleted_path.is_file(), f"File not found: {deleted_path}"
@@ -397,7 +397,7 @@ def push() -> None:
                 continue
 
             # Get flatnote from parser, and add/edit/delete in collection.
-            flatnotes = parse_markdown_notes(notepath)
+            flatnotes = parse_markdown_notes(delta.path)
             assert len(flatnotes) == 1
             flatnote = flatnotes[0]
 
@@ -708,11 +708,11 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
         diff_index = hcommit.diff(last_push_sha)
         diff_index = last_push_commit.diff(hcommit)
         for change_type in GitChangeType:
-            for diff in diff_index.iter_change_type(change_type):
+            for diff in diff_index.iter_change_type(change_type.value):
                 a_path = Path(repo.working_dir) / diff.a_path
                 b_path = Path(repo.working_dir) / diff.b_path
 
-                if ignore_fn(a_path) or ignore_fn(b_path):
+                if not ignore_fn(a_path) or not ignore_fn(b_path):
                     continue
 
                 if change_type == GitChangeType.RENAMED:
