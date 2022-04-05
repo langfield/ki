@@ -377,9 +377,10 @@ def push() -> None:
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
             if not notepath.is_file():
-                deleted_path = Path(deletions_repo.working_dir) / notepath.name
+                note_relpath = notepath.relative_to(staging_repo.working_dir)
+                deleted_path = Path(deletions_repo.working_dir) / note_relpath
 
-                assert deleted_path.is_file()
+                assert deleted_path.is_file(), f"File not found: {deleted_path}"
                 flatnotes = parse_markdown_notes(deleted_path)
                 nids = [flatnote.nid for flatnote in flatnotes]
                 a.col.remove_notes(nids)
@@ -635,7 +636,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
     paths: Iterator[Path]
     last_push_sha = get_last_push_sha(repo)
-    logger.debug(f"Last push commit hash: {last_push_sha}")
 
     # Treat case where there is no last push.
     if last_push_sha == "":
@@ -660,9 +660,10 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
 
     changed = []
     for path in paths:
-        # TODO: This may need to be changed to support submodules.
-        assert path.is_file(), f"path: {path}"
-        if not is_anki_note(path):
+        # If the path exists in the current staging repository (i.e. the file
+        # hasn't been deleted or renamed), and it isn't a note, we ignore it.
+        # TODO: Try removing this and see what breaks.
+        if os.path.isfile(path) and not is_anki_note(path):
             continue
         changed.append(path)
 

@@ -932,7 +932,7 @@ def test_push_deletes_added_notes():
     # Check that notes are gone.
     with runner.isolated_filesystem():
         clone(runner, collection_path)
-        contents = os.listdir(os.path.join("Default", REPODIR))
+        contents = os.listdir(os.path.join(REPODIR, "Default"))
         notes = [path for path in contents if path[-3:] == ".md"]
         logger.debug(f"Notes: {notes}")
         assert len(notes) == 2
