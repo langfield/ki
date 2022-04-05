@@ -87,7 +87,7 @@ HINT = (
     + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
     + "hint: 'ki pull ...') before pushing again."
 )
-IGNORE = [".git", ".ki", ".gitignore"]
+IGNORE = [".git", ".ki", ".gitignore", ".gitmodules"]
 
 
 
@@ -659,11 +659,15 @@ def get_last_push_sha(repo: git.Repo) -> str:
 @beartype
 def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
-    # Ignore files that match a pattern in ``IGNORE`` ('*' not supported).
+    # Ignore files that match a pattern in ``patterns`` ('*' not supported).
     for ignore_path in [Path(repo.working_dir) / p for p in patterns]:
         parents = [path.resolve()] + [p.resolve() for p in path.parents]
         if ignore_path.resolve() in parents:
             return False
+
+    # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
+    if path.exists() and not path.resolve().is_dir() and not is_anki_note(path):
+        return False
     return True
 
 
