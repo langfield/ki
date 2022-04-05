@@ -495,7 +495,7 @@ def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
 def parse_markdown_notes(path: Union[str, Path]) -> List[FlatNote]:
     """Parse with lark."""
     # Read grammar.
-    grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.

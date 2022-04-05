@@ -21,7 +21,7 @@ BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 def get_parser():
     """Return a parser."""
     # Read grammar.
-    grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text()
 
     # Instantiate parser.
@@ -572,7 +572,7 @@ def main():
 def parse_collection():
     """Parse all notes in a collection."""
     transformer = NoteTransformer()
-    grammar_path = Path(__file__).resolve().parent.parent / "grammar.lark"
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text()
     parser = Lark(grammar, start="file", parser="lalr", transformer=transformer)
     for path in tqdm(set((Path.home() / "collection").iterdir())):
