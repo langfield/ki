@@ -29,7 +29,9 @@ import subprocess
 import collections
 import unicodedata
 import configparser
+from enum import Enum
 from pathlib import Path
+from dataclasses import dataclass
 
 import git
 import click
@@ -665,10 +667,26 @@ def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
     return True
 
 
+class GitChangeType(Enum):
+    """Enum for git file change types."""
+    ADDED = "A"
+    DELETED = "D"
+    RENAMED = "R"
+    MODIFIED = "M"
+    TYPECHANGED = "T"
+
 @beartype
-def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
+@dataclass(frozen=True)
+class Delta:
+    """The git delta for a single file."""
+    status: GitChangeType
+    path: Path
+
+
+@beartype
+def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
-    paths: Iterator[Path]
+    deltas: Iterator[Delta]
     last_push_sha = get_last_push_sha(repo)
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, repo=repo)
 
@@ -680,20 +698,30 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
             capture_output=True,
         )
         paths = filter(ignore_fn, map(Path, p.stdout.decode().split()))
+        deltas = [Delta(GitChangeType.ADDED, path) for path in paths]
 
     else:
         # Use a `DiffIndex` to get the changed files.
-        files = []
+        deltas = set()
         hcommit = repo.head.commit
+        last_push_commit = repo.commit(last_push_sha)
         diff_index = hcommit.diff(last_push_sha)
-        for change_type in CHANGE_TYPES:
+        diff_index = last_push_commit.diff(hcommit)
+        for change_type in GitChangeType:
             for diff in diff_index.iter_change_type(change_type):
-                files.append(diff.a_path)
-                files.append(diff.b_path)
-        paths = [Path(repo.working_dir) / file for file in files]
-        paths = filter(ignore_fn, set(paths))
+                a_path = Path(repo.working_dir) / diff.a_path
+                b_path = Path(repo.working_dir) / diff.b_path
 
-    return list(paths)
+                if ignore_fn(a_path) or ignore_fn(b_path):
+                    continue
+
+                if change_type == GitChangeType.RENAMED:
+                    deltas.add(Delta(GitChangeType.DELETED, a_path))
+                    deltas.add(Delta(GitChangeType.RENAMED, b_path))
+                else:
+                    deltas.add(Delta(change_type, b_path))
+
+    return list(deltas)
 
 
 @beartype
