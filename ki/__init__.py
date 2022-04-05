@@ -24,6 +24,7 @@ import hashlib
 import sqlite3
 import tempfile
 import warnings
+import functools
 import subprocess
 import collections
 import unicodedata
@@ -653,12 +654,23 @@ def get_last_push_sha(repo: git.Repo) -> str:
         logger.warning("Couldn't find '.ki/last_push' file!")
         return ""
 
+@beartype
+def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
+    """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
+    # Ignore files that match a pattern in ``IGNORE`` ('*' not supported).
+    for ignore_path in [Path(repo.working_dir) / p for p in patterns]:
+        parents = [path.resolve()] + [p.resolve() for p in path.parents]
+        if ignore_path.resolve() in parents:
+            return False
+    return True
+
 
 @beartype
 def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
     paths: Iterator[Path]
     last_push_sha = get_last_push_sha(repo)
+    ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, repo=repo)
 
     # Treat case where there is no last push.
     if last_push_sha == "":
@@ -667,7 +679,7 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
             check=False,
             capture_output=True,
         )
-        paths = map(Path, p.stdout.decode().split())
+        paths = filter(ignore_fn, map(Path, p.stdout.decode().split()))
 
     else:
         # Use a `DiffIndex` to get the changed files.
@@ -679,23 +691,9 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
                 files.append(diff.a_path)
                 files.append(diff.b_path)
         paths = [Path(repo.working_dir) / file for file in files]
-        paths = set(paths)
+        paths = filter(ignore_fn, set(paths))
 
-    changed = []
-    for path in paths:
-
-        # Ignore files that match a pattern in ``IGNORE`` ('*' not supported).
-        ignore = False
-        for ignore_path in [Path(repo.working_dir) / p for p in IGNORE]:
-            parents = [path.resolve()] + [p.resolve() for p in path.parents]
-            if ignore_path.resolve() in parents:
-                ignore = True
-                break
-
-        if not ignore:
-            changed.append(path)
-
-    return changed
+    return list(paths)
 
 
 @beartype
