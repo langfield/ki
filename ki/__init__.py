@@ -373,11 +373,11 @@ def push() -> None:
         # is just a series of filesystem ops. They should be put in a
         # standalone function and tested without anything related to Anki.
         for notepath in tqdm(notepaths, ncols=TQDM_NUM_COLS):
+            note_relpath = notepath.relative_to(staging_repo.working_dir)
 
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
             if not notepath.is_file():
-                note_relpath = notepath.relative_to(staging_repo.working_dir)
                 deleted_path = Path(deletions_repo.working_dir) / note_relpath
 
                 assert deleted_path.is_file(), f"File not found: {deleted_path}"
@@ -392,21 +392,21 @@ def push() -> None:
             assert len(flatnotes) == 1
             flatnote = flatnotes[0]
 
-            # If a note with this nid exists in DB, update it.
-            # TODO: If relevant prefix of sort field has changed, we regenerate the file.
+            # If a kinote with this nid exists in DB, update it.
+            # TODO: If relevant prefix of sort field has changed, we regenerate
+            # the file.
             try:
-                note: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
-                update_kinote(note, flatnote)
+                kinote: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
+                update_kinote(kinote, flatnote)
 
             # Otherwise, we generate/reassign an nid for it.
             except anki.errors.NotFoundError:
-                note: Optional[KiNote] = add_note_from_flatnote(a, flatnote)
+                kinote: Optional[KiNote] = add_note_from_flatnote(a, flatnote)
 
-                if note is not None:
-                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{note.n.id}'")
+                if kinote is not None:
+                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{kinote.n.id}'")
 
                     # Get paths to note in local repo, as distinct from staging repo.
-                    note_relpath = os.path.relpath(notepath, staging_repo.working_dir)
                     repo_notepath = Path(repo.working_dir) / note_relpath
 
                     # If this is not an entirely new file, remove it.
@@ -414,13 +414,12 @@ def push() -> None:
                         repo_notepath.unlink()
 
                     # Construct markdown file contents and write.
-                    # TODO: Replace with logic in `_clone()`.
-                    first_nid = note.n.id
-                    new_notepath = repo_notepath.parent / f"note{first_nid}.md"
-                    new_notepath.write_text(str(note))
+                    sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
+                    new_notepath = get_notepath(kinote, sort_fieldname, repo_notepath.parent)
+                    new_notepath.write_text(str(kinote))
 
                     new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
-                    new_nid_path_map[note.n.id] = new_note_relpath
+                    new_nid_path_map[kinote.n.id] = new_note_relpath
 
         if len(new_nid_path_map) > 0:
             msg = "Generated new nid(s).\n\n"
