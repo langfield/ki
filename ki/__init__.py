@@ -233,6 +233,8 @@ def pull() -> None:
     warnings.filterwarnings(action="ignore", category=MarkupResemblesLocatorWarning)
 
     # Lock DB and get hash.
+    root = find_repo_root()
+    os.chdir(root)
     colpath = open_repo()
     con = lock(colpath)
     md5sum = md5(colpath)
@@ -254,9 +256,9 @@ def pull() -> None:
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_dir`.
     msg = f"Fetch changes from DB at '{colpath}' with md5sum '{md5sum}'"
-    root = Path(tempfile.mkdtemp()) / "ki" / "remote"
-    root.mkdir(parents=True)
-    anki_remote_dir = root / md5sum
+    temproot = Path(tempfile.mkdtemp()) / "ki" / "remote"
+    temproot.mkdir(parents=True)
+    anki_remote_dir = temproot / md5sum
     _clone(colpath, anki_remote_dir, msg, silent=True)
 
     # Create git remote pointing to anki remote repo.
@@ -303,6 +305,8 @@ def push() -> None:
     4. Add/edit/delete notes using `apy`.
     """
     # Lock DB, get path to collection, and compute hash.
+    root = find_repo_root()
+    os.chdir(root)
     colpath = open_repo()
     con = lock(colpath)
     md5sum = md5(colpath)
@@ -418,7 +422,7 @@ def push() -> None:
                     new_notepath = get_notepath(
                         kinote, sort_fieldname, repo_notepath.parent
                     )
-                    new_notepath.write_text(str(kinote))
+                    new_notepath.write_text(str(kinote), encoding="UTF-8")
 
                     new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
                     new_nid_path_map[kinote.n.id] = new_note_relpath
@@ -585,6 +589,22 @@ def open_repo() -> Path:
         raise FileNotFoundError
 
     return colpath
+
+
+@beartype
+def find_repo_root() -> Path:
+    """
+    Find the root of the current ki repository, raising an error if it does not
+    exist.
+    """
+    current = Path.cwd()
+    while not (current / ".ki").is_dir() and current.resolve() != Path("/"):
+        current = current.parent.resolve()
+    if current.resolve() == Path("/"):
+        msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
+        msg += "Stopping at filesystem boundary."
+        raise FileNotFoundError(msg)
+    return current
 
 
 @beartype
