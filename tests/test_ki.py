@@ -651,7 +651,6 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 # PUSH
 
 
-@pytest.mark.xfail
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
@@ -723,7 +722,6 @@ def test_push_verifies_md5sum():
         assert "Failed to push some refs to" in out
 
 
-@pytest.mark.xfail
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     collection_path = get_collection_path()
@@ -780,7 +778,6 @@ def test_push_doesnt_write_uncommitted_changes():
         assert not os.path.isdir(".ki/backups")
 
 
-@pytest.mark.xfail
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     collection_path = get_collection_path()
@@ -839,7 +836,6 @@ def test_no_op_push_is_idempotent():
         push(runner)
 
 
-@pytest.mark.xfail
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     collection_path = get_collection_path()
@@ -872,6 +868,16 @@ def test_push_deletes_notes():
 
 
 @pytest.mark.xfail
+def test_push_still_works_from_subdirectories():
+    """Does push still work if you're farther down in the directory tree than the repo route?"""
+    assert False
+
+
+@pytest.mark.xfail
+def test_pull_still_works_from_subdirectories():
+    """Does pull still work if you're farther down in the directory tree than the repo route?"""
+    assert False
+
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     collection_path = get_collection_path()
@@ -883,9 +889,9 @@ def test_push_deletes_added_notes():
 
         # Add new files.
         os.chdir(REPODIR)
-        contents = os.listdir()
-        shutil.copyfile(NOTE_2_PATH, NOTE_2)
-        shutil.copyfile(NOTE_3_PATH, NOTE_3)
+        contents = os.listdir("Default")
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        shutil.copyfile(NOTE_3_PATH, os.path.join("Default", NOTE_3))
 
         # Commit the additions.
         os.chdir("../")
@@ -899,6 +905,7 @@ def test_push_deletes_added_notes():
         logger.debug(f"\nPUSH:\n{out}")
 
         # Make sure 2 new files actually got added.
+        os.chdir("Default")
         post_push_contents = os.listdir()
         notes = [path for path in post_push_contents if path[-3:] == ".md"]
         assert len(notes) == 4
@@ -909,8 +916,10 @@ def test_push_deletes_added_notes():
                 logger.debug(f"Removing '{file}'")
                 os.remove(file)
 
+        logger.debug(f"Remaining files: {os.listdir()}")
+
         # Commit the deletions.
-        os.chdir("../")
+        os.chdir("../../")
         repo = git.Repo(REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Added 'e'.")
@@ -923,11 +932,40 @@ def test_push_deletes_added_notes():
     # Check that notes are gone.
     with runner.isolated_filesystem():
         clone(runner, collection_path)
-        contents = os.listdir(REPODIR)
+        contents = os.listdir(os.path.join("Default", REPODIR))
         notes = [path for path in contents if path[-3:] == ".md"]
         logger.debug(f"Notes: {notes}")
         assert len(notes) == 2
 
+def test_push_generates_correct_title_for_notes():
+    """Does push use the truncated sort field as a filename?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Add new files.
+        os.chdir(REPODIR)
+        contents = os.listdir()
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+
+        # Commit the additions.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(REPODIR)
+        out = push(runner)
+        logger.debug(f"\nPUSH:\n{out}")
+
+        os.chdir("Default")
+        post_push_contents = os.listdir()
+        notes = [path for path in post_push_contents if path[-3:] == ".md"]
+        assert "r.md" in notes
 
 # UTILS
 
