@@ -84,6 +84,8 @@ HINT = (
     + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
     + "hint: 'ki pull ...') before pushing again."
 )
+IGNORE = [".git", ".ki", ".gitignore"]
+
 
 
 @click.group()
@@ -681,12 +683,17 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
 
     changed = []
     for path in paths:
-        # If the path exists in the current staging repository (i.e. the file
-        # hasn't been deleted or renamed), and it isn't a note, we ignore it.
-        # TODO: Try removing this and see what breaks.
-        if os.path.isfile(path) and not is_anki_note(path):
-            continue
-        changed.append(path)
+
+        # Ignore files that match a pattern in ``IGNORE`` ('*' not supported).
+        ignore = False
+        for ignore_path in [Path(repo.working_dir) / p for p in IGNORE]:
+            parents = [path.resolve()] + [p.resolve() for p in path.parents]
+            if ignore_path.resolve() in parents:
+                ignore = True
+                break
+
+        if not ignore:
+            changed.append(path)
 
     return changed
 

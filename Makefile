@@ -11,6 +11,6 @@ clean:
 	rm -rf *.egg-info
 	rm -rf htmlcov/
 test:
-	coverage run -m pytest -v -s tests/
+	coverage run -m pytest -vv -s tests/
 report:
 	coverage html
