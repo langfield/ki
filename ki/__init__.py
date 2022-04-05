@@ -15,6 +15,7 @@ projects.
 
 import os
 import re
+import json
 import glob
 import pprint
 import shutil
@@ -88,6 +89,7 @@ HINT = (
     + "hint: 'ki pull ...') before pushing again."
 )
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules"]
+MODELS_FILENAME = "models.json"
 
 
 @click.group()
@@ -143,7 +145,8 @@ def clone(collection: str, directory: str = "") -> None:
     return
 
 
-def tidy_html_recursively(root: Path, silent: bool) -> int:
+@beartype
+def tidy_html_recursively(root: Path, silent: bool) -> None:
     """Call html5-tidy on each file in ``root``, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
@@ -341,6 +344,16 @@ def push() -> None:
         update_last_push_commit_sha(repo)
         return
 
+    # Abort if models file is missing.
+    models_path = Path(staging_repo.working_dir) / MODELS_FILENAME
+    if not models_path.exists():
+        echo(f"Failed to locate '{MODELS_FILENAME}'. Exiting.")
+        return
+
+    # Read models from json file.
+    with open(models_path, "r", encoding="UTF-8") as models_file:
+        new_models: List[NotetypeDict] = json.load(models_file)
+
     echo(f"Pushing to '{colpath}'")
     echo(f"Computed md5sum: {md5sum}")
     echo(f"Verified md5sum matches latest hash in '{cwd / '.ki' / 'hashes'}'")
@@ -354,6 +367,13 @@ def push() -> None:
 
     # Edit the copy with `apy`.
     with Anki(path=new_colpath) as a:
+
+        # Add all new models.
+        for new_model in new_models:
+            # NOTE: Mutates ``new_model`` (appends checksum to name).
+            if a.col.models.id_for_name(new_model["name"]) is None:
+                a.col.models.ensure_name_unique(new_model)
+                a.col.models.add(new_model)
 
         # Clone repository state at commit SHA of LAST_PUSH to parse deleted notes.
         last_push_sha = get_last_push_sha(staging_repo)
@@ -690,6 +710,7 @@ class Delta:
     path: Path
 
 
+# TODO: This must also check for changes in ``models.json``.
 @beartype
 def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
@@ -926,6 +947,11 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
                 notepath = get_notepath(kinote, sort_fieldname, deckpath)
                 payload = get_tidy_payload(kinote, paths)
                 notepath.write_text(payload, encoding="UTF-8")
+
+        # Write models to disk.
+        all_models: List[NotetypeDict] = a.col.models.all()
+        with open(targetdir / "models.json", 'w', encoding='UTF-8') as f:
+            json.dump(all_models, f, ensure_ascii=False, indent=4)
 
     shutil.rmtree(root)
 
