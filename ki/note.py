@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """A module containing a class for Anki notes."""
 import re
-import subprocess
 
-import bs4
 import anki
-import click
 import markdownify
 
 from beartype import beartype
 from beartype.typing import Dict, List
 
 from apy.anki import Note, Anki
-from apy.convert import markdown_to_html, html_to_markdown, _italize
+from apy.convert import markdown_to_html, html_to_markdown
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 
