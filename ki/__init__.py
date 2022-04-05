@@ -90,7 +90,6 @@ HINT = (
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules"]
 
 
-
 @click.group()
 @click.version_option()
 @beartype
@@ -656,6 +655,7 @@ def get_last_push_sha(repo: git.Repo) -> str:
         logger.warning("Couldn't find '.ki/last_push' file!")
         return ""
 
+
 @beartype
 def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
@@ -673,16 +673,19 @@ def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
 
 class GitChangeType(Enum):
     """Enum for git file change types."""
+
     ADDED = "A"
     DELETED = "D"
     RENAMED = "R"
     MODIFIED = "M"
     TYPECHANGED = "T"
 
+
 @beartype
 @dataclass(frozen=True)
 class Delta:
     """The git delta for a single file."""
+
     status: GitChangeType
     path: Path
 
@@ -709,7 +712,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
         deltas = set()
         hcommit = repo.head.commit
         last_push_commit = repo.commit(last_push_sha)
-        diff_index = hcommit.diff(last_push_sha)
         diff_index = last_push_commit.diff(hcommit)
         for change_type in GitChangeType:
             for diff in diff_index.iter_change_type(change_type.value):
@@ -754,11 +756,27 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> g
     root = Path(tempfile.mkdtemp()) / suffix
     root.mkdir(parents=True)
     target = root / md5sum
-    git.Repo.clone_from(repo.working_dir, target, branch=repo.active_branch)
+    git.Repo.clone_from(repo.working_dir, target, branch=repo.active_branch, recursive=True)
 
     # Do a reset --hard to the given SHA.
     ephem: git.Repo = git.Repo(target)
     ephem.git.reset(sha, hard=True)
+
+    for sm in ephem.submodules:
+        sm.update()
+        assert sm.module_exists(), f"Module {sm.name} doesn't exist :("
+        sm_copy_path = tempfile.mkdtemp()
+        shutil.move(sm.module().working_tree_dir, sm_copy_path)
+        _ = ephem.git.execute(
+            ["git", "submodule", "deinit", sm.name],
+            with_extended_output=True,
+            with_stdout=True,
+        )
+        ephem.git.rm(sm.name)
+        shutil.move(sm_copy_path, target / sm.name)
+        ephem.git.add(sm.name)
+        _ = ephem.index.commit(f"Add submodule {sm.name} as ordinary directory.")
+
     return ephem
 
 
