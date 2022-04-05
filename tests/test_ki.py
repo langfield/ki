@@ -646,6 +646,24 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
+def test_pull_still_works_from_subdirectories():
+    """Does pull still work if you're farther down in the directory tree than the repo route?"""
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+        assert not os.path.isfile(os.path.join(REPODIR, NOTE_1))
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, collection_path)
+
+        # Pull edited collection.
+        os.chdir(os.path.join(REPODIR, "Default"))
+        out = pull(runner)
+
+
 # PUSH
 
 
@@ -865,16 +883,29 @@ def test_push_deletes_notes():
         assert not os.path.isfile(NOTE_0)
 
 
-@pytest.mark.xfail
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
-    assert False
+    collection_path = get_collection_path()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
 
+        # Clone collection in cwd.
+        clone(runner, collection_path)
 
-@pytest.mark.xfail
-def test_pull_still_works_from_subdirectories():
-    """Does pull still work if you're farther down in the directory tree than the repo route?"""
-    assert False
+        # Remove a note file.
+        os.chdir(REPODIR)
+        assert os.path.isfile(NOTE_0)
+        os.remove(NOTE_0)
+
+        # Commit the deletion.
+        os.chdir("../")
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push changes.
+        os.chdir(os.path.join(REPODIR, "Default"))
+        out = push(runner)
 
 
 def test_push_deletes_added_notes():
