@@ -7,20 +7,21 @@ def read_file(filename):
     with open(filename) as file:
         return file.read()
 
+
 setuptools.setup(
-    name='ki',
-    version='0.0.1a',
-    description='',
-    url='',
-    author='',
-    author_email='',
-    license='',
+    name="ki",
+    version="0.0.1a",
+    description="",
+    url="",
+    author="",
+    author_email="",
+    license="",
     packages=["ki"],
-    package_data={'ki': ['grammar.lark']},
-    install_requires=read_file('requirements.txt'),
+    package_data={"ki": ["grammar.lark"]},
+    install_requires=read_file("requirements.txt"),
     entry_points={
-        'console_scripts': [
-            'ki = ki:ki',
+        "console_scripts": [
+            "ki = ki:ki",
         ],
     },
 )
