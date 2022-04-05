@@ -18,6 +18,7 @@ setuptools.setup(
     license="",
     packages=["ki"],
     package_data={"ki": ["grammar.lark"]},
+    include_package_data=True,
     install_requires=read_file("requirements.txt"),
     entry_points={
         "console_scripts": [
