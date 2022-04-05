@@ -635,6 +635,7 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     """Gets a list of paths to modified/new/deleted note md files since last push."""
     paths: Iterator[Path]
     last_push_sha = get_last_push_sha(repo)
+    logger.debug(f"Last push commit hash: {last_push_sha}")
 
     # Treat case where there is no last push.
     if last_push_sha == "":
@@ -660,7 +661,7 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Path]:
     changed = []
     for path in paths:
         # TODO: This may need to be changed to support submodules.
-        assert path.is_file()
+        assert path.is_file(), f"path: {path}"
         if not is_anki_note(path):
             continue
         changed.append(path)
