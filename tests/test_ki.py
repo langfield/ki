@@ -139,9 +139,7 @@ def get_html_collection_path() -> str:
     """Put `html.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
-    collection_path = os.path.abspath(
-        os.path.join(tempdir, HTML_COLLECTION_FILENAME)
-    )
+    collection_path = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, collection_path)
     assert os.path.isfile(collection_path)
     return collection_path
@@ -878,6 +876,7 @@ def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     assert False
 
+
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     collection_path = get_collection_path()
@@ -937,6 +936,7 @@ def test_push_deletes_added_notes():
         logger.debug(f"Notes: {notes}")
         assert len(notes) == 2
 
+
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
     collection_path = get_collection_path()
@@ -966,6 +966,7 @@ def test_push_generates_correct_title_for_notes():
         post_push_contents = os.listdir()
         notes = [path for path in post_push_contents if path[-3:] == ".md"]
         assert "r.md" in notes
+
 
 # UTILS
 
@@ -1213,7 +1214,13 @@ def test_add_note_from_flatnote_returns_kinote():
     with Anki(path=collection_path) as a:
         field = "x"
         flatnote = FlatNote(
-            "title", 0, "Basic", "Default", ["tag"], False, {"Front": field, "Back": field}
+            "title",
+            0,
+            "Basic",
+            "Default",
+            ["tag"],
+            False,
+            {"Front": field, "Back": field},
         )
         result = ki.add_note_from_flatnote(a, flatnote)
         assert isinstance(result, KiNote)
@@ -1224,7 +1231,13 @@ def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
     with Anki(path=collection_path) as a:
         field = "*hello*"
         flatnote = FlatNote(
-            "title", 0, "Basic", "Default", ["tag"], True, {"Front": field, "Back": field}
+            "title",
+            0,
+            "Basic",
+            "Default",
+            ["tag"],
+            True,
+            {"Front": field, "Back": field},
         )
         result = ki.add_note_from_flatnote(a, flatnote)
         assert isinstance(result, KiNote)
@@ -1245,7 +1258,7 @@ def test_get_note_files_changed_since_last_push(capfd):
 
         changed = list(map(str, ki.get_note_files_changed_since_last_push(repo)))
         captured = capfd.readouterr()
-        assert changed == ['collection/Default/c.md', 'collection/Default/a.md']
+        assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
         assert "last_push" not in captured.err
 
 
@@ -1263,7 +1276,7 @@ def test_get_note_files_changed_since_last_push_when_last_push_file_is_missing(c
 
         changed = list(map(str, ki.get_note_files_changed_since_last_push(repo)))
         captured = capfd.readouterr()
-        assert changed == ['collection/Default/c.md', 'collection/Default/a.md']
+        assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
         assert "last_push" in captured.err
 
 
@@ -1386,7 +1399,6 @@ def test_write_notes_generates_deck_tree_correctly():
         true_md5 = ki.md5(true_note_path)
 
         assert cloned_md5 == true_md5
-
 
 
 def test_write_notes_handles_html():

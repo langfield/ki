@@ -415,7 +415,9 @@ def push() -> None:
 
                     # Construct markdown file contents and write.
                     sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
-                    new_notepath = get_notepath(kinote, sort_fieldname, repo_notepath.parent)
+                    new_notepath = get_notepath(
+                        kinote, sort_fieldname, repo_notepath.parent
+                    )
                     new_notepath.write_text(str(kinote))
 
                     new_note_relpath = os.path.relpath(new_notepath, repo.working_dir)
@@ -793,9 +795,7 @@ def display_fields_health_warning(note: anki.notes.Note) -> int:
         logger.warning(f"Fields health check code: {health}")
     elif health != 0:
         logger.error(f"Failed to process note '{note.id}'.")
-        logger.error(
-            f"Note failed fields check with unknown error code: {health}"
-        )
+        logger.error(f"Note failed fields check with unknown error code: {health}")
     return health
 
 
