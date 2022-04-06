@@ -54,6 +54,7 @@ from apy.convert import markdown_to_html, plain_to_html
 
 from beartype import beartype
 from beartype.typing import (
+    Set,
     List,
     Dict,
     Any,
@@ -88,7 +89,7 @@ HINT = (
     + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
     + "hint: 'ki pull ...') before pushing again."
 )
-IGNORE = [".git", ".ki", ".gitignore", ".gitmodules"]
+IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
 MODELS_FILENAME = "models.json"
 
 
@@ -352,7 +353,7 @@ def push() -> None:
 
     # Read models from json file.
     with open(models_path, "r", encoding="UTF-8") as models_file:
-        new_models: List[NotetypeDict] = json.load(models_file)
+        new_models: Dict[int, NotetypeDict] = json.load(models_file)
 
     echo(f"Pushing to '{colpath}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -369,7 +370,7 @@ def push() -> None:
     with Anki(path=new_colpath) as a:
 
         # Add all new models.
-        for new_model in new_models:
+        for new_model in new_models.values():
             # NOTE: Mutates ``new_model`` (appends checksum to name).
             if a.col.models.id_for_name(new_model["name"]) is None:
                 a.col.models.ensure_name_unique(new_model)
@@ -679,6 +680,10 @@ def get_last_push_sha(repo: git.Repo) -> str:
 @beartype
 def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
+    for p in patterns:
+        if p == path.name:
+            return False
+
     # Ignore files that match a pattern in ``patterns`` ('*' not supported).
     for ignore_path in [Path(repo.working_dir) / p for p in patterns]:
         parents = [path.resolve()] + [p.resolve() for p in path.parents]
@@ -688,6 +693,10 @@ def path_ignore_fn(path: Path, patterns: List[str], repo: git.Repo) -> bool:
     # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
     if path.exists() and not path.resolve().is_dir() and not is_anki_note(path):
         return False
+
+    # DEBUG
+    if ".json" in str(path):
+        raise ValueError(f"Bad path: {path}")
     return True
 
 
@@ -940,18 +949,37 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
                     paths[fid].write_text(fieldtext)
 
         tidy_html_recursively(root, silent)
+
+        # Write models to disk.
+        models_map: Dict[int, NotetypeDict] = {}
+        for model in a.col.models.all():
+            model_id = a.col.models.id_for_name(model["name"])
+            assert model_id is not None
+            models_map[model_id] = model
+
+        with open(targetdir / MODELS_FILENAME, 'w', encoding='UTF-8') as f:
+            json.dump(models_map, f, ensure_ascii=False, indent=4)
+
+        deck_model_ids: Set[int] = set()
         for deckname in sorted(set(decks.keys()), key=len, reverse=True):
             deckpath = create_deckpath(deckname, targetdir)
             for kinote in decks[deckname]:
-                sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
+
+                # Add the notetype id.
+                model = kinote.n.note_type()
+                model_id = a.col.models.id_for_name(model["name"])
+                deck_model_ids.add(model_id)
+
+                sort_fieldname = get_sort_fieldname(a, model)
                 notepath = get_notepath(kinote, sort_fieldname, deckpath)
                 payload = get_tidy_payload(kinote, paths)
                 notepath.write_text(payload, encoding="UTF-8")
 
-        # Write models to disk.
-        all_models: List[NotetypeDict] = a.col.models.all()
-        with open(targetdir / "models.json", 'w', encoding='UTF-8') as f:
-            json.dump(all_models, f, ensure_ascii=False, indent=4)
+            # Write ``models.json`` for current deck.
+            deck_models_map = {mid:models_map[mid] for mid in deck_model_ids}
+            with open(deckpath / MODELS_FILENAME, 'w', encoding='UTF-8') as f:
+                json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+
 
     shutil.rmtree(root)
 
