@@ -21,13 +21,13 @@ TODO
 - Add implementations of `clone`, `pull`, and `push`. (DONE)
 - Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
 - Make clone work on empty directories to match `git` behavior. (DONE)
-- Test utilities.
+- Test utilities. (DONE)
 - Handle file deletion. (DONE)
-- Try doing one file per deck, and see if this is faster.
+- Try doing one file per deck, and see if this is faster. (NO)
 - Handle merge conflicts better. (DONE)
 - Test that uncommitted changes do not get pushed. (DONE)
 - Test that repeated push-pull on up-to-date repo is no-op/idempotent. (DONE)
-- Test hashes and backups get committed or ignored.
+- Test hashes and backups get committed or ignored. (DONE)
 - Test that parser handles leading '#' characters (currently doesn't).
 - Test warnings are captured.
 - Test that the existence of a backup file with an up-to-date checksum doesn't
@@ -61,7 +61,7 @@ TODO
     9.  add an image
     10. all the above operations, but with subdecks
 - Separate tests into quick and slow.
-- Try working with a Japanese language deck.
+- Try working with a Japanese language deck. (DONE)
 - Test that the media folder isn't created outside the repository.
 - Test that actual merge conflicts are handled nicely.
 - Test that ki cleans up its tempdirs unless a debug flag is set. There is no
@@ -77,7 +77,7 @@ TODO
 - Test that pull squashes initial commit and merge if and only if there were no
   merge conflicts.
 - Test that deleting individual notes from files containing multiple notes
-  works as intended.
+  works as intended. (NO)
 - Test that push works when adding notes and with changes to the working tree
   or untracked files (uncommitted stuff).
 - Test that clone cleans up directory if it aborts due to invalid DB path.
@@ -108,11 +108,11 @@ Triage
 ------
 Ghostwrite hypothesis tests (NO)
 Command line output (DONE)
-Test backlog
+Test backlog (DONE)
 Images
-Submodules
-Modifying note types
-Changing note types
+Submodules (DONE)
+Modifying note types (DONE)
+Changing note types (DONE)
 Generating HTML
 
 
