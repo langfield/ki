@@ -878,7 +878,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
     if gitmodules_path.exists():
         repo.git.rm(gitmodules_path)
-        _ = repo.index.commit(f"Remove '.gitmodules' file.")
+        _ = repo.index.commit("Remove '.gitmodules' file.")
 
     assert not gitmodules_path.exists()
 

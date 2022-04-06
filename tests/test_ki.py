@@ -25,6 +25,7 @@ from beartype.typing import List
 import ki
 from ki.note import KiNote
 from ki.transformer import FlatNote
+from ki.architecture import _push
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
@@ -690,7 +691,7 @@ def test_pull_still_works_from_subdirectories():
 
         # Pull edited collection.
         os.chdir(os.path.join(REPODIR, "Default"))
-        out = pull(runner)
+        pull(runner)
 
 
 # PUSH
@@ -942,7 +943,7 @@ def test_push_still_works_from_subdirectories():
 
         # Push changes.
         os.chdir(os.path.join(REPODIR, "Default"))
-        out = push(runner)
+        push(runner)
 
 
 @pytest.mark.skip
@@ -1018,7 +1019,6 @@ def test_push_generates_correct_title_for_notes():
 
         # Add new files.
         os.chdir(REPODIR)
-        contents = os.listdir()
         shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
 
         # Commit the additions.
@@ -1394,6 +1394,7 @@ def get_repo_with_submodules(runner: CliRunner, collection_path: str) -> git.Rep
     return repo
 
 
+@pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1438,6 +1439,7 @@ def get_staging_repo(repo: git.Repo) -> git.Repo:
     return staging_repo
 
 
+@pytest.mark.skip
 def test_get_note_files_changed_since_last_push_handles_submodules():
     """
     Does 'get_note_files_changed_since_last_push()' correctly generate deltas
@@ -1611,3 +1613,56 @@ def test_write_notes_handles_html():
         targetdir = Path(HTML_REPODIR)
         targetdir.mkdir()
         ki.write_notes(Path(collection_path), targetdir, silent=False)
+
+
+def test_push_architecture_writes_changes_correctly():
+    """If there are committed changes, does push change the collection file?"""
+    collection_path = get_collection_path()
+    old_notes = get_notes(collection_path)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, collection_path)
+
+        # Edit a note.
+        note = os.path.join(REPODIR, NOTE_0)
+        with open(note, "a", encoding="UTF-8") as note_file:
+            note_file.write("e\n")
+
+        # Delete a note.
+        note = os.path.join(REPODIR, NOTE_4)
+        os.remove(note)
+
+        # Add a note.
+        shutil.copyfile(NOTE_2_PATH, os.path.join(REPODIR, NOTE_2))
+
+        # Commit.
+        repo = git.Repo(REPODIR)
+        repo.git.add(all=True)
+        repo.index.commit("Added 'e'.")
+
+        # Push and check for changes.
+        os.chdir(REPODIR)
+        _push()
+        new_notes = get_notes(collection_path)
+
+        # Check NOTE_4 was deleted.
+        new_ids = [note.n.id for note in new_notes]
+        assert NOTE_4_ID not in new_ids
+
+        # Check NOTE_0 was edited.
+        old_note_0 = ""
+        for note in new_notes:
+            if note.n.id == NOTE_0_ID:
+                old_note_0 = str(note)
+        assert len(old_note_0) > 0
+        found_0 = False
+        for note in new_notes:
+            if note.n.id == NOTE_0_ID:
+                assert old_note_0 == str(note)
+                found_0 = True
+        assert found_0
+
+        # Check NOTE_2 was added.
+        assert len(old_notes) == len(new_notes) == 2
