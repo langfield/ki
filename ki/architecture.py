@@ -85,14 +85,15 @@ HINT = (
 )
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
 MODELS_FILENAME = "models.json"
+LOCAL_SUFFIX = Path("ki/local")
 
 
 class ExtantFile(type(Path())):
-    """Indicates that file *was* extant when it was resolved."""
+    """UNSAFE: Indicates that file *was* extant when it was resolved."""
 
 
 class ExtantDir(type(Path())):
-    """Indicates that dir *was* extant when it was resolved."""
+    """UNSAFE: Indicates that dir *was* extant when it was resolved."""
 
 
 class Hashes(str):
@@ -179,9 +180,6 @@ class MaybeExtantDir:
             self.value = ExtantDir(path)
 
 
-Maybe = Union[MaybePath, MaybeRepo, MaybeExtantFile, MaybeExtantDir, MaybeHashes]
-
-
 @beartype
 def get_colpath(root: ExtantDir) -> MaybeExtantFile:
     """Get collection path from `.ki/` directory."""
@@ -260,7 +258,18 @@ def updates_rejected_message(colpath: Path) -> str:
 
 
 @beartype
-def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> MaybeRepo:
+@dataclass(frozen=True)
+class RepoSHA:
+    """
+    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
+    commit hash of ``repo``.
+    """
+    repo: git.Repo
+    sha: str
+
+
+@beartype
+def get_ephemeral_repo(suffix: Path, repo_sha: RepoSHA, md5sum: str) -> git.Repo:
     """
     Clone ``repo`` at ``sha`` into an ephemeral repo.
 
@@ -268,8 +277,8 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> M
     ----------
     suffix : pathlib.Path
         /tmp/.../ path suffix, e.g. ``ki/local/``.
-    repo : git.Repo
-        The git repository to clone.
+    repo_sha : RepoSHA
+        The git repository to clone, and a commit for it.
     md5sum : str
         The md5sum of the associated anki collection.
     sha : str
@@ -284,19 +293,20 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> M
     root.mkdir(parents=True)
     root = ExtantDir(root)
 
-    target: Path = root / md5sum
-    branch = repo.active_branch
 
     # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    repo: git.Repo = repo_sha.repo
+    branch = repo.active_branch
+    target: Path = root / md5sum
     ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
 
     # Do a reset --hard to the given SHA.
-    try:
-        ephem.git.reset(sha, hard=True)
-    except Exception as err:
-        return MaybeRepo(err)
+    ephem.git.reset(repo_sha.sha, hard=True)
 
-    return MaybeRepo(ephem)
+    return ephem
+
+
+Maybe = Union[MaybePath, MaybeRepo, MaybeExtantFile, MaybeExtantDir, MaybeHashes]
 
 
 @beartype
@@ -307,9 +317,6 @@ def IO(maybe: Maybe) -> Optional[Any]:
     assert isinstance(maybe.value, str)
     logger.error(maybe.value)
     raise ValueError(maybe.value)
-
-
-LOCAL_SUFFIX = Path("ki/local")
 
 
 @beartype
@@ -323,12 +330,13 @@ def _push() -> None:
     colpath: MaybeExtantFile = get_colpath(root)
     colpath: ExtantFile = IO(colpath)
     con: sqlite3.Connection = lock(colpath)
-    md5sum: str = md5(colpath)
 
+    # These four lines can be encapsulated in a ``Maybe``.
+    md5sum: str = md5(colpath)
     hashes: Hashes = IO(get_ki_hashes(root))
     if md5sum not in hashes:
         IO(updates_rejected_message(colpath))
 
     sha = str(repo.head.commit)
-    staging_repo: MaybeRepo = get_ephemeral_repo(LOCAL_SUFFIX, repo, md5sum, sha)
-    staging_repo: git.Repo = IO(staging_repo)
+    repo_sha = RepoSHA(repo, str(repo.head.commit))
+    staging_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, repo_sha, md5sum)
