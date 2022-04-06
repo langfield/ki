@@ -4,6 +4,7 @@ Push architecture redesign.
 """
 
 # pylint: disable=invalid-name, unused-import, missing-class-docstring, broad-except
+# pylint: disable=too-many-return-statements
 
 import os
 import re
@@ -71,6 +72,14 @@ FieldDict = Dict[str, Any]
 NotetypeDict = Dict[str, Any]
 TemplateDict = Dict[str, Union[str, int, None]]
 
+FS_ROOT = Path("/")
+
+KI = ".ki"
+CONFIG_FILE = "config"
+HASHES_FILE = "hashes"
+BACKUPS_DIR = "backups"
+LAST_PUSH_FILE = "last_push"
+
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -87,6 +96,9 @@ IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
 MODELS_FILENAME = "models.json"
 LOCAL_SUFFIX = Path("ki/local")
 
+REMOTE_CONFIG_SECTION = "remote"
+COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
+
 
 class ExtantFile(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
@@ -96,14 +108,11 @@ class ExtantDir(type(Path())):
     """UNSAFE: Indicates that dir *was* extant when it was resolved."""
 
 
-class Hashes(str):
-    """Hashes content."""
-
-
 @beartype
 @dataclass(frozen=True)
 class MaybePath:
     """A pathlib.Path or an error message."""
+
     value: Union[Path, str]
     type: Type = Path
 
@@ -112,16 +121,9 @@ class MaybePath:
 @dataclass(frozen=True)
 class MaybeRepo:
     """A git.Repo or an error message."""
+
     value: Union[git.Repo, str]
     type: Type = git.Repo
-
-
-@beartype
-@dataclass(frozen=True)
-class MaybeHashes:
-    """A Hashes string or an error message."""
-    value: Union[Hashes, str]
-    type: Type = Hashes
 
 
 @beartype
@@ -181,45 +183,113 @@ class MaybeExtantDir:
 
 
 @beartype
-def get_colpath(root: ExtantDir) -> MaybeExtantFile:
-    """Get collection path from `.ki/` directory."""
-    # Check that config file exists.
-    config_path = root / ".ki/" / "config"
-    if not config_path.is_file():
-        return MaybeExtantFile(f"File not found: {config_path}")
+@dataclass(frozen=True)
+class KiRepo:
+    """
+    UNSAFE: A ki repository, including:
+    - .ki/hashes
+    - .ki/config
 
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    colpath = Path(config["remote"]["path"])
+    Existence of collection path is guaranteed.
+    """
 
-    if not colpath.is_file():
-        return MaybeExtantFile(f"Not found or not a file: {colpath}")
-
-    return MaybeExtantFile(colpath)
+    repo: git.Repo
+    root: ExtantDir
+    ki_dir: ExtantDir
+    col_file: ExtantFile
+    backups_dir: ExtantDir
+    config_file: ExtantFile
+    hashes_file: ExtantFile
+    last_push_file: ExtantFile
 
 
 @beartype
-def get_ki_repo(cwd: ExtantDir) -> MaybeRepo:
+@dataclass(frozen=True)
+class MaybeKiRepo:
+    """A KiRepo or an error message."""
+
+    value: Union[KiRepo, str]
+    type: Type = KiRepo
+
+
+@beartype
+def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
     """Get the containing ki repository of ``path``."""
     current = cwd
-    while not (current / ".ki").is_dir() and current.resolve() != Path("/"):
+    while not (current / KI).is_dir() and current.resolve() != FS_ROOT:
         current = current.parent.resolve()
-    if current.resolve() == Path("/"):
+    if current.resolve() == FS_ROOT:
         msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
         msg += "Stopping at filesystem boundary."
-        return MaybeRepo(msg)
+        return MaybeKiRepo(msg)
     try:
         repo = git.Repo(current)
     except Exception as err:
-        return MaybeRepo(str(err))
-    return MaybeRepo(repo)
+        return MaybeKiRepo(str(err))
+
+    # Root directory and ki directory of repo now guaranteed to exist.
+    root = ExtantDir(current)
+    ki_dir = ExtantDir(root / KI)
+
+    # Check that config file exists.
+    config_file = ki_dir / CONFIG_FILE
+    if not config_file.is_file():
+        return MaybeKiRepo(f"File not found: {config_file}")
+    config_file = ExtantFile(config_file)
+
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
+    if not col_file.is_file():
+        return MaybeKiRepo(f"Not found or not a file: {col_file}")
+    col_file = ExtantFile(col_file)
+
+    # TODO: Consider moving file creation out of this function, and handling
+    # non-existence like we do for config above.
+
+    # Get path to backups file (and possible create it).
+    backups_dir = ki_dir / BACKUPS_DIR
+    if not backups_dir.is_dir():
+        if backups_dir.exists():
+            return MaybeKiRepo(f"File at '{backups_dir}' should be directory")
+        backups_dir.mkdir()
+    backups_dir = ExtantDir(backups_dir)
+
+    # Get path to hashes file (and possible create it).
+    hashes_file = ki_dir / HASHES_FILE
+    if not hashes_file.is_file():
+        if hashes_file.exists():
+            return MaybeKiRepo(f"Directory at '{hashes_file}' should be file")
+        hashes_file.touch()
+    hashes_file = ExtantFile(hashes_file)
+
+    # Get path to last_push file (and possible create it).
+    last_push_file = ki_dir / LAST_PUSH_FILE
+    if not last_push_file.is_file():
+        if last_push_file.exists():
+            return MaybeKiRepo(f"Directory at '{last_push_file}' should be file")
+        last_push_file.touch()
+    last_push_file = ExtantFile(last_push_file)
+
+    return MaybeKiRepo(
+        KiRepo(
+            repo,
+            root,
+            ki_dir,
+            col_file,
+            backups_dir,
+            config_file,
+            hashes_file,
+            last_push_file,
+        )
+    )
 
 
 @beartype
-def lock(colpath: ExtantFile) -> sqlite3.Connection:
+def lock(col_file: ExtantFile) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
-    con = sqlite3.connect(colpath)
+    con = sqlite3.connect(col_file)
     con.isolation_level = "EXCLUSIVE"
     con.execute("BEGIN EXCLUSIVE")
     return con
@@ -235,78 +305,75 @@ def md5(path: ExtantFile) -> str:
     return hash_md5.hexdigest()
 
 
-KI = ".ki"
-HASHES_FILE = "hashes"
-
-
 @beartype
-def get_ki_hashes(root: ExtantDir) -> MaybeHashes:
-    """Get hashes content from ki directory file."""
-    hashes_path = root / KI / HASHES_FILE
-    if not hashes_path.is_file():
-        return MaybeHashes(f"File not found: {hashes_path}")
-
-    # Like ``Just`` in haskell.
-    hashes = Hashes(hashes_path.read_text().split("\n")[-1])
-    return MaybeHashes(hashes)
-
-
-@beartype
-def updates_rejected_message(colpath: Path) -> str:
+def updates_rejected_message(col_file: Path) -> str:
     """Generate need-to-pull message."""
-    return f"Failed to push some refs to '{colpath}'\n{HINT}"
+    return f"Failed to push some refs to '{col_file}'\n{HINT}"
 
 
 @beartype
 @dataclass(frozen=True)
-class RepoSHA:
+class KiRepoSHA:
     """
     UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
     commit hash of ``repo``.
     """
-    repo: git.Repo
+
+    kirepo: KiRepo
     sha: str
 
 
 @beartype
-def get_ephemeral_repo(suffix: Path, repo_sha: RepoSHA, md5sum: str) -> git.Repo:
+def get_ephemeral_kirepo(suffix: Path, kirepo_sha: KiRepoSHA, md5sum: str) -> MaybeKiRepo:
     """
-    Clone ``repo`` at ``sha`` into an ephemeral repo.
+    Given a KiRepoSHA, i.e. a pair of the form (kirepo, SHA), we clone
+    ``kirepo.repo`` into a temp directory and hard reset to the given commit
+    hash.
 
     Parameters
     ----------
     suffix : pathlib.Path
         /tmp/.../ path suffix, e.g. ``ki/local/``.
-    repo_sha : RepoSHA
-        The git repository to clone, and a commit for it.
+    kirepo_sha : KiRepoSHA
+        The ki repository to clone, and a commit for it.
     md5sum : str
         The md5sum of the associated anki collection.
-    sha : str
-        The commit SHA to reset --hard to.
 
     Returns
     -------
-    git.Repo
+    KiRepo
         The cloned repository.
     """
     root = Path(tempfile.mkdtemp()) / suffix
     root.mkdir(parents=True)
     root = ExtantDir(root)
 
-
     # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
-    repo: git.Repo = repo_sha.repo
+    repo: git.Repo = kirepo_sha.kirepo.repo
     branch = repo.active_branch
     target: Path = root / md5sum
     ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
 
     # Do a reset --hard to the given SHA.
-    ephem.git.reset(repo_sha.sha, hard=True)
+    ephem.git.reset(kirepo_sha.sha, hard=True)
 
-    return ephem
+    # UNSAFE: We copy the .ki directory under the assumptions that:
+    # - it's still extant
+    # - the target directory does not exist
+    # TODO: Consider writing typechecked wrappers around shutil methods.
+    shutil.copytree(kirepo_sha.kirepo.ki_dir, target / KI)
+    kirepo: MaybeKiRepo = get_ki_repo(target)
+
+    return kirepo
 
 
-Maybe = Union[MaybePath, MaybeRepo, MaybeExtantFile, MaybeExtantDir, MaybeHashes]
+Maybe = Union[
+    MaybePath,
+    MaybeRepo,
+    MaybeExtantFile,
+    MaybeExtantDir,
+    MaybeKiRepo,
+]
 
 
 @beartype
@@ -322,21 +389,15 @@ def IO(maybe: Maybe) -> Optional[Any]:
 @beartype
 def _push() -> None:
     """Push a ki repository into a .anki2 file."""
-    cwd: ExtantDir = IO(MaybeExtantDir(Path.cwd()))
-    repo: MaybeRepo = get_ki_repo(cwd)
-    repo: git.Repo = IO(repo)
-    root: ExtantDir = IO(MaybeExtantDir(Path(repo.working_dir)))
+    # Check that we are inside a ki repository, and get the associated collection.
+    cwd: ExtantDir = ExtantDir(Path.cwd())
+    kirepo: KiRepo = IO(get_ki_repo(cwd))
+    con: sqlite3.Connection = lock(kirepo.col_file)
 
-    colpath: MaybeExtantFile = get_colpath(root)
-    colpath: ExtantFile = IO(colpath)
-    con: sqlite3.Connection = lock(colpath)
-
-    # These four lines can be encapsulated in a ``Maybe``.
-    md5sum: str = md5(colpath)
-    hashes: Hashes = IO(get_ki_hashes(root))
+    md5sum: str = md5(kirepo.col_file)
+    hashes: str = kirepo.hashes_file.read_text().split("\n")[-1]
     if md5sum not in hashes:
-        IO(updates_rejected_message(colpath))
+        IO(updates_rejected_message(kirepo.col_file))
 
-    sha = str(repo.head.commit)
-    repo_sha = RepoSHA(repo, str(repo.head.commit))
-    staging_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, repo_sha, md5sum)
+    kirepo_sha = KiRepoSHA(kirepo, str(kirepo.repo.head.commit))
+    staging_repo: KiRepo = IO(get_ephemeral_kirepo(LOCAL_SUFFIX, kirepo_sha, md5sum))

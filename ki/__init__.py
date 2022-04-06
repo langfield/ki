@@ -300,6 +300,7 @@ def pull() -> None:
     assert md5(colpath) == md5sum
     unlock(con)
 
+
 @beartype
 def get_models_recursively(root: Path) -> Dict[int, NotetypeDict]:
     """Find and merge all ``models.json`` files recursively."""
@@ -829,7 +830,9 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> g
     root = Path(tempfile.mkdtemp()) / suffix
     root.mkdir(parents=True)
     target = root / md5sum
-    git.Repo.clone_from(repo.working_dir, target, branch=repo.active_branch, recursive=True)
+    git.Repo.clone_from(
+        repo.working_dir, target, branch=repo.active_branch, recursive=True
+    )
 
     # Do a reset --hard to the given SHA.
     ephem: git.Repo = git.Repo(target)
@@ -853,7 +856,6 @@ def get_submodule_paths(repo: git.Repo) -> List[Path]:
         paths.append(sm_path)
 
     return paths
-
 
 
 @beartype
@@ -1030,7 +1032,7 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
             assert model_id is not None
             models_map[model_id] = model
 
-        with open(targetdir / MODELS_FILENAME, 'w', encoding='UTF-8') as f:
+        with open(targetdir / MODELS_FILENAME, "w", encoding="UTF-8") as f:
             json.dump(models_map, f, ensure_ascii=False, indent=4)
 
         deck_model_ids: Set[int] = set()
@@ -1049,10 +1051,9 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
                 notepath.write_text(payload, encoding="UTF-8")
 
             # Write ``models.json`` for current deck.
-            deck_models_map = {mid:models_map[mid] for mid in deck_model_ids}
-            with open(deckpath / MODELS_FILENAME, 'w', encoding='UTF-8') as f:
+            deck_models_map = {mid: models_map[mid] for mid in deck_model_ids}
+            with open(deckpath / MODELS_FILENAME, "w", encoding="UTF-8") as f:
                 json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
-
 
     shutil.rmtree(root)
 
