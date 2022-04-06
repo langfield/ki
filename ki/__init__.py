@@ -418,7 +418,6 @@ def push() -> None:
         # standalone function and tested without anything related to Anki.
         for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
             note_relpath = delta.path.relative_to(staging_repo.working_dir)
-            logger.debug(f"Delta path: {delta.path}")
 
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
@@ -460,9 +459,6 @@ def push() -> None:
 
                     # Construct markdown file contents and write.
                     sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
-                    logger.debug(f"Deckpath: {repo_notepath.parent}")
-                    logger.debug(f"Note relative path: {note_relpath}")
-                    logger.debug(f"Repo working directory: {repo.working_dir}")
                     new_notepath = get_notepath(
                         kinote, sort_fieldname, repo_notepath.parent
                     )
@@ -762,8 +758,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
         hcommit = repo.head.commit
         last_push_commit = repo.commit(last_push_sha)
         diff_index = last_push_commit.diff(hcommit)
-        logger.debug(f"Last push: {last_push_commit}")
-        logger.debug(f"Diff index: {diff_index}")
         for change_type in GitChangeType:
             for diff in diff_index.iter_change_type(change_type.value):
                 a_path = Path(repo.working_dir) / diff.a_path
@@ -777,7 +771,6 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
                     deltas.add(Delta(GitChangeType.RENAMED, b_path))
                 else:
                     deltas.add(Delta(change_type, b_path))
-        logger.debug(f"Deltas: {pprint.pformat(deltas)}")
 
     return list(deltas)
 
