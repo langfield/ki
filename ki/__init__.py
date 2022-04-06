@@ -77,7 +77,6 @@ FieldDict = Dict[str, Any]
 NotetypeDict = Dict[str, Any]
 TemplateDict = Dict[str, Union[str, int, None]]
 
-LARK = True
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -328,6 +327,9 @@ def push() -> None:
     3. Clone repository at SHA of last successful push to get nids of deleted files.
     4. Add/edit/delete notes using `apy`.
     """
+    profiler = Profiler()
+    profiler.start()
+
     # Lock DB, get path to collection, and compute hash.
     root = find_repo_root()
     os.chdir(root)
@@ -499,6 +501,9 @@ def push() -> None:
     # Update LAST_PUSH commit SHA file and unlock DB.
     update_last_push_commit_sha(repo)
     unlock(con)
+
+    profiler.stop()
+    profiler.output_html()
 
 
 # UTILS
@@ -757,11 +762,34 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
         deltas = set()
         hcommit = repo.head.commit
         last_push_commit = repo.commit(last_push_sha)
+
+        logger.debug(f"Working dir: {repo.working_dir}")
+        out = repo.git.diff(f"{last_push_sha}", submodule="diff")
+        logger.debug(f"Submodule diff output:\n{out}")
+
+        # Checkout last push commit.
+        repo.git.checkout(last_push_sha)
+
+        # Look for all submodules that existed at last push commit.
+        sm_paths = get_submodule_paths(repo)
+        logger.debug(f"Submodule paths at last push:\n{pp.pformat(sm_paths)}")
+
+        # Checkout head.
+        repo.git.checkout(hcommit.hexsha)
+
+        # Remove submodules (which makes commits).
+        unsubmodule_repo(repo)
+
+        # Update head commit variable.
+        hcommit = repo.head.commit
+
         diff_index = last_push_commit.diff(hcommit)
         for change_type in GitChangeType:
             for diff in diff_index.iter_change_type(change_type.value):
                 a_path = Path(repo.working_dir) / diff.a_path
                 b_path = Path(repo.working_dir) / diff.b_path
+                logger.debug(f"{a_path = }")
+                logger.debug(f"{b_path = }")
 
                 if not ignore_fn(a_path) or not ignore_fn(b_path):
                     continue
@@ -778,12 +806,12 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
 @beartype
 def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> git.Repo:
     """
-    Clone the git repo at `repo` into an ephemeral repo.
+    Clone ``repo`` at ``sha`` into an ephemeral repo.
 
     Parameters
     ----------
     suffix : pathlib.Path
-        /tmp/.../ path suffix, e.g. `ki/local/`.
+        /tmp/.../ path suffix, e.g. ``ki/local/``.
     repo : git.Repo
         The git repository to clone.
     md5sum : str
@@ -807,20 +835,52 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> g
     ephem: git.Repo = git.Repo(target)
     ephem.git.reset(sha, hard=True)
 
-    # Un-submodule all the git submodules (convert to ordinary subdirectories).
-    for sm in ephem.submodules:
+    return ephem
+
+
+@beartype
+def get_submodule_paths(repo: git.Repo) -> List[Path]:
+    """
+    Return a list of submodule paths.
+
+    MUTATES ``repo`` in-place! (Calls ``sm.update()``.)
+    """
+    paths = []
+    for sm in repo.submodules:
+        sm.update()
+        assert sm.module_exists(), f"Module {sm.name} doesn't exist :("
+        sm_path = Path(sm.module().working_tree_dir)
+        paths.append(sm_path)
+
+    return paths
+
+
+
+@beartype
+def unsubmodule_repo(repo: git.Repo) -> None:
+    """
+    Un-submodule all the git submodules (convert to ordinary subdirectories).
+
+    MUTATES REPO in-place!
+    """
+    gitmodules_path = Path(repo.working_dir) / ".gitmodules"
+    for sm in repo.submodules:
         sm.update()
         assert sm.module_exists(), f"Module {sm.name} doesn't exist :("
 
         # Untrack, remove gitmodules file, remove .git file, and add directory back.
         sm_path = Path(sm.module().working_tree_dir)
-        ephem.git.rm(sm_path, cached=True)
-        ephem.git.rm(target / ".gitmodules")
+        repo.git.rm(sm_path, cached=True)
+        repo.git.rm(gitmodules_path)
         (sm_path / ".git").unlink()
-        ephem.git.add(sm_path)
-        _ = ephem.index.commit(f"Add submodule {sm.name} as ordinary directory.")
+        repo.git.add(sm_path)
+        _ = repo.index.commit(f"Add submodule {sm.name} as ordinary directory.")
 
-    return ephem
+    if gitmodules_path.exists():
+        repo.git.rm(gitmodules_path)
+        _ = repo.index.commit(f"Remove '.gitmodules' file.")
+
+    assert not gitmodules_path.exists()
 
 
 @beartype

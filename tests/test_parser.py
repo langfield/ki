@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import pytest
-import prettyprinter as pp
 
 from tqdm import tqdm
 from loguru import logger
