@@ -25,6 +25,7 @@ import hashlib
 import sqlite3
 import tempfile
 import warnings
+import itertools
 import functools
 import subprocess
 import collections
@@ -300,6 +301,21 @@ def pull() -> None:
     assert md5(colpath) == md5sum
     unlock(con)
 
+@beartype
+def get_models_recursively(root: Path) -> Dict[int, NotetypeDict]:
+    """Find and merge all ``models.json`` files recursively."""
+    all_new_models: Dict[int, NotetypeDict] = {}
+    for models_path in root.rglob(MODELS_FILENAME):
+
+        # Load notetypes from json file.
+        with open(models_path, "r", encoding="UTF-8") as models_file:
+            new_models: Dict[int, NotetypeDict] = json.load(models_file)
+
+        # Add mappings to dictionary.
+        all_new_models.update(new_models)
+
+    return all_new_models
+
 
 @ki.command()
 @beartype
@@ -352,8 +368,7 @@ def push() -> None:
         return
 
     # Read models from json file.
-    with open(models_path, "r", encoding="UTF-8") as models_file:
-        new_models: Dict[int, NotetypeDict] = json.load(models_file)
+    new_models = get_models_recursively(Path(staging_repo.working_dir))
 
     echo(f"Pushing to '{colpath}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -403,6 +418,7 @@ def push() -> None:
         # standalone function and tested without anything related to Anki.
         for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
             note_relpath = delta.path.relative_to(staging_repo.working_dir)
+            logger.debug(f"Delta path: {delta.path}")
 
             # If the file doesn't exist, parse its `nid` from its counterpart
             # in `deletions_repo`, and then delete using `apy`.
@@ -444,6 +460,9 @@ def push() -> None:
 
                     # Construct markdown file contents and write.
                     sort_fieldname = get_sort_fieldname(a, kinote.n.note_type())
+                    logger.debug(f"Deckpath: {repo_notepath.parent}")
+                    logger.debug(f"Note relative path: {note_relpath}")
+                    logger.debug(f"Repo working directory: {repo.working_dir}")
                     new_notepath = get_notepath(
                         kinote, sort_fieldname, repo_notepath.parent
                     )
@@ -743,6 +762,8 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
         hcommit = repo.head.commit
         last_push_commit = repo.commit(last_push_sha)
         diff_index = last_push_commit.diff(hcommit)
+        logger.debug(f"Last push: {last_push_commit}")
+        logger.debug(f"Diff index: {diff_index}")
         for change_type in GitChangeType:
             for diff in diff_index.iter_change_type(change_type.value):
                 a_path = Path(repo.working_dir) / diff.a_path
@@ -756,6 +777,7 @@ def get_note_files_changed_since_last_push(repo: git.Repo) -> Sequence[Delta]:
                     deltas.add(Delta(GitChangeType.RENAMED, b_path))
                 else:
                     deltas.add(Delta(change_type, b_path))
+        logger.debug(f"Deltas: {pprint.pformat(deltas)}")
 
     return list(deltas)
 
@@ -792,19 +814,17 @@ def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> g
     ephem: git.Repo = git.Repo(target)
     ephem.git.reset(sha, hard=True)
 
+    # Un-submodule all the git submodules (convert to ordinary subdirectories).
     for sm in ephem.submodules:
         sm.update()
         assert sm.module_exists(), f"Module {sm.name} doesn't exist :("
-        sm_copy_path = tempfile.mkdtemp()
-        shutil.move(sm.module().working_tree_dir, sm_copy_path)
-        _ = ephem.git.execute(
-            ["git", "submodule", "deinit", sm.name],
-            with_extended_output=True,
-            with_stdout=True,
-        )
-        ephem.git.rm(sm.name)
-        shutil.move(sm_copy_path, target / sm.name)
-        ephem.git.add(sm.name)
+
+        # Untrack, remove gitmodules file, remove .git file, and add directory back.
+        sm_path = Path(sm.module().working_tree_dir)
+        ephem.git.rm(sm_path, cached=True)
+        ephem.git.rm(target / ".gitmodules")
+        (sm_path / ".git").unlink()
+        ephem.git.add(sm_path)
         _ = ephem.index.commit(f"Add submodule {sm.name} as ordinary directory.")
 
     return ephem
