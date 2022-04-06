@@ -3,7 +3,7 @@
 Push architecture redesign.
 """
 
-# pylint: disable=invalid-name, unused-import, missing-class-docstring
+# pylint: disable=invalid-name, unused-import, missing-class-docstring, broad-except
 
 import os
 import re
@@ -213,7 +213,6 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeRepo:
         return MaybeRepo(msg)
     try:
         repo = git.Repo(current)
-    # pylint: disable=broad-except
     except Exception as err:
         return MaybeRepo(str(err))
     return MaybeRepo(repo)
@@ -261,14 +260,56 @@ def updates_rejected_message(colpath: Path) -> str:
 
 
 @beartype
+def get_ephemeral_repo(suffix: Path, repo: git.Repo, md5sum: str, sha: str) -> MaybeRepo:
+    """
+    Clone ``repo`` at ``sha`` into an ephemeral repo.
+
+    Parameters
+    ----------
+    suffix : pathlib.Path
+        /tmp/.../ path suffix, e.g. ``ki/local/``.
+    repo : git.Repo
+        The git repository to clone.
+    md5sum : str
+        The md5sum of the associated anki collection.
+    sha : str
+        The commit SHA to reset --hard to.
+
+    Returns
+    -------
+    git.Repo
+        The cloned repository.
+    """
+    root = Path(tempfile.mkdtemp()) / suffix
+    root.mkdir(parents=True)
+    root = ExtantDir(root)
+
+    target: Path = root / md5sum
+    branch = repo.active_branch
+
+    # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
+
+    # Do a reset --hard to the given SHA.
+    try:
+        ephem.git.reset(sha, hard=True)
+    except Exception as err:
+        return MaybeRepo(err)
+
+    return MaybeRepo(ephem)
+
+
+@beartype
 def IO(maybe: Maybe) -> Optional[Any]:
     """UNSAFE: Handles errors and aborts."""
-    logger.debug(f"Type of maybe.value '{maybe.value}': {type(maybe.value)}")
     if isinstance(maybe.value, maybe.type):
         return maybe.value
     assert isinstance(maybe.value, str)
     logger.error(maybe.value)
     raise ValueError(maybe.value)
+
+
+LOCAL_SUFFIX = Path("ki/local")
 
 
 @beartype
@@ -287,3 +328,7 @@ def _push() -> None:
     hashes: Hashes = IO(get_ki_hashes(root))
     if md5sum not in hashes:
         IO(updates_rejected_message(colpath))
+
+    sha = str(repo.head.commit)
+    staging_repo: MaybeRepo = get_ephemeral_repo(LOCAL_SUFFIX, repo, md5sum, sha)
+    staging_repo: git.Repo = IO(staging_repo)
