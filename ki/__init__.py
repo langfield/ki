@@ -136,7 +136,7 @@ def clone(collection: str, directory: str = "") -> None:
     # Clean up nicely if the call fails.
     try:
         repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
-        update_last_push_commit_sha(repo)
+        # update_last_push_commit_sha(repo)
     # pylint: disable=broad-except
     except Exception as err:
         echo(str(err))
@@ -861,7 +861,8 @@ def get_submodule_paths(repo: git.Repo) -> List[Path]:
 @beartype
 def unsubmodule_repo(repo: git.Repo) -> None:
     """
-    Un-submodule all the git submodules (convert to ordinary subdirectories).
+    Un-submodule all the git submodules (convert to ordinary subdirectories and
+    destroy commit history).
 
     MUTATES REPO in-place!
     """
