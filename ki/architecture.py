@@ -103,6 +103,7 @@ HINT = (
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
 LOCAL_SUFFIX = Path("ki/local")
 NO_SM_SUFFIX = Path("ki/no_submodules")
+DELETED_SUFFIX = Path("ki/deleted")
 NO_SM_GIT_SUFFIX = Path("ki/no_submodules_git")
 
 REMOTE_CONFIG_SECTION = "remote"
@@ -491,7 +492,10 @@ class MaybeKiRepoRef:
             msg = f"DANGER: '{KiRepoRef}' values should not be instantiated directly!"
             self.value = msg
             return
-        if not isinstance(self.value, Tuple[KiRepo, str]):
+        is_2_tuple = isinstance(self.value, tuple) and len(self.value) == 2
+        has_repo = isinstance(self.value[0], KiRepo)
+        has_ref = isinstance(self.value[1], str)
+        if not (is_2_tuple and has_repo and has_ref):
             return
 
         kirepo, sha = self.value
@@ -537,7 +541,10 @@ class MaybeRepoRef:
             msg = f"DANGER: '{RepoRef}' values should not be instantiated directly!"
             self.value = msg
             return
-        if not isinstance(self.value, Tuple[git.Repo, str]):
+        is_2_tuple = isinstance(self.value, tuple) and len(self.value) == 2
+        has_repo = isinstance(self.value[0], git.Repo)
+        has_ref = isinstance(self.value[1], str)
+        if not (is_2_tuple and has_repo and has_ref):
             return
 
         repo, sha = self.value
@@ -603,6 +610,28 @@ class MaybeHeadKiRepoRef:
 
 
 @beartype
+def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
+    """Get a temporary copy of a git repository in /tmp/<suffix>/."""
+    tempdir = fmkdtemp()
+    root = fforce_mkdir(Path(tempdir, suffix))
+
+    # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    repo: git.Repo = repo_ref.repo
+    branch = repo.active_branch
+    target: Path = root / md5sum
+
+    # UNSAFE: But only called here, and it should be guaranteed to work because
+    # ``repo`` is actually a git repository, presumably there is always an
+    # active branch, and ``target`` does not exist.
+    ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
+
+    # Do a reset --hard to the given SHA.
+    ephem.git.reset(repo_ref.sha, hard=True)
+
+    return ephem
+
+
+@beartype
 def get_ephemeral_kirepo(
     suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
 ) -> MaybeKiRepo:
@@ -625,26 +654,23 @@ def get_ephemeral_kirepo(
     KiRepo
         The cloned repository.
     """
-    tempdir = fmkdtemp()
-    root = fforce_mkdir(Path(tempdir, suffix))
-
-    # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
-    repo: git.Repo = kirepo_ref.kirepo.repo
-    branch = repo.active_branch
-    target: Path = root / md5sum
-
-    # UNSAFE: But only called here, so we'll let it slide.
-    ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
-
-    # Do a reset --hard to the given SHA.
-    ephem.git.reset(kirepo_ref.sha, hard=True)
+    ref: RepoRef = fkirepo_ref_to_repo_ref(kirepo_ref)
+    ephem: git.Repo = get_ephemeral_repo(suffix, ref, md5sum)
 
     # UNSAFE: We copy the .ki directory under the assumption that the ki
     # directory doesn't exist (it shouldn't).
-    copytree(kirepo_ref.kirepo.ki_dir, JUST(MaybeNoPath(target / KI)))
-    kirepo: MaybeKiRepo = get_ki_repo(target)
+    ephem_ki_dir = JUST(MaybeNoPath(working_dir(ephem) / KI))
+    copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
+    kirepo: MaybeKiRepo = get_ki_repo(working_dir(ephem))
 
     return kirepo
+
+
+@beartype
+def fkirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
+    """UNSAFE: fold a KiRepo get reference into a repo reference."""
+    return JUST(MaybeRepoRef((kirepo_ref.kirepo.repo, kirepo_ref.sha)))
+
 
 
 @beartype
@@ -655,8 +681,8 @@ def is_anki_note(path: ExtantFile) -> bool:
     # Ought to have markdown file extension.
     if path[-3:] != ".md":
         return False
-    with open(path, "r", encoding="UTF-8") as md_file:
-        lines = md_file.readlines()
+    with open(path, "r", encoding="UTF-8") as md_f:
+        lines = md_f.readlines()
     if len(lines) < 2:
         return False
     if lines[0] != "## Note\n":
@@ -704,26 +730,7 @@ class Delta:
     """The git delta for a single file."""
 
     status: GitChangeType
-    path: Path
-
-
-@beartype
-def get_deltas_since_init(
-    root: ExtantDir, ignore_fn: Callable[[Path], bool]
-) -> List[Delta]:
-    """
-    Get the list of all deltas (changed files) since the repo was initialized.
-    We just mark all non-ignored files as added.
-    """
-    p = subprocess.run(
-        ["find", ".", "-type", "f"],
-        cwd=root,
-        check=False,
-        capture_output=True,
-    )
-    paths = filter(ignore_fn, map(Path, p.stdout.decode().split()))
-    deltas = [Delta(GitChangeType.ADDED, path) for path in paths]
-    return deltas
+    path: ExtantFile
 
 
 @beartype
@@ -763,7 +770,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
 @beartype
 def get_deltas_since_last_push(
-    ref: RepoRef, ignore_fn: Callable[[Path], bool]
+        ref: RepoRef, md5sum: str, ignore_fn: Callable[[Path], bool]
 ) -> List[Delta]:
     """
     Get the list of all deltas (changed files) since the last time that ``ki
@@ -781,9 +788,11 @@ def get_deltas_since_last_push(
     """
     # Use a `DiffIndex` to get the changed files.
     deltas = []
-    repo = ref.repo
+    b_repo = ref.repo
 
-    diff_index = repo.commit(ref.sha).diff(repo.head.commit)
+    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, ref, md5sum)
+
+    diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
@@ -791,29 +800,44 @@ def get_deltas_since_last_push(
             # paths, using different working directories to instantiate them.
             # The ``a_path`` should be in ``last_push_repo`` and the ``b_path``
             # should be in ``ref.repo``.
-            a_path = working_dir(repo) / diff.a_path
-            b_path = working_dir(repo) / diff.b_path
+            a_path = ftest(working_dir(a_repo) / diff.a_path)
+            b_path = ftest(working_dir(b_repo) / diff.b_path)
             logger.debug(f"{a_path = }")
             logger.debug(f"{b_path = }")
 
             if not ignore_fn(a_path) or not ignore_fn(b_path):
                 continue
 
+            if change_type == GitChangeType.DELETED:
+                if not isinstance(a_path, ExtantFile):
+                    logger.warning(f"Deleted file not found in source commit: {a_path}")
+                    continue
+                deltas.append(Delta(change_type, a_path))
+                continue
+
+            if not isinstance(b_path, ExtantFile):
+                logger.warning(f"Diff target not found: {b_path}")
+
             deltas.append(Delta(change_type, b_path))
 
 
 @beartype
 def get_note_file_git_deltas(
-    root: ExtantDir, repo_ref: Optional[RepoRef], ignore_fn: Callable[[Path], bool]
+    root: ExtantDir,
+    repo_ref: Optional[RepoRef],
+    md5sum: str,
+    ignore_fn: Callable[[Path], bool],
 ) -> List[Delta]:
     """Gets a list of paths to modified/new/deleted note md files since commit."""
     deltas: List[Delta]
 
     # Treat case where there is no last push.
     if repo_ref is None:
-        deltas = get_deltas_since_init(root, ignore_fn)
+        files: List[ExtantFile] = frglob(root, "*")
+        files = map(ignore_fn, files)
+        deltas = [Delta(GitChangeType.ADDED, file) for file in files]
     else:
-        deltas = get_deltas_since_last_push(repo_ref, ignore_fn)
+        deltas = get_deltas_since_last_push(repo_ref, md5sum, ignore_fn)
 
     return deltas
 
@@ -844,7 +868,6 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[int, NotetypeDict]:
         all_new_models.update(new_models)
 
     return all_new_models
-
 
 
 Maybe = Union[
@@ -943,6 +966,6 @@ def _push() -> None:
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
     # Get deltas.
-    deltas: List[Delta] = get_note_file_git_deltas(kirepo.root, head_1, ignore_fn)
+    deltas = get_note_file_git_deltas(kirepo.root, head_1, md5sum, ignore_fn)
 
     new_models: Dict[int, NotetypeDict] = get_models_recursively(kirepo)
