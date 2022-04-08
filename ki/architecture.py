@@ -129,15 +129,6 @@ class ExtantStrangePath(type(Path())):
 
 @beartype
 @dataclass(frozen=True)
-class MaybePath:
-    """A pathlib.Path or an error message."""
-
-    value: Union[Path, str]
-    type: Type = Path
-
-
-@beartype
-@dataclass(frozen=True)
 class MaybeRepo:
     """A git.Repo or an error message."""
 
@@ -291,7 +282,7 @@ def ftest(path: Path) -> Union[ExtantFile, ExtantDir, ExtantStrangePath, NoPath]
         return JUST(MaybeExtantDir(path))
     if path.exists():
         return ExtantStrangePath(path)
-    return JUST(NoPath(path))
+    return JUST(MaybeNoPath(path))
 
 
 @beartype
@@ -823,15 +814,19 @@ def get_note_file_git_deltas(
 def get_head(repo: git.Repo) -> Optional[RepoRef]:
     """Get the HEAD ref, or None if it doesn't exist."""
     maybe_ref = MaybeHeadRepoRef(repo)
-    return None if isinstance(maybe_ref, str) else JUST(maybe_ref)
+    return None if isinstance(maybe_ref.value, str) else JUST(maybe_ref.value)
 
 
 Maybe = Union[
-    MaybePath,
-    MaybeRepo,
-    MaybeExtantFile,
+    MaybeNoPath,
     MaybeExtantDir,
+    MaybeExtantFile,
+    MaybeRepo,
     MaybeKiRepo,
+    MaybeRepoRef,
+    MaybeKiRepoRef,
+    MaybeHeadRepoRef,
+    MaybeHeadKiRepoRef,
 ]
 
 
@@ -854,7 +849,7 @@ def JUST(maybe: Maybe) -> Any:
     if not isinstance(maybe.value, maybe.type):
         msg = "JUST() called on an errored-out 'Maybe' value!\n"
         msg += f"A fundamental assumption (that maybe.value : '{maybe.value}' "
-        msg += "is always of type maybe.type : 'maybe.type') is wrong!"
+        msg += f"is always of type maybe.type : '{maybe.type}') is wrong!"
         raise TypeError(msg)
     return maybe.value
 
@@ -876,17 +871,17 @@ def _push() -> None:
         IO(updates_rejected_message(kirepo.col_file))
 
     # TODO: This may error if there is no head commit in the current repository.
-    kirepo_ref = IO(MaybeHeadKiRepoRef(kirepo.repo))
+    kirepo_ref = IO(MaybeHeadKiRepoRef(kirepo))
     staging_kirepo: KiRepo = IO(get_ephemeral_kirepo(LOCAL_SUFFIX, kirepo_ref, md5sum))
 
     # Copy .git folder out of existing .ki/no_submodules_tree into a temp directory.
     no_sm_git_path = JUST(MaybeNoPath(fmkdtemp() / NO_SM_GIT_SUFFIX))
-    no_sm_git_dir: ExtantDir = copytree(kirepo.no_modules_git_dir, no_sm_git_path)
+    no_sm_git_dir: ExtantDir = copytree(git_dir(kirepo.no_modules_repo), no_sm_git_path)
 
     # Shutil rmtree the entire thing.
     # ``kirepo`` now has a NoPath attribute where it should be extant,
     # so we delete the reference to avoid using an object with invalid type.
-    kirepo_no_modules_dir: NoPath = rmtree(kirepo.no_modules_dir)
+    kirepo_no_modules_dir: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
     del kirepo
 
     # Copy current kirepo into a temp directory.
@@ -896,7 +891,7 @@ def _push() -> None:
     unsubmodule_repo(no_sm_kirepo.repo)
 
     # Shutil rmtree the temp repo .git directory.
-    no_sm_kirepo_git_dir: NoPath = rmtree(no_sm_kirepo.git_dir)
+    no_sm_kirepo_git_dir: NoPath = rmtree(git_dir(no_sm_kirepo.repo))
     no_sm_kirepo_root: ExtantDir = no_sm_kirepo.root
     del no_sm_kirepo
 
@@ -918,4 +913,4 @@ def _push() -> None:
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
     # Get deltas.
-    get_note_file_git_deltas(kirepo, head_1, ignore_fn)
+    get_note_file_git_deltas(working_dir(kirepo.repo), head_1, ignore_fn)
