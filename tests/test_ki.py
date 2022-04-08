@@ -1620,7 +1620,7 @@ def test_push_architecture_writes_changes_correctly():
     collection_path = get_collection_path()
     old_notes = get_notes(collection_path)
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tempfile.mkdtemp()):
 
         # Clone collection in cwd.
         clone(runner, collection_path)

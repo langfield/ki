@@ -640,7 +640,7 @@ def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo
 @beartype
 def get_ephemeral_kirepo(
     suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
-) -> MaybeKiRepo:
+) -> KiRepo:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     ``kirepo.repo`` into a temp directory and hard reset to the given commit
@@ -667,7 +667,7 @@ def get_ephemeral_kirepo(
     # directory doesn't exist (it shouldn't).
     ephem_ki_dir = JUST(MaybeNoPath(working_dir(ephem) / KI))
     copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    kirepo: MaybeKiRepo = get_ki_repo(working_dir(ephem))
+    kirepo: KiRepo = JUST(get_ki_repo(working_dir(ephem)))
 
     return kirepo
 
@@ -703,18 +703,21 @@ def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
     for p in patterns:
         if p == path.name:
+            logger.warning(f"Ignoring {path} matching pattern {p}")
             return False
 
     # Ignore files that match a pattern in ``patterns`` ('*' not supported).
     for ignore_path in [root / p for p in patterns]:
         parents = [path.resolve()] + [p.resolve() for p in path.parents]
         if ignore_path.resolve() in parents:
+            logger.warning(f"Ignoring {path} matching pattern {ignore_path}")
             return False
 
     # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path)
         if not is_anki_note(file):
+            logger.warning(f"Not Anki note {file}")
             return False
 
     return True
@@ -802,9 +805,16 @@ def get_deltas_since_last_push(
     a_dir: ExtantDir = working_dir(a_repo)
     b_dir: ExtantDir = working_dir(b_repo)
 
+    logger.debug(f"Old ref: {ref.sha}")
+    logger.debug(f"New ref: {b_repo.head.commit.hexsha}")
+
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
+
+            if not ignore_fn(a_dir / diff.a_path) or not ignore_fn(a_dir / diff.b_path):
+                logger.warning(f"Ignoring:\n{diff.a_path}\n{diff.b_path}")
+                continue
 
             a_path = ftest(a_dir / diff.a_path)
             b_path = ftest(b_dir / diff.b_path)
@@ -815,20 +825,30 @@ def get_deltas_since_last_push(
             logger.debug(f"{a_path = }")
             logger.debug(f"{b_path = }")
 
-            if not ignore_fn(a_path) or not ignore_fn(b_path):
-                continue
-
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
                     logger.warning(f"Deleted file not found in source commit: {a_path}")
                     continue
+
                 deltas.append(Delta(change_type, a_path, a_relpath))
                 continue
 
+            if change_type == GitChangeType.RENAMED:
+                # UNSAFE!
+                a_flatnote: FlatNote = parse_markdown_notes(a_path)[0]
+                b_flatnote: FlatNote = parse_markdown_notes(b_path)[0]
+                if a_flatnote.nid != b_flatnote.nid:
+                    deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
+                    deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
+                    continue
+
             if not isinstance(b_path, ExtantFile):
                 logger.warning(f"Diff target not found: {b_path}")
+                continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
+
+    return deltas
 
 
 @beartype
@@ -843,14 +863,14 @@ def get_note_file_git_deltas(
 
     # Treat case where there is no last push.
     if repo_ref is None:
-        logger.warning(f"HEAD~1 is None, globbing and adding everything.")
+        logger.warning("HEAD~1 is None, globbing and adding everything.")
         files: List[ExtantFile] = frglob(root, "*")
         files = filter(ignore_fn, files)
         for file in files:
             # UNSAFE: relative_to() can raise a ValueError!
             deltas.append(Delta(GitChangeType.ADDED, file, file.relative_to(root)))
     else:
-        logger.debug(f"Calculating diff via gitpython.")
+        logger.debug("Calculating diff via gitpython.")
         deltas = get_deltas_since_last_push(repo_ref, md5sum, ignore_fn)
 
     return deltas
@@ -1123,6 +1143,48 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
     return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
+@beartype
+def update_no_submodules_tree(head: KiRepoRef, md5sum: str) -> KiRepo:
+    """
+    Update the contents of ``kirepo`` in ``.ki/no_submodules_tree``.
+    """
+
+    kirepo = head.kirepo
+    root = kirepo.root
+
+    # Copy .git folder out of existing .ki/no_submodules_tree into a temp directory.
+    no_sm_git_path = JUST(MaybeNoPath(fmkdtemp() / NO_SM_GIT_SUFFIX))
+    no_sm_git_dir: ExtantDir = copytree(git_dir(kirepo.no_modules_repo), no_sm_git_path)
+
+    # Shutil rmtree the entire thing.
+    # ``kirepo`` now has a NoPath attribute where it should be extant,
+    # so we delete the reference to avoid using an object with invalid type.
+    kirepo_no_modules_dir: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
+    del kirepo
+
+    # Copy current kirepo into a temp directory, hard reset to HEAD.
+    no_sm_kirepo: KiRepo = get_ephemeral_kirepo(NO_SM_SUFFIX, head, md5sum)
+
+    # Unsubmodule the temp repo.
+    unsubmodule_repo(no_sm_kirepo.repo)
+
+    # Shutil rmtree the temp repo .git directory.
+    no_sm_kirepo_git_dir: NoPath = rmtree(git_dir(no_sm_kirepo.repo))
+    no_sm_kirepo_root: ExtantDir = no_sm_kirepo.root
+    del no_sm_kirepo
+
+    # Copy the other .git folder back in.
+    copytree(no_sm_git_dir, no_sm_kirepo_git_dir)
+
+    # Copy the temporary repo into .ki/no_submodules_tree.
+    kirepo_no_modules_dir = copytree(no_sm_kirepo_root, kirepo_no_modules_dir)
+
+    # Reload top-level repo.
+    kirepo: KiRepo = IO(get_ki_repo(root))
+
+    return kirepo
+
+
 Maybe = Union[
     MaybeNoPath,
     MaybeExtantDir,
@@ -1183,37 +1245,8 @@ def _push() -> None:
     # Get reference to HEAD of current repo.
     head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
-    # Copy .git folder out of existing .ki/no_submodules_tree into a temp directory.
-    no_sm_git_path = JUST(MaybeNoPath(fmkdtemp() / NO_SM_GIT_SUFFIX))
-    no_sm_git_dir: ExtantDir = copytree(git_dir(kirepo.no_modules_repo), no_sm_git_path)
-
-    # Shutil rmtree the entire thing.
-    # ``kirepo`` now has a NoPath attribute where it should be extant,
-    # so we delete the reference to avoid using an object with invalid type.
-    kirepo_no_modules_dir: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
-    del kirepo
-
-    # Copy current kirepo into a temp directory, hard reset to HEAD.
-    no_sm_kirepo: KiRepo = IO(get_ephemeral_kirepo(NO_SM_SUFFIX, head, md5sum))
-
-    # Unsubmodule the temp repo.
-    unsubmodule_repo(no_sm_kirepo.repo)
-
-    # Shutil rmtree the temp repo .git directory.
-    no_sm_kirepo_git_dir: NoPath = rmtree(git_dir(no_sm_kirepo.repo))
-    no_sm_kirepo_root: ExtantDir = no_sm_kirepo.root
-    del no_sm_kirepo
-
-    # Copy the other .git folder back in.
-    copytree(no_sm_git_dir, no_sm_kirepo_git_dir)
-
-    # Copy the temporary repo into .ki/no_submodules_tree.
-    kirepo_no_modules_dir = copytree(no_sm_kirepo_root, kirepo_no_modules_dir)
-
-    # Reload top-level repo.
-    kirepo: KiRepo = IO(get_ki_repo(cwd))
-
     # Commit in no_submodules_tree.
+    kirepo: KiRepo = update_no_submodules_tree(head, md5sum)
     head_1: Optional[RepoRef] = get_head(kirepo.no_modules_repo)
     kirepo.no_modules_repo.git.add(all=True)
     kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
@@ -1222,7 +1255,7 @@ def _push() -> None:
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
     # This may error if there is no head commit in the current repository.
-    head_kirepo: KiRepo = IO(get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum))
+    head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Get deltas.
     deltas = get_note_file_git_deltas(head_kirepo.root, head_1, md5sum, ignore_fn)

@@ -68,6 +68,7 @@ from beartype.typing import (
     Generator,
 )
 
+import ki.architecture as ARCH
 from ki.note import KiNote
 from ki.transformer import NoteTransformer, FlatNote
 
@@ -226,6 +227,25 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
+
+    # ARCH STUFF. SHOULD NOT BE HERE, BECAUSE SHOULD NOT RUN DURING pull() CALLS.
+
+    # Check that we are inside a ki repository, and get the associated collection.
+    root: ARCH.ExtantDir = ARCH.ftest(targetdir)
+    kirepo: ARCH.KiRepo = ARCH.IO(ARCH.get_ki_repo(root))
+
+    md5sum: str = ARCH.md5(kirepo.col_file)
+    hashes: str = kirepo.hashes_file.read_text().split("\n")[-1]
+    if md5sum not in hashes:
+        ARCH.IO(ARCH.updates_rejected_message(kirepo.col_file))
+
+    # Get reference to HEAD of current repo.
+    head: ARCH.KiRepoRef = ARCH.IO(ARCH.MaybeHeadKiRepoRef(kirepo))
+
+    # Commit in no_submodules_tree.
+    kirepo: ARCH.KiRepo = ARCH.update_no_submodules_tree(head, md5sum)
+    kirepo.no_modules_repo.git.add(all=True)
+    kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
 
     return repo
 
