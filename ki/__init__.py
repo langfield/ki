@@ -590,6 +590,9 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
     of the KiNote, and it also assumes that the field names have not changed.
     """
     kinote.n.tags = flatnote.tags
+
+    # TODO: Can this raise an error? What if the deck is not in the collection?
+    # Should we create it? Probably.
     kinote.set_deck(flatnote.deck)
 
     # Get new notetype from collection (None if nonexistent).

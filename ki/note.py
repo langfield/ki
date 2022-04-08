@@ -80,6 +80,7 @@ class KiNote(Note):
     @beartype
     def set_deck(self, deck: str) -> None:
         """Move note to deck."""
+        # TODO: This can possibly raise an error. Check.
         newdid = self.a.col.decks.id(deck)
         cids = [c.id for c in self.n.cards()]
 

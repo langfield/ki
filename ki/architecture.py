@@ -8,42 +8,30 @@ Push architecture redesign.
 
 import os
 import re
-import sys
 import json
-import glob
-import pprint
 import shutil
 import logging
-import tarfile
 import hashlib
 import sqlite3
 import tempfile
-import warnings
-import itertools
 import functools
 import subprocess
-import collections
 import unicodedata
 import configparser
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
-import git
-from git.exc import GitCommandError
+import anki
 import click
-import gitdb
 import prettyprinter as pp
 from tqdm import tqdm
+from lark import Lark
 from loguru import logger
 from pyinstrument import Profiler
 
-from bs4 import MarkupResemblesLocatorWarning
-
-from lark import Lark, Transformer
-from lark.lexer import Token
-
-import anki
+import git
+from git.exc import GitCommandError
 
 from apy.anki import Anki
 from apy.convert import markdown_to_html, plain_to_html
@@ -315,7 +303,7 @@ def fparent(path: Union[ExtantFile, ExtantDir]) -> Union[ExtantFile, ExtantDir]:
     if path.resolve() == FS_ROOT:
         return JUST(MaybeExtantDir(FS_ROOT))
     if isinstance(path, ExtantFile):
-        return JUST(MaybeExtantFile(path.parent))
+        return JUST(MaybeExtantDir(path.parent))
     return JUST(MaybeExtantDir(path.parent))
 
 
@@ -323,6 +311,17 @@ def fparent(path: Union[ExtantFile, ExtantDir]) -> Union[ExtantFile, ExtantDir]:
 def fmkdtemp() -> ExtantDir:
     """Make a temporary directory (in /tmp)."""
     return JUST(MaybeExtantDir(Path(tempfile.mkdtemp())))
+
+
+# pylint: disable=unused-argument
+@beartype
+def fcopyfile(source: ExtantFile, target: Path, target_root: ExtantDir) -> ExtantFile:
+    """
+    Force copy a file (potentially overwrites the target path). May fail due to
+    permissions errors.
+    """
+    shutil.copyfile(source, target)
+    return JUST(MaybeExtantFile(target))
 
 
 @beartype
@@ -449,6 +448,13 @@ def lock(col_file: ExtantFile) -> sqlite3.Connection:
     con.isolation_level = "EXCLUSIVE"
     con.execute("BEGIN EXCLUSIVE")
     return con
+
+
+@beartype
+def unlock(con: sqlite3.Connection) -> None:
+    """Unlock a SQLite3 database."""
+    con.commit()
+    con.close()
 
 
 @beartype
@@ -731,6 +737,7 @@ class Delta:
 
     status: GitChangeType
     path: ExtantFile
+    relpath: Path
 
 
 @beartype
@@ -788,20 +795,23 @@ def get_deltas_since_last_push(
     """
     # Use a `DiffIndex` to get the changed files.
     deltas = []
-    b_repo = ref.repo
 
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, ref, md5sum)
+    b_repo: git.Repo = ref.repo
+
+    a_dir: ExtantDir = working_dir(a_repo)
+    b_dir: ExtantDir = working_dir(b_repo)
 
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            # TODO: Pass in the ``last_push_repo`` and call ``ftest()`` on both
-            # paths, using different working directories to instantiate them.
-            # The ``a_path`` should be in ``last_push_repo`` and the ``b_path``
-            # should be in ``ref.repo``.
-            a_path = ftest(working_dir(a_repo) / diff.a_path)
-            b_path = ftest(working_dir(b_repo) / diff.b_path)
+            a_path = ftest(a_dir / diff.a_path)
+            b_path = ftest(b_dir / diff.b_path)
+
+            a_relpath = Path(diff.a_path)
+            b_relpath = Path(diff.b_path)
+
             logger.debug(f"{a_path = }")
             logger.debug(f"{b_path = }")
 
@@ -812,13 +822,13 @@ def get_deltas_since_last_push(
                 if not isinstance(a_path, ExtantFile):
                     logger.warning(f"Deleted file not found in source commit: {a_path}")
                     continue
-                deltas.append(Delta(change_type, a_path))
+                deltas.append(Delta(change_type, a_path, a_relpath))
                 continue
 
             if not isinstance(b_path, ExtantFile):
                 logger.warning(f"Diff target not found: {b_path}")
 
-            deltas.append(Delta(change_type, b_path))
+            deltas.append(Delta(change_type, b_path, b_relpath))
 
 
 @beartype
@@ -829,14 +839,18 @@ def get_note_file_git_deltas(
     ignore_fn: Callable[[Path], bool],
 ) -> List[Delta]:
     """Gets a list of paths to modified/new/deleted note md files since commit."""
-    deltas: List[Delta]
+    deltas: List[Delta] = []
 
     # Treat case where there is no last push.
     if repo_ref is None:
+        logger.warning(f"HEAD~1 is None, globbing and adding everything.")
         files: List[ExtantFile] = frglob(root, "*")
         files = filter(ignore_fn, files)
-        deltas = [Delta(GitChangeType.ADDED, file) for file in files]
+        for file in files:
+            # UNSAFE: relative_to() can raise a ValueError!
+            deltas.append(Delta(GitChangeType.ADDED, file, file.relative_to(root)))
     else:
+        logger.debug(f"Calculating diff via gitpython.")
         deltas = get_deltas_since_last_push(repo_ref, md5sum, ignore_fn)
 
     return deltas
@@ -868,6 +882,245 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[int, NotetypeDict]:
         all_new_models.update(new_models)
 
     return all_new_models
+
+
+@beartype
+def display_fields_health_warning(note: anki.notes.Note) -> int:
+    """Display warnings when Anki's fields health check fails."""
+    health = note.fields_check()
+    if health == 1:
+        logger.warning(f"Found empty note:\n {note}")
+        logger.warning(f"Fields health check code: {health}")
+    elif health == 2:
+        logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
+        logger.warning(f"Notetype/fields of note {note.id} match existing note.")
+        logger.warning("Note was not added to collection!")
+        logger.warning(f"First field: {note.fields[0]}")
+        logger.warning(f"Fields health check code: {health}")
+    elif health != 0:
+        logger.error(f"Failed to process note '{note.id}'.")
+        logger.error(f"Note failed fields check with unknown error code: {health}")
+    return health
+
+
+# UNREFACTORED
+
+@beartype
+def parse_markdown_notes(notes_file: ExtantFile) -> List[FlatNote]:
+    """Parse with lark."""
+    # Read grammar.
+    # UNSAFE! Should we assume this always exists? A nice error message should
+    # be printed on initialization if the grammar file is missing. No
+    # computation should be done, and none of the click commands should work.
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+
+    # Instantiate parser.
+    parser = Lark(grammar, start="file", parser="lalr")
+    transformer = NoteTransformer()
+    tree = parser.parse(notes_file.read_text(encoding="UTF-8"))
+    flatnotes: List[FlatNote] = transformer.transform(tree)
+    return flatnotes
+
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
+    """
+    Update an `apy` Note in a collection.
+
+    Currently fails if the model has changed. It does not update the model name
+    of the KiNote, and it also assumes that the field names have not changed.
+    """
+    kinote.n.tags = flatnote.tags
+
+    # TODO: Can this raise an error? What if the deck is not in the collection?
+    # Should we create it? Probably.
+    kinote.set_deck(flatnote.deck)
+
+    # Get new notetype from collection (None if nonexistent).
+    notetype: Optional[NotetypeDict] = kinote.n.col.models.by_name(flatnote.model)
+
+    # If notetype doesn't exist, raise an error.
+    if notetype is None:
+        msg = f"Notetype '{flatnote.model}' doesn't exist. "
+        msg += "Create it in Anki before adding notes via ki."
+        raise FileNotFoundError(msg)
+
+    # Validate field keys against notetype.
+    old_model = kinote.n.note_type()
+    validate_flatnote_fields(old_model, flatnote)
+
+    # Set field values.
+    for key, field in flatnote.fields.items():
+        if flatnote.markdown:
+            kinote.n[key] = markdown_to_html(field)
+        else:
+            kinote.n[key] = plain_to_html(field)
+
+    # Flush note, mark collection as modified, and display any warnings.
+    kinote.n.flush()
+    kinote.a.modified = True
+    display_fields_health_warning(kinote.n)
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> None:
+    """Validate that the fields given in the note match the notetype."""
+    # Set current notetype for collection to `model_name`.
+    model_field_names = [field["name"] for field in model["flds"]]
+
+    if len(flatnote.fields.keys()) != len(model_field_names):
+        logger.error(f"Not enough fields for model {flatnote.model}!")
+        raise ValueError
+
+    for x, y in zip(model_field_names, flatnote.fields.keys()):
+        if x != y:
+            logger.error("Inconsistent field names " f"({x} != {y})")
+            raise ValueError
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
+    """Add a note given its FlatNote representation, provided it passes health check."""
+    # TODO: Does this assume model exists?
+    model = a.set_model(flatnote.model)
+    validate_flatnote_fields(model, flatnote)
+
+    # Note that we call ``a.set_model(flatnote.model)`` above, so the current
+    # model is the model given in ``flatnote``.
+    notetype = a.col.models.current(for_deck=False)
+    note = a.col.new_note(notetype)
+
+    # Create new deck if deck does not exist.
+    note.note_type()["did"] = a.col.decks.id(flatnote.deck)
+
+    if flatnote.markdown:
+        note.fields = [markdown_to_html(x) for x in flatnote.fields.values()]
+    else:
+        note.fields = [plain_to_html(x) for x in flatnote.fields.values()]
+
+    for tag in flatnote.tags:
+        note.add_tag(tag)
+
+    health = display_fields_health_warning(note)
+
+    result = None
+    if health == 0:
+        a.col.addNote(note)
+        a.modified = True
+        result = KiNote(a, note)
+
+    return result
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def get_sort_field_name(a: Anki, notetype: Dict[str, Any]) -> str:
+    """Return the sort field name of a model."""
+    assert notetype is not None
+
+    # Get fieldmap from notetype.
+    fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
+    fieldmap = a.col.models.field_map(notetype)
+
+    # Map field indices to field names.
+    fieldnames: Dict[int, str] = {}
+    for fieldname, (idx, _) in fieldmap.items():
+        assert idx not in fieldnames
+        fieldnames[idx] = fieldname
+
+    # Get sort fieldname.
+    sort_idx = a.col.models.sort_idx(notetype)
+    return fieldnames[sort_idx]
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def get_note_path(kinote: KiNote, sort_fieldname: str, deck_path: Path) -> Path:
+    """Get note_path from sort field name."""
+    # Get the filename for this note.
+    assert sort_fieldname in kinote.n
+    field_text = kinote.n[sort_fieldname]
+
+    # Construct filename, stripping HTML tags and sanitizing (quickly).
+    field_text = plain_to_html(field_text)
+    field_text = re.sub("<[^<]+?>", "", field_text)
+    filename = field_text[:MAX_FIELNAME_LEN]
+    filename = slugify(filename, allow_unicode=True)
+    basepath = deck_path / f"{filename}"
+    note_path = basepath.with_suffix(".md")
+
+    i = 1
+    while note_path.exists():
+        note_path = Path(f"{basepath}_{i}").with_suffix(".md")
+        i += 1
+
+    return note_path
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def backup(col_file: ExtantFile) -> None:
+    """Backup collection to `.ki/backups`."""
+    md5sum = md5(col_file)
+    backupsdir = Path.cwd() / ".ki" / "backups"
+    assert not backupsdir.is_file()
+    if not backupsdir.is_dir():
+        backupsdir.mkdir()
+    backup_path = backupsdir / f"{md5sum}.anki2"
+    if backup_path.is_file():
+        click.secho("Backup already exists.", bold=True)
+        return
+    assert not backup_path.is_file()
+    echo(f"Writing backup of .anki2 file to '{backupsdir}'")
+    shutil.copyfile(col_file, backup_path)
+    assert backup_path.is_file()
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def append_md5sum(
+    kidir: Path, colpath: Path, md5sum: str, silent: bool = False
+) -> None:
+    """Append an md5sum hash to the hashes file."""
+    hashes_path = kidir / "hashes"
+    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
+        hashes_file.write(f"{md5sum}  {colpath.name}")
+    echo(f"Wrote md5sum to '{hashes_path}'", silent)
+
+
+@beartype
+def echo(string: str, silent: bool = False) -> None:
+    """Call `click.secho()` with formatting."""
+    if not silent:
+        # click.secho(string, bold=True)
+        logger.info(string)
+
+
+@beartype
+def slugify(value: str, allow_unicode: bool = False) -> str:
+    """
+    Taken from https://github.com/django/django/blob/master/django/utils/text.py
+    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
+    dashes to single dashes. Remove characters that aren't alphanumerics,
+    underscores, or hyphens. Convert to lowercase. Also strip leading and
+    trailing whitespace, dashes, and underscores.
+    """
+    value = str(value)
+    if allow_unicode:
+        value = unicodedata.normalize("NFKC", value)
+    else:
+        value = (
+            unicodedata.normalize("NFKD", value)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+    value = re.sub(r"[^\w\s-]", "", value.lower())
+    return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
 Maybe = Union[
@@ -913,6 +1166,10 @@ def JUST(maybe: Maybe) -> Any:
 @beartype
 def _push() -> None:
     """Push a ki repository into a .anki2 file."""
+    pp.install_extras()
+    profiler = Profiler()
+    profiler.start()
+
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
     kirepo: KiRepo = IO(get_ki_repo(cwd))
@@ -923,9 +1180,8 @@ def _push() -> None:
     if md5sum not in hashes:
         IO(updates_rejected_message(kirepo.col_file))
 
-    # TODO: This may error if there is no head commit in the current repository.
-    kirepo_ref = IO(MaybeHeadKiRepoRef(kirepo))
-    staging_kirepo: KiRepo = IO(get_ephemeral_kirepo(LOCAL_SUFFIX, kirepo_ref, md5sum))
+    # Get reference to HEAD of current repo.
+    head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
     # Copy .git folder out of existing .ki/no_submodules_tree into a temp directory.
     no_sm_git_path = JUST(MaybeNoPath(fmkdtemp() / NO_SM_GIT_SUFFIX))
@@ -937,8 +1193,8 @@ def _push() -> None:
     kirepo_no_modules_dir: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
     del kirepo
 
-    # Copy current kirepo into a temp directory.
-    no_sm_kirepo: KiRepo = IO(get_ephemeral_kirepo(NO_SM_SUFFIX, kirepo_ref, md5sum))
+    # Copy current kirepo into a temp directory, hard reset to HEAD.
+    no_sm_kirepo: KiRepo = IO(get_ephemeral_kirepo(NO_SM_SUFFIX, head, md5sum))
 
     # Unsubmodule the temp repo.
     unsubmodule_repo(no_sm_kirepo.repo)
@@ -957,7 +1213,7 @@ def _push() -> None:
     # Reload top-level repo.
     kirepo: KiRepo = IO(get_ki_repo(cwd))
 
-    # Commit.
+    # Commit in no_submodules_tree.
     head_1: Optional[RepoRef] = get_head(kirepo.no_modules_repo)
     kirepo.no_modules_repo.git.add(all=True)
     kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
@@ -965,7 +1221,137 @@ def _push() -> None:
     # Get filter function.
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
-    # Get deltas.
-    deltas = get_note_file_git_deltas(kirepo.root, head_1, md5sum, ignore_fn)
+    # This may error if there is no head commit in the current repository.
+    head_kirepo: KiRepo = IO(get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum))
 
-    new_models: Dict[int, NotetypeDict] = get_models_recursively(kirepo)
+    # Get deltas.
+    deltas = get_note_file_git_deltas(head_kirepo.root, head_1, md5sum, ignore_fn)
+    new_models: Dict[int, NotetypeDict] = get_models_recursively(head_kirepo)
+
+    logger.debug(f"Deltas:\n{pp.pformat(deltas)}")
+
+    echo(f"Pushing to '{kirepo.col_file}'")
+    echo(f"Computed md5sum: {md5sum}")
+    echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
+
+    # Copy collection to a temp directory.
+    temp_col_dir = fmkdtemp()
+    new_col_file = temp_col_dir / kirepo.col_file.name
+    new_col_file: ExtantFile = fcopyfile(kirepo.col_file, new_col_file, temp_col_dir)
+    head: Optional[RepoRef] = get_head(kirepo.repo)
+    sha: Optional[str] = None if head is None else head.sha
+    echo(f"Generating local .anki2 file from latest commit: {sha}")
+    echo(f"Writing changes to '{new_col_file}'...")
+
+    # Edit the copy with `apy`.
+    with Anki(path=new_col_file) as a:
+
+        # Add all new models.
+        for new_model in new_models.values():
+            # NOTE: Mutates ``new_model`` (appends checksum to name).
+            # UNSAFE: Potential KeyError!
+            # This can be fixed by writing a strict type for NotetypeDict.
+            if a.col.models.id_for_name(new_model["name"]) is None:
+                a.col.models.ensure_name_unique(new_model)
+                a.col.models.add(new_model)
+
+        # Gather logging statements to display.
+        log: List[str] = []
+        new_nid_path_map = {}
+
+        p = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
+            check=False,
+            capture_output=True,
+        )
+        _stash_ref = p.stdout.decode()
+
+        # Stash both unstaged and staged files (including untracked).
+        kirepo.repo.git.stash(include_untracked=True, keep_index=True)
+        kirepo.repo.git.reset("HEAD", hard=True)
+
+        # TODO: All this logic can be abstracted away from the process of
+        # actually parsing notes and constructing Anki-specific objects. This
+        # is just a series of filesystem ops. They should be put in a
+        # standalone function and tested without anything related to Anki.
+        for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
+
+            # If the file doesn't exist, parse its `nid` and then remove.
+            if delta.status == GitChangeType.DELETED:
+                flatnotes = parse_markdown_notes(delta.path)
+                nids = [flatnote.nid for flatnote in flatnotes]
+                a.col.remove_notes(nids)
+                a.modified = True
+                continue
+
+            # Get flatnote from parser, and add/edit/delete in collection.
+            flatnotes = parse_markdown_notes(delta.path)
+            assert len(flatnotes) == 1
+            flatnote = flatnotes[0]
+
+            # If a kinote with this nid exists in DB, update it.
+            # TODO: If relevant prefix of sort field has changed, we regenerate
+            # the file. Recall that the sort field is used to determine the
+            # filename. If the content of the sort field has changed, then we
+            # may need to update the filename.
+            try:
+                kinote: KiNote = KiNote(a, a.col.get_note(flatnote.nid))
+                update_kinote(kinote, flatnote)
+
+            # Otherwise, we generate/reassign an nid for it.
+            except anki.errors.NotFoundError:
+                kinote: Optional[KiNote] = add_note_from_flatnote(a, flatnote)
+
+                if kinote is not None:
+                    log.append(f"Reassigned nid: '{flatnote.nid}' -> '{kinote.n.id}'")
+
+                    # Get paths to note in local repo, as distinct from staging repo.
+                    repo_note_path: Path = kirepo.root / delta.relpath
+
+                    # If this is not an entirely new file, remove it.
+                    if repo_note_path.is_file():
+                        repo_note_path.unlink()
+
+                    # Construct markdown file contents and write.
+                    sort_field_name = get_sort_field_name(a, kinote.n.note_type())
+                    new_note_path = get_note_path(
+                        kinote, sort_field_name, repo_note_path.parent
+                    )
+                    new_note_path.write_text(str(kinote), encoding="UTF-8")
+
+                    new_note_relpath = os.path.relpath(new_note_path, kirepo.root)
+                    new_nid_path_map[kinote.n.id] = new_note_relpath
+
+        if len(new_nid_path_map) > 0:
+            # Consider moving this into a function.
+            msg = "Generated new nid(s).\n\n"
+            for new_nid, path in new_nid_path_map.items():
+                msg += f"Wrote note '{new_nid}' in file {path}\n"
+            kirepo.repo.git.add(all=True)
+            _ = kirepo.repo.index.commit(msg)
+
+        p = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
+            check=False,
+            capture_output=True,
+        )
+        _new_stash_ref = p.stdout.decode()
+
+        # Display warnings.
+        for line in log:
+            logger.warning(line)
+
+    # Backup collection file and overwrite collection.
+    backup(kirepo.col_file)
+    new_col_file = fcopyfile(new_col_file, kirepo.col_file, fparent(kirepo.col_file))
+    echo(f"Overwrote '{kirepo.col_file}'")
+
+    # Append to hashes file.
+    new_md5sum = md5(new_col_file)
+    append_md5sum(cwd / KI, new_col_file, new_md5sum, silent=True)
+
+    # Unlock Anki SQLite DB.
+    unlock(con)
+
+    profiler.stop()
+    profiler.output_html()
