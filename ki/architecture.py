@@ -834,7 +834,7 @@ def get_note_file_git_deltas(
     # Treat case where there is no last push.
     if repo_ref is None:
         files: List[ExtantFile] = frglob(root, "*")
-        files = map(ignore_fn, files)
+        files = filter(ignore_fn, files)
         deltas = [Delta(GitChangeType.ADDED, file) for file in files]
     else:
         deltas = get_deltas_since_last_push(repo_ref, md5sum, ignore_fn)
@@ -850,8 +850,8 @@ def get_head(repo: git.Repo) -> Optional[RepoRef]:
 
 
 def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
-    """Call root.rglob()."""
-    return [JUST(MaybeExtantFile(path)) for path in root.rglob(pattern)]
+    """Call root.rglob() and returns only files."""
+    return filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
 
 
 @beartype
