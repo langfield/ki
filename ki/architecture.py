@@ -86,6 +86,8 @@ BACKUPS_DIR = "backups"
 LAST_PUSH_FILE = "last_push"
 NO_SM_DIR = "no_submodules_tree"
 
+MODELS_FILE = "models.json"
+
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -99,7 +101,6 @@ HINT = (
     + "hint: 'ki pull ...') before pushing again."
 )
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
-MODELS_FILENAME = "models.json"
 LOCAL_SUFFIX = Path("ki/local")
 NO_SM_SUFFIX = Path("ki/no_submodules")
 NO_SM_GIT_SUFFIX = Path("ki/no_submodules_git")
@@ -234,6 +235,7 @@ class KiRepo:
     backups_dir: ExtantDir
     config_file: ExtantFile
     hashes_file: ExtantFile
+    models_file: ExtantFile
     no_modules_repo: git.Repo
 
 
@@ -409,6 +411,11 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
     elif not isinstance(no_modules_dir, ExtantDir):
         return MaybeKiRepo(f"Not found or not a directory: {no_modules_dir}")
 
+    # Get path to models file.
+    models_file = ftest(root / MODELS_FILE)
+    if not isinstance(models_file, ExtantFile):
+        return MaybeKiRepo(f"Not found or not a file: {models_file}")
+
     # Try to get no_submodules_tree repo.
     maybe_no_modules_repo: MaybeRepo = get_repo(no_modules_dir)
     if isinstance(maybe_no_modules_repo.value, git.Repo):
@@ -428,6 +435,7 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
             backups_dir,
             config_file,
             hashes_file,
+            models_file,
             no_modules_repo,
         )
     )
@@ -797,9 +805,9 @@ def get_deltas_since_last_push(
 @beartype
 def get_note_file_git_deltas(
     root: ExtantDir, repo_ref: Optional[RepoRef], ignore_fn: Callable[[Path], bool]
-) -> Sequence[Delta]:
+) -> List[Delta]:
     """Gets a list of paths to modified/new/deleted note md files since commit."""
-    deltas: Iterator[Delta]
+    deltas: List[Delta]
 
     # Treat case where there is no last push.
     if repo_ref is None:
@@ -814,7 +822,29 @@ def get_note_file_git_deltas(
 def get_head(repo: git.Repo) -> Optional[RepoRef]:
     """Get the HEAD ref, or None if it doesn't exist."""
     maybe_ref = MaybeHeadRepoRef(repo)
-    return None if isinstance(maybe_ref.value, str) else JUST(maybe_ref.value)
+    return None if isinstance(maybe_ref.value, str) else JUST(maybe_ref)
+
+
+def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
+    """Call root.rglob()."""
+    return [JUST(MaybeExtantFile(path)) for path in root.rglob(pattern)]
+
+
+@beartype
+def get_models_recursively(kirepo: KiRepo) -> Dict[int, NotetypeDict]:
+    """Find and merge all ``models.json`` files recursively."""
+    all_new_models: Dict[int, NotetypeDict] = {}
+
+    # Load notetypes from json files.
+    for models_file in frglob(kirepo.root, MODELS_FILE):
+        with open(models_file, "r", encoding="UTF-8") as models_f:
+            new_models: Dict[int, NotetypeDict] = json.load(models_f)
+
+        # Add mappings to dictionary.
+        all_new_models.update(new_models)
+
+    return all_new_models
+
 
 
 Maybe = Union[
@@ -913,4 +943,6 @@ def _push() -> None:
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
     # Get deltas.
-    get_note_file_git_deltas(working_dir(kirepo.repo), head_1, ignore_fn)
+    deltas: List[Delta] = get_note_file_git_deltas(kirepo.root, head_1, ignore_fn)
+
+    new_models: Dict[int, NotetypeDict] = get_models_recursively(kirepo)
