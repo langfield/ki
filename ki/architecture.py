@@ -468,9 +468,16 @@ def md5(path: ExtantFile) -> str:
 
 
 @beartype
-def updates_rejected_message(col_file: Path) -> str:
+@dataclass
+class MaybeError:
+    value: str
+    type: Type = type(None)
+
+
+@beartype
+def updates_rejected_message(col_file: Path) -> MaybeError:
     """Generate need-to-pull message."""
-    return f"Failed to push some refs to '{col_file}'\n{HINT}"
+    return MaybeError(f"Failed to push some refs to '{col_file}'\n{HINT}")
 
 
 @beartype
@@ -760,7 +767,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         sm.update()
 
         # Guaranteed to exist by gitpython.
-        sm_path: ExtantDir = JUST(MaybeExtantDir(sm.module().working_tree_dir))
+        sm_path: ExtantDir = JUST(MaybeExtantDir(Path(sm.module().working_tree_dir)))
         repo.git.rm(sm_path, cached=True)
 
         # May not exist.
@@ -1196,6 +1203,7 @@ def update_no_submodules_tree(head: KiRepoRef, md5sum: str) -> KiRepo:
 
 
 Maybe = Union[
+    MaybeError,
     MaybeNoPath,
     MaybeExtantDir,
     MaybeExtantFile,
@@ -1388,7 +1396,7 @@ def _push() -> None:
 
     # Append to hashes file.
     new_md5sum = md5(new_col_file)
-    append_md5sum(cwd / KI, new_col_file, new_md5sum, silent=True)
+    append_md5sum(kirepo.ki_dir, new_col_file, new_md5sum, silent=True)
 
     # Unlock Anki SQLite DB.
     unlock(con)
