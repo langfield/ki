@@ -8,6 +8,7 @@ Push architecture redesign.
 
 import os
 import re
+import glob
 import json
 import shutil
 import logging
@@ -105,6 +106,10 @@ class ExtantDir(type(Path())):
     """UNSAFE: Indicates that dir *was* extant when it was resolved."""
 
 
+class EmptyDir(ExtantDir):
+    """UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved."""
+
+
 class NoPath(type(Path())):
     """UNSAFE: Indicates that path *was not* extant when it was resolved."""
 
@@ -200,9 +205,47 @@ class MaybeExtantDir:
         elif not self.value.is_dir():
             self.value = f"Extant but not a directory: {path}"
 
-        # Must be an extant file.
+        # Must be an extant directory.
         else:
             self.value = ExtantDir(path)
+
+
+@beartype
+def is_empty(directory: ExtantDir) -> bool:
+    """Check if directory is empty, quickly."""
+    return not next(os.scandir(directory), None)
+
+
+@beartype
+@dataclass
+class MaybeEmptyDir:
+    value: Union[Path, EmptyDir, str]
+    type: Type = EmptyDir
+
+    def __post_init__(self):
+        """Validate input."""
+        # Beartype ensures this is Path or str. If str, then it's an error message.
+        if not isinstance(self.value, Path):
+            return
+
+        # Resolve path.
+        path = self.value.resolve()
+
+        # Check that path exists and is a directory.
+        if not self.value.exists():
+            self.value = f"File or directory not found: {path}"
+        elif self.value.is_file():
+            self.value = f"Expected directory, got file: {path}"
+        elif not self.value.is_dir():
+            self.value = f"Extant but not a directory: {path}"
+
+        # Must be an extant file.
+        else:
+            directory = ExtantDir(path)
+            if not is_empty(directory):
+                self.value = f"Directory, but not empty: {directory}"
+            else:
+                self.value = EmptyDir(directory)
 
 
 @beartype
@@ -260,7 +303,7 @@ def fcwd() -> ExtantDir:
 
 
 @beartype
-def ftest(path: Path) -> Union[ExtantFile, ExtantDir, ExtantStrangePath, NoPath]:
+def ftest(path: Path) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
     """
     Test whether ``path`` is a file, a directory, or something else. If
     something else, we consider that, for the sake of simplicity, a
@@ -269,7 +312,10 @@ def ftest(path: Path) -> Union[ExtantFile, ExtantDir, ExtantStrangePath, NoPath]
     if path.is_file():
         return JUST(MaybeExtantFile(path))
     if path.is_dir():
-        return JUST(MaybeExtantDir(path))
+        directory = JUST(MaybeExtantDir(path))
+        if is_empty(directory):
+            return JUST(MaybeEmptyDir(path))
+        return directory
     if path.exists():
         return ExtantStrangePath(path)
     return JUST(MaybeNoPath(path))
@@ -1107,6 +1153,136 @@ def append_md5sum(
 
 
 @beartype
+def create_deckpath(deckname: str, targetdir: Path) -> Path:
+    """Construct path to deck directory and create it."""
+    # Strip leading periods so we don't get hidden folders.
+    components = deckname.split("::")
+    components = [re.sub(r"^\.", r"", comp) for comp in components]
+    deckpath = Path(targetdir, *components)
+    deckpath.mkdir(parents=True, exist_ok=True)
+    return deckpath
+
+
+@beartype
+def get_field_note_id(nid: int, fieldname: str) -> str:
+    """A str ID that uniquely identifies field-note pairs."""
+    return f"{nid}{slugify(fieldname, allow_unicode=True)}"
+
+
+@beartype
+def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
+@beartype
+def write_notes(colpath: Path, targetdir: Path, silent: bool):
+    """Write notes to appropriate directories in ``targetdir``."""
+    # Create temp directory for htmlfield text files.
+    root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
+    root.mkdir(parents=True, exist_ok=True)
+
+    paths: Dict[str, Path] = {}
+    decks: Dict[str, List[KiNote]] = {}
+
+    # Open deck with `apy`, and dump notes and markdown files.
+    with Anki(path=colpath) as a:
+        all_nids = list(a.col.find_notes(query=""))
+        for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
+            kinote = KiNote(a, a.col.get_note(nid))
+            decks[kinote.deck] = decks.get(kinote.deck, []) + [kinote]
+            for fieldname, fieldtext in kinote.fields.items():
+                if re.search(HTML_REGEX, fieldtext):
+                    fid = get_field_note_id(nid, fieldname)
+                    paths[fid] = root / fid
+                    paths[fid].write_text(fieldtext)
+
+        tidy_html_recursively(root, silent)
+
+        # Write models to disk.
+        models_map: Dict[int, NotetypeDict] = {}
+        for model in a.col.models.all():
+            model_id = a.col.models.id_for_name(model["name"])
+            assert model_id is not None
+            models_map[model_id] = model
+
+        with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
+            json.dump(models_map, f, ensure_ascii=False, indent=4)
+
+        deck_model_ids: Set[int] = set()
+        for deckname in sorted(set(decks.keys()), key=len, reverse=True):
+            deckpath = create_deckpath(deckname, targetdir)
+            for kinote in decks[deckname]:
+
+                # Add the notetype id.
+                model = kinote.n.note_type()
+                model_id = a.col.models.id_for_name(model["name"])
+                deck_model_ids.add(model_id)
+
+                sort_fieldname = get_sort_field_name(a, model)
+                notepath = get_note_path(kinote, sort_fieldname, deckpath)
+                payload = get_tidy_payload(kinote, paths)
+                notepath.write_text(payload, encoding="UTF-8")
+
+            # Write ``models.json`` for current deck.
+            deck_models_map = {mid: models_map[mid] for mid in deck_model_ids}
+            with open(deckpath / MODELS_FILE, "w", encoding="UTF-8") as f:
+                json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+
+    shutil.rmtree(root)
+
+
+@beartype
+def get_tidy_payload(kinote: KiNote, paths: Dict[str, Path]) -> str:
+    """Get the payload for the note (HTML-tidied if necessary)."""
+    # Get tidied html if it exists.
+    tidyfields = {}
+    for fieldname, fieldtext in kinote.fields.items():
+        fid = get_field_note_id(kinote.n.id, fieldname)
+        if fid in paths:
+            tidyfields[fieldname] = paths[fid].read_text()
+        else:
+            tidyfields[fieldname] = fieldtext
+
+    # Construct note repr from tidyfields map.
+    lines = kinote.get_header_lines()
+    for fieldname, fieldtext in tidyfields.items():
+        lines.append("### " + fieldname)
+        lines.append(fieldtext)
+        lines.append("")
+
+    # Dump payload to filesystem.
+    return "\n".join(lines)
+
+
+
+@beartype
+def git_subprocess_pull(remote: str, branch: str) -> int:
+    """Pull remote into branch using a subprocess call."""
+    p = subprocess.run(
+        [
+            "git",
+            "pull",
+            "-v",
+            "--allow-unrelated-histories",
+            "--strategy-option",
+            "theirs",
+            remote,
+            branch,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    pull_stderr = p.stderr.decode()
+    logger.debug(f"\n{pull_stderr}")
+    logger.debug(f"Return code: {p.returncode}")
+    if p.returncode != 0:
+        raise ValueError(pull_stderr)
+    return p.returncode
+
+
+@beartype
 def echo(string: str, silent: bool = False) -> None:
     """Call `click.secho()` with formatting."""
     if not silent:
@@ -1200,6 +1376,234 @@ def JUST(maybe: Maybe) -> Any:
         msg += f"is always of type maybe.type : '{maybe.type}') is wrong!"
         raise TypeError(msg)
     return maybe.value
+
+
+@click.group()
+@click.version_option()
+@beartype
+def ki() -> None:
+    """
+    The universal CLI entry point for `ki`.
+
+    Takes no arguments, only has three subcommands (clone, pull, push).
+    """
+    return
+
+
+@ki.command()
+@click.argument("collection")
+@click.argument("directory", required=False, default="")
+def clone(collection: str, directory: str = "") -> None:
+    """
+    Clone an Anki collection into a directory.
+
+    Parameters
+    ----------
+    collection : str
+        The path to a `.anki2` collection file.
+    directory : str, default=""
+        An optional path to a directory to clone the collection into.
+        Note: we check that this directory does not yet exist.
+    """
+    col_file: ExtantFile = IO(MaybeExtantFile(Path(collection)))
+
+    # Create default target directory.
+    cwd: ExtantDir = fcwd()
+    targetdir = ftest(Path(directory) if directory != "" else cwd / col_file.stem)
+
+    # Clean up nicely if the call fails.
+    try:
+        md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+
+        # ARCH STUFF. SHOULD NOT BE HERE, BECAUSE SHOULD NOT RUN DURING pull() CALLS.
+
+        # Check that we are inside a ki repository, and get the associated collection.
+        root: ExtantDir = ftest(targetdir)
+        kirepo: KiRepo = IO(get_ki_repo(root))
+
+        # Get reference to HEAD of current repo.
+        head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
+
+        # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
+        stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
+        stage_kirepo.repo.git.add(all=True)
+        stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+        update_no_submodules_tree(kirepo, stage_kirepo.root)
+
+    # pylint: disable=broad-except
+    except Exception as err:
+        echo(str(err))
+        echo("Failed: exiting.")
+        if targetdir.is_dir() and not isinstance(err, FileExistsError):
+            shutil.rmtree(targetdir)
+    return
+
+
+@beartype
+def tidy_html_recursively(root: Path, silent: bool) -> None:
+    """Call html5-tidy on each file in ``root``, editing in-place."""
+    # Spin up subprocesses for tidying field HTML in-place.
+    batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+
+        # Fail silently here, so as to not bother user with tidy warnings.
+        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
+        command += batch
+        subprocess.run(command, check=False, capture_output=True)
+
+
+@beartype
+def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) -> str:
+    """
+    Clone an Anki collection into a directory.
+
+    Parameters
+    ----------
+    col_file : pathlib.Path
+        The path to a `.anki2` collection file.
+    targetdir : pathlib.Path
+        A path to a directory to clone the collection into.
+        Note: we check that this directory is empty.
+    msg : str
+        Message for initial commit.
+    silent : bool
+        Indicates whether we are calling `_clone()` from `pull()`.
+
+    Returns
+    -------
+    git.Repo
+        The cloned repository.
+    """
+    echo(f"Found .anki2 file at '{col_file}'", silent=silent)
+
+    # Create default target directory.
+    if targetdir.is_dir():
+        if len(set(targetdir.iterdir())) > 0:
+            echo(
+                f"fatal: destination path '{targetdir}' already exists "
+                "and is not an empty directory."
+            )
+            raise FileExistsError
+    else:
+        targetdir.mkdir()
+
+    # Create .ki subdirectory.
+    kidir = targetdir / ".ki/"
+    kidir.mkdir()
+
+    # Create config file.
+    config_path = kidir / "config"
+    config = configparser.ConfigParser()
+    config["remote"] = {"path": col_file}
+    with open(config_path, "w", encoding="UTF-8") as config_file:
+        config.write(config_file)
+
+    # Append to hashes file.
+    md5sum = md5(col_file)
+    echo(f"Computed md5sum: {md5sum}", silent)
+    append_md5sum(kidir, col_file, md5sum, silent)
+    echo(f"Cloning into '{targetdir}'...", silent=silent)
+
+    # Add `.ki/` to gitignore.
+    ignore_path = targetdir / ".gitignore"
+    ignore_path.write_text(".ki/\n")
+
+    # Write notes to disk.
+    write_notes(col_file, targetdir, silent)
+
+    # Initialize git repo and commit contents.
+    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    repo.git.add(all=True)
+    _ = repo.index.commit(msg)
+
+    return md5sum
+
+
+@ki.command()
+@beartype
+def _pull() -> None:
+    # Check that we are inside a ki repository, and get the associated collection.
+    cwd: ExtantDir = fcwd()
+    kirepo: KiRepo = IO(get_ki_repo(cwd))
+    con: sqlite3.Connection = lock(kirepo.col_file)
+
+    md5sum: str = md5(kirepo.col_file)
+    hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
+    hashes = list(filter(lambda l: l != "", hashes))
+    logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
+    if md5sum not in hashes[-1]:
+        IO(updates_rejected_message(kirepo.col_file))
+
+    echo(f"Pulling from '{colpath}'")
+    echo(f"Computed md5sum: {md5sum}")
+
+@ki.command()
+@beartype
+def pull() -> None:
+    """
+    Pull from a preconfigured remote Anki collection into an existing ki
+    repository.
+    """
+
+    # Lock DB and get hash.
+    root = find_repo_root()
+    os.chdir(root)
+    colpath = open_repo()
+    con = lock(colpath)
+    md5sum = md5(colpath)
+
+    # Quit if hash matches last pull.
+    if md5sum in (Path.cwd() / ".ki/hashes").read_text().split("\n")[-1]:
+        click.secho("ki pull: up to date.", bold=True)
+        unlock(con)
+        return
+
+    echo(f"Pulling from '{colpath}'")
+    echo(f"Computed md5sum: {md5sum}")
+
+    # Git clone `repo` at commit SHA of last successful `push()`.
+    cwd = Path.cwd()
+    repo = git.Repo(cwd)
+    last_push_sha = get_last_push_sha(repo)
+    last_push_repo = get_ephemeral_repo(Path("ki/local"), repo, md5sum, last_push_sha)
+
+    # Ki clone collection into an ephemeral ki repository at `anki_remote_dir`.
+    msg = f"Fetch changes from DB at '{colpath}' with md5sum '{md5sum}'"
+    temproot = Path(tempfile.mkdtemp()) / "ki" / "remote"
+    temproot.mkdir(parents=True)
+    anki_remote_dir = temproot / md5sum
+    _clone(colpath, anki_remote_dir, msg, silent=True)
+
+    # Create git remote pointing to anki remote repo.
+    anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_dir / ".git")
+
+    # Pull anki remote repo into ``last_push_repo``.
+    os.chdir(last_push_repo.working_dir)
+    logger.debug(f"Pulling into {last_push_repo.working_dir}")
+    last_push_repo.git.config("pull.rebase", "false")
+    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
+    last_push_repo.delete_remote(anki_remote)
+
+    # Create remote pointing to ``last_push`` repo and pull into ``repo``.
+    os.chdir(cwd)
+    last_push_remote_path = Path(last_push_repo.working_dir) / ".git"
+    last_push_remote = repo.create_remote(REMOTE_NAME, last_push_remote_path)
+    repo.git.config("pull.rebase", "false")
+    p = subprocess.run(
+        ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
+        check=False,
+        capture_output=True,
+    )
+    click.secho(f"{p.stdout.decode()}", bold=True)
+    click.secho(f"{p.stderr.decode()}", bold=True)
+    repo.delete_remote(last_push_remote)
+
+    # Append to hashes file.
+    append_md5sum(cwd / ".ki", colpath, md5sum)
+
+    # Check that md5sum hasn't changed.
+    assert md5(colpath) == md5sum
+    unlock(con)
 
 
 # PUSH
