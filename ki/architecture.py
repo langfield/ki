@@ -1144,7 +1144,7 @@ def append_md5sum(
 ) -> None:
     """Append an md5sum hash to the hashes file."""
     hashes_path = kidir / "hashes"
-    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
+    with open(hashes_path, "a+", encoding="UTF-8") as hashes_file:
         hashes_file.write(f"{md5sum}  {colpath.name}\n")
     echo(f"Wrote md5sum to '{hashes_path}'", silent)
 
@@ -1265,7 +1265,7 @@ def JUST(maybe: Maybe) -> Any:
 @beartype
 def _push() -> None:
     """Push a ki repository into a .anki2 file."""
-    pp.install_extras()
+    pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
     profiler = Profiler()
     profiler.start()
 
@@ -1275,8 +1275,12 @@ def _push() -> None:
     con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = md5(kirepo.col_file)
-    hashes: str = kirepo.hashes_file.read_text().split("\n")[-1]
-    if md5sum not in hashes:
+    hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
+    hashes = list(filter(lambda l: l != "", hashes))
+    logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
+    if md5sum not in hashes[-1]:
+        profiler.stop()
+        profiler.output_html()
         IO(updates_rejected_message(kirepo.col_file))
 
     # Get reference to HEAD of current repo.
@@ -1297,6 +1301,13 @@ def _push() -> None:
     # Get deltas.
     deltas = get_note_file_git_deltas(head_kirepo.root, head_1, md5sum, ignore_fn)
     new_models: Dict[int, NotetypeDict] = get_models_recursively(head_kirepo)
+
+    # If there are no changes, quit.
+    if len(set(deltas)) == 0:
+        echo("ki push: up to date.")
+        profiler.stop()
+        profiler.output_html()
+        return
 
     logger.debug(f"Deltas:\n{pp.pformat(deltas)}")
 

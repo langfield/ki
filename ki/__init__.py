@@ -213,7 +213,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     # Append to hashes file.
     md5sum = md5(colpath)
     echo(f"Computed md5sum: {md5sum}", silent)
-    append_md5sum(kidir, colpath, md5sum, silent)
+    ARCH.append_md5sum(kidir, colpath, md5sum, silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
@@ -234,15 +234,11 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     root: ARCH.ExtantDir = ARCH.ftest(targetdir)
     kirepo: ARCH.KiRepo = ARCH.IO(ARCH.get_ki_repo(root))
 
-    md5sum: str = ARCH.md5(kirepo.col_file)
-    hashes: str = kirepo.hashes_file.read_text().split("\n")[-1]
-    if md5sum not in hashes:
-        ARCH.IO(ARCH.updates_rejected_message(kirepo.col_file))
-
     # Get reference to HEAD of current repo.
     head: ARCH.KiRepoRef = ARCH.IO(ARCH.MaybeHeadKiRepoRef(kirepo))
 
     # Commit in no_submodules_tree.
+    md5sum: str = ARCH.md5(kirepo.col_file)
     kirepo: ARCH.KiRepo = ARCH.update_no_submodules_tree(head, md5sum)
     kirepo.no_modules_repo.git.add(all=True)
     kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
@@ -314,7 +310,7 @@ def pull() -> None:
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    append_md5sum(cwd / ".ki", colpath, md5sum)
+    ARCH.append_md5sum(cwd / ".ki", colpath, md5sum)
 
     # Check that md5sum hasn't changed.
     assert md5(colpath) == md5sum
@@ -745,17 +741,6 @@ def echo(string: str, silent: bool = False) -> None:
     """Call `click.secho()` with formatting."""
     if not silent:
         click.secho(string, bold=True)
-
-
-@beartype
-def append_md5sum(
-    kidir: Path, colpath: Path, md5sum: str, silent: bool = False
-) -> None:
-    """Append an md5sum hash to the hashes file."""
-    hashes_path = kidir / "hashes"
-    with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {colpath.name}")
-    echo(f"Wrote md5sum to '{hashes_path}'", silent)
 
 
 @beartype
