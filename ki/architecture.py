@@ -812,9 +812,6 @@ def get_deltas_since_last_push(
     a_dir: ExtantDir = working_dir(a_repo)
     b_dir: ExtantDir = working_dir(b_repo)
 
-    logger.debug(f"Old ref: {ref.sha}")
-    logger.debug(f"New ref: {b_repo.head.commit.hexsha}")
-
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -828,9 +825,6 @@ def get_deltas_since_last_push(
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
-
-            logger.debug(f"{a_path = }")
-            logger.debug(f"{b_path = }")
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
@@ -1266,8 +1260,6 @@ def JUST(maybe: Maybe) -> Any:
 def _push() -> None:
     """Push a ki repository into a .anki2 file."""
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
-    profiler = Profiler()
-    profiler.start()
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
@@ -1279,8 +1271,6 @@ def _push() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum not in hashes[-1]:
-        profiler.stop()
-        profiler.output_html()
         IO(updates_rejected_message(kirepo.col_file))
 
     # Get reference to HEAD of current repo.
@@ -1305,11 +1295,7 @@ def _push() -> None:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
-        profiler.stop()
-        profiler.output_html()
         return
-
-    logger.debug(f"Deltas:\n{pp.pformat(deltas)}")
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1338,18 +1324,16 @@ def _push() -> None:
 
         # Gather logging statements to display.
         log: List[str] = []
-        new_nid_path_map = {}
-
-        p = subprocess.run(
-            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
-            check=False,
-            capture_output=True,
-        )
-        _stash_ref = p.stdout.decode()
+        msg = ""
+        num_new_nids = 0
 
         # Stash both unstaged and staged files (including untracked).
         kirepo.repo.git.stash(include_untracked=True, keep_index=True)
         kirepo.repo.git.reset("HEAD", hard=True)
+
+        is_delete = lambda d: d.status == GitChangeType.DELETED
+        deletes: List[Delta] = list(filter(is_delete, deltas))
+        logger.debug(f"Deleting {len(deletes)} notes.")
 
         # TODO: All this logic can be abstracted away from the process of
         # actually parsing notes and constructing Anki-specific objects. This
@@ -1357,10 +1341,9 @@ def _push() -> None:
         # standalone function and tested without anything related to Anki.
         for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
 
-            # If the file doesn't exist, parse its `nid` and then remove.
-            if delta.status == GitChangeType.DELETED:
-                flatnote = parse_markdown_note(delta.path)
-                a.col.remove_notes([flatnote.nid])
+            if is_delete(delta):
+                logger.debug("Removing a note.")
+                a.col.remove_notes([parse_markdown_note(delta.path).nid])
                 a.modified = True
                 continue
 
@@ -1398,26 +1381,14 @@ def _push() -> None:
                     new_note_path.write_text(str(kinote), encoding="UTF-8")
 
                     new_note_relpath = os.path.relpath(new_note_path, kirepo.root)
-                    new_nid_path_map[kinote.n.id] = new_note_relpath
+                    num_new_nids += 1
+                    msg += f"Wrote note '{kinote.n.id}' in file {new_note_relpath}\n"
 
-        if len(new_nid_path_map) > 0:
-            # Consider moving this into a function.
-            msg = "Generated new nid(s).\n\n"
-            for new_nid, path in new_nid_path_map.items():
-                msg += f"Wrote note '{new_nid}' in file {path}\n"
+        logger.warning(f"Reassigned {num_new_nids} nids.")
+        if num_new_nids > 0:
+            msg = "Generated new nid(s).\n\n" + msg
             kirepo.repo.git.add(all=True)
             _ = kirepo.repo.index.commit(msg)
-
-        p = subprocess.run(
-            ["git", "rev-parse", "-q", "--verify", "refs/stash"],
-            check=False,
-            capture_output=True,
-        )
-        _new_stash_ref = p.stdout.decode()
-
-        # Display warnings.
-        for line in log:
-            logger.warning(line)
 
     # Backup collection file and overwrite collection.
     backup(kirepo.col_file)
@@ -1430,6 +1401,3 @@ def _push() -> None:
 
     # Unlock Anki SQLite DB.
     unlock(con)
-
-    profiler.stop()
-    profiler.output_html()

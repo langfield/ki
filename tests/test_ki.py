@@ -946,7 +946,6 @@ def test_push_still_works_from_subdirectories():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     collection_path = get_collection_path()
