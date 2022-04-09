@@ -126,6 +126,23 @@ from ki at all, and in the future it should probably require explicitly
 creating a template/model file
 
 
+On the deleted notes repo
+-------------------------
+This is only used to examine the diff between the last push commit ref and the
+current HEAD. This diff is used to see which files were deleted, and to be able
+to read these files even though they were removed from the repository. This is
+done with some reset --hard magic. We want to read these deleted files to
+figure out what nids were extant at the last push commit ref. But this is a
+very bad way to do this. A simpler thing is to just store the nids that are
+currently extant every time we push in a file called ``.ki/last_push_nids``.
+Then we simply read these and take the diff against the currently extant nids,
+and see which ones were deleted, and remove them with an ``a.col`` call.
+
+This is slow though, because you must read every note on every ki command.
+Better to use git to get the diffs, and to do that, we need to use a deleted
+notes repo.
+
+
 Deck names, field names, notetype names
 ---------------------------------------
 ANKI SPECIAL CHARS: #/^

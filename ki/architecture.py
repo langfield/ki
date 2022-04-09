@@ -834,9 +834,8 @@ def get_deltas_since_last_push(
                 continue
 
             if change_type == GitChangeType.RENAMED:
-                # UNSAFE!
-                a_flatnote: FlatNote = parse_markdown_notes(a_path)[0]
-                b_flatnote: FlatNote = parse_markdown_notes(b_path)[0]
+                a_flatnote: FlatNote = parse_markdown_note(a_path)
+                b_flatnote: FlatNote = parse_markdown_note(b_path)
                 if a_flatnote.nid != b_flatnote.nid:
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
@@ -852,6 +851,14 @@ def get_deltas_since_last_push(
 
 
 @beartype
+def get_all_nids(root: ExtantDir) -> List[int]:
+    """Get all nids from all notes in current directory."""
+    files: List[ExtantFile] = frglob(root, "*")
+    files = filter(ignore_fn, files)
+    files = filter(is_anki_note, files)
+
+
+@beartype
 def get_note_file_git_deltas(
     root: ExtantDir,
     repo_ref: Optional[RepoRef],
@@ -862,6 +869,7 @@ def get_note_file_git_deltas(
     deltas: List[Delta] = []
 
     # Treat case where there is no last push.
+    # TODO: Should this ever be the case?
     if repo_ref is None:
         logger.warning("HEAD~1 is None, globbing and adding everything.")
         files: List[ExtantFile] = frglob(root, "*")
@@ -926,7 +934,7 @@ def display_fields_health_warning(note: anki.notes.Note) -> int:
 # UNREFACTORED
 
 @beartype
-def parse_markdown_notes(notes_file: ExtantFile) -> List[FlatNote]:
+def parse_markdown_note(notes_file: ExtantFile) -> FlatNote:
     """Parse with lark."""
     # Read grammar.
     # UNSAFE! Should we assume this always exists? A nice error message should
@@ -940,7 +948,9 @@ def parse_markdown_notes(notes_file: ExtantFile) -> List[FlatNote]:
     transformer = NoteTransformer()
     tree = parser.parse(notes_file.read_text(encoding="UTF-8"))
     flatnotes: List[FlatNote] = transformer.transform(tree)
-    return flatnotes
+
+    # UNSAFE!
+    return flatnotes[0]
 
 
 
@@ -1311,16 +1321,13 @@ def _push() -> None:
 
             # If the file doesn't exist, parse its `nid` and then remove.
             if delta.status == GitChangeType.DELETED:
-                flatnotes = parse_markdown_notes(delta.path)
-                nids = [flatnote.nid for flatnote in flatnotes]
-                a.col.remove_notes(nids)
+                flatnote = parse_markdown_note(delta.path)
+                a.col.remove_notes([flatnote.nid])
                 a.modified = True
                 continue
 
             # Get flatnote from parser, and add/edit/delete in collection.
-            flatnotes = parse_markdown_notes(delta.path)
-            assert len(flatnotes) == 1
-            flatnote = flatnotes[0]
+            flatnote = parse_markdown_note(delta.path)
 
             # If a kinote with this nid exists in DB, update it.
             # TODO: If relevant prefix of sort field has changed, we regenerate
