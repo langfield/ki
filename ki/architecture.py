@@ -1019,12 +1019,31 @@ def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> None:
             raise ValueError
 
 
+@beartype
+def set_model(a: Anki, model_name: str) -> NotetypeDict:
+    """Set current model based on model name."""
+    current = a.col.models.current(for_deck=False)
+    if current['name'] == model_name:
+        return current
+
+    model = a.get_model(model_name)
+    if model is None:
+        # UNSAFE!
+        echo(f'Model "{model_name}" was not recognized!')
+        raise ValueError
+
+    a.col.models.set_current(model)
+    return model
+
+
+
 # TODO: Refactor into a safe function.
 @beartype
 def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
     """Add a note given its FlatNote representation, provided it passes health check."""
-    # TODO: Does this assume model exists?
-    model = a.set_model(flatnote.model)
+    # TODO: Does this assume model exists? Kind of. We abort/raise an error if
+    # it doesn't.
+    model = set_model(a, flatnote.model)
     validate_flatnote_fields(model, flatnote)
 
     # Note that we call ``a.set_model(flatnote.model)`` above, so the current
@@ -1126,7 +1145,7 @@ def append_md5sum(
     """Append an md5sum hash to the hashes file."""
     hashes_path = kidir / "hashes"
     with open(hashes_path, "a", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {colpath.name}")
+        hashes_file.write(f"{md5sum}  {colpath.name}\n")
     echo(f"Wrote md5sum to '{hashes_path}'", silent)
 
 
@@ -1396,7 +1415,7 @@ def _push() -> None:
 
     # Append to hashes file.
     new_md5sum = md5(new_col_file)
-    append_md5sum(kirepo.ki_dir, new_col_file, new_md5sum, silent=True)
+    append_md5sum(kirepo.ki_dir, new_col_file, new_md5sum, silent=False)
 
     # Unlock Anki SQLite DB.
     unlock(con)
