@@ -90,9 +90,8 @@ HINT = (
 )
 IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
 LOCAL_SUFFIX = Path("ki/local")
-NO_SM_SUFFIX = Path("ki/no_submodules")
+STAGE_SUFFIX = Path("ki/stage")
 DELETED_SUFFIX = Path("ki/deleted")
-NO_SM_GIT_SUFFIX = Path("ki/no_submodules_git")
 
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
@@ -786,9 +785,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
 
 @beartype
-def get_deltas_since_last_push(
-        ref: RepoRef, md5sum: str, ignore_fn: Callable[[Path], bool]
-) -> List[Delta]:
+def get_deltas_since_last_push(ref: RepoRef, md5sum: str, ignore_fn: Callable[[Path], bool]) -> List[Delta]:
     """
     Get the list of all deltas (changed files) since the last time that ``ki
     push`` was run successfully.
@@ -847,40 +844,6 @@ def get_deltas_since_last_push(
                 continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
-
-    return deltas
-
-
-@beartype
-def get_all_nids(root: ExtantDir) -> List[int]:
-    """Get all nids from all notes in current directory."""
-    files: List[ExtantFile] = frglob(root, "*")
-    files = filter(ignore_fn, files)
-    files = filter(is_anki_note, files)
-
-
-@beartype
-def get_note_file_git_deltas(
-    root: ExtantDir,
-    repo_ref: Optional[RepoRef],
-    md5sum: str,
-    ignore_fn: Callable[[Path], bool],
-) -> List[Delta]:
-    """Gets a list of paths to modified/new/deleted note md files since commit."""
-    deltas: List[Delta] = []
-
-    # Treat case where there is no last push.
-    # TODO: Should this ever be the case?
-    if repo_ref is None:
-        logger.warning("HEAD~1 is None, globbing and adding everything.")
-        files: List[ExtantFile] = frglob(root, "*")
-        files = filter(ignore_fn, files)
-        for file in files:
-            # UNSAFE: relative_to() can raise a ValueError!
-            deltas.append(Delta(GitChangeType.ADDED, file, file.relative_to(root)))
-    else:
-        logger.debug("Calculating diff via gitpython.")
-        deltas = get_deltas_since_last_push(repo_ref, md5sum, ignore_fn)
 
     return deltas
 
@@ -1174,45 +1137,31 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
 
 
 @beartype
-def update_no_submodules_tree(head: KiRepoRef, md5sum: str) -> KiRepo:
-    """
-    Update the contents of ``kirepo`` in ``.ki/no_submodules_tree``.
-    """
+def get_stage_repo(head: KiRepoRef, md5sum: str) -> KiRepo:
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
 
-    kirepo = head.kirepo
-    root = kirepo.root
+    # Unsubmodule the stage repo.
+    unsubmodule_repo(stage_kirepo.repo)
 
-    # Copy .git folder out of existing .ki/no_submodules_tree into a temp directory.
-    no_sm_git_path = JUST(MaybeNoPath(fmkdtemp() / NO_SM_GIT_SUFFIX))
-    no_sm_git_dir: ExtantDir = copytree(git_dir(kirepo.no_modules_repo), no_sm_git_path)
+    # Shutil rmtree the stage repo .git directory.
+    stage_git_dir: NoPath = rmtree(git_dir(stage_kirepo.repo))
+    stage_root: ExtantDir = stage_kirepo.root
+    del stage_kirepo
 
-    # Shutil rmtree the entire thing.
-    # ``kirepo`` now has a NoPath attribute where it should be extant,
-    # so we delete the reference to avoid using an object with invalid type.
-    kirepo_no_modules_dir: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
-    del kirepo
+    # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
+    copytree(git_dir(head.kirepo.no_modules_repo), stage_git_dir)
 
-    # Copy current kirepo into a temp directory, hard reset to HEAD.
-    no_sm_kirepo: KiRepo = get_ephemeral_kirepo(NO_SM_SUFFIX, head, md5sum)
+    # Reload stage kirepo.
+    stage_kirepo: KiRepo = IO(get_ki_repo(stage_root))
 
-    # Unsubmodule the temp repo.
-    unsubmodule_repo(no_sm_kirepo.repo)
+    return stage_kirepo
 
-    # Shutil rmtree the temp repo .git directory.
-    no_sm_kirepo_git_dir: NoPath = rmtree(git_dir(no_sm_kirepo.repo))
-    no_sm_kirepo_root: ExtantDir = no_sm_kirepo.root
-    del no_sm_kirepo
 
-    # Copy the other .git folder back in.
-    copytree(no_sm_git_dir, no_sm_kirepo_git_dir)
-
-    # Copy the temporary repo into .ki/no_submodules_tree.
-    kirepo_no_modules_dir = copytree(no_sm_kirepo_root, kirepo_no_modules_dir)
-
-    # Reload top-level repo.
-    kirepo: KiRepo = IO(get_ki_repo(root))
-
-    return kirepo
+@beartype
+def update_no_submodules_tree(kirepo: KiRepo, stage_root: ExtantDir) -> None:
+    no_modules_root: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
+    copytree(stage_root, no_modules_root)
 
 
 Maybe = Union[
@@ -1276,11 +1225,12 @@ def _push() -> None:
     # Get reference to HEAD of current repo.
     head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
-    # Commit in no_submodules_tree.
-    kirepo: KiRepo = update_no_submodules_tree(head, md5sum)
-    head_1: Optional[RepoRef] = get_head(kirepo.no_modules_repo)
-    kirepo.no_modules_repo.git.add(all=True)
-    kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
+    # Get staging repository in temp directory.
+    # TODO: Consider making this return a KiRepoRef to ``head_1``.
+    stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
+    head_1: RepoRef = IO(MaybeHeadRepoRef(stage_kirepo.repo))
+    stage_kirepo.repo.git.add(all=True)
+    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
     # Get filter function.
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
@@ -1289,7 +1239,7 @@ def _push() -> None:
     head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Get deltas.
-    deltas = get_note_file_git_deltas(head_kirepo.root, head_1, md5sum, ignore_fn)
+    deltas = get_deltas_since_last_push(head_1, md5sum, ignore_fn)
     new_models: Dict[int, NotetypeDict] = get_models_recursively(head_kirepo)
 
     # If there are no changes, quit.
@@ -1400,4 +1350,5 @@ def _push() -> None:
     append_md5sum(kirepo.ki_dir, new_col_file, new_md5sum, silent=False)
 
     # Unlock Anki SQLite DB.
+    update_no_submodules_tree(kirepo, stage_kirepo.root)
     unlock(con)

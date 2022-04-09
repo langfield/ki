@@ -136,8 +136,23 @@ def clone(collection: str, directory: str = "") -> None:
 
     # Clean up nicely if the call fails.
     try:
-        repo = _clone(colpath, targetdir, msg="Initial commit", silent=False)
-        # update_last_push_commit_sha(repo)
+        md5sum = _clone(colpath, targetdir, msg="Initial commit", silent=False)
+
+        # ARCH STUFF. SHOULD NOT BE HERE, BECAUSE SHOULD NOT RUN DURING pull() CALLS.
+
+        # Check that we are inside a ki repository, and get the associated collection.
+        root: ARCH.ExtantDir = ARCH.ftest(targetdir)
+        kirepo: ARCH.KiRepo = ARCH.IO(ARCH.get_ki_repo(root))
+
+        # Get reference to HEAD of current repo.
+        head: ARCH.KiRepoRef = ARCH.IO(ARCH.MaybeHeadKiRepoRef(kirepo))
+
+        # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
+        stage_kirepo: ARCH.KiRepo = ARCH.get_stage_repo(head, md5sum)
+        stage_kirepo.repo.git.add(all=True)
+        stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+        ARCH.update_no_submodules_tree(kirepo, stage_kirepo.root)
+
     # pylint: disable=broad-except
     except Exception as err:
         echo(str(err))
@@ -161,7 +176,7 @@ def tidy_html_recursively(root: Path, silent: bool) -> None:
 
 
 @beartype
-def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
+def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> str:
     """
     Clone an Anki collection into a directory.
 
@@ -228,22 +243,7 @@ def _clone(colpath: Path, targetdir: Path, msg: str, silent: bool) -> git.Repo:
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # ARCH STUFF. SHOULD NOT BE HERE, BECAUSE SHOULD NOT RUN DURING pull() CALLS.
-
-    # Check that we are inside a ki repository, and get the associated collection.
-    root: ARCH.ExtantDir = ARCH.ftest(targetdir)
-    kirepo: ARCH.KiRepo = ARCH.IO(ARCH.get_ki_repo(root))
-
-    # Get reference to HEAD of current repo.
-    head: ARCH.KiRepoRef = ARCH.IO(ARCH.MaybeHeadKiRepoRef(kirepo))
-
-    # Commit in no_submodules_tree.
-    md5sum: str = ARCH.md5(kirepo.col_file)
-    kirepo: ARCH.KiRepo = ARCH.update_no_submodules_tree(head, md5sum)
-    kirepo.no_modules_repo.git.add(all=True)
-    kirepo.no_modules_repo.index.commit("Add updated submodule-less copy of repo.")
-
-    return repo
+    return md5sum
 
 
 @ki.command()
