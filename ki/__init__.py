@@ -895,7 +895,11 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
 @beartype
 def get_deltas_since_last_push(
-    ref: RepoRef, md5sum: str, ignore_fn: Callable[[Path], bool]
+    ref: RepoRef,
+    md5sum: str,
+    ignore_fn: Callable[[Path], bool],
+    parser: Lark,
+    transformer: NoteTransformer,
 ) -> List[Delta]:
     """
     Get the list of all deltas (changed files) since the last time that ``ki
@@ -943,8 +947,8 @@ def get_deltas_since_last_push(
                 continue
 
             if change_type == GitChangeType.RENAMED:
-                a_flatnote: FlatNote = parse_markdown_note(a_path)
-                b_flatnote: FlatNote = parse_markdown_note(b_path)
+                a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
+                b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
                 if a_flatnote.nid != b_flatnote.nid:
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
@@ -1012,18 +1016,10 @@ def display_fields_health_warning(note: anki.notes.Note) -> int:
 
 
 @beartype
-def parse_markdown_note(notes_file: ExtantFile) -> FlatNote:
+def parse_markdown_note(
+    parser: Lark, transformer: NoteTransformer, notes_file: ExtantFile
+) -> FlatNote:
     """Parse with lark."""
-    # Read grammar.
-    # UNSAFE! Should we assume this always exists? A nice error message should
-    # be printed on initialization if the grammar file is missing. No
-    # computation should be done, and none of the click commands should work.
-    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
-
-    # Instantiate parser.
-    parser = Lark(grammar, start="file", parser="lalr")
-    transformer = NoteTransformer()
     tree = parser.parse(notes_file.read_text(encoding="UTF-8"))
     flatnotes: List[FlatNote] = transformer.transform(tree)
 
@@ -1074,7 +1070,9 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
 
 # TODO: Refactor into a safe function.
 @beartype
-def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> Optional[Exception]:
+def validate_flatnote_fields(
+    model: NotetypeDict, flatnote: FlatNote
+) -> Optional[Exception]:
     """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
     model_field_names = [field["name"] for field in model["flds"]]
@@ -1562,7 +1560,7 @@ def clone(collection: str, directory: str = "") -> None:
     # TODO: Should figure out how to clean up in case of errors.
     if False:
         echo("Failed: exiting.")
-        if targetdir.is_dir() and not isinstance(err, FileExistsError):
+        if targetdir.is_dir():
             shutil.rmtree(targetdir)
 
     return None
@@ -1733,8 +1731,19 @@ def push() -> None:
     # This may error if there is no head commit in the current repository.
     head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
+    # Read grammar.
+    # UNSAFE! Should we assume this always exists? A nice error message should
+    # be printed on initialization if the grammar file is missing. No
+    # computation should be done, and none of the click commands should work.
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+
+    # Instantiate parser.
+    parser = Lark(grammar, start="file", parser="lalr")
+    transformer = NoteTransformer()
+
     # Get deltas.
-    deltas = get_deltas_since_last_push(head_1, md5sum, ignore_fn)
+    deltas = get_deltas_since_last_push(head_1, md5sum, ignore_fn, parser, transformer)
     new_models: Dict[int, NotetypeDict] = get_models_recursively(head_kirepo)
 
     # If there are no changes, quit.
@@ -1787,12 +1796,14 @@ def push() -> None:
         for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
 
             if is_delete(delta):
-                a.col.remove_notes([parse_markdown_note(delta.path).nid])
+                a.col.remove_notes(
+                    [parse_markdown_note(parser, transformer, delta.path).nid]
+                )
                 a.modified = True
                 continue
 
             # Get flatnote from parser, and add/edit/delete in collection.
-            flatnote = parse_markdown_note(delta.path)
+            flatnote = parse_markdown_note(parser, transformer, delta.path)
 
             # If a kinote with this nid exists in DB, update it.
             # TODO: If relevant prefix of sort field has changed, we regenerate
