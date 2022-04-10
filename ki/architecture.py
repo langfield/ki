@@ -66,6 +66,7 @@ TemplateDict = Dict[str, Union[str, int, None]]
 FS_ROOT = Path("/")
 
 GIT = ".git"
+GITIGNORE_FILE = ".gitignore"
 GITMODULES_FILE = ".gitmodules"
 
 KI = ".ki"
@@ -89,10 +90,11 @@ HINT = (
     + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
     + "hint: 'ki pull ...') before pushing again."
 )
-IGNORE = [".git", ".ki", ".gitignore", ".gitmodules", "models.json"]
+IGNORE = [GIT, KI, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
 LOCAL_SUFFIX = Path("ki/local")
 STAGE_SUFFIX = Path("ki/stage")
 DELETED_SUFFIX = Path("ki/deleted")
+FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
@@ -112,6 +114,10 @@ class EmptyDir(ExtantDir):
 
 class NoPath(type(Path())):
     """UNSAFE: Indicates that path *was not* extant when it was resolved."""
+
+
+class Singleton(type(Path())):
+    """UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`)."""
 
 
 class ExtantStrangePath(type(Path())):
@@ -322,17 +328,44 @@ def ftest(path: Path) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePat
 
 
 @beartype
-def ftouch(path: NoPath) -> ExtantFile:
+def ftouch(directory: ExtantDir, name: Singleton) -> ExtantFile:
     """Touch a file."""
+    path = directory / name
     path.touch()
     return JUST(MaybeExtantFile(path))
 
 
 @beartype
-def fmkdir(path: NoPath) -> ExtantDir:
+def fmkdir(path: NoPath) -> EmptyDir:
     """Make a directory (with parents)."""
     path.mkdir(parents=True)
-    return JUST(MaybeExtantDir(path))
+    return JUST(MaybeEmptyDir(path))
+
+
+@beartype
+def fmksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
+    """
+    Make a subdirectory of an empty directory (with parents).
+
+    Returns
+    -------
+    EmptyDir
+        The created subdirectory.
+    """
+    subdir = directory / suffix
+    subdir.mkdir(parents=True)
+    directory.__class__ = ExtantDir
+    return JUST(MaybeEmptyDir(subdir))
+
+
+@beartype
+def fmkleaves(directory: EmptyDir, names: List[Singleton]) -> List[ExtantFile]:
+    """Touch several files in an empty directory."""
+    files = []
+    for name in names:
+        file = ftouch(directory, name)
+        files.append(file)
+    return files
 
 
 @beartype
@@ -353,9 +386,9 @@ def fparent(path: Union[ExtantFile, ExtantDir]) -> Union[ExtantFile, ExtantDir]:
 
 
 @beartype
-def fmkdtemp() -> ExtantDir:
+def fmkdtemp() -> EmptyDir:
     """Make a temporary directory (in /tmp)."""
-    return JUST(MaybeExtantDir(Path(tempfile.mkdtemp())))
+    return JUST(MaybeEmptyDir(Path(tempfile.mkdtemp())))
 
 
 # pylint: disable=unused-argument
@@ -382,6 +415,11 @@ def git_dir(repo: git.Repo) -> ExtantDir:
 
 
 # SAFE
+
+
+def singleton(name: str) -> Singleton:
+    """Removes all forward slashes and returns a Singleton pathlib.Path."""
+    return Singleton(name.replace("/", ""))
 
 
 @beartype
@@ -445,7 +483,7 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
     # Get path to hashes file (and possible create it).
     hashes_file = ftest(ki_dir / HASHES_FILE)
     if isinstance(hashes_file, NoPath):
-        hashes_file = ftouch(hashes_file)
+        hashes_file = ftouch(ki_dir, singleton(HASHES_FILE))
     elif not isinstance(hashes_file, ExtantFile):
         return MaybeKiRepo(f"Not found or not a file: {hashes_file}")
 
@@ -670,8 +708,8 @@ class MaybeHeadKiRepoRef:
 @beartype
 def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    tempdir = fmkdtemp()
-    root = fforce_mkdir(Path(tempdir, suffix))
+    tempdir: EmptyDir = fmkdtemp()
+    root: EmptyDir = fmksubdir(tempdir, suffix)
 
     # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
     repo: git.Repo = repo_ref.repo
@@ -1007,19 +1045,17 @@ def update_kinote(kinote: KiNote, flatnote: FlatNote) -> None:
 
 # TODO: Refactor into a safe function.
 @beartype
-def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> None:
+def validate_flatnote_fields(model: NotetypeDict, flatnote: FlatNote) -> Exception:
     """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
     model_field_names = [field["name"] for field in model["flds"]]
 
     if len(flatnote.fields.keys()) != len(model_field_names):
-        logger.error(f"Not enough fields for model {flatnote.model}!")
-        raise ValueError
+        return ValueError(f"Not enough fields for model {flatnote.model}!")
 
     for x, y in zip(model_field_names, flatnote.fields.keys()):
         if x != y:
-            logger.error("Inconsistent field names " f"({x} != {y})")
-            raise ValueError
+            return ValueError("Inconsistent field names " f"({x} != {y})")
 
 
 @beartype
@@ -1080,7 +1116,6 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
 @beartype
 def get_sort_field_name(a: Anki, notetype: Dict[str, Any]) -> str:
     """Return the sort field name of a model."""
-    assert notetype is not None
 
     # Get fieldmap from notetype.
     fieldmap: Dict[str, Tuple[int, Dict[str, Any]]]
@@ -1099,11 +1134,12 @@ def get_sort_field_name(a: Anki, notetype: Dict[str, Any]) -> str:
 
 # TODO: Refactor into a safe function.
 @beartype
-def get_note_path(kinote: KiNote, sort_fieldname: str, deck_path: Path) -> Path:
+def get_note_path(kinote: KiNote, sort_field_name: str, deck_path: Path) -> Path:
     """Get note_path from sort field name."""
     # Get the filename for this note.
-    assert sort_fieldname in kinote.n
-    field_text = kinote.n[sort_fieldname]
+    # UNSAFE! No asserts!!!!!!!
+    assert sort_field_name in kinote.n
+    field_text = kinote.n[sort_field_name]
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -1140,27 +1176,26 @@ def backup(col_file: ExtantFile) -> None:
     assert backup_path.is_file()
 
 
-# TODO: Refactor into a safe function.
 @beartype
 def append_md5sum(
-    kidir: Path, colpath: Path, md5sum: str, silent: bool = False
+    kidir: ExtantDir, tag: str, md5sum: str, silent: bool = False
 ) -> None:
     """Append an md5sum hash to the hashes file."""
-    hashes_path = kidir / "hashes"
-    with open(hashes_path, "a+", encoding="UTF-8") as hashes_file:
-        hashes_file.write(f"{md5sum}  {colpath.name}\n")
+    with open(kidir / HASHES_FILE, "a+", encoding="UTF-8") as hashes_f:
+        hashes_f.write(f"{md5sum}  {tag}\n")
     echo(f"Wrote md5sum to '{hashes_path}'", silent)
 
 
+# TODO: Refactor into a safe function.
 @beartype
-def create_deckpath(deckname: str, targetdir: Path) -> Path:
+def create_deck_path(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
     """Construct path to deck directory and create it."""
     # Strip leading periods so we don't get hidden folders.
-    components = deckname.split("::")
+    components = deck_name.split("::")
     components = [re.sub(r"^\.", r"", comp) for comp in components]
-    deckpath = Path(targetdir, *components)
-    deckpath.mkdir(parents=True, exist_ok=True)
-    return deckpath
+    deck_path = Path(targetdir, *components)
+    fforce_mkdir(deck_path)
+    return deck_path
 
 
 @beartype
@@ -1170,33 +1205,35 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 
 
 @beartype
-def get_batches(lst: List[str], n: int) -> Generator[str, None, None]:
+def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, None]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
 
 
+# TODO: Refactor into a safe function.
 @beartype
-def write_notes(colpath: Path, targetdir: Path, silent: bool):
+def write_notes(col_file: ExtantFile, targetdir: ExtantDir, silent: bool):
     """Write notes to appropriate directories in ``targetdir``."""
     # Create temp directory for htmlfield text files.
-    root = Path(tempfile.mkdtemp()) / "ki" / "fieldhtml"
-    root.mkdir(parents=True, exist_ok=True)
+    tempdir: EmptyDir = fmkdtemp()
+    root: EmptyDir = fmksubdir(tempdir, FIELD_HTML_SUFFIX)
 
-    paths: Dict[str, Path] = {}
+    paths: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[KiNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
-    with Anki(path=colpath) as a:
+    with Anki(path=col_file) as a:
         all_nids = list(a.col.find_notes(query=""))
         for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
             kinote = KiNote(a, a.col.get_note(nid))
             decks[kinote.deck] = decks.get(kinote.deck, []) + [kinote]
             for fieldname, fieldtext in kinote.fields.items():
                 if re.search(HTML_REGEX, fieldtext):
-                    fid = get_field_note_id(nid, fieldname)
-                    paths[fid] = root / fid
-                    paths[fid].write_text(fieldtext)
+                    fid: str = get_field_note_id(nid, fieldname)
+                    html_file: ExtantFile = ftouch(root, singleton(fid))
+                    html_file.write_text(fieldtext)
+                    paths[fid] = html_file
 
         tidy_html_recursively(root, silent)
 
@@ -1211,28 +1248,29 @@ def write_notes(colpath: Path, targetdir: Path, silent: bool):
             json.dump(models_map, f, ensure_ascii=False, indent=4)
 
         deck_model_ids: Set[int] = set()
-        for deckname in sorted(set(decks.keys()), key=len, reverse=True):
-            deckpath = create_deckpath(deckname, targetdir)
-            for kinote in decks[deckname]:
+        for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
+            deck_path: ExtantDir = create_deck_path(deck_name, targetdir)
+            for kinote in decks[deck_name]:
 
                 # Add the notetype id.
                 model = kinote.n.note_type()
                 model_id = a.col.models.id_for_name(model["name"])
                 deck_model_ids.add(model_id)
 
-                sort_fieldname = get_sort_field_name(a, model)
-                notepath = get_note_path(kinote, sort_fieldname, deckpath)
+                sort_field_name: str = get_sort_field_name(a, model)
+                notepath = get_note_path(kinote, sort_field_name, deck_path)
                 payload = get_tidy_payload(kinote, paths)
                 notepath.write_text(payload, encoding="UTF-8")
 
             # Write ``models.json`` for current deck.
             deck_models_map = {mid: models_map[mid] for mid in deck_model_ids}
-            with open(deckpath / MODELS_FILE, "w", encoding="UTF-8") as f:
+            with open(deck_path / MODELS_FILE, "w", encoding="UTF-8") as f:
                 json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
     shutil.rmtree(root)
 
 
+# TODO: Refactor into a safe function.
 @beartype
 def get_tidy_payload(kinote: KiNote, paths: Dict[str, Path]) -> str:
     """Get the payload for the note (HTML-tidied if necessary)."""
@@ -1257,6 +1295,7 @@ def get_tidy_payload(kinote: KiNote, paths: Dict[str, Path]) -> str:
 
 
 
+# TODO: Refactor into a safe function.
 @beartype
 def git_subprocess_pull(remote: str, branch: str) -> int:
     """Pull remote into branch using a subprocess call."""
@@ -1290,6 +1329,7 @@ def echo(string: str, silent: bool = False) -> None:
         logger.info(string)
 
 
+# TODO: Refactor into a safe function.
 @beartype
 def slugify(value: str, allow_unicode: bool = False) -> str:
     """
@@ -1310,6 +1350,20 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
         )
     value = re.sub(r"[^\w\s-]", "", value.lower())
     return re.sub(r"[-\s]+", "-", value).strip("-_")
+
+
+# TODO: Refactor into a safe function.
+@beartype
+def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
+    """Call html5-tidy on each file in ``root``, editing in-place."""
+    # Spin up subprocesses for tidying field HTML in-place.
+    batches: List[List[ExtantFile]] = list(get_batches(frglob(root, "*"), BATCH_SIZE))
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+
+        # Fail silently here, so as to not bother user with tidy warnings.
+        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
+        command += batch
+        subprocess.run(command, check=False, capture_output=True)
 
 
 @beartype
@@ -1390,6 +1444,13 @@ def ki() -> None:
     return
 
 
+@beartype
+def TARGET_EXISTS_MSG(targetdir: ExtantDir) -> str:
+    msg = f"fatal: destination path '{targetdir}' already exists "
+    msg += "and is not an empty directory."
+    return msg
+
+
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
@@ -1410,6 +1471,10 @@ def clone(collection: str, directory: str = "") -> None:
     # Create default target directory.
     cwd: ExtantDir = fcwd()
     targetdir = ftest(Path(directory) if directory != "" else cwd / col_file.stem)
+    if isinstance(targetdir, NoPath):
+        targetdir: EmptyDir = fmkdir(targetdir)
+    if not isinstance(targetdir, EmptyDir):
+            return echo(TARGET_EXISTS_MSG(targetdir))
 
     # Clean up nicely if the call fails.
     try:
@@ -1440,19 +1505,6 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def tidy_html_recursively(root: Path, silent: bool) -> None:
-    """Call html5-tidy on each file in ``root``, editing in-place."""
-    # Spin up subprocesses for tidying field HTML in-place.
-    batches = list(get_batches(glob.glob(str(root / "*")), BATCH_SIZE))
-    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
-
-        # Fail silently here, so as to not bother user with tidy warnings.
-        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
-        command += batch
-        subprocess.run(command, check=False, capture_output=True)
-
-
-@beartype
 def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) -> str:
     """
     Clone an Anki collection into a directory.
@@ -1476,36 +1528,24 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     """
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
-    # Create default target directory.
-    if targetdir.is_dir():
-        if len(set(targetdir.iterdir())) > 0:
-            echo(
-                f"fatal: destination path '{targetdir}' already exists "
-                "and is not an empty directory."
-            )
-            raise FileExistsError
-    else:
-        targetdir.mkdir()
-
     # Create .ki subdirectory.
-    kidir = targetdir / ".ki/"
-    kidir.mkdir()
+    kidir: EmptyDir = fmksubdir(targetdir, KI)
 
     # Create config file.
-    config_path = kidir / "config"
+    config_file: ExtantFile = fmkleaves(kidir, [singleton(CONFIG_FILE)])[0]
     config = configparser.ConfigParser()
     config["remote"] = {"path": col_file}
-    with open(config_path, "w", encoding="UTF-8") as config_file:
-        config.write(config_file)
+    with open(config_file, "w", encoding="UTF-8") as config_f:
+        config.write(config_f)
 
     # Append to hashes file.
     md5sum = md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
-    append_md5sum(kidir, col_file, md5sum, silent)
+    append_md5sum(kidir, col_file.name, md5sum, silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
-    ignore_path = targetdir / ".gitignore"
+    ignore_path = targetdir / GITIGNORE_FILE
     ignore_path.write_text(".ki/\n")
 
     # Write notes to disk.
@@ -1599,7 +1639,7 @@ def pull() -> None:
     repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    append_md5sum(cwd / ".ki", colpath, md5sum)
+    append_md5sum(cwd / ".ki", colpath.name, md5sum)
 
     # Check that md5sum hasn't changed.
     assert md5(colpath) == md5sum
@@ -1728,7 +1768,11 @@ def _push() -> None:
                         repo_note_path.unlink()
 
                     # Construct markdown file contents and write.
-                    sort_field_name = get_sort_field_name(a, kinote.n.note_type())
+                    # UNSAFE: Can't pass None to 'get_sort_field_name()'. Need
+                    # a ``MaybeNotetype``.
+                    model: Optional[NotetypeDict] = kinote.n.note_type()
+                    sort_field_name = get_sort_field_name(a, model)
+
                     new_note_path = get_note_path(
                         kinote, sort_field_name, repo_note_path.parent
                     )
@@ -1751,7 +1795,7 @@ def _push() -> None:
 
     # Append to hashes file.
     new_md5sum = md5(new_col_file)
-    append_md5sum(kirepo.ki_dir, new_col_file, new_md5sum, silent=False)
+    append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Unlock Anki SQLite DB.
     update_no_submodules_tree(kirepo, stage_kirepo.root)
