@@ -112,9 +112,8 @@ def push(runner: CliRunner) -> str:
     return res.output
 
 
-@pytest.fixture
 @beartype
-def col_file() -> ki.ExtantFile:
+def get_col_file() -> ki.ExtantFile:
     """Put `collection.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
@@ -294,19 +293,13 @@ def test_cli():
         pytest.fail("CLI doesn't abort asking for a command argument")
 
 
-@pytest.fixture
-@beartype
-def runner() -> CliRunner:
-    runner = CliRunner()
-    return runner
-
-
 # COMMON
 
 
 @beartype
-def test_fails_without_ki_subdirectory(runner: CliRunner, tmp_path: Path):
+def test_fails_without_ki_subdirectory(tmp_path: Path):
     """Do pull and push know whether they're in a ki-generated git repo?"""
+    runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         tempdir = tempfile.mkdtemp()
         copy_tree(GITREPO_PATH, tempdir)
@@ -318,8 +311,10 @@ def test_fails_without_ki_subdirectory(runner: CliRunner, tmp_path: Path):
 
 
 @beartype
-def test_computes_and_stores_md5sum(runner: CliRunner, col_file: ki.ExtantFile, tmp_path: Path):
+def test_computes_and_stores_md5sum(tmp_path: Path):
     """Does ki add new hash to `.ki/hashes`?"""
+    col_file = get_col_file()
+    runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         # Clone collection in cwd.
         clone(runner, col_file)
@@ -350,7 +345,7 @@ def test_computes_and_stores_md5sum(runner: CliRunner, col_file: ki.ExtantFile, 
 @pytest.mark.skip
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -376,7 +371,7 @@ def test_no_op_pull_push_cycle_is_idempotent():
 @pytest.mark.skip
 def test_output():
     """Does it print nice things?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         out = clone(runner, col_file)
@@ -416,7 +411,7 @@ def test_output():
 @pytest.mark.skip
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
-    col_file = col_file()
+    col_file = get_col_file()
     os.remove(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -429,7 +424,7 @@ def test_clone_fails_if_collection_doesnt_exist():
 @pytest.mark.skip
 def test_clone_creates_directory():
     """Does it create the directory?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -458,7 +453,7 @@ def test_clone_handles_html():
 @pytest.mark.skip
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -496,7 +491,7 @@ def test_clone_cleans_up_on_error():
 @pytest.mark.skip
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -510,7 +505,7 @@ def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
     cloned_note_path = os.path.join(REPODIR, NOTE_0)
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -555,7 +550,7 @@ def test_clone_generates_deck_tree_correctly():
 @pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -570,7 +565,7 @@ def test_clone_generates_ki_subdirectory():
 @pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -583,7 +578,7 @@ def test_cloned_collection_is_git_repository():
 @pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -605,7 +600,7 @@ def test_clone_commits_directory_contents():
 @pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
-    col_file = col_file()
+    col_file = get_col_file()
     original_md5 = ki.md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -620,7 +615,7 @@ def test_clone_leaves_collection_file_unchanged():
 @pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -640,7 +635,7 @@ def test_clone_directory_argument_works():
 @pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -657,7 +652,7 @@ def test_pull_fails_if_collection_no_longer_exists():
 @pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -677,7 +672,7 @@ def test_pull_writes_changes_correctly():
 @pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -697,7 +692,7 @@ def test_pull_unchanged_collection_is_no_op():
 @pytest.mark.skip
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -717,7 +712,7 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 @pytest.mark.skip
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -739,7 +734,7 @@ def test_pull_still_works_from_subdirectories():
 @pytest.mark.skip
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
-    col_file = col_file()
+    col_file = get_col_file()
     old_notes = get_notes(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -793,7 +788,7 @@ def test_push_writes_changes_correctly():
 @pytest.mark.skip
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -812,7 +807,7 @@ def test_push_verifies_md5sum():
 @pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
-    col_file = col_file()
+    col_file = get_col_file()
     old_hash = ki.md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -848,7 +843,7 @@ def test_push_generates_correct_backup():
 @pytest.mark.skip
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -870,7 +865,7 @@ def test_push_doesnt_write_uncommitted_changes():
 @pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -910,7 +905,7 @@ def test_push_doesnt_fail_after_pull():
 @pytest.mark.skip
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -930,7 +925,7 @@ def test_no_op_push_is_idempotent():
 @pytest.mark.skip
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -962,7 +957,7 @@ def test_push_deletes_notes():
 @pytest.mark.skip
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -988,7 +983,7 @@ def test_push_still_works_from_subdirectories():
 @pytest.mark.skip
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1049,7 +1044,7 @@ def test_push_deletes_added_notes():
 @pytest.mark.skip
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1095,9 +1090,9 @@ def test_parse_markdown_note():
     transformer = ki.NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ftest(Path(NOTE_5_PATH)))
+        ki.parse_markdown_note(parser, transformer, ki.ftest(Path(NOTE_5_PATH)))
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ftest(Path(NOTE_6_PATH)))
+        ki.parse_markdown_note(parser, transformer, ki.ftest(Path(NOTE_6_PATH)))
 
 
 @pytest.mark.skip
@@ -1151,7 +1146,7 @@ def test_is_anki_note():
 @pytest.mark.skip
 def test_update_kinote_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
 
     with Anki(path=col_file) as a:
@@ -1169,7 +1164,7 @@ def test_update_kinote_raises_error_on_too_few_fields():
 @pytest.mark.skip
 def test_update_kinote_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
 
     with Anki(path=col_file) as a:
@@ -1195,7 +1190,7 @@ def test_update_kinote_raises_error_on_too_many_fields():
 @pytest.mark.skip
 def test_update_kinote_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
 
     with Anki(path=col_file) as a:
@@ -1215,7 +1210,7 @@ def test_update_kinote_raises_error_wrong_field_name():
 @pytest.mark.skip
 def test_update_kinote_sets_tags():
     """Do we update tags of anki note?"""
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1238,7 +1233,7 @@ def test_update_kinote_sets_tags():
 
 @pytest.mark.skip
 def test_update_kinote_sets_deck():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1255,7 +1250,7 @@ def test_update_kinote_sets_deck():
 
 @pytest.mark.skip
 def test_update_kinote_sets_field_contents():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1275,7 +1270,7 @@ def test_update_kinote_sets_field_contents():
 
 @pytest.mark.skip
 def test_update_kinote_removes_field_contents():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1292,7 +1287,7 @@ def test_update_kinote_removes_field_contents():
 
 @pytest.mark.skip
 def test_update_kinote_raises_error_on_nonexistent_notetype_name():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1314,7 +1309,7 @@ def test_update_kinote_raises_error_on_nonexistent_notetype_name():
 
 @pytest.mark.skip
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1331,7 +1326,7 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
 
 @pytest.mark.skip
 def test_display_fields_health_warning_catches_empty_notes():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     with Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
@@ -1352,7 +1347,7 @@ def test_slugify():
 
 @pytest.mark.skip
 def test_add_note_from_flatnote_returns_kinote():
-    col_file = col_file()
+    col_file = get_col_file()
     with Anki(path=col_file) as a:
         field = "x"
         flatnote = FlatNote(
@@ -1370,7 +1365,7 @@ def test_add_note_from_flatnote_returns_kinote():
 
 @pytest.mark.skip
 def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
-    col_file = col_file()
+    col_file = get_col_file()
     with Anki(path=col_file) as a:
         field = "*hello*"
         flatnote = FlatNote(
@@ -1389,7 +1384,7 @@ def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
 
 @pytest.mark.skip
 def test_get_deltas_since_last_push(capfd):
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1409,7 +1404,7 @@ def test_get_deltas_since_last_push(capfd):
 
 @pytest.mark.skip
 def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1428,7 +1423,7 @@ def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
 
 @pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
@@ -1462,7 +1457,7 @@ def test_get_deltas_since_last_push_handles_submodules():
     Does 'get_deltas_since_last_push()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
@@ -1493,7 +1488,7 @@ def test_get_deltas_since_last_push_handles_submodules():
 
 @pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(capfd):
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, col_file)
@@ -1507,7 +1502,7 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
 
 @pytest.mark.skip
 def test_git_subprocess_pull():
-    col_file = col_file()
+    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1525,12 +1520,12 @@ def test_git_subprocess_pull():
 
 @pytest.mark.skip
 def test_get_note_path():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     runner = CliRunner()
     with runner.isolated_filesystem(), Anki(path=col_file) as a:
         i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
+        _ = KiNote(a, a.col.get_note(i))
 
         deck_dir = ki.fcwd()
         dupe_path = deck_dir / "a.md"
@@ -1580,7 +1575,7 @@ def test_create_deck_dir_strips_leading_periods():
 
 @pytest.mark.skip
 def test_get_tidy_payload():
-    col_file = col_file()
+    col_file = get_col_file()
     query = ""
     runner = CliRunner()
     with runner.isolated_filesystem(), Anki(path=col_file) as a:
