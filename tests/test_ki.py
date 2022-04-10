@@ -460,8 +460,8 @@ def test_clone_generates_expected_notes():
         assert os.path.isdir(os.path.join(REPODIR, "Default"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(cloned_note_path)
-        true_md5 = ki.md5(true_note_path)
+        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
+        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -484,8 +484,8 @@ def test_clone_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(cloned_note_path)
-        true_md5 = ki.md5(true_note_path)
+        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
+        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -1022,27 +1022,30 @@ def test_get_batches():
 
 def test_is_anki_note():
     """Do asserts in ``is_anki_note()`` actually do anything?"""
-    assert ki.is_anki_note(Path("note.mda")) is False
-    assert ki.is_anki_note(Path("note.amd")) is False
-    assert ki.is_anki_note(Path("note.md.txt")) is False
-    assert ki.is_anki_note(Path("note.nd")) is False
+    assert ki.is_anki_note(ExtantFile("note.mda")) is False
+    assert ki.is_anki_note(ExtantFile("note.amd")) is False
+    assert ki.is_anki_note(ExtantFile("note.md.txt")) is False
+    assert ki.is_anki_note(ExtantFile("note.nd")) is False
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        Path("note.md").write_text("", encoding="UTF-8")
-        assert ki.is_anki_note(Path("note.md")) is False
+        root = ki.fcwd()
+        note_file: ExtantFile = ki.ftouch(root, ki.Singleton("note.md"))
 
-        Path("note.md").write_text("one line", encoding="UTF-8")
-        assert ki.is_anki_note(Path("note.md")) is False
+        note_file.write_text("", encoding="UTF-8")
+        assert ki.is_anki_note(note_file) is False
 
-        Path("note.md").write_text("### Note\n## Note\n", encoding="UTF-8")
-        assert ki.is_anki_note(Path("note.md")) is False
+        note_file.write_text("one line", encoding="UTF-8")
+        assert ki.is_anki_note(note_file) is False
 
-        Path("note.md").write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
-        assert ki.is_anki_note(Path("note.md")) is False
+        note_file.write_text("### Note\n## Note\n", encoding="UTF-8")
+        assert ki.is_anki_note(note_file) is False
 
-        Path("note.md").write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
-        assert ki.is_anki_note(Path("note.md")) is True
+        note_file.write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
+        assert ki.is_anki_note(note_file) is False
+
+        note_file.write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
+        assert ki.is_anki_note(note_file) is True
 
 
 def test_update_kinote_raises_error_on_too_few_fields():
@@ -1310,7 +1313,7 @@ def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
 
 
 @beartype
-def get_repo_with_submodules(runner: CliRunner, collection_path: str) -> git.Repo:
+def get_repo_with_submodules(runner: CliRunner, collection_path: ki.ExtantFile) -> git.Repo:
     """Return repo with committed submodule."""
     # Clone collection in cwd.
     clone(runner, collection_path)
@@ -1417,8 +1420,8 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         clone(runner, collection_path)
         os.chdir(REPODIR)
 
-        ki.backup(Path(collection_path))
-        ki.backup(Path(collection_path))
+        ki.backup(collection_path)
+        ki.backup(collection_path)
         captured = capfd.readouterr()
         assert "Backup already exists." in captured.out
 
@@ -1448,18 +1451,18 @@ def test_get_note_path():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
 
-        deck_dir = Path(".")
+        deck_dir = ki.fcwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        note_path = ki.get_note_path("sortfieldtext", deck_dir)
-        assert str(note_path) == "a_1.md"
+        note_path = ki.get_note_path("a", deck_dir)
+        assert str(note_path.name) == "a_1.md"
 
 
 def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = Path(".")
+        root = ki.fcwd()
         file = root / "a.html"
         file.write_text("ay")
         old_path = os.environ["PATH"]
@@ -1475,7 +1478,7 @@ def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = Path(".")
+        root = ki.fcwd()
         path = ki.create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
@@ -1485,7 +1488,7 @@ def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = Path(".")
+        root = ki.fcwd()
         path = ki.create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
@@ -1515,9 +1518,9 @@ def test_write_notes_generates_deck_tree_correctly():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = Path(MULTIDECK_REPODIR)
-        targetdir.mkdir()
-        ki.write_notes(Path(collection_path), targetdir, silent=False)
+        targetdir = ki.ftest(Path(MULTIDECK_REPODIR))
+        targetdir = ki.fmkdir(targetdir)
+        ki.write_notes(collection_path, targetdir, silent=False)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
@@ -1525,8 +1528,8 @@ def test_write_notes_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(cloned_note_path)
-        true_md5 = ki.md5(true_note_path)
+        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
+        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -1539,4 +1542,4 @@ def test_write_notes_handles_html():
 
         targetdir = Path(HTML_REPODIR)
         targetdir.mkdir()
-        ki.write_notes(Path(collection_path), targetdir, silent=False)
+        ki.write_notes(collection_path, targetdir, silent=False)
