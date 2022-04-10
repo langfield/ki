@@ -37,7 +37,6 @@ import prettyprinter as pp
 from tqdm import tqdm
 from lark import Lark
 from loguru import logger
-from pyinstrument import Profiler
 
 import git
 from git.exc import GitCommandError
@@ -1698,9 +1697,6 @@ def pull() -> None:
 @beartype
 def push() -> None:
     """Push a ki repository into a .anki2 file."""
-    profiler = Profiler()
-    profiler.start()
-
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
     # Check that we are inside a ki repository, and get the associated collection.
@@ -1880,7 +1876,4 @@ def push() -> None:
     # Unlock Anki SQLite DB.
     unlock(con)
 
-    profiler.stop()
-    html = profiler.output_html()
-    (Path.home() / "ki_profile.html").write_text(html)
     return None
