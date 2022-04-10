@@ -1837,9 +1837,18 @@ def push() -> None:
                     num_new_nids += 1
                     msg += f"Wrote note '{kinote.n.id}' in file {new_note_relpath}\n"
 
+        # Commit nid reassignments.
         logger.warning(f"Reassigned {num_new_nids} nids.")
         if num_new_nids > 0:
             msg = "Generated new nid(s).\n\n" + msg
+
+            # Commit in all submodules (doesn't support recursing yet).
+            for sm in kirepo.repo.submodules:
+                subrepo: git.Repo = sm.update().module()
+                subrepo.git.add(all=True)
+                subrepo.index.commit(msg)
+
+            # Commit in main repository.
             kirepo.repo.git.add(all=True)
             _ = kirepo.repo.index.commit(msg)
 

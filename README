@@ -606,6 +606,8 @@ Bugs
       cmdline: git remote add anki /tmp/tmpuglbuhux/ki/local/96d99f27d75f7715a71f26ed6f282b0c/.git
       stderr: 'error: remote anki already exists.'
 
+12. Nid reassignment in submodules doesn't get committed.
+
 On making push faster
 ---------------------
 We only want to update notes in the SQLite DB that have changed since the last
