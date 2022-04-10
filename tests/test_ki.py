@@ -25,7 +25,6 @@ from beartype.typing import List
 import ki
 from ki.note import KiNote
 from ki.transformer import FlatNote
-from ki.architecture import _push
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
@@ -1041,12 +1040,12 @@ def test_push_generates_correct_title_for_notes():
 
 
 @pytest.mark.skip
-def test_parse_markdown_notes():
+def test_parse_markdown_note():
     """Does ki raise an error when it fails to parse nid?"""
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_notes(NOTE_5_PATH)
+        ki.parse_markdown_note(NOTE_5_PATH)
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_notes(NOTE_6_PATH)
+        ki.parse_markdown_note(NOTE_6_PATH)
 
 
 @pytest.mark.skip
@@ -1331,7 +1330,7 @@ def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
 
 
 @pytest.mark.skip
-def test_get_note_files_changed_since_last_push(capfd):
+def test_get_deltas_since_last_push(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1343,7 +1342,7 @@ def test_get_note_files_changed_since_last_push(capfd):
         last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
         last_push_path.write_text("")
 
-        deltas = ki.get_note_files_changed_since_last_push(repo)
+        deltas = ki.get_deltas_since_last_push(repo)
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
@@ -1351,7 +1350,7 @@ def test_get_note_files_changed_since_last_push(capfd):
 
 
 @pytest.mark.skip
-def test_get_note_files_changed_since_last_push_when_last_push_file_is_missing(capfd):
+def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1363,7 +1362,7 @@ def test_get_note_files_changed_since_last_push_when_last_push_file_is_missing(c
         last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
         os.remove(last_push_path)
 
-        deltas = ki.get_note_files_changed_since_last_push(repo)
+        deltas = ki.get_deltas_since_last_push(repo)
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
@@ -1439,9 +1438,9 @@ def get_staging_repo(repo: git.Repo) -> git.Repo:
 
 
 @pytest.mark.skip
-def test_get_note_files_changed_since_last_push_handles_submodules():
+def test_get_deltas_since_last_push_handles_submodules():
     """
-    Does 'get_note_files_changed_since_last_push()' correctly generate deltas
+    Does 'get_deltas_since_last_push()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
     collection_path = get_collection_path()
@@ -1449,7 +1448,7 @@ def test_get_note_files_changed_since_last_push_handles_submodules():
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, collection_path)
         staging_repo = get_staging_repo(repo)
-        deltas = ki.get_note_files_changed_since_last_push(staging_repo)
+        deltas = ki.get_deltas_since_last_push(staging_repo)
         assert len(deltas) == 1
         delta = deltas[0]
         assert delta.status == ki.GitChangeType.ADDED
@@ -1465,7 +1464,7 @@ def test_get_note_files_changed_since_last_push_handles_submodules():
         _ = repo.index.commit("Remove submodule.")
 
         staging_repo = get_staging_repo(repo)
-        deltas = ki.get_note_files_changed_since_last_push(staging_repo)
+        deltas = ki.get_deltas_since_last_push(staging_repo)
         logger.debug(f"Deltas: {pp.pformat(deltas)}")
 
         for delta in deltas:
@@ -1506,7 +1505,7 @@ def test_git_subprocess_pull():
 
 
 @pytest.mark.skip
-def test_get_notepath():
+def test_get_note_path():
     collection_path = get_collection_path()
     query = ""
     runner = CliRunner()
@@ -1514,11 +1513,11 @@ def test_get_notepath():
         i = set(a.col.find_notes(query)).pop()
         kinote = KiNote(a, a.col.get_note(i))
 
-        deckpath = Path(".")
-        dupe_path = deckpath / "a.md"
+        deck_dir = Path(".")
+        dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        notepath = ki.get_notepath(kinote, "Front", deckpath)
-        assert str(notepath) == "a_1.md"
+        note_path = ki.get_note_path("sortfieldtext", deck_dir)
+        assert str(note_path) == "a_1.md"
 
 
 @pytest.mark.skip
@@ -1539,23 +1538,23 @@ def test_tidy_html_recursively():
 
 
 @pytest.mark.skip
-def test_create_deckpath():
+def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
         root = Path(".")
-        path = ki.create_deckpath(deckname, root)
+        path = ki.create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
 
 @pytest.mark.skip
-def test_create_deckpath_strips_leading_periods():
+def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
         root = Path(".")
-        path = ki.create_deckpath(deckname, root)
+        path = ki.create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
@@ -1612,56 +1611,3 @@ def test_write_notes_handles_html():
         targetdir = Path(HTML_REPODIR)
         targetdir.mkdir()
         ki.write_notes(Path(collection_path), targetdir, silent=False)
-
-
-def test_push_architecture_writes_changes_correctly():
-    """If there are committed changes, does push change the collection file?"""
-    collection_path = get_collection_path()
-    old_notes = get_notes(collection_path)
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tempfile.mkdtemp()):
-
-        # Clone collection in cwd.
-        clone(runner, collection_path)
-
-        # Edit a note.
-        note = os.path.join(REPODIR, NOTE_0)
-        with open(note, "a", encoding="UTF-8") as note_file:
-            note_file.write("e\n")
-
-        # Delete a note.
-        note = os.path.join(REPODIR, NOTE_4)
-        os.remove(note)
-
-        # Add a note.
-        shutil.copyfile(NOTE_2_PATH, os.path.join(REPODIR, NOTE_2))
-
-        # Commit.
-        repo = git.Repo(REPODIR)
-        repo.git.add(all=True)
-        repo.index.commit("Added 'e'.")
-
-        # Push and check for changes.
-        os.chdir(REPODIR)
-        _push()
-        new_notes = get_notes(collection_path)
-
-        # Check NOTE_4 was deleted.
-        new_ids = [note.n.id for note in new_notes]
-        assert NOTE_4_ID not in new_ids
-
-        # Check NOTE_0 was edited.
-        old_note_0 = ""
-        for note in new_notes:
-            if note.n.id == NOTE_0_ID:
-                old_note_0 = str(note)
-        assert len(old_note_0) > 0
-        found_0 = False
-        for note in new_notes:
-            if note.n.id == NOTE_0_ID:
-                assert old_note_0 == str(note)
-                found_0 = True
-        assert found_0
-
-        # Check NOTE_2 was added.
-        assert len(old_notes) == len(new_notes) == 2

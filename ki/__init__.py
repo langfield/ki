@@ -1193,7 +1193,7 @@ def get_sort_field_text(
 
 @beartype
 def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
-    """Get note_path from sort field name."""
+    """Get note path from sort field text."""
     field_text = sort_field_text
 
     MD = ".md"
