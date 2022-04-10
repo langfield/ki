@@ -1559,9 +1559,8 @@ def clone(collection: str, directory: str = "") -> None:
     # Dump HEAD ref of current repo in ``.ki/last_push``.
     kirepo.last_push_file.write_text(head.sha)
 
-    # TODO: Should figure out how to catch this.
+    # TODO: Should figure out how to clean up in case of errors.
     if False:
-        echo(str(err))
         echo("Failed: exiting.")
         if targetdir.is_dir() and not isinstance(err, FileExistsError):
             shutil.rmtree(targetdir)
@@ -1701,6 +1700,9 @@ def pull() -> None:
 @beartype
 def push() -> None:
     """Push a ki repository into a .anki2 file."""
+    profiler = Profiler()
+    profiler.start()
+
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
     # Check that we are inside a ki repository, and get the associated collection.
@@ -1785,7 +1787,6 @@ def push() -> None:
         for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
 
             if is_delete(delta):
-                logger.debug("Removing a note.")
                 a.col.remove_notes([parse_markdown_note(delta.path).nid])
                 a.modified = True
                 continue
@@ -1867,4 +1868,8 @@ def push() -> None:
 
     # Unlock Anki SQLite DB.
     unlock(con)
+
+    profiler.stop()
+    html = profiler.output_html()
+    (Path.home() / "ki_profile.html").write_text(html)
     return None
