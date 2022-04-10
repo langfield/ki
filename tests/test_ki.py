@@ -157,10 +157,8 @@ def is_git_repo(path: str) -> bool:
 
 
 @beartype
-def randomly_swap_1_bit(path: str) -> None:
+def randomly_swap_1_bit(path: ki.ExtantFile) -> None:
     """Randomly swap a bit in a file."""
-    assert os.path.isfile(path)
-
     # Read in bytes.
     with open(path, "rb") as file:
         data: bytes = file.read()
@@ -189,7 +187,7 @@ def checksum_git_repository(path: str) -> str:
 
 
 @beartype
-def get_notes(collection: str) -> List[KiNote]:
+def get_notes(collection: ki.ExtantFile) -> List[KiNote]:
     """Get a list of notes from a path."""
     # Import with apy.
     query = ""
@@ -198,6 +196,46 @@ def get_notes(collection: str) -> List[KiNote]:
         for i in set(a.col.find_notes(query)):
             notes.append(KiNote(a, a.col.get_note(i)))
     return notes
+
+
+@beartype
+def get_staging_repo(repo: git.Repo) -> git.Repo:
+    """Get deltas from ephemeral staging repo."""
+    # Get ephemeral repo (submodules converted to ordinary directories).
+    sha = str(repo.head.commit)
+    staging_repo = ki.get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+
+    # Copy `.ki/` directory into the staging repo.
+    staging_repo_kidir = Path(staging_repo.working_dir) / ".ki"
+    shutil.copytree(Path(repo.working_dir) / ".ki", staging_repo_kidir)
+
+    return staging_repo
+
+
+
+@beartype
+def get_repo_with_submodules(runner: CliRunner, collection_path: ki.ExtantFile) -> git.Repo:
+    """Return repo with committed submodule."""
+    # Clone collection in cwd.
+    clone(runner, collection_path)
+    repo = git.Repo(REPODIR)
+
+    # Create submodule out of GITREPO_PATH.
+    submodule_name = SUBMODULE_DIRNAME
+    shutil.copytree(GITREPO_PATH, submodule_name)
+    git.Repo.init(submodule_name, initial_branch=ki.BRANCH_NAME)
+    sm = git.Repo(submodule_name)
+    sm.git.add(all=True)
+    _ = sm.index.commit("Initial commit.")
+
+    # Add as a submodule.
+    repo.git.submodule("add", Path(submodule_name).resolve())
+    repo.git.add(all=True)
+    _ = repo.index.commit("Add submodule.")
+
+    return repo
+
+
 
 
 # CLI
@@ -764,7 +802,7 @@ def test_push_generates_correct_backup():
 
         backup = False
         for path in paths:
-            if ki.md5(path) == old_hash:
+            if ki.md5(ki.ftest(Path(path))) == old_hash:
                 backup = True
 
         assert backup
@@ -1000,37 +1038,52 @@ def test_push_generates_correct_title_for_notes():
 
 def test_parse_markdown_note():
     """Does ki raise an error when it fails to parse nid?"""
+    # Read grammar.
+    # UNSAFE! Should we assume this always exists? A nice error message should
+    # be printed on initialization if the grammar file is missing. No
+    # computation should be done, and none of the click commands should work.
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+
+    # Instantiate parser.
+    parser = ki.Lark(grammar, start="file", parser="lalr")
+    transformer = ki.NoteTransformer()
+
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(NOTE_5_PATH)
+        ki.parse_markdown_note(parser, transformer, ftest(Path(NOTE_5_PATH)))
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(NOTE_6_PATH)
-
-
-def test_clone_helper_checks_for_colpath_existence():
-    """Does``_clone()`` check that the collection path exists?"""
-    with pytest.raises(FileNotFoundError):
-
-        # pylint: disable=protected-access
-        ki._clone(Path("/tmp/NONEXISTENT_PATH.anki2"), Path("/tmp/TARGET"), "", False)
+        ki.parse_markdown_note(parser, transformer, ftest(Path(NOTE_6_PATH)))
 
 
 def test_get_batches():
     """Does it get batches from a list of strings?"""
-    batches = list(ki.get_batches(["0", "1", "2", "3"], n=2))
-    assert batches == [["0", "1"], ["2", "3"]]
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        root = ki.fcwd()
+        one = ki.ftouch(root, ki.singleton("note1.md"))
+        two = ki.ftouch(root, ki.singleton("note2.md"))
+        three = ki.ftouch(root, ki.singleton("note3.md"))
+        four = ki.ftouch(root, ki.singleton("note4.md"))
+        batches = list(ki.get_batches([one, two, three, four], n=2))
+        assert batches == [[one, two], [three, four]]
 
 
 def test_is_anki_note():
     """Do asserts in ``is_anki_note()`` actually do anything?"""
-    assert ki.is_anki_note(ExtantFile("note.mda")) is False
-    assert ki.is_anki_note(ExtantFile("note.amd")) is False
-    assert ki.is_anki_note(ExtantFile("note.md.txt")) is False
-    assert ki.is_anki_note(ExtantFile("note.nd")) is False
-
     runner = CliRunner()
     with runner.isolated_filesystem():
         root = ki.fcwd()
-        note_file: ExtantFile = ki.ftouch(root, ki.Singleton("note.md"))
+        mda = ki.ftouch(root, ki.singleton("note.mda"))
+        amd = ki.ftouch(root, ki.singleton("note.amd"))
+        mdtxt = ki.ftouch(root, ki.singleton("note.mdtxt"))
+        nd = ki.ftouch(root, ki.singleton("note.nd"))
+
+        assert ki.is_anki_note(mda) is False
+        assert ki.is_anki_note(amd) is False
+        assert ki.is_anki_note(mdtxt) is False
+        assert ki.is_anki_note(nd) is False
+
+        note_file: ki.ExtantFile = ki.ftouch(root, ki.Singleton("note.md"))
 
         note_file.write_text("", encoding="UTF-8")
         assert ki.is_anki_note(note_file) is False
@@ -1274,6 +1327,7 @@ def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
         assert "<em>hello</em>" in result.n.fields[0]
 
 
+@pytest.mark.skip
 def test_get_deltas_since_last_push(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1293,6 +1347,7 @@ def test_get_deltas_since_last_push(capfd):
         assert "last_push" not in captured.err
 
 
+@pytest.mark.skip
 def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1311,30 +1366,7 @@ def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
         assert "last_push" in captured.err
 
-
-@beartype
-def get_repo_with_submodules(runner: CliRunner, collection_path: ki.ExtantFile) -> git.Repo:
-    """Return repo with committed submodule."""
-    # Clone collection in cwd.
-    clone(runner, collection_path)
-    repo = git.Repo(REPODIR)
-
-    # Create submodule out of GITREPO_PATH.
-    submodule_name = SUBMODULE_DIRNAME
-    shutil.copytree(GITREPO_PATH, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=ki.BRANCH_NAME)
-    sm = git.Repo(submodule_name)
-    sm.git.add(all=True)
-    _ = sm.index.commit("Initial commit.")
-
-    # Add as a submodule.
-    repo.git.submodule("add", Path(submodule_name).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-
-    return repo
-
-
+@pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1364,21 +1396,7 @@ def test_get_ephemeral_repo_removes_gitmodules():
 
         assert not gitmodules_path.exists()
 
-
-@beartype
-def get_staging_repo(repo: git.Repo) -> git.Repo:
-    """Get deltas from ephemeral staging repo."""
-    # Get ephemeral repo (submodules converted to ordinary directories).
-    sha = str(repo.head.commit)
-    staging_repo = ki.get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
-
-    # Copy `.ki/` directory into the staging repo.
-    staging_repo_kidir = Path(staging_repo.working_dir) / ".ki"
-    shutil.copytree(Path(repo.working_dir) / ".ki", staging_repo_kidir)
-
-    return staging_repo
-
-
+@pytest.mark.skip
 def test_get_deltas_since_last_push_handles_submodules():
     """
     Does 'get_deltas_since_last_push()' correctly generate deltas
@@ -1540,6 +1558,5 @@ def test_write_notes_handles_html():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = Path(HTML_REPODIR)
-        targetdir.mkdir()
+        targetdir = ki.fmkdir(ki.ftest(Path(HTML_REPODIR)))
         ki.write_notes(collection_path, targetdir, silent=False)

@@ -436,6 +436,7 @@ def git_dir(repo: git.Repo) -> ExtantDir:
 # SAFE
 
 
+@beartype
 def singleton(name: str) -> Singleton:
     """Removes all forward slashes and returns a Singleton pathlib.Path."""
     return Singleton(name.replace("/", ""))
