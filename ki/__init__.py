@@ -966,9 +966,11 @@ def get_head(repo: git.Repo) -> Optional[RepoRef]:
     return None if isinstance(maybe_ref.value, str) else JUST(maybe_ref)
 
 
+@beartype
 def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
     """Call root.rglob() and returns only files."""
-    return filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
+    files = filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
+    return list(files)
 
 
 @beartype
@@ -1254,8 +1256,7 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
     components = deck_name.split("::")
     components = [re.sub(r"^\.", r"", comp) for comp in components]
     deck_path = Path(targetdir, *components)
-    fforce_mkdir(deck_path)
-    return deck_path
+    return fforce_mkdir(deck_path)
 
 
 @beartype
@@ -1459,6 +1460,7 @@ def update_no_submodules_tree(kirepo: KiRepo, stage_root: ExtantDir) -> None:
 Maybe = Union[
     MaybeError,
     MaybeNoPath,
+    MaybeEmptyDir,
     MaybeExtantDir,
     MaybeExtantFile,
     MaybeRepo,
@@ -1539,32 +1541,31 @@ def clone(collection: str, directory: str = "") -> None:
     if not isinstance(targetdir, EmptyDir):
         return echo(TARGET_EXISTS_MSG(targetdir))
 
-    # Clean up nicely if the call fails.
-    try:
-        md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
-        # Check that we are inside a ki repository, and get the associated collection.
-        root: ExtantDir = ftest(targetdir)
-        kirepo: KiRepo = IO(get_ki_repo(root))
+    # Check that we are inside a ki repository, and get the associated collection.
+    root: ExtantDir = ftest(targetdir)
+    kirepo: KiRepo = IO(get_ki_repo(root))
 
-        # Get reference to HEAD of current repo.
-        head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
+    # Get reference to HEAD of current repo.
+    head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
-        # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
-        stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
-        stage_kirepo.repo.git.add(all=True)
-        stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
-        update_no_submodules_tree(kirepo, stage_kirepo.root)
+    # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
+    stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
+    stage_kirepo.repo.git.add(all=True)
+    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+    update_no_submodules_tree(kirepo, stage_kirepo.root)
 
-        # Dump HEAD ref of current repo in ``.ki/last_push``.
-        kirepo.last_push_file.write_text(head.sha)
+    # Dump HEAD ref of current repo in ``.ki/last_push``.
+    kirepo.last_push_file.write_text(head.sha)
 
-    # pylint: disable=broad-except
-    except Exception as err:
+    # TODO: Should figure out how to catch this.
+    if False:
         echo(str(err))
         echo("Failed: exiting.")
         if targetdir.is_dir() and not isinstance(err, FileExistsError):
             shutil.rmtree(targetdir)
+
     return None
 
 
@@ -1593,7 +1594,7 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    kidir: EmptyDir = fmksubdir(targetdir, KI)
+    kidir: EmptyDir = fmksubdir(targetdir, Path(KI))
 
     # Create config file.
     config_file: ExtantFile = fmkleaves(kidir, [singleton(CONFIG_FILE)])[0]
