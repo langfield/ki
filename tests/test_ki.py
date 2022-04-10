@@ -333,6 +333,8 @@ def test_computes_and_stores_md5sum(runner: CliRunner, col_file: ki.ExtantFile, 
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
+        logger.debug(f"CWD: {ki.fcwd()}")
+
         # Pull edited collection.
         os.chdir(REPODIR)
         pull(runner)

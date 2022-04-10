@@ -1638,8 +1638,9 @@ def pull() -> None:
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
-    if md5sum not in hashes[-1]:
-        IO(updates_rejected_message(kirepo.col_file))
+    if md5sum in hashes[-1]:
+        echo("ki pull: up to date.", bold=True)
+        return unlock(con)
 
     echo(f"Pulling from '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1688,7 +1689,7 @@ def pull() -> None:
     # Check that md5sum hasn't changed.
     if md5(kirepo.col_file) != md5sum:
         logger.warning(f"Checksum mismatch on {kirepo.col_file}. Was file changed?")
-    unlock(con)
+    return unlock(con)
 
 
 # PUSH
