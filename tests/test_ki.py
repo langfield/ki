@@ -261,7 +261,6 @@ def test_cli():
 # COMMON
 
 
-@pytest.mark.skip
 def test_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
     runner = CliRunner()
