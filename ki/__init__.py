@@ -1696,8 +1696,9 @@ def pull() -> None:
 # PUSH
 
 
+@ki.command()
 @beartype
-def _push() -> None:
+def push() -> None:
     """Push a ki repository into a .anki2 file."""
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
