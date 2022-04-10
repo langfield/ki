@@ -1386,8 +1386,8 @@ def git_subprocess_pull(remote: str, branch: str) -> int:
 def echo(string: str, silent: bool = False) -> None:
     """Call `click.secho()` with formatting."""
     if not silent:
-        # click.secho(string, bold=True)
-        logger.info(string)
+        click.secho(string, bold=True)
+        # logger.info(string)
 
 
 # TODO: Refactor into a safe function.
@@ -1639,7 +1639,7 @@ def pull() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum in hashes[-1]:
-        echo("ki pull: up to date.", bold=True)
+        echo("ki pull: up to date.")
         return unlock(con)
 
     echo(f"Pulling from '{kirepo.col_file}'")
