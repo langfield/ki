@@ -87,11 +87,11 @@ def invoke(*args, **kwargs):
 
 
 @beartype
-def clone(runner: CliRunner, repository: str, directory: str = "") -> str:
+def clone(runner: CliRunner, collection: ki.ExtantFile, directory: str = "") -> str:
     """Make a test `ki clone` call."""
     res = runner.invoke(
         ki.ki,
-        ["clone", repository, directory],
+        ["clone", str(collection), str(directory)],
         standalone_mode=False,
         catch_exceptions=False,
     )
@@ -113,18 +113,17 @@ def push(runner: CliRunner) -> str:
 
 
 @beartype
-def get_collection_path() -> str:
+def get_collection_path() -> ki.ExtantFile:
     """Put `collection.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     collection_path = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, collection_path)
-    assert os.path.isfile(collection_path)
-    return collection_path
+    return ki.ftest(Path(collection_path))
 
 
 @beartype
-def get_multideck_collection_path() -> str:
+def get_multideck_collection_path() -> ki.ExtantFile:
     """Put `multideck.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
@@ -132,19 +131,17 @@ def get_multideck_collection_path() -> str:
         os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME)
     )
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, collection_path)
-    assert os.path.isfile(collection_path)
-    return collection_path
+    return ki.ftest(Path(collection_path))
 
 
 @beartype
-def get_html_collection_path() -> str:
+def get_html_collection_path() -> ki.ExtantFile:
     """Put `html.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     collection_path = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, collection_path)
-    assert os.path.isfile(collection_path)
-    return collection_path
+    return ki.ftest(Path(collection_path))
 
 
 @beartype
@@ -206,7 +203,6 @@ def get_notes(collection: str) -> List[KiNote]:
 # CLI
 
 
-@pytest.mark.skip
 def test_bad_command_is_bad():
     """Typos should result in errors."""
     result = invoke(ki.ki, ["clome"])
@@ -214,7 +210,6 @@ def test_bad_command_is_bad():
     assert "Error: No such command 'clome'." in result.output
 
 
-@pytest.mark.skip
 def test_runas_module():
     """Can this package be run as a Python module?"""
     command = "python -m ki --help"
@@ -222,14 +217,12 @@ def test_runas_module():
     assert completed.returncode == 0
 
 
-@pytest.mark.skip
 def test_entrypoint():
     """Is entrypoint script installed? (setup.py)"""
     result = invoke(ki.ki, ["--help"])
     assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_version():
     """Does --version display information as expected?"""
     expected_version = version("ki")
@@ -239,7 +232,6 @@ def test_version():
     assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_command_availability():
     """Are commands available?"""
     results = []
@@ -250,7 +242,6 @@ def test_command_availability():
         assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_cli():
     """Does CLI stop execution w/o a command argument?"""
     with pytest.raises(SystemExit):
@@ -274,7 +265,6 @@ def test_fails_without_ki_subdirectory():
             push(runner)
 
 
-@pytest.mark.skip
 def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     collection_path = get_collection_path()
@@ -282,7 +272,6 @@ def test_computes_and_stores_md5sum():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        # ki.clone(collection_path)
         clone(runner, collection_path)
 
         # Check that hash is written.
@@ -306,7 +295,6 @@ def test_computes_and_stores_md5sum():
             assert "199216c39eeabe23a1da016a99ffd3e2  collection.anki2" in hashes
 
 
-@pytest.mark.skip
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
     collection_path = get_collection_path()
@@ -332,7 +320,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_output():
     """Does it print nice things?"""
     collection_path = get_collection_path()
@@ -372,7 +359,6 @@ def test_output():
 # CLONE
 
 
-@pytest.mark.skip
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
     collection_path = get_collection_path()
@@ -385,7 +371,6 @@ def test_clone_fails_if_collection_doesnt_exist():
         assert not os.path.isdir(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_creates_directory():
     """Does it create the directory?"""
     collection_path = get_collection_path()
@@ -398,7 +383,6 @@ def test_clone_creates_directory():
         assert os.path.isdir(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     collection_path = get_html_collection_path()
@@ -414,7 +398,6 @@ def test_clone_handles_html():
         assert "<!DOCTYPE html>" in contents
 
 
-@pytest.mark.skip
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     collection_path = get_collection_path()
@@ -431,7 +414,6 @@ def test_clone_errors_when_directory_is_populated():
         assert "is not an empty" in out
 
 
-@pytest.mark.skip
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
     collection_path = get_html_collection_path()
@@ -452,7 +434,6 @@ def test_clone_cleans_up_on_error():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
     collection_path = get_collection_path()
@@ -464,7 +445,6 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
         clone(runner, collection_path)
 
 
-@pytest.mark.skip
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
@@ -486,7 +466,6 @@ def test_clone_generates_expected_notes():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
@@ -511,7 +490,6 @@ def test_clone_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     collection_path = get_collection_path()
@@ -526,7 +504,6 @@ def test_clone_generates_ki_subdirectory():
         assert os.path.isdir(kidir)
 
 
-@pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     collection_path = get_collection_path()
@@ -539,7 +516,6 @@ def test_cloned_collection_is_git_repository():
         assert is_git_repo(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     collection_path = get_collection_path()
@@ -561,7 +537,6 @@ def test_clone_commits_directory_contents():
         assert len(commits) == 1
 
 
-@pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     collection_path = get_collection_path()
@@ -576,7 +551,6 @@ def test_clone_leaves_collection_file_unchanged():
         assert original_md5 == updated_md5
 
 
-@pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
     collection_path = get_collection_path()
@@ -596,7 +570,6 @@ def test_clone_directory_argument_works():
 # PULL
 
 
-@pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     collection_path = get_collection_path()
@@ -613,7 +586,6 @@ def test_pull_fails_if_collection_no_longer_exists():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     collection_path = get_collection_path()
@@ -633,7 +605,6 @@ def test_pull_writes_changes_correctly():
         assert os.path.isfile(NOTE_1)
 
 
-@pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     collection_path = get_collection_path()
@@ -653,7 +624,6 @@ def test_pull_unchanged_collection_is_no_op():
         assert orig_hash == new_hash
 
 
-@pytest.mark.skip
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     collection_path = get_collection_path()
@@ -673,7 +643,6 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
-@pytest.mark.skip
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     collection_path = get_collection_path()
@@ -695,7 +664,6 @@ def test_pull_still_works_from_subdirectories():
 # PUSH
 
 
-@pytest.mark.skip
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     collection_path = get_collection_path()
@@ -749,7 +717,6 @@ def test_push_writes_changes_correctly():
         assert len(old_notes) == len(new_notes) == 2
 
 
-@pytest.mark.skip
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     collection_path = get_collection_path()
@@ -768,7 +735,6 @@ def test_push_verifies_md5sum():
         assert "Failed to push some refs to" in out
 
 
-@pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     collection_path = get_collection_path()
@@ -804,7 +770,6 @@ def test_push_generates_correct_backup():
         assert backup
 
 
-@pytest.mark.skip
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     collection_path = get_collection_path()
@@ -826,7 +791,6 @@ def test_push_doesnt_write_uncommitted_changes():
         assert not os.path.isdir(".ki/backups")
 
 
-@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     collection_path = get_collection_path()
@@ -866,7 +830,6 @@ def test_push_doesnt_fail_after_pull():
         push(runner)
 
 
-@pytest.mark.skip
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
     collection_path = get_collection_path()
@@ -886,7 +849,6 @@ def test_no_op_push_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     collection_path = get_collection_path()
@@ -918,7 +880,6 @@ def test_push_deletes_notes():
         assert not os.path.isfile(NOTE_0)
 
 
-@pytest.mark.skip
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     collection_path = get_collection_path()
@@ -1004,7 +965,6 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
-@pytest.mark.skip
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
     collection_path = get_collection_path()
@@ -1038,7 +998,6 @@ def test_push_generates_correct_title_for_notes():
 # UTILS
 
 
-@pytest.mark.skip
 def test_parse_markdown_note():
     """Does ki raise an error when it fails to parse nid?"""
     with pytest.raises(UnexpectedToken):
@@ -1047,7 +1006,6 @@ def test_parse_markdown_note():
         ki.parse_markdown_note(NOTE_6_PATH)
 
 
-@pytest.mark.skip
 def test_clone_helper_checks_for_colpath_existence():
     """Does``_clone()`` check that the collection path exists?"""
     with pytest.raises(FileNotFoundError):
@@ -1056,14 +1014,12 @@ def test_clone_helper_checks_for_colpath_existence():
         ki._clone(Path("/tmp/NONEXISTENT_PATH.anki2"), Path("/tmp/TARGET"), "", False)
 
 
-@pytest.mark.skip
 def test_get_batches():
     """Does it get batches from a list of strings?"""
     batches = list(ki.get_batches(["0", "1", "2", "3"], n=2))
     assert batches == [["0", "1"], ["2", "3"]]
 
 
-@pytest.mark.skip
 def test_is_anki_note():
     """Do asserts in ``is_anki_note()`` actually do anything?"""
     assert ki.is_anki_note(Path("note.mda")) is False
@@ -1089,7 +1045,6 @@ def test_is_anki_note():
         assert ki.is_anki_note(Path("note.md")) is True
 
 
-@pytest.mark.skip
 def test_update_kinote_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
     collection_path = get_collection_path()
@@ -1107,7 +1062,6 @@ def test_update_kinote_raises_error_on_too_few_fields():
             ki.update_kinote(kinote, flatnote)
 
 
-@pytest.mark.skip
 def test_update_kinote_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
     collection_path = get_collection_path()
@@ -1133,7 +1087,6 @@ def test_update_kinote_raises_error_on_too_many_fields():
             ki.update_kinote(kinote, flatnote)
 
 
-@pytest.mark.skip
 def test_update_kinote_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
     collection_path = get_collection_path()
@@ -1153,7 +1106,6 @@ def test_update_kinote_raises_error_wrong_field_name():
             ki.update_kinote(kinote, flatnote)
 
 
-@pytest.mark.skip
 def test_update_kinote_sets_tags():
     """Do we update tags of anki note?"""
     collection_path = get_collection_path()
@@ -1177,7 +1129,6 @@ def test_update_kinote_sets_tags():
         assert kinote.n.tags == ["tag"]
 
 
-@pytest.mark.skip
 def test_update_kinote_sets_deck():
     collection_path = get_collection_path()
     query = ""
@@ -1194,7 +1145,6 @@ def test_update_kinote_sets_deck():
         assert kinote.get_deck() == "deck"
 
 
-@pytest.mark.skip
 def test_update_kinote_sets_field_contents():
     collection_path = get_collection_path()
     query = ""
@@ -1214,7 +1164,6 @@ def test_update_kinote_sets_field_contents():
         assert "</p>" in kinote.n.fields[0]
 
 
-@pytest.mark.skip
 def test_update_kinote_removes_field_contents():
     collection_path = get_collection_path()
     query = ""
@@ -1231,7 +1180,6 @@ def test_update_kinote_removes_field_contents():
         assert "a" not in kinote.n.fields[0]
 
 
-@pytest.mark.skip
 def test_update_kinote_raises_error_on_nonexistent_notetype_name():
     collection_path = get_collection_path()
     query = ""
@@ -1253,7 +1201,6 @@ def test_update_kinote_raises_error_on_nonexistent_notetype_name():
             ki.update_kinote(kinote, flatnote)
 
 
-@pytest.mark.skip
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
     collection_path = get_collection_path()
     query = ""
@@ -1270,7 +1217,6 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
         assert "unknown error code" in captured.err
 
 
-@pytest.mark.skip
 def test_display_fields_health_warning_catches_empty_notes():
     collection_path = get_collection_path()
     query = ""
@@ -1282,7 +1228,6 @@ def test_display_fields_health_warning_catches_empty_notes():
         assert health == 1
 
 
-@pytest.mark.skip
 def test_slugify():
     text = "\u1234"
     result = ki.slugify(text, allow_unicode=False)
@@ -1291,7 +1236,6 @@ def test_slugify():
     assert result == ""
 
 
-@pytest.mark.skip
 def test_add_note_from_flatnote_returns_kinote():
     collection_path = get_collection_path()
     with Anki(path=collection_path) as a:
@@ -1309,7 +1253,6 @@ def test_add_note_from_flatnote_returns_kinote():
         assert isinstance(result, KiNote)
 
 
-@pytest.mark.skip
 def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
     collection_path = get_collection_path()
     with Anki(path=collection_path) as a:
@@ -1328,7 +1271,6 @@ def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
         assert "<em>hello</em>" in result.n.fields[0]
 
 
-@pytest.mark.skip
 def test_get_deltas_since_last_push(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1348,7 +1290,6 @@ def test_get_deltas_since_last_push(capfd):
         assert "last_push" not in captured.err
 
 
-@pytest.mark.skip
 def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1391,7 +1332,6 @@ def get_repo_with_submodules(runner: CliRunner, collection_path: str) -> git.Rep
     return repo
 
 
-@pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1436,7 +1376,6 @@ def get_staging_repo(repo: git.Repo) -> git.Repo:
     return staging_repo
 
 
-@pytest.mark.skip
 def test_get_deltas_since_last_push_handles_submodules():
     """
     Does 'get_deltas_since_last_push()' correctly generate deltas
@@ -1471,7 +1410,6 @@ def test_get_deltas_since_last_push_handles_submodules():
 
 
 
-@pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(capfd):
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1485,7 +1423,6 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         assert "Backup already exists." in captured.out
 
 
-@pytest.mark.skip
 def test_git_subprocess_pull():
     collection_path = get_collection_path()
     runner = CliRunner()
@@ -1503,7 +1440,6 @@ def test_git_subprocess_pull():
             ki.git_subprocess_pull("anki", "main")
 
 
-@pytest.mark.skip
 def test_get_note_path():
     collection_path = get_collection_path()
     query = ""
@@ -1519,7 +1455,6 @@ def test_get_note_path():
         assert str(note_path) == "a_1.md"
 
 
-@pytest.mark.skip
 def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
@@ -1536,7 +1471,6 @@ def test_tidy_html_recursively():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
@@ -1547,7 +1481,6 @@ def test_create_deck_dir():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
@@ -1558,7 +1491,6 @@ def test_create_deck_dir_strips_leading_periods():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_get_tidy_payload():
     collection_path = get_collection_path()
     query = ""
@@ -1575,7 +1507,6 @@ def test_get_tidy_payload():
         assert "\nb\n" in result
 
 
-@pytest.mark.skip
 def test_write_notes_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
@@ -1600,7 +1531,6 @@ def test_write_notes_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_write_notes_handles_html():
     """Does generated repo handle html okay?"""
     collection_path = get_html_collection_path()
