@@ -61,6 +61,7 @@ from beartype.typing import (
     Callable,
 )
 
+from ki.safe import safe
 from ki.note import KiNote
 from ki.transformer import NoteTransformer, FlatNote
 
