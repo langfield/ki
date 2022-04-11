@@ -37,6 +37,7 @@ import prettyprinter as pp
 from tqdm import tqdm
 from lark import Lark
 from loguru import logger
+from result import Result, Err, Ok, OkErr
 
 import git
 from git.exc import GitCommandError
@@ -70,6 +71,9 @@ logging.basicConfig(level=logging.INFO)
 FieldDict = Dict[str, Any]
 NotetypeDict = Dict[str, Any]
 TemplateDict = Dict[str, Union[str, int, None]]
+
+# Type alias for OkErr types. Subscript indicates the Ok type.
+Res = List
 
 FS_ROOT = Path("/")
 
@@ -109,6 +113,36 @@ REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
 
+class ExpectedFileButGotDirectoryError(Exception):
+    pass
+
+
+class ExpectedDirectoryButGotFileError(Exception):
+    pass
+
+
+class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+    pass
+
+
+class StrangeExtantPathError(Exception):
+    pass
+
+
+class NotKiRepoError(Exception):
+    msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
+    msg += "Stopping at filesystem boundary."
+
+
+class UpdatesRejectedError(Exception):
+    prefix = "Failed to push some refs to "
+
+    @beartype
+    def __init__(self, message: str):
+        message = prefix + f"'{message}'\n" + HINT
+        super().__init__(message)
+
+
 class ExtantFile(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
 
@@ -138,133 +172,6 @@ class ExtantStrangePath(type(Path())):
 
 @beartype
 @dataclass(frozen=True)
-class MaybeRepo:
-    """A git.Repo or an error message."""
-
-    value: Union[git.Repo, str]
-    type: Type = git.Repo
-
-
-@beartype
-@dataclass
-class MaybeNoPath:
-    value: Union[Path, NoPath, str]
-    type: Type = NoPath
-
-    def __post_init__(self):
-        """Validate input."""
-        if isinstance(self.value, NoPath):
-            msg = f"DANGER: '{NoPath}' values"
-            msg += " should not be instantiated directly!"
-            self.value = msg
-            return
-        if not isinstance(self.value, Path):
-            return
-
-        # Resolve path.
-        path = self.value.resolve()
-        if self.value.exists():
-            self.value = f"File exists (unexpected): {path}"
-        else:
-            self.value = NoPath(path)
-
-
-@beartype
-@dataclass
-class MaybeExtantFile:
-    value: Union[Path, ExtantFile, str]
-    type: Type = ExtantFile
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is Path or str. If str, then it's an error message.
-        if not isinstance(self.value, Path):
-            return
-
-        # Resolve path.
-        path = self.value.resolve()
-
-        # Check that path exists and is a file.
-        if not self.value.exists():
-            self.value = f"File or directory not found: {path}"
-        elif self.value.is_dir():
-            self.value = f"Expected file, got directory: {path}"
-        elif not self.value.is_file():
-            self.value = f"Extant but not a file: {path}"
-
-        # Must be an extant file.
-        else:
-            self.value = ExtantFile(path)
-
-
-@beartype
-@dataclass
-class MaybeExtantDir:
-    value: Union[Path, ExtantDir, str]
-    type: Type = ExtantDir
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is Path or str. If str, then it's an error message.
-        if not isinstance(self.value, Path):
-            return
-
-        # Resolve path.
-        path = self.value.resolve()
-
-        # Check that path exists and is a directory.
-        if not self.value.exists():
-            self.value = f"File or directory not found: {path}"
-        elif self.value.is_file():
-            self.value = f"Expected directory, got file: {path}"
-        elif not self.value.is_dir():
-            self.value = f"Extant but not a directory: {path}"
-
-        # Must be an extant directory.
-        else:
-            self.value = ExtantDir(path)
-
-
-@beartype
-def is_empty(directory: ExtantDir) -> bool:
-    """Check if directory is empty, quickly."""
-    return not next(os.scandir(directory), None)
-
-
-@beartype
-@dataclass
-class MaybeEmptyDir:
-    value: Union[Path, EmptyDir, str]
-    type: Type = EmptyDir
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is Path or str. If str, then it's an error message.
-        if not isinstance(self.value, Path):
-            return
-
-        # Resolve path.
-        path = self.value.resolve()
-
-        # Check that path exists and is a directory.
-        if not self.value.exists():
-            self.value = f"File or directory not found: {path}"
-        elif self.value.is_file():
-            self.value = f"Expected directory, got file: {path}"
-        elif not self.value.is_dir():
-            self.value = f"Extant but not a directory: {path}"
-
-        # Must be an extant file.
-        else:
-            directory = ExtantDir(path)
-            if not is_empty(directory):
-                self.value = f"Directory, but not empty: {directory}"
-            else:
-                self.value = EmptyDir(directory)
-
-
-@beartype
-@dataclass(frozen=True)
 class KiRepo:
     """
     UNSAFE: A ki repository, including:
@@ -288,174 +195,123 @@ class KiRepo:
 
 @beartype
 @dataclass(frozen=True)
-class MaybeKiRepo:
-    """A KiRepo or an error message."""
-
-    value: Union[KiRepo, str]
-    type: Type = KiRepo
-
-
-# DANGER
-
-
-@beartype
-def rmtree(target: ExtantDir) -> NoPath:
-    """Call shutil.rmtree()."""
-    shutil.rmtree(target)
-    return JUST(MaybeNoPath(target))
-
-
-@beartype
-def copytree(source: ExtantDir, target: NoPath) -> ExtantDir:
-    """Call shutil.copytree()."""
-    shutil.copytree(source, target)
-    return JUST(MaybeExtantDir(target))
-
-
-@beartype
-def fcwd() -> ExtantDir:
-    """Call Path.cwd()."""
-    return JUST(MaybeExtantDir(Path.cwd()))
-
-
-@beartype
-def ftest(
-    path: Path,
-) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
+class KiRepoRef:
     """
-    Test whether ``path`` is a file, a directory, or something else. If
-    something else, we consider that, for the sake of simplicity, a
-    NoPath.
+    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
+    commit hash of ``repo``.
     """
-    if path.is_file():
-        return JUST(MaybeExtantFile(path))
-    if path.is_dir():
-        directory = JUST(MaybeExtantDir(path))
-        if is_empty(directory):
-            return JUST(MaybeEmptyDir(path))
-        return directory
+
+    kirepo: KiRepo
+    sha: str
+
+
+@safe
+@beartype
+def M_nopath(path: Path) -> Result[NoPath, Exception]:
+    """
+    Maybe convert a path to a NoPath, i.e. a path that did not exist at
+    resolve-time, which is when this function was called.
+    """
+    path = path.resolve()
     if path.exists():
-        return ExtantStrangePath(path)
-    return JUST(MaybeNoPath(path))
+        return Err(FileExistsError(str(path)))
+    return Ok(NoPath(path))
 
 
+@safe
 @beartype
-def ftouch(directory: ExtantDir, name: Singleton) -> ExtantFile:
-    """Touch a file."""
-    path = directory / name
-    path.touch()
-    return JUST(MaybeExtantFile(path))
-
-
-@beartype
-def fmkdir(path: NoPath) -> EmptyDir:
-    """Make a directory (with parents)."""
-    path.mkdir(parents=True)
-    return JUST(MaybeEmptyDir(path))
-
-
-@beartype
-def fmksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
+def M_xfile(path: Path) -> Result[ExtantFile, Exception]:
     """
-    Make a subdirectory of an empty directory (with parents).
-
-    Returns
-    -------
-    EmptyDir
-        The created subdirectory.
+    Attempt to instantiate an ExtantFile.
     """
-    subdir = directory / suffix
-    subdir.mkdir(parents=True)
-    directory.__class__ = ExtantDir
-    return JUST(MaybeEmptyDir(subdir))
+    # Resolve path.
+    path = path.resolve()
+
+    # Check that path exists and is a file.
+    if not path.exists():
+        return Err(FileNotFoundError(str(path)))
+    if path.is_dir():
+        return Err(ExpectedFileButGotDirectoryError(str(path)))
+    if not path.is_file():
+        return Err(StrangeExtantPathError(str(path)))
+
+    # Must be an extant file.
+    return Ok(ExtantFile(path))
 
 
+@safe
 @beartype
-def fmkleaves(directory: EmptyDir, names: List[Singleton]) -> List[ExtantFile]:
-    """Touch several files in an empty directory."""
-    files = []
-    for name in names:
-        file = ftouch(directory, name)
-        files.append(file)
-    return files
-
-
-@beartype
-def fforce_mkdir(path: Path) -> ExtantDir:
-    """Make a directory (with parents, ok if it already exists)."""
-    path.mkdir(parents=True, exist_ok=True)
-    return JUST(MaybeExtantDir(path))
-
-
-@beartype
-def fchdir(directory: ExtantDir) -> ExtantDir:
-    """Changes working directory and returns old cwd."""
-    old: ExtantDir = fcwd()
-    os.chdir(directory)
-    return old
-
-
-@beartype
-def fparent(path: Union[ExtantFile, ExtantDir]) -> Union[ExtantFile, ExtantDir]:
-    """Get the parent of a path that exists."""
-    if path.resolve() == FS_ROOT:
-        return JUST(MaybeExtantDir(FS_ROOT))
-    if isinstance(path, ExtantFile):
-        return JUST(MaybeExtantDir(path.parent))
-    return JUST(MaybeExtantDir(path.parent))
-
-
-@beartype
-def fmkdtemp() -> EmptyDir:
-    """Make a temporary directory (in /tmp)."""
-    return JUST(MaybeEmptyDir(Path(tempfile.mkdtemp())))
-
-
-# pylint: disable=unused-argument
-@beartype
-def fcopyfile(source: ExtantFile, target: Path, target_root: ExtantDir) -> ExtantFile:
+def M_xdir(path: Path) -> Result[ExtantDir, Exception]:
     """
-    Force copy a file (potentially overwrites the target path). May fail due to
-    permissions errors.
+    Attempt to instantiate an ExtantDir.
     """
-    shutil.copyfile(source, target)
-    return JUST(MaybeExtantFile(target))
+    # Resolve path.
+    path = path.resolve()
+
+    # Check that path exists and is a directory.
+    if not path.exists():
+        return Err(FileNotFoundError(str(path)))
+    if path.is_dir():
+        return Ok(ExtantDir(path))
+    if path.is_file():
+        return Err(ExpectedDirectoryButGotFileError(str(path)))
+    return Err(StrangeExtantPathError(str(path)))
 
 
+@safe
 @beartype
-def working_dir(repo: git.Repo) -> ExtantDir:
-    """Get working directory of a repo."""
-    return JUST(MaybeExtantDir(Path(repo.working_dir)))
+def M_emptydir(path: Path) -> Result[ExtantDir, Exception]:
+    """
+    Attempt to instantiate an ExtantDir.
+    """
+    # Check if it's an extant directory.
+    res: OkErr = M_xdir(path)
+
+    # Return the Err if not.
+    if res.is_err():
+        return res
+
+    # Unwrap the value otherwise.
+    directory: ExtantDir = res.unwrap()
+    if is_empty(directory):
+        return Ok(EmptyDir(Path(directory)))
+    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
 
 
+@safe
 @beartype
-def git_dir(repo: git.Repo) -> ExtantDir:
-    """Get git directory of a repo."""
-    return JUST(MaybeExtantDir(Path(repo.git_dir)))
-
-
-# SAFE
-
-
-@beartype
-def singleton(name: str) -> Singleton:
-    """Removes all forward slashes and returns a Singleton pathlib.Path."""
-    return Singleton(name.replace("/", ""))
-
-
-@beartype
-def get_repo(root: ExtantDir) -> MaybeRepo:
+def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
     try:
-        return MaybeRepo(git.Repo(root))
+        repo = git.Repo(root)
     except Exception as err:
-        return MaybeRepo(f"{err.__class__} : {err}\n{err.__doc__}")
+        return Err(err)
+    return Ok(repo)
 
 
+@safe
 @beartype
-def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
+def parse_config_file(config_file: ExtantFile) -> Result[ExtantFile, Exception]:
+    """
+    Parse the .ki/config file for the path to the .anki2 collection file
+    associated with this repository. Return this path.
+    """
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
+    return M_xfile(col_file)
+
+
+@safe
+@beartype
+def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     """Get the containing ki repository of ``path``."""
     current = cwd
+
+    # Note that ``current`` is an ``ExtantDir`` but ``FS_ROOT`` is a ``Path``.
+    # We can make this comparison because both are instances of ``Path`` and
+    # ``Path`` implements the ``==`` operator nicely.
     while current != FS_ROOT:
         ki_dir = ftest(current / KI)
         if isinstance(ki_dir, ExtantDir):
@@ -463,82 +319,41 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
         current = fparent(current)
 
     if current == FS_ROOT:
-        msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
-        msg += "Stopping at filesystem boundary."
-        return MaybeKiRepo(msg)
-
-    maybe_repo: MaybeRepo = get_repo(current)
-    if isinstance(maybe_repo.value, git.Repo):
-        repo = maybe_repo.value
-    else:
-        return MaybeKiRepo(maybe_repo.value)
+        return Err(NotKiRepoError())
 
     # Root directory and ki directory of repo now guaranteed to exist.
     root = current
+    repo: OkErr = M_repo(root)
 
-    # Check that config file exists.
-    config_file = ftest(ki_dir / CONFIG_FILE)
-    if not isinstance(config_file, ExtantFile):
-        return MaybeKiRepo(f"Not found or not a file: {config_file}")
+    # Check that relevant files in .ki/ subdirectory exist.
+    backups_dir = M_xdir(ki_dir / BACKUPS_DIR)
+    config_file = M_xfile(ki_dir / CONFIG_FILE)
+    hashes_file = M_xfile(ki_dir / HASHES_FILE)
+    models_file = M_xfile(root / MODELS_FILE)
+    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE)
 
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
+    # Load the no_submodules_tree.
+    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR)
+    no_modules_repo = M_repo(no_modules_dir)
 
     # Check that collection file exists.
-    col_file = ftest(col_file)
-    if not isinstance(col_file, ExtantFile):
-        return MaybeKiRepo(f"Not found or not a file: {col_file}")
+    col_file = parse_config_file(config_file)
 
-    # TODO: Consider moving file creation out of this function, and handling
-    # non-existence like we do for config above.
-
-    # Get path to backups directory (and possible create it).
-    backups_dir = ftest(ki_dir / BACKUPS_DIR)
-    if isinstance(backups_dir, NoPath):
-        backups_dir = fmkdir(backups_dir)
-    elif not isinstance(backups_dir, ExtantDir):
-        return MaybeKiRepo(f"Not found or not a directory: {backups_dir}")
-
-    # Get path to hashes file (and possible create it).
-    hashes_file = ftest(ki_dir / HASHES_FILE)
-    if isinstance(hashes_file, NoPath):
-        hashes_file = ftouch(ki_dir, singleton(HASHES_FILE))
-    elif not isinstance(hashes_file, ExtantFile):
-        return MaybeKiRepo(f"Not found or not a file: {hashes_file}")
-
-    # Get path to hashes file (and possible create it).
-    last_push_file = ftest(ki_dir / LAST_PUSH_FILE)
-    if isinstance(last_push_file, NoPath):
-        last_push_file = ftouch(ki_dir, singleton(LAST_PUSH_FILE))
-    elif not isinstance(last_push_file, ExtantFile):
-        return MaybeKiRepo(f"Not found or not a file: {last_push_file}")
-
-    # Get path to no_submodules_tree directory (and possible create it).
-    no_modules_dir = ftest(ki_dir / NO_SM_DIR)
-    if isinstance(no_modules_dir, NoPath):
-        no_modules_dir = fmkdir(no_modules_dir)
-    elif not isinstance(no_modules_dir, ExtantDir):
-        return MaybeKiRepo(f"Not found or not a directory: {no_modules_dir}")
-
-    # Get path to models file.
-    models_file = ftest(root / MODELS_FILE)
-    if not isinstance(models_file, ExtantFile):
-        return MaybeKiRepo(f"Not found or not a file: {models_file}")
-
-    # Try to get no_submodules_tree repo.
-    maybe_no_modules_repo: MaybeRepo = get_repo(no_modules_dir)
-    if isinstance(maybe_no_modules_repo.value, git.Repo):
-        no_modules_repo = maybe_no_modules_repo.value
-    else:
-        # Initialize no_submodules_tree git repository.
-        # TODO: This is UNSAFE, creation may fail for strange reasons, this
-        # should exist only in ``_clone()``.
-        no_modules_repo = git.Repo.init(no_modules_dir, initial_branch=BRANCH_NAME)
-
-    return MaybeKiRepo(
-        KiRepo(
+    @safe
+    @beartype
+    def constructor(
+        repo: git.Repo,
+        root: ExtantDir,
+        ki_dir: ExtantDir,
+        col_file: ExtantFile,
+        backups_dir: ExtantDir,
+        config_file: ExtantFile,
+        hashes_file: ExtantFile,
+        models_file: ExtantFile,
+        last_push_file: ExtantFile,
+        no_modules_repo: git.Repo,
+    ) -> Result[KiRepo, Exception]:
+        return KiRepo(
             repo,
             root,
             ki_dir,
@@ -550,9 +365,188 @@ def get_ki_repo(cwd: ExtantDir) -> MaybeKiRepo:
             last_push_file,
             no_modules_repo,
         )
+
+    return constructor(
+        repo,
+        root,
+        ki_dir,
+        col_file,
+        backups_dir,
+        config_file,
+        hashes_file,
+        models_file,
+        last_push_file,
+        no_modules_repo,
     )
 
 
+@beartype
+def is_empty(directory: ExtantDir) -> bool:
+    """Check if directory is empty, quickly."""
+    return not next(os.scandir(directory), None)
+
+
+# DANGER
+
+
+@safe
+@beartype
+def rmtree(target: ExtantDir) -> Result[NoPath, Exception]:
+    """Call shutil.rmtree()."""
+    shutil.rmtree(target)
+    return M_nopath(target)
+
+
+@safe
+@beartype
+def copytree(source: ExtantDir, target: NoPath) -> Result[ExtantDir, Exception]:
+    """Call shutil.copytree()."""
+    shutil.copytree(source, target)
+    return M_xdir(target)
+
+
+@safe
+@beartype
+def fcwd() -> Result[ExtantDir, Exception]:
+    """Call Path.cwd()."""
+    return M_xdir(Path.cwd())
+
+
+@safe
+@beartype
+def ftest(
+    path: Path,
+) -> Result[
+    Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath], Exception
+]:
+    """
+    Test whether ``path`` is a file, a directory, or something else. If
+    something else, we consider that, for the sake of simplicity, a
+    NoPath.
+    """
+    if path.is_file():
+        return M_xfile(path)
+    if path.is_dir():
+        res: OkErr = M_emptydir(path)
+        return res if res.is_ok() else M_xdir(path)
+    if path.exists():
+        return Ok(ExtantStrangePath(path))
+    return M_nopath(path)
+
+
+@safe
+@beartype
+def ftouch(directory: ExtantDir, name: str) -> Result[ExtantFile, Exception]:
+    """Touch a file."""
+    path = directory / singleton(name)
+    path.touch()
+    return M_xfile(path)
+
+
+@safe
+@beartype
+def fmkdir(path: NoPath) -> Result[EmptyDir, Exception]:
+    """Make a directory (with parents)."""
+    path.mkdir(parents=True)
+    return M_emptydir(path)
+
+
+@safe
+@beartype
+def fmksubdir(directory: EmptyDir, suffix: Path) -> Result[EmptyDir, Exception]:
+    """
+    Make a subdirectory of an empty directory (with parents).
+
+    Returns
+    -------
+    EmptyDir
+        The created subdirectory.
+    """
+    subdir = directory / suffix
+    subdir.mkdir(parents=True)
+    directory.__class__ = ExtantDir
+    return M_emptydir(subdir)
+
+
+@safe
+@beartype
+def fforce_mkdir(path: Path) -> Result[ExtantDir, Exception]:
+    """Make a directory (with parents, ok if it already exists)."""
+    path.mkdir(parents=True, exist_ok=True)
+    return M_xdir(path)
+
+
+@beartype
+def fchdir(directory: ExtantDir) -> ExtantDir:
+    """Changes working directory and returns old cwd."""
+    old: ExtantDir = fcwd()
+    os.chdir(directory)
+    return old
+
+
+@safe
+@beartype
+def fparent(
+    path: Union[ExtantFile, ExtantDir]
+) -> Result[Union[ExtantFile, ExtantDir], Exception]:
+    """Get the parent of a path that exists."""
+    if path.resolve() == FS_ROOT:
+        return M_xdir(FS_ROOT)
+    if isinstance(path, ExtantFile):
+        return M_xdir(path.parent)
+    return M_xdir(path.parent)
+
+
+@beartype
+def fmkdtemp() -> Result[EmptyDir, Exception]:
+    """Make a temporary directory (in /tmp)."""
+    return M_emptydir(Path(tempfile.mkdtemp()))
+
+
+@safe
+# pylint: disable=unused-argument
+@beartype
+def fcopyfile(
+    source: ExtantFile, target: Path, target_root: ExtantDir
+) -> Result[ExtantFile, Exception]:
+    """
+    Force copy a file (potentially overwrites the target path). May fail due to
+    permissions errors.
+    """
+    shutil.copyfile(source, target)
+    return M_xfile(target)
+
+
+@safe
+@beartype
+def join(path_1: Path, path_2: Path) -> Result[Path, Exception]:
+    return Ok(path_1 / path_2)
+
+
+@safe
+@beartype
+def working_dir(repo: git.Repo) -> Result[ExtantDir, Exception]:
+    """Get working directory of a repo."""
+    return M_xdir(Path(repo.working_dir))
+
+
+@safe
+@beartype
+def git_dir(repo: git.Repo) -> Result[ExtantDir, Exception]:
+    """Get git directory of a repo."""
+    return M_xdir(Path(repo.git_dir))
+
+
+# SAFE
+
+
+@beartype
+def singleton(name: str) -> Singleton:
+    """Removes all forward slashes and returns a Singleton pathlib.Path."""
+    return Singleton(name.replace("/", ""))
+
+
+# UNSAFE: Should catch exception and transform into nice Err that tells user what to do.
 @beartype
 def lock(col_file: ExtantFile) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
@@ -579,57 +573,19 @@ def md5(path: ExtantFile) -> str:
     return hash_md5.hexdigest()
 
 
+class GitRefNotFoundError(Exception):
+    @beartype
+    def __init__(self, repo: git.Repo, sha: str):
+        message = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        super().__init__(message)
+
+
+@safe
 @beartype
-@dataclass
-class MaybeError:
-    value: str
-    type: Type = type(None)
-
-
-@beartype
-def updates_rejected_message(col_file: Path) -> MaybeError:
-    """Generate need-to-pull message."""
-    return MaybeError(f"Failed to push some refs to '{col_file}'\n{HINT}")
-
-
-@beartype
-@dataclass(frozen=True)
-class KiRepoRef:
-    """
-    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
-    commit hash of ``repo``.
-    """
-
-    kirepo: KiRepo
-    sha: str
-
-
-@beartype
-@dataclass
-class MaybeKiRepoRef:
-    value: Union[KiRepoRef, Tuple[KiRepo, str], str]
-    type: Type = KiRepoRef
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is Path or str. If str, then it's an error message.
-        if isinstance(self.value, KiRepoRef):
-            msg = f"DANGER: '{KiRepoRef}' values should not be instantiated directly!"
-            self.value = msg
-            return
-        is_2_tuple = isinstance(self.value, tuple) and len(self.value) == 2
-        has_repo = isinstance(self.value[0], KiRepo)
-        has_ref = isinstance(self.value[1], str)
-        if not (is_2_tuple and has_repo and has_ref):
-            return
-
-        kirepo, sha = self.value
-        repo = kirepo.repo
-
-        if not ref_exists(repo, sha):
-            self.value = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        else:
-            self.value = KiRepoRef(kirepo, sha)
+def M_kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
+    if not ref_exists(kirepo.repo, sha):
+        return Err(GitRefNotFoundError(kirepo.repo, sha))
+    return Ok(KiRepoRef(kirepo, sha))
 
 
 @beartype
@@ -654,88 +610,41 @@ class RepoRef:
     sha: str
 
 
+@safe
 @beartype
-@dataclass
-class MaybeRepoRef:
-    value: Union[RepoRef, Tuple[git.Repo, str], str]
-    type: Type = RepoRef
-
-    def __post_init__(self):
-        """Validate input."""
-        if isinstance(self.value, RepoRef):
-            msg = f"DANGER: '{RepoRef}' values should not be instantiated directly!"
-            self.value = msg
-            return
-        is_2_tuple = isinstance(self.value, tuple) and len(self.value) == 2
-        has_repo = isinstance(self.value[0], git.Repo)
-        has_ref = isinstance(self.value[1], str)
-        if not (is_2_tuple and has_repo and has_ref):
-            return
-
-        repo, sha = self.value
-        if not ref_exists(repo, sha):
-            self.value = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        else:
-            self.value = RepoRef(repo, sha)
+def M_repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
+    if not ref_exists(repo, sha):
+        return Err(GitRefNotFoundError(repo, sha))
+    return Ok(RepoRef(repo, sha))
 
 
+@safe
 @beartype
-@dataclass
-class MaybeHeadRepoRef:
-    value: Union[RepoRef, git.Repo, str]
-    type: Type = RepoRef
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is git.Repo or str. If not a Repo, it muust be
-        # an error. We should never be instantiating a RepoRef outside of a Maybe
-        # __post_init__().
-        if isinstance(self.value, RepoRef):
-            self.value = (
-                f"DANGER: '{RepoRef}' values should not be instantiated directly!"
-            )
-            return
-        if not isinstance(self.value, git.Repo):
-            return
-        repo = self.value
-
-        # GitPython raises a ValueError when references don't exist.
-        try:
-            self.value = RepoRef(repo, repo.head.commit.hexsha)
-        except ValueError as err:
-            self.value = str(err)
+def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
+    # GitPython raises a ValueError when references don't exist.
+    try:
+        ref = RepoRef(repo, repo.head.commit.hexsha)
+    except ValueError as err:
+        return Err(err)
+    return Ok(ref)
 
 
+@safe
 @beartype
-@dataclass
-class MaybeHeadKiRepoRef:
-    value: Union[KiRepoRef, KiRepo, str]
-    type: Type = KiRepoRef
-
-    def __post_init__(self):
-        """Validate input."""
-        # Beartype ensures this is git.Repo or str. If not a KiRepo, it muust be
-        # an error. We should never be instantiating a KiRepoRef outside of a Maybe
-        # __post_init__().
-        if isinstance(self.value, self.type):
-            self.value = (
-                f"DANGER: '{RepoRef}' values should not be instantiated directly!"
-            )
-            return
-        if not isinstance(self.value, KiRepo):
-            return
-        kirepo = self.value
-        repo = kirepo.repo
-
-        # GitPython raises a ValueError when references don't exist.
-        try:
-            self.value = KiRepoRef(kirepo, repo.head.commit.hexsha)
-        except ValueError as err:
-            self.value = str(err)
+def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
+    # GitPython raises a ValueError when references don't exist.
+    try:
+        ref = KiRepoRef(kirepo, ki.repo.repo.head.commit.hexsha)
+    except ValueError as err:
+        return Err(err)
+    return Ok(ref)
 
 
+@safe
 @beartype
-def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
+def get_ephemeral_repo(
+    suffix: Path, repo_ref: RepoRef, md5sum: str
+) -> Result[git.Repo, Exception]:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     tempdir: EmptyDir = fmkdtemp()
     root: EmptyDir = fmksubdir(tempdir, suffix)
@@ -753,11 +662,14 @@ def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo
     # Do a reset --hard to the given SHA.
     ephem.git.reset(repo_ref.sha, hard=True)
 
-    return ephem
+    return Ok(ephem)
 
 
+@safe
 @beartype
-def get_ephemeral_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> KiRepo:
+def get_ephemeral_kirepo(
+    suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
+) -> Result[KiRepo, Exception]:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     ``kirepo.repo`` into a temp directory and hard reset to the given commit
@@ -777,22 +689,17 @@ def get_ephemeral_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> Ki
     KiRepo
         The cloned repository.
     """
-    ref: RepoRef = fkirepo_ref_to_repo_ref(kirepo_ref)
-    ephem: git.Repo = get_ephemeral_repo(suffix, ref, md5sum)
+    ref: Res[RepoRef] = M_repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+    ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
+    ephem_ki_dir: Res[NoPath] = M_nopath(join(working_dir(ephem), KI))
 
-    # UNSAFE: We copy the .ki directory under the assumption that the ki
-    # directory doesn't exist (it shouldn't).
-    ephem_ki_dir = JUST(MaybeNoPath(working_dir(ephem) / KI))
-    copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    kirepo: KiRepo = JUST(get_ki_repo(working_dir(ephem)))
+    # IO functions must have their results caught and optionall returned.
+    res: OkErr = copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
+    if res.is_err():
+        return res
+    kirepo: Res[KiRepo] = M_kirepo(working_dir(ephem))
 
     return kirepo
-
-
-@beartype
-def fkirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
-    """UNSAFE: fold a KiRepo get reference into a repo reference."""
-    return JUST(MaybeRepoRef((kirepo_ref.kirepo.repo, kirepo_ref.sha)))
 
 
 @beartype
@@ -830,6 +737,7 @@ def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
             return False
 
     # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
+    # UNSAFE STUFF!
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path)
         if not is_anki_note(file):
@@ -876,7 +784,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         sm.update()
 
         # Guaranteed to exist by gitpython.
-        sm_path: ExtantDir = JUST(MaybeExtantDir(Path(sm.module().working_tree_dir)))
+        sm_path: ExtantDir = M_xdir(Path(sm.module().working_tree_dir))
         repo.git.rm(sm_path, cached=True)
 
         # May not exist.
@@ -1204,16 +1112,16 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     field_text = re.sub("<[^<]+?>", "", field_text)
     name = field_text[:MAX_FIELNAME_LEN]
     name = Path(slugify(name, allow_unicode=True))
-    filename: Singleton = singleton(str(name.with_suffix(MD)))
-    note_path = ftest(deck_dir / filename)
+    filename = name.with_suffix(MD)
+    note_path = ftest(deck_dir / filename).unwrap()
 
     i = 1
     while not isinstance(note_path, NoPath):
-        filename: Singleton = singleton(str(Path(f"{name}_{i}").with_suffix(MD)))
-        note_path = ftest(deck_dir / filename)
+        filename = Path(f"{name}_{i}").with_suffix(MD)
+        note_path = ftest(deck_dir / filename).unwrap()
         i += 1
 
-    note_path: ExtantFile = ftouch(deck_dir, filename)
+    note_path: ExtantFile = ftouch(deck_dir, str(filename)).unwrap()
 
     return note_path
 
@@ -1237,19 +1145,23 @@ def backup(col_file: ExtantFile) -> None:
     assert backup_path.is_file()
 
 
+@safe
 @beartype
 def append_md5sum(
-    kidir: ExtantDir, tag: str, md5sum: str, silent: bool = False
-) -> None:
+    ki_dir: ExtantDir, tag: str, md5sum: str, silent: bool = False
+) -> Result[Any, Exception]:
     """Append an md5sum hash to the hashes file."""
-    hashes_file = kidir / HASHES_FILE
+    hashes_file = ki_dir / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
     echo(f"Wrote md5sum to '{hashes_file}'", silent)
+    return Ok()
 
 
 @beartype
-def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
+def create_deck_dir(
+    deck_name: str, targetdir: ExtantDir
+) -> Result[ExtantDir, Exception]:
     """Construct path to deck directory and create it."""
     # Strip leading periods so we don't get hidden folders.
     components = deck_name.split("::")
@@ -1272,11 +1184,21 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
 
 
 @beartype
-def write_notes(col_file: ExtantFile, targetdir: ExtantDir, silent: bool):
+def write_repository(
+    col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
+) -> Result[bool, Exception]:
     """Write notes to appropriate directories in ``targetdir``."""
+
+    # Create config file.
+    config_file: ExtantFile = leaves.files[CONFIG_FILE]
+    config = configparser.ConfigParser()
+    config["remote"] = {"path": col_file}
+    with open(config_file, "w", encoding="UTF-8") as config_f:
+        config.write(config_f)
+
     # Create temp directory for htmlfield text files.
-    tempdir: EmptyDir = fmkdtemp()
-    root: EmptyDir = fmksubdir(tempdir, FIELD_HTML_SUFFIX)
+    tempdir: Res[EmptyDir] = fmkdtemp()
+    root: Res[EmptyDir] = fmksubdir(tempdir, FIELD_HTML_SUFFIX)
 
     paths: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[KiNote]] = {}
@@ -1290,49 +1212,90 @@ def write_notes(col_file: ExtantFile, targetdir: ExtantDir, silent: bool):
             for fieldname, fieldtext in kinote.fields.items():
                 if re.search(HTML_REGEX, fieldtext):
                     fid: str = get_field_note_id(nid, fieldname)
-                    html_file: ExtantFile = ftouch(root, singleton(fid))
+                    html_file: Res[ExtantFile] = ftouch(root, fid)
+                    if html_file.is_err():
+                        return html_file
+                    html_file: ExtantFile = html_file.ok()
                     html_file.write_text(fieldtext)
                     paths[fid] = html_file
 
-        tidy_html_recursively(root, silent)
+        tidied: OkErr = tidy_html_recursively(root, silent)
+        wrote: OkErr = write_notes(a, targetdir, tidied)
 
-        # Write models to disk.
-        models_map: Dict[int, NotetypeDict] = {}
-        for model in a.col.models.all():
-            # UNSAFE!
-            model_id: Optional[NotetypeDict] = a.col.models.id_for_name(model["name"])
-            models_map[model_id] = model
-
-        with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
-            json.dump(models_map, f, ensure_ascii=False, indent=4)
-
-        deck_model_ids: Set[int] = set()
-        for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
-            deck_dir: ExtantDir = create_deck_dir(deck_name, targetdir)
-            for kinote in decks[deck_name]:
-
-                # Add the notetype id.
-                model = kinote.n.note_type()
-                if model is None:
-                    logger.warning(f"Couldn't find notetype for {kinote}")
-                    continue
-                model_id = a.col.models.id_for_name(model["name"])
-                deck_model_ids.add(model_id)
-
-                sort_field_text: Optional[str] = get_sort_field_text(a, kinote.n, model)
-                if sort_field_text is None:
-                    logger.warning(f"Couldn't find sort field for {kinote}")
-                    continue
-                notepath: ExtantFile = get_note_path(sort_field_text, deck_dir)
-                payload = get_tidy_payload(kinote, paths)
-                notepath.write_text(payload, encoding="UTF-8")
-
-            # Write ``models.json`` for current deck.
-            deck_models_map = {mid: models_map[mid] for mid in deck_model_ids}
-            with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
-                json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
-
+    # Replace with frmtree.
     shutil.rmtree(root)
+
+    return wrote
+
+
+@safe
+@beartype
+def write_notes(
+    a: Anki, targetdir: ExtantDir, decks: Dict[str, List[KiNote]], tidied: bool
+) -> Result[bool, Exception]:
+    """
+    There is a bug in 'write_notes()'. Then sorting of deck names is done by
+    length, in reverse, which means we start from the deepest, most specific
+    decks, and end up at the root. I.e. We are traversing up a tree from the
+    leaves to the root. Previously (see earlier commits), we simply accumulated
+    all model ids and wrote the entire list (so far) to each deck's model.json
+    file. But this is actually wrong, because if we have two subtrees, the one
+    with larger height may have its model ids end up in the other. Since we're
+    sorting by string length, it's a very imprecise, wrong way to do things. The
+    proper way to do this is a DFS traversal, perhaps recursively, which will
+    make it easier to keep things purely functional, accumulating the model ids
+    of the children in each node. For this, we must construct a tree from the
+    deck names.
+    """
+    # Write models to disk.
+    models_map: Dict[int, NotetypeDict] = {}
+    for model in a.col.models.all():
+        # UNSAFE!
+        model_id: Optional[NotetypeDict] = a.col.models.id_for_name(model["name"])
+        models_map[model_id] = model
+
+    with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
+        json.dump(models_map, f, ensure_ascii=False, indent=4)
+
+    for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
+        deck_dir: Res[ExtantDir] = create_deck_dir(deck_name, targetdir)
+        wrote: OkErr = write_deck(a, decks[deck_name], deck_dir)
+        if wrote.is_err():
+            return wrote
+
+    return Ok()
+
+
+@safe
+@beartype
+def write_deck(
+    a: Anki, deck: List[KiNote], deck_dir: ExtantDir
+) -> Result[bool, Exception]:
+    model_ids: Set[int] = set()
+    for kinote in deck:
+
+        # Add the notetype id.
+        model = kinote.n.note_type()
+        if model is None:
+            logger.warning(f"Couldn't find notetype for {kinote}")
+            continue
+        model_id = a.col.models.id_for_name(model["name"])
+        model_ids.add(model_id)
+
+        sort_field_text: Optional[str] = get_sort_field_text(a, kinote.n, model)
+        if sort_field_text is None:
+            logger.warning(f"Couldn't find sort field for {kinote}")
+            continue
+        notepath: ExtantFile = get_note_path(sort_field_text, deck_dir)
+        payload: str = get_tidy_payload(kinote, paths)
+        notepath.write_text(payload, encoding="UTF-8")
+
+    # Write ``models.json`` for current deck.
+    deck_models_map = {mid: models_map[mid] for mid in model_ids}
+    with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
+        json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+
+    return Ok()
 
 
 @beartype
@@ -1414,9 +1377,9 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
     return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
-# TODO: Refactor into a safe function.
+@safe
 @beartype
-def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
+def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Exception]:
     """Call html5-tidy on each file in ``root``, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     batches: List[List[ExtantFile]] = list(get_batches(frglob(root, "*"), BATCH_SIZE))
@@ -1425,27 +1388,33 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
         # Fail silently here, so as to not bother user with tidy warnings.
         command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
         command += batch
-        subprocess.run(command, check=False, capture_output=True)
+        try:
+            subprocess.run(command, check=False, capture_output=True)
+        except Exception as err:
+            return Err(err)
+    return Ok()
 
 
+@safe
 @beartype
-def get_stage_repo(head: KiRepoRef, md5sum: str) -> KiRepo:
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-
+def remove_submodules_from_stage_kirepo(
+    stage_kirepo: KiRepo, kirepo: KiRepo, md5sum: str
+) -> Result[KiRepo, Exception]:
     # Unsubmodule the stage repo.
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
-    stage_git_dir: NoPath = rmtree(git_dir(stage_kirepo.repo))
+    stage_git_dir: Res[NoPath] = rmtree(git_dir(stage_kirepo.repo))
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
     # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
-    copytree(git_dir(head.kirepo.no_modules_repo), stage_git_dir)
+    res: OkErr = copytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
+    if res.is_err():
+        return res
 
     # Reload stage kirepo.
-    stage_kirepo: KiRepo = IO(get_ki_repo(stage_root))
+    stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
 
     return stage_kirepo
 
@@ -1454,45 +1423,6 @@ def get_stage_repo(head: KiRepoRef, md5sum: str) -> KiRepo:
 def update_no_submodules_tree(kirepo: KiRepo, stage_root: ExtantDir) -> None:
     no_modules_root: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
     copytree(stage_root, no_modules_root)
-
-
-Maybe = Union[
-    MaybeError,
-    MaybeNoPath,
-    MaybeEmptyDir,
-    MaybeExtantDir,
-    MaybeExtantFile,
-    MaybeRepo,
-    MaybeKiRepo,
-    MaybeRepoRef,
-    MaybeKiRepoRef,
-    MaybeHeadRepoRef,
-    MaybeHeadKiRepoRef,
-]
-
-
-@beartype
-def IO(maybe: Maybe) -> Optional[Any]:
-    """UNSAFE: Handles errors and aborts."""
-    if isinstance(maybe.value, maybe.type):
-        return maybe.value
-    assert isinstance(maybe.value, str)
-    logger.error(maybe.value)
-    raise ValueError(maybe.value)
-
-
-@beartype
-def JUST(maybe: Maybe) -> Any:
-    """
-    UNSAFE: ASSUMES THIS ``maybe`` is not an error!  Unfolds the Maybe type to
-    yield an object of type ``maybe.type``.
-    """
-    if not isinstance(maybe.value, maybe.type):
-        msg = "JUST() called on an errored-out 'Maybe' value!\n"
-        msg += f"A fundamental assumption (that maybe.value : '{maybe.value}' "
-        msg += f"is always of type maybe.type : '{maybe.type}') is wrong!"
-        raise TypeError(msg)
-    return maybe.value
 
 
 @click.group()
@@ -1514,10 +1444,38 @@ def TARGET_EXISTS_MSG(targetdir: ExtantDir) -> str:
     return msg
 
 
+class TargetExistsError(Exception):
+    msg = f"fatal: destination path '{targetdir}' already exists "
+    msg += "and is not an empty directory."
+
+
+@safe
+@beartype
+def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
+    path: OkErr = ftest(path)
+    if path.is_err():
+        return path
+    path = path.unwrap()
+    if isinstance(path, NoPath):
+        return fmkdir(path)
+    if isinstance(path, EmptyDir):
+        return Ok(path)
+    return Err(TargetExistsError(str(path)))
+
+
+@safe
+@beartype
+def get_target(
+    cwd: ExtantDir, col_file: ExtantFile, directory: str
+) -> Result[EmptyDir, Exception]:
+    # Create default target directory.
+    return fmkdempty(Path(directory) if directory != "" else cwd / col_file.stem)
+
+
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-def clone(collection: str, directory: str = "") -> None:
+def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     """
     Clone an Anki collection into a directory.
 
@@ -1530,15 +1488,10 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     echo("Cloning.")
-    col_file: ExtantFile = IO(MaybeExtantFile(Path(collection)))
+    col_file: Res[ExtantFile] = M_xfile(Path(collection))
 
-    # Create default target directory.
-    cwd: ExtantDir = fcwd()
-    targetdir = ftest(Path(directory) if directory != "" else cwd / col_file.stem)
-    if isinstance(targetdir, NoPath):
-        targetdir: EmptyDir = fmkdir(targetdir)
-    if not isinstance(targetdir, EmptyDir):
-        return echo(TARGET_EXISTS_MSG(targetdir))
+    cwd: Res[ExtantDir] = fcwd()
+    targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
 
     md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
@@ -1550,7 +1503,10 @@ def clone(collection: str, directory: str = "") -> None:
     head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
     # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
-    stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
+
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+    stage_kirepo = remove_submodules_from_stage_kirepo(stage_kirepo, kirepo, md5sum)
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
     update_no_submodules_tree(kirepo, stage_kirepo.root)
@@ -1564,11 +1520,48 @@ def clone(collection: str, directory: str = "") -> None:
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
 
-    return None
+    return Ok()
 
 
 @beartype
-def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) -> str:
+@dataclass(frozen=True)
+class Leaves:
+    root: ExtantDir
+    files: Dict[str, ExtantFile]
+    dirs: Dict[str, EmptyDir]
+
+
+@safe
+@beartype
+def fmkleaves(
+    root: EmptyDir,
+    *,
+    files: Optional[Dict[str, str]] = None,
+    dirs: Optional[Dict[str, str]] = None,
+) -> Result[Leaves, Exception]:
+    """Safely populate an empty directory with empty files and empty subdirectories."""
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            res: OkErr = ftouch(root, token)
+            if res.is_err():
+                return res
+            new_files[key] = res.ok()
+    if dirs is not None:
+        for key, token in dirs.items():
+            res: OkErr = fmksubdir(root, singleton(token))
+            if res.is_err():
+                return res
+            new_dirs[key] = res.ok()
+    return Ok(Leaves(M_xdir(root), new_files, dirs))
+
+
+@safe
+@beartype
+def _clone(
+    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
+) -> Result[str, Exception]:
     """
     Clone an Anki collection into a directory.
 
@@ -1592,19 +1585,16 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    kidir: EmptyDir = fmksubdir(targetdir, Path(KI))
+    ki_dir: Res[EmptyDir] = fmksubdir(targetdir, Path(KI))
 
-    # Create config file.
-    config_file: ExtantFile = fmkleaves(kidir, [singleton(CONFIG_FILE)])[0]
-    config = configparser.ConfigParser()
-    config["remote"] = {"path": col_file}
-    with open(config_file, "w", encoding="UTF-8") as config_f:
-        config.write(config_f)
+    leaves: Res[Leaves] = fmkleaves(
+        ki_dir,
+        files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+        dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+    )
 
-    # Append to hashes file.
     md5sum = md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
-    append_md5sum(kidir, col_file.name, md5sum, silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
 
     # Add `.ki/` to gitignore.
@@ -1612,14 +1602,40 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     ignore_path.write_text(".ki/\n")
 
     # Write notes to disk.
-    write_notes(col_file, targetdir, silent)
+    res = write_repository(col_file, targetdir, leaves, silent)
 
-    # Initialize git repo and commit contents.
+    # Consider putting call to append_md5sum() at end of write_repository().
+
+    # Append to hashes file.
+    res = append_md5sum(ki_dir, col_file.name, md5sum, silent)
+    return res if res.is_err() else Ok(md5sum)
+
+
+@safe
+@beartype
+def init_repo(root: EmptyDir) -> Result[git.Repo, Exception]:
+    return Ok(git.Repo.init(root, initial_branch=BRANCH_NAME))
+
+
+def init_kirepo(
+    targetdir: ExtantDir, ki_dir: ExtantDir, msg: str, write: bool
+) -> Result[bool, Exception]:
+    """Initialize git repo and commit contents."""
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    return md5sum
+    # Initialize ki files and directories.
+    touch_res = ftouch(ki_dir, LAST_PUSH_FILE)
+    fforce_mkdir(ki_dir / BACKUPS_DIR)
+    no_modules_dir = fforce_mkdir(ki_dir / NO_SM_DIR)
+
+    # Initialize no_submodules_tree.
+    # UNSAFE: This assumes ``no_modules_dir`` is empty. Better to wrap git repo
+    # initialization into a safe function that requires an ``EmptyDir``, and
+    # refactor the ``fmkleaves`` function to be able to create all directories
+    # and files needed atomically, and avoid naming conflicts.
+    no_modules_repo = git.Repo.init(no_modules_dir, initial_branch=BRANCH_NAME)
 
 
 @ki.command()
@@ -1698,7 +1714,7 @@ def pull() -> None:
 
 @ki.command()
 @beartype
-def push() -> None:
+def push() -> Result[bool, Exception]:
     """Push a ki repository into a .anki2 file."""
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
@@ -1712,15 +1728,15 @@ def push() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum not in hashes[-1]:
-        IO(updates_rejected_message(kirepo.col_file))
+        return Err(UpdatesRejectedError(str(kirepo.col_file)))
 
     # Get reference to HEAD of current repo.
     head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
 
-    # Get staging repository in temp directory.
-    # TODO: Consider making this return a KiRepoRef to ``head_1``.
-    stage_kirepo: KiRepo = get_stage_repo(head, md5sum)
-    head_1: RepoRef = IO(MaybeHeadRepoRef(stage_kirepo.repo))
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+    stage_kirepo = remove_submodules_from_stage_kirepo(stage_kirepo, kirepo, md5sum)
+    head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
@@ -1747,7 +1763,8 @@ def push() -> None:
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
-        return echo("ki push: up to date.")
+        echo("ki push: up to date.")
+        return Ok()
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1759,7 +1776,8 @@ def push() -> None:
     new_col_file: ExtantFile = fcopyfile(kirepo.col_file, new_col_file, temp_col_dir)
     head: Optional[RepoRef] = get_head(kirepo.repo)
     if head is None:
-        return echo("Failed: no commits in repository. Couldn't find HEAD ref.")
+        echo("Failed: no commits in repository. Couldn't find HEAD ref.")
+        return Ok()
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
@@ -1879,4 +1897,4 @@ def push() -> None:
     # Unlock Anki SQLite DB.
     unlock(con)
 
-    return None
+    return Ok()
