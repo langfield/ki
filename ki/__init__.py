@@ -16,7 +16,6 @@ projects.
 
 import os
 import re
-import glob
 import json
 import shutil
 import logging
@@ -51,14 +50,10 @@ from beartype.typing import (
     List,
     Dict,
     Any,
-    Iterator,
-    Sequence,
-    Iterable,
     Optional,
     Union,
     Tuple,
     Generator,
-    Type,
     Callable,
 )
 
@@ -112,56 +107,9 @@ FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
-# EXCEPTIONS
-
-class ExpectedFileButGotDirectoryError(Exception):
-    pass
-
-
-class ExpectedDirectoryButGotFileError(Exception):
-    pass
-
-
-class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
-    pass
-
-
-class StrangeExtantPathError(Exception):
-    pass
-
-
-class NotKiRepoError(Exception):
-    msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
-    msg += "Stopping at filesystem boundary."
-
-
-class UpdatesRejectedError(Exception):
-    prefix = "Failed to push some refs to "
-
-    @beartype
-    def __init__(self, message: str):
-        message = UpdatesRejectedError.prefix + f"'{message}'\n" + HINT
-        super().__init__(message)
-
-
-class TargetExistsError(Exception):
-    prefix = "fatal: destination path "
-    suffix = " already exists and is not an empty directory."
-
-    @beartype
-    def __init__(self, target: str):
-        message = TargetExistsError.prefix + f"'{target}'" + TargetExistsError.suffix
-        super().__init__(message)
-
-
-class GitRefNotFoundError(Exception):
-    @beartype
-    def __init__(self, repo: git.Repo, sha: str):
-        message = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(message)
-
 
 # TYPES
+
 
 class ExtantFile(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
@@ -189,7 +137,65 @@ class ExtantStrangePath(type(Path())):
     when it was resolved.
     """
 
+
+# EXCEPTIONS
+
+
+class ExpectedFileButGotDirectoryError(Exception):
+    pass
+
+
+class ExpectedDirectoryButGotFileError(Exception):
+    pass
+
+
+class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+    pass
+
+
+class StrangeExtantPathError(Exception):
+    pass
+
+
+class NotKiRepoError(Exception):
+    @beartype
+    def __init__(self):
+        msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
+        msg += "Stopping at filesystem boundary."
+        super().__init__(msg)
+
+
+class UpdatesRejectedError(Exception):
+    @beartype
+    def __init__(self, col_file: ExtantFile):
+        msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
+        super().__init__(msg)
+
+
+class TargetExistsError(Exception):
+    @beartype
+    def __init__(self, target: Path):
+        msg = f"fatal: destination path '{target}' already exists and is "
+        msg += "not an empty directory."
+        super().__init__(msg)
+
+
+class GitRefNotFoundError(Exception):
+    @beartype
+    def __init__(self, repo: git.Repo, sha: str):
+        msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        super().__init__(msg)
+
+
+class CollectionChecksumError(Exception):
+    @beartype
+    def __init__(self, col_file: ExtantFile):
+        msg = f"Checksum mismatch on {col_file}. Was file changed?"
+        super().__init__(msg)
+
+
 # ENUMS
+
 
 class GitChangeType(Enum):
     """Enum for git file change types."""
@@ -212,7 +218,6 @@ class Delta:
     status: GitChangeType
     path: ExtantFile
     relpath: Path
-
 
 
 @beartype
@@ -367,7 +372,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     # We can make this comparison because both are instances of ``Path`` and
     # ``Path`` implements the ``==`` operator nicely.
     while current != FS_ROOT:
-        ki_dir = ftest(current / KI)
+        ki_dir = fftest(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = fparent(current)
@@ -491,42 +496,41 @@ def copytree(source: ExtantDir, target: NoPath) -> Result[ExtantDir, Exception]:
     return M_xdir(target)
 
 
-@safe
 @beartype
-def fcwd() -> Result[ExtantDir, Exception]:
+def fcwd() -> ExtantDir:
     """Call Path.cwd()."""
-    return M_xdir(Path.cwd())
+    return ExtantDir(Path.cwd())
 
 
-@safe
 @beartype
-def ftest(
+def fftest(
     path: Path,
-) -> Result[
-    Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath], Exception
-]:
+) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
     """
+    Fast ftest, where the f just means function.
+
     Test whether ``path`` is a file, a directory, or something else. If
     something else, we consider that, for the sake of simplicity, a
     NoPath.
     """
     if path.is_file():
-        return M_xfile(path)
+        return ExtantFile(path)
     if path.is_dir():
-        res: OkErr = M_emptydir(path)
-        return res if res.is_ok() else M_xdir(path)
+        if is_empty(path):
+            return EmptyDir(path)
+        return ExtantDir(path)
     if path.exists():
-        return Ok(ExtantStrangePath(path))
-    return M_nopath(path)
+        return ExtantStrangePath(path)
+    return NoPath(path)
 
 
 @safe
 @beartype
-def ftouch(directory: ExtantDir, name: str) -> Result[ExtantFile, Exception]:
+def ftouch(directory: ExtantDir, name: str) -> ExtantFile:
     """Touch a file."""
     path = directory / singleton(name)
     path.touch()
-    return M_xfile(path)
+    return ExtantFile(path)
 
 
 @safe
@@ -542,16 +546,10 @@ def fmkleaves(
     new_dirs: Dict[str, EmptyDir] = {}
     if files is not None:
         for key, token in files.items():
-            res: OkErr = ftouch(root, token)
-            if res.is_err():
-                return res
-            new_files[key] = res.unwrap()
+            new_files[key] = ftouch(root, token)
     if dirs is not None:
         for key, token in dirs.items():
-            res: OkErr = fmksubdir(root, singleton(token))
-            if res.is_err():
-                return res
-            new_dirs[key] = res.unwrap()
+            new_dirs[key] = ffmksubdir(root, singleton(token))
     return Ok(Leaves(M_xdir(root), new_files, dirs))
 
 
@@ -563,9 +561,8 @@ def fmkdir(path: NoPath) -> Result[EmptyDir, Exception]:
     return M_emptydir(path)
 
 
-@safe
 @beartype
-def fmksubdir(directory: EmptyDir, suffix: Path) -> Result[EmptyDir, Exception]:
+def ffmksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
     """
     Make a subdirectory of an empty directory (with parents).
 
@@ -577,7 +574,7 @@ def fmksubdir(directory: EmptyDir, suffix: Path) -> Result[EmptyDir, Exception]:
     subdir = directory / suffix
     subdir.mkdir(parents=True)
     directory.__class__ = ExtantDir
-    return M_emptydir(subdir)
+    return EmptyDir(subdir)
 
 
 @safe
@@ -610,23 +607,16 @@ def fparent(
 
 
 @beartype
-def fmkdtemp() -> Result[EmptyDir, Exception]:
+def ffmkdtemp() -> EmptyDir:
     """Make a temporary directory (in /tmp)."""
-    return M_emptydir(Path(tempfile.mkdtemp()))
+    return EmptyDir(tempfile.mkdtemp())
 
 
-# pylint: disable=unused-argument
-@safe
 @beartype
-def fcopyfile(
-    source: ExtantFile, target: Path, target_root: ExtantDir
-) -> Result[ExtantFile, Exception]:
-    """
-    Force copy a file (potentially overwrites the target path). May fail due to
-    permissions errors.
-    """
+def ffcopyfile(source: ExtantFile, target: Path, target_root: ExtantDir) -> ExtantFile:
+    """Force copy a file (potentially overwrites the target path)."""
     shutil.copyfile(source, target)
-    return M_xfile(target)
+    return ExtantFile(target)
 
 
 @safe
@@ -636,23 +626,34 @@ def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
     Make an empty directory out of ``path``. If the directory already exists,
     we return an exception unless it is empty.
     """
-    path: OkErr = ftest(path)
-    if path.is_err():
-        return path
-    path = path.unwrap()
+    path = fftest(path)
     if isinstance(path, NoPath):
         return fmkdir(path)
     if isinstance(path, EmptyDir):
         return Ok(path)
-    return Err(TargetExistsError(str(path)))
+    return Err(TargetExistsError(path))
 
 
 @beartype
 def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
     """Call root.rglob() and returns only files."""
-    files = filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
+    files = filter(
+        lambda p: isinstance(p, ExtantFile), map(fftest, root.rglob(pattern))
+    )
     return list(files)
 
+
+@safe
+@beartype
+def fcreate_local_remote(
+    repo: git.Repo, target: git.Repo, name: str
+) -> Result[git.Remote, Exception]:
+    """
+    Create a remote for ``repo`` pointing to the local git repository
+    ``target`` called ``name``.
+    """
+    # TODO: Can this fail? What if the remote name already exists?
+    return repo.create_remote(name, target.git_dir)
 
 
 @beartype
@@ -706,19 +707,20 @@ def singleton(name: str) -> Singleton:
 
 # UNSAFE: Should catch exception and transform into nice Err that tells user what to do.
 @beartype
-def lock(col_file: ExtantFile) -> sqlite3.Connection:
+def lock(kirepo: KiRepo) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
-    con = sqlite3.connect(col_file)
+    con = sqlite3.connect(kirepo.col_file)
     con.isolation_level = "EXCLUSIVE"
     con.execute("BEGIN EXCLUSIVE")
     return con
 
 
 @beartype
-def unlock(con: sqlite3.Connection) -> None:
+def unlock(con: sqlite3.Connection) -> bool:
     """Unlock a SQLite3 database."""
     con.commit()
     con.close()
+    return True
 
 
 @beartype
@@ -729,6 +731,7 @@ def md5(path: ExtantFile) -> str:
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
 
 @beartype
 def ref_exists(repo: git.Repo, ref: str) -> bool:
@@ -746,8 +749,8 @@ def get_ephemeral_repo(
     suffix: Path, repo_ref: RepoRef, md5sum: str
 ) -> Result[git.Repo, Exception]:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    tempdir: EmptyDir = fmkdtemp()
-    root: EmptyDir = fmksubdir(tempdir, suffix)
+    tempdir: EmptyDir = ffmkdtemp()
+    root: EmptyDir = ffmksubdir(tempdir, suffix)
 
     # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
     repo: git.Repo = repo_ref.repo
@@ -793,7 +796,8 @@ def get_ephemeral_kirepo(
     ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
     ephem_ki_dir: Res[NoPath] = M_nopath(join(working_dir(ephem), KI))
 
-    # IO functions must have their results caught and optionall returned.
+    # Functions that don't return anything used in the next statement must have
+    # their results caught and optionally returned.
     res: OkErr = copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
     if res.is_err():
         return res
@@ -883,6 +887,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         _ = repo.index.commit("Remove '.gitmodules' file.")
 
 
+@safe
 @beartype
 def get_deltas_since_last_push(
     ref: RepoRef,
@@ -890,7 +895,7 @@ def get_deltas_since_last_push(
     ignore_fn: Callable[[Path], bool],
     parser: Lark,
     transformer: NoteTransformer,
-) -> List[Delta]:
+) -> Result[List[Delta], Exception]:
     """
     Get the list of all deltas (changed files) since the last time that ``ki
     push`` was run successfully.
@@ -905,15 +910,26 @@ def get_deltas_since_last_push(
     Parameters
     ----------
     """
+
+    a_repo: Res[git.Repo] = get_ephemeral_repo(DELETED_SUFFIX, ref, md5sum)
+    b_repo: git.Repo = ref.repo
+    return diff_repos(a_repo, b_repo, ref, ignore_fn, parser, transformer)
+
+
+@safe
+@beartype
+def diff_repos(
+    a_repo: git.Repo,
+    b_repo: git.Repo,
+    ref: RepoRef,
+    ignore_fn: Callable[[Path], bool],
+    parser: Lark,
+    transformer: NoteTransformer,
+) -> Result[List[Delta], Exception]:
     # Use a `DiffIndex` to get the changed files.
     deltas = []
-
-    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, ref, md5sum)
-    b_repo: git.Repo = ref.repo
-
-    a_dir: ExtantDir = working_dir(a_repo)
-    b_dir: ExtantDir = working_dir(b_repo)
-
+    a_dir = Path(a_repo.working_dir)
+    b_dir = Path(b_repo.working_dir)
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -922,8 +938,8 @@ def get_deltas_since_last_push(
                 logger.warning(f"Ignoring:\n{diff.a_path}\n{diff.b_path}")
                 continue
 
-            a_path = ftest(a_dir / diff.a_path)
-            b_path = ftest(b_dir / diff.b_path)
+            a_path = fftest(a_dir / diff.a_path)
+            b_path = fftest(b_dir / diff.b_path)
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -936,25 +952,23 @@ def get_deltas_since_last_push(
                 deltas.append(Delta(change_type, a_path, a_relpath))
                 continue
 
+            if not isinstance(b_path, ExtantFile):
+                logger.warning(f"Diff target not found: {b_path}")
+                continue
+
             if change_type == GitChangeType.RENAMED:
                 a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
                 b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
                 if a_flatnote.nid != b_flatnote.nid:
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
-                    continue
-
-            if not isinstance(b_path, ExtantFile):
-                logger.warning(f"Diff target not found: {b_path}")
-                continue
-
-            deltas.append(Delta(change_type, b_path, b_relpath))
 
     return deltas
 
 
+@safe
 @beartype
-def get_models_recursively(kirepo: KiRepo) -> Dict[int, NotetypeDict]:
+def get_models_recursively(kirepo: KiRepo) -> Res[Dict[int, NotetypeDict], Exception]:
     """Find and merge all ``models.json`` files recursively."""
     all_new_models: Dict[int, NotetypeDict] = {}
 
@@ -1177,15 +1191,15 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     name = field_text[:MAX_FIELNAME_LEN]
     name = Path(slugify(name, allow_unicode=True))
     filename = name.with_suffix(MD)
-    note_path = ftest(deck_dir / filename).unwrap()
+    note_path = fftest(deck_dir / filename)
 
     i = 1
     while not isinstance(note_path, NoPath):
         filename = Path(f"{name}_{i}").with_suffix(MD)
-        note_path = ftest(deck_dir / filename).unwrap()
+        note_path = fftest(deck_dir / filename)
         i += 1
 
-    note_path: ExtantFile = ftouch(deck_dir, str(filename)).unwrap()
+    note_path: ExtantFile = ftouch(deck_dir, str(filename))
 
     return note_path
 
@@ -1209,11 +1223,10 @@ def backup(col_file: ExtantFile) -> None:
     assert backup_path.is_file()
 
 
-@safe
 @beartype
 def append_md5sum(
     ki_dir: ExtantDir, tag: str, md5sum: str, silent: bool = False
-) -> Result[Any, Exception]:
+) -> None:
     """Append an md5sum hash to the hashes file."""
     hashes_file = ki_dir / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
@@ -1261,8 +1274,8 @@ def write_repository(
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
-    tempdir: Res[EmptyDir] = fmkdtemp()
-    root: Res[EmptyDir] = fmksubdir(tempdir, FIELD_HTML_SUFFIX)
+    tempdir: EmptyDir = ffmkdtemp()
+    root: EmptyDir = ffmksubdir(tempdir, FIELD_HTML_SUFFIX)
 
     paths: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[KiNote]] = {}
@@ -1276,13 +1289,14 @@ def write_repository(
             for fieldname, fieldtext in kinote.fields.items():
                 if re.search(HTML_REGEX, fieldtext):
                     fid: str = get_field_note_id(nid, fieldname)
-                    html_file: Res[ExtantFile] = ftouch(root, fid)
-                    if html_file.is_err():
-                        return html_file
-                    html_file: ExtantFile = html_file.unwrap()
-                    html_file.write_text(fieldtext)
+                    html_file: ExtantFile = ftouch(root, fid)
+                    html_file.write_text(fieldtext, encoding="UTF-8")
                     paths[fid] = html_file
 
+        # TODO: Consider adding a block in ``safe()`` that looks for a token
+        # keyword argument, like ``_err``, and bypasses the function call if it
+        # is an Err. If it is an Ok, it simply removes that key-value pair from
+        # ``kwargs`` and calls the function as it normally would.
         tidied: OkErr = tidy_html_recursively(root, silent)
         wrote: OkErr = write_notes(a, targetdir, decks, paths, tidied)
 
@@ -1506,14 +1520,15 @@ def convert_stage_kirepo(
 
 @safe
 @beartype
-def commit(repo: git.Repo, message: str) -> Result[bool, Exception]:
+def commit_stage_repo(kirepo: KiRepo, head: KiRepoRef) -> Result[bool, Exception]:
     """
-    Commit to the given repo with the given commit message.
-
-    This only exists as a way to commit to Result[git.Repo, ...] object.
+    Commit the staging repo with a descriptive commit message that contains the
+    reference commit hash of the relevant commit of the main repository. In
+    this case (since we're cloning), it should always be the first commit of
+    the main repository.
     """
-    repo.git.add(all=True)
-    repo.index.commit(message)
+    kirepo.repo.git.add(all=True)
+    kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
     return Ok()
 
 
@@ -1524,7 +1539,6 @@ def get_target(
 ) -> Result[EmptyDir, Exception]:
     # Create default target directory.
     return fmkdempty(Path(directory) if directory != "" else cwd / col_file.stem)
-
 
 
 @click.group()
@@ -1557,7 +1571,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     echo("Cloning.")
     col_file: Res[ExtantFile] = M_xfile(Path(collection))
 
-    cwd: Res[ExtantDir] = fcwd()
+    cwd: ExtantDir = fcwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
     md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
@@ -1573,9 +1587,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
-
     processed: OkErr = postprocess_clone_repos(stage_kirepo, head)
-    cleanup_after_clone(targetdir, kirepo, head, processed)
+    return cleanup_after_clone(targetdir, kirepo, head, processed)
 
 
 @safe
@@ -1583,13 +1596,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 def postprocess_clone_repos(
     stage_kirepo: KiRepo, head: KiRepoRef
 ) -> Result[ExtantDir, Exception]:
-    """
-    Commit the staging repo with a descriptive commit message that contains the
-    reference commit hash of the relevant commit of the main repository. In
-    this case (since we're cloning), it should always be the first commit of
-    the main repository.
-    """
-    committed: OkErr = commit(stage_kirepo.repo, f"Pull changes from ref {head.sha}")
+    committed: OkErr = commit_stage_repo(stage_kirepo, head)
     if committed.is_err():
         return committed
 
@@ -1700,7 +1707,7 @@ def _clone(
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    ki_dir: Res[EmptyDir] = fmksubdir(targetdir, Path(KI))
+    ki_dir: EmptyDir = ffmksubdir(targetdir, Path(KI))
 
     leaves: Res[Leaves] = fmkleaves(
         ki_dir,
@@ -1722,18 +1729,13 @@ def _clone(
     # bit of overhead sometimes (although maybe not for ``Repo.init()`` calls,
     # since they aren't networked).
     wrote: OkErr = write_repository(col_file, targetdir, leaves, silent)
-    if wrote.is_err():
-        return wrote
-
-    initialized: OkErr = init_repos(targetdir, leaves, msg, write)
+    initialized: OkErr = init_repos(targetdir, leaves, msg, wrote)
     if initialized.is_err():
         return initialized
 
     # Store the md5sum of the anki collection file in the hashes file (we
     # always append, never overwrite).
-    appended: OkErr = append_md5sum(ki_dir, col_file.name, md5sum, silent)
-    if appended.is_err():
-        return appended
+    append_md5sum(ki_dir, col_file.name, md5sum, silent)
 
     return Ok(md5sum)
 
@@ -1741,7 +1743,7 @@ def _clone(
 @safe
 @beartype
 def init_repos(
-    targetdir: ExtantDir, leaves: Leaves, msg: str, write: bool
+    targetdir: ExtantDir, leaves: Leaves, msg: str, wrote: bool
 ) -> Result[bool, Exception]:
     """
     Initialize both git repos and commit contents of the main one.
@@ -1752,14 +1754,14 @@ def init_repos(
 
     # Initialize the copy of the repository with submodules replaced with
     # subdirectories that lives in ``.ki/no_submodules_tree/``.
-    no_modules_repo = git.Repo.init(leaves.files[NO_SM_DIR], initial_branch=BRANCH_NAME)
+    _ = git.Repo.init(leaves.files[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
     return Ok()
 
 
 @ki.command()
 @beartype
-def pull() -> None:
+def pull() -> Result[bool, Exception]:
     """
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
@@ -1767,48 +1769,104 @@ def pull() -> None:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
-    kirepo: KiRepo = IO(get_ki_repo(cwd))
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    con: Res[sqlite3.Connection] = lock(kirepo)
+    pulled: OkErr = _pull(kirepo, con)
+    return pulled
 
+
+@safe
+@beartype
+def _pull(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
+    """
+    This function exists because we need to unfold the ``kirepo`` Result in ``pull()``.
+    """
     md5sum: str = md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
-        return unlock(con)
+        return Ok(unlock(con))
 
     echo(f"Pulling from '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    ref: RepoRef = IO(MaybeRepoRef((kirepo.repo, sha)))
-    last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
+    ref: Res[RepoRef] = M_repo_ref(kirepo.repo, sha)
+    last_push_repo: Res[git.Repo] = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
-    # Ki clone collection into an ephemeral ki repository at `anki_remote_dir`.
+    # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
     msg = f"Fetch changes from DB at '{kirepo.col_file}' with md5sum '{md5sum}'"
-    anki_remote_dir: EmptyDir = fmksubdir(fmkdtemp(), REMOTE_SUFFIX / md5sum)
-    _clone(kirepo.col_file, anki_remote_dir, msg, silent=True)
+    anki_remote_root: EmptyDir = ffmksubdir(ffmkdtemp(), REMOTE_SUFFIX / md5sum)
+
+    # This should return the repository as well.
+    cloned: Res[str] = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
+    pulled: OkErr = pull_changes_from_remote_repo(
+        kirepo, anki_remote_root, last_push_repo, md5sum, cloned
+    )
+    if pulled.is_err():
+        return pulled
+    return Ok(unlock(con))
+
+
+@safe
+@beartype
+def pull_theirs_from_remote(
+    repo: git.Repo, root: ExtantDir, remote: git.Remote
+) -> Result[bool, Exception]:
+    cwd: ExtantDir = fchdir(root)
+    echo(f"Pulling into {root}")
+    repo.git.config("pull.rebase", "false")
+    # TODO: This is not yet safe. Consider rewriting with gitpython.
+    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
+    repo.delete_remote(remote)
+    fchdir(cwd)
+    return Ok()
+
+
+@safe
+@beartype
+def pull_changes_from_remote_repo(
+    kirepo: KiRepo,
+    anki_remote_root: ExtantDir,
+    last_push_repo: git.Repo,
+    md5sum: str,
+    _cloned: str,
+) -> Result[bool, Exception]:
+    """
+    Load the git repository at ``anki_remote_root``, force pull (preferring
+    'theirs', i.e. the new stuff from the sqlite3 database) changes from that
+    repository (which is cloned straight from the collection, which in general
+    may have new changes) into ``last_push_repo``, and then pull
+    ``last_push_repo`` into the main repository.
+
+    We pull in this sequence in order to avoid merge conflicts. Since we first
+    pull into a snapshot of the repository as it looked when we last pushed to
+    the database, we know that there cannot be any merge conflicts, because to
+    git, it just looks like we haven't made any changes since then. Then we
+    pull the result of that merge into our actual repository. So there could
+    still be merge conflicts at that point, but they will only be 'genuine'
+    merge conflicts in some sense, because as a result of using this snapshot
+    strategy, we give the anki collection the appearance of being a persistent
+    remote git repo. If we didn't do this, the fact that we did a fresh clone
+    of the database every time would mean that everything would look like a
+    merge conflict, because there is no shared history.
+    """
+    remote_repo: Res[git.Repo] = M_repo(anki_remote_root)
 
     # Create git remote pointing to anki remote repo.
-    # TODO: Can this fail? What if the remote name already exists? Does the
-    # remote path have to exist?
-    # TODO: Should be an fcreate_local_remote() function which returns a Remote
-    # object, and only takes a valid git repo.
-    anki_remote = last_push_repo.create_remote(REMOTE_NAME, anki_remote_dir / GIT)
+    anki_remote: OkErr = fcreate_local_remote(last_push_repo, remote_repo, REMOTE_NAME)
 
     # Pull anki remote repo into ``last_push_repo``.
-    last_push_repo_root: ExtantDir = working_dir(last_push_repo)
-    fchdir(last_push_repo_root)
-    logger.debug(f"Pulling into {last_push_repo_root}")
-    last_push_repo.git.config("pull.rebase", "false")
-    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
-    last_push_repo.delete_remote(anki_remote)
+    last_push_root: Res[ExtantDir] = working_dir(last_push_repo)
+    pulled: OkErr = pull_theirs_from_remote(last_push_repo, last_push_root, anki_remote)
+    if pulled.is_err():
+        return pulled
 
     # Create remote pointing to ``last_push`` repo and pull into ``repo``.
-    fchdir(cwd)
-    last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, git_dir(last_push_repo))
+    last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     p = subprocess.run(
         ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
@@ -1820,12 +1878,12 @@ def pull() -> None:
     kirepo.repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
-    append_md5sum(cwd / ".ki", kirepo.col_file.name, md5sum)
+    append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
 
     # Check that md5sum hasn't changed.
     if md5(kirepo.col_file) != md5sum:
-        logger.warning(f"Checksum mismatch on {kirepo.col_file}. Was file changed?")
-    return unlock(con)
+        return Err(CollectionChecksumError(kirepo.col_file))
+    return Ok()
 
 
 # PUSH
@@ -1839,9 +1897,15 @@ def push() -> Result[bool, Exception]:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
-    kirepo: KiRepo = IO(get_ki_repo(cwd))
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    con: Res[sqlite3.Connection] = lock(kirepo)
+    return _push(kirepo, con)
 
+
+@safe
+@beartype
+def _push(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
+    """ """
     md5sum: str = md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -1850,20 +1914,24 @@ def push() -> Result[bool, Exception]:
         return Err(UpdatesRejectedError(str(kirepo.col_file)))
 
     # Get reference to HEAD of current repo.
-    head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
+    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
+
+    # This statement cannot be any farther down because we must get a reference
+    # to HEAD *before* we commit, and then after the following line, the
+    # reference we got will be HEAD~1, hence the variable name.
     head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
-    stage_kirepo.repo.git.add(all=True)
-    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+    committed: OkErr = commit_stage_repo(stage_kirepo, head)
+    if committed.is_err():
+        return committed
 
     # Get filter function.
     ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
 
-    # This may error if there is no head commit in the current repository.
-    head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
+    head_kirepo: Res[KiRepo] = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Read grammar.
     # UNSAFE! Should we assume this always exists? A nice error message should
@@ -1877,8 +1945,24 @@ def push() -> Result[bool, Exception]:
     transformer = NoteTransformer()
 
     # Get deltas.
-    deltas = get_deltas_since_last_push(head_1, md5sum, ignore_fn, parser, transformer)
-    new_models: Dict[int, NotetypeDict] = get_models_recursively(head_kirepo)
+    deltas: Res[List[Delta]] = get_deltas_since_last_push(
+        head_1, md5sum, ignore_fn, parser, transformer
+    )
+    new_models: Res[Dict[int, NotetypeDict]] = get_models_recursively(head_kirepo)
+
+    return process_deltas(deltas, new_models, kirepo, md5sum, parser, transformer)
+
+
+@safe
+@beartype
+def process_deltas(
+    deltas: List[Delta],
+    new_models: Dict[int, NotetypeDict],
+    kirepo: KiRepo,
+    md5sum: str,
+    parser: Lark,
+    transformer: NoteTransformer,
+) -> Result[bool, Exception]:
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -1890,13 +1974,15 @@ def push() -> Result[bool, Exception]:
     echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
 
     # Copy collection to a temp directory.
-    temp_col_dir = fmkdtemp()
+    temp_col_dir: ExtantDir = ffmkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
-    new_col_file: ExtantFile = fcopyfile(kirepo.col_file, new_col_file, temp_col_dir)
-    head: Optional[RepoRef] = get_head(kirepo.repo)
-    if head is None:
+    new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, new_col_file, temp_col_dir)
+
+    head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
+    if head.is_err():
         echo("Failed: no commits in repository. Couldn't find HEAD ref.")
         return Ok()
+    head = head.unwrap()
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
@@ -2002,7 +2088,7 @@ def push() -> Result[bool, Exception]:
 
     # Backup collection file and overwrite collection.
     backup(kirepo.col_file)
-    new_col_file = fcopyfile(new_col_file, kirepo.col_file, fparent(kirepo.col_file))
+    new_col_file = ffcopyfile(new_col_file, kirepo.col_file, fparent(kirepo.col_file))
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Append to hashes file.
