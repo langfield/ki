@@ -112,6 +112,7 @@ FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
+# EXCEPTIONS
 
 class ExpectedFileButGotDirectoryError(Exception):
     pass
@@ -153,6 +154,15 @@ class TargetExistsError(Exception):
         super().__init__(message)
 
 
+class GitRefNotFoundError(Exception):
+    @beartype
+    def __init__(self, repo: git.Repo, sha: str):
+        message = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        super().__init__(message)
+
+
+# TYPES
+
 class ExtantFile(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
 
@@ -178,6 +188,31 @@ class ExtantStrangePath(type(Path())):
     UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
     when it was resolved.
     """
+
+# ENUMS
+
+class GitChangeType(Enum):
+    """Enum for git file change types."""
+
+    ADDED = "A"
+    DELETED = "D"
+    RENAMED = "R"
+    MODIFIED = "M"
+    TYPECHANGED = "T"
+
+
+# DATACLASSES
+
+
+@beartype
+@dataclass(frozen=True)
+class Delta:
+    """The git delta for a single file."""
+
+    status: GitChangeType
+    path: ExtantFile
+    relpath: Path
+
 
 
 @beartype
@@ -217,10 +252,25 @@ class KiRepoRef:
 
 @beartype
 @dataclass(frozen=True)
+class RepoRef:
+    """
+    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
+    commit hash of ``repo``.
+    """
+
+    repo: git.Repo
+    sha: str
+
+
+@beartype
+@dataclass(frozen=True)
 class Leaves:
     root: ExtantDir
     files: Dict[str, ExtantFile]
     dirs: Dict[str, EmptyDir]
+
+
+# MAYBES
 
 
 @safe
@@ -309,20 +359,6 @@ def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
 
 @safe
 @beartype
-def parse_config_file(config_file: ExtantFile) -> Result[ExtantFile, Exception]:
-    """
-    Parse the .ki/config file for the path to the .anki2 collection file
-    associated with this repository. Return this path.
-    """
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    return M_xfile(col_file)
-
-
-@safe
-@beartype
 def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     """Get the containing ki repository of ``path``."""
     current = cwd
@@ -398,10 +434,42 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     )
 
 
+@safe
 @beartype
-def is_empty(directory: ExtantDir) -> bool:
-    """Check if directory is empty, quickly."""
-    return not next(os.scandir(directory), None)
+def M_kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
+    if not ref_exists(kirepo.repo, sha):
+        return Err(GitRefNotFoundError(kirepo.repo, sha))
+    return Ok(KiRepoRef(kirepo, sha))
+
+
+@safe
+@beartype
+def M_repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
+    if not ref_exists(repo, sha):
+        return Err(GitRefNotFoundError(repo, sha))
+    return Ok(RepoRef(repo, sha))
+
+
+@safe
+@beartype
+def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
+    # GitPython raises a ValueError when references don't exist.
+    try:
+        ref = RepoRef(repo, repo.head.commit.hexsha)
+    except ValueError as err:
+        return Err(err)
+    return Ok(ref)
+
+
+@safe
+@beartype
+def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
+    # GitPython raises a ValueError when references don't exist.
+    try:
+        ref = KiRepoRef(kirepo, ki.repo.repo.head.commit.hexsha)
+    except ValueError as err:
+        return Err(err)
+    return Ok(ref)
 
 
 # DANGER
@@ -459,6 +527,32 @@ def ftouch(directory: ExtantDir, name: str) -> Result[ExtantFile, Exception]:
     path = directory / singleton(name)
     path.touch()
     return M_xfile(path)
+
+
+@safe
+@beartype
+def fmkleaves(
+    root: EmptyDir,
+    *,
+    files: Optional[Dict[str, str]] = None,
+    dirs: Optional[Dict[str, str]] = None,
+) -> Result[Leaves, Exception]:
+    """Safely populate an empty directory with empty files and empty subdirectories."""
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            res: OkErr = ftouch(root, token)
+            if res.is_err():
+                return res
+            new_files[key] = res.unwrap()
+    if dirs is not None:
+        for key, token in dirs.items():
+            res: OkErr = fmksubdir(root, singleton(token))
+            if res.is_err():
+                return res
+            new_dirs[key] = res.unwrap()
+    return Ok(Leaves(M_xdir(root), new_files, dirs))
 
 
 @safe
@@ -537,6 +631,52 @@ def fcopyfile(
 
 @safe
 @beartype
+def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
+    """
+    Make an empty directory out of ``path``. If the directory already exists,
+    we return an exception unless it is empty.
+    """
+    path: OkErr = ftest(path)
+    if path.is_err():
+        return path
+    path = path.unwrap()
+    if isinstance(path, NoPath):
+        return fmkdir(path)
+    if isinstance(path, EmptyDir):
+        return Ok(path)
+    return Err(TargetExistsError(str(path)))
+
+
+@beartype
+def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
+    """Call root.rglob() and returns only files."""
+    files = filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
+    return list(files)
+
+
+
+@beartype
+def is_empty(directory: ExtantDir) -> bool:
+    """Check if directory is empty, quickly."""
+    return not next(os.scandir(directory), None)
+
+
+@safe
+@beartype
+def parse_config_file(config_file: ExtantFile) -> Result[ExtantFile, Exception]:
+    """
+    Parse the .ki/config file for the path to the .anki2 collection file
+    associated with this repository. Return this path.
+    """
+    # Parse config file.
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
+    return M_xfile(col_file)
+
+
+@safe
+@beartype
 def join(path_1: Path, path_2: Path) -> Result[Path, Exception]:
     return Ok(path_1 / path_2)
 
@@ -590,22 +730,6 @@ def md5(path: ExtantFile) -> str:
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-
-class GitRefNotFoundError(Exception):
-    @beartype
-    def __init__(self, repo: git.Repo, sha: str):
-        message = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(message)
-
-
-@safe
-@beartype
-def M_kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
-    if not ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))
-
-
 @beartype
 def ref_exists(repo: git.Repo, ref: str) -> bool:
     """Check if git commit reference exists in repository."""
@@ -614,48 +738,6 @@ def ref_exists(repo: git.Repo, ref: str) -> bool:
     except GitCommandError:
         return False
     return True
-
-
-@beartype
-@dataclass(frozen=True)
-class RepoRef:
-    """
-    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
-    commit hash of ``repo``.
-    """
-
-    repo: git.Repo
-    sha: str
-
-
-@safe
-@beartype
-def M_repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
-    if not ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))
-
-
-@safe
-@beartype
-def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
-    # GitPython raises a ValueError when references don't exist.
-    try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)
-
-
-@safe
-@beartype
-def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
-    # GitPython raises a ValueError when references don't exist.
-    try:
-        ref = KiRepoRef(kirepo, ki.repo.repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)
 
 
 @safe
@@ -765,26 +847,6 @@ def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
     return True
 
 
-class GitChangeType(Enum):
-    """Enum for git file change types."""
-
-    ADDED = "A"
-    DELETED = "D"
-    RENAMED = "R"
-    MODIFIED = "M"
-    TYPECHANGED = "T"
-
-
-@beartype
-@dataclass(frozen=True)
-class Delta:
-    """The git delta for a single file."""
-
-    status: GitChangeType
-    path: ExtantFile
-    relpath: Path
-
-
 @beartype
 def unsubmodule_repo(repo: git.Repo) -> None:
     """
@@ -889,13 +951,6 @@ def get_deltas_since_last_push(
             deltas.append(Delta(change_type, b_path, b_relpath))
 
     return deltas
-
-
-@beartype
-def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
-    """Call root.rglob() and returns only files."""
-    files = filter(lambda p: isinstance(p, ExtantFile), map(ftest, root.rglob(pattern)))
-    return list(files)
 
 
 @beartype
@@ -1058,9 +1113,6 @@ def add_note_from_flatnote(a: Anki, flatnote: FlatNote) -> Optional[KiNote]:
         result = KiNote(a, note)
 
     return result
-
-
-FieldDict = Dict[str, Any]
 
 
 # TODO: This function is still somewhat unsafe.
@@ -1384,7 +1436,6 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
     underscores, or hyphens. Convert to lowercase. Also strip leading and
     trailing whitespace, dashes, and underscores.
     """
-    value = str(value)
     if allow_unicode:
         value = unicodedata.normalize("NFKC", value)
     else:
@@ -1453,10 +1504,27 @@ def convert_stage_kirepo(
     return stage_kirepo
 
 
+@safe
 @beartype
-def update_no_submodules_tree(kirepo: KiRepo, stage_root: ExtantDir) -> None:
-    no_modules_root: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
-    copytree(stage_root, no_modules_root)
+def commit(repo: git.Repo, message: str) -> Result[bool, Exception]:
+    """
+    Commit to the given repo with the given commit message.
+
+    This only exists as a way to commit to Result[git.Repo, ...] object.
+    """
+    repo.git.add(all=True)
+    repo.index.commit(message)
+    return Ok()
+
+
+@safe
+@beartype
+def get_target(
+    cwd: ExtantDir, col_file: ExtantFile, directory: str
+) -> Result[EmptyDir, Exception]:
+    # Create default target directory.
+    return fmkdempty(Path(directory) if directory != "" else cwd / col_file.stem)
+
 
 
 @click.group()
@@ -1469,33 +1537,6 @@ def ki() -> None:
     Takes no arguments, only has three subcommands (clone, pull, push).
     """
     return
-
-
-@safe
-@beartype
-def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
-    """
-    Make an empty directory out of ``path``. If the directory already exists,
-    we return an exception unless it is empty.
-    """
-    path: OkErr = ftest(path)
-    if path.is_err():
-        return path
-    path = path.unwrap()
-    if isinstance(path, NoPath):
-        return fmkdir(path)
-    if isinstance(path, EmptyDir):
-        return Ok(path)
-    return Err(TargetExistsError(str(path)))
-
-
-@safe
-@beartype
-def get_target(
-    cwd: ExtantDir, col_file: ExtantFile, directory: str
-) -> Result[EmptyDir, Exception]:
-    # Create default target directory.
-    return fmkdempty(Path(directory) if directory != "" else cwd / col_file.stem)
 
 
 @ki.command()
@@ -1628,39 +1669,6 @@ def cleanup_after_clone(
 
 @safe
 @beartype
-def commit(repo: git.Repo, message: str) -> Result[bool, Exception]:
-    repo.git.add(all=True)
-    repo.index.commit(message)
-
-
-@safe
-@beartype
-def fmkleaves(
-    root: EmptyDir,
-    *,
-    files: Optional[Dict[str, str]] = None,
-    dirs: Optional[Dict[str, str]] = None,
-) -> Result[Leaves, Exception]:
-    """Safely populate an empty directory with empty files and empty subdirectories."""
-    new_files: Dict[str, ExtantFile] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
-    if files is not None:
-        for key, token in files.items():
-            res: OkErr = ftouch(root, token)
-            if res.is_err():
-                return res
-            new_files[key] = res.unwrap()
-    if dirs is not None:
-        for key, token in dirs.items():
-            res: OkErr = fmksubdir(root, singleton(token))
-            if res.is_err():
-                return res
-            new_dirs[key] = res.unwrap()
-    return Ok(Leaves(M_xdir(root), new_files, dirs))
-
-
-@safe
-@beartype
 def _clone(
     col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
 ) -> Result[str, Exception]:
@@ -1717,7 +1725,7 @@ def _clone(
     if wrote.is_err():
         return wrote
 
-    initialized: OkErr = init_kirepos(targetdir, leaves, msg, write)
+    initialized: OkErr = init_repos(targetdir, leaves, msg, write)
     if initialized.is_err():
         return initialized
 
@@ -1732,7 +1740,7 @@ def _clone(
 
 @safe
 @beartype
-def init_kirepos(
+def init_repos(
     targetdir: ExtantDir, leaves: Leaves, msg: str, write: bool
 ) -> Result[bool, Exception]:
     """
@@ -1742,7 +1750,8 @@ def init_kirepos(
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # Initialize no_submodules_tree.
+    # Initialize the copy of the repository with submodules replaced with
+    # subdirectories that lives in ``.ki/no_submodules_tree/``.
     no_modules_repo = git.Repo.init(leaves.files[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
     return Ok()
