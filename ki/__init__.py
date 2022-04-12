@@ -1667,6 +1667,11 @@ def _clone(
     """
     Clone an Anki collection into a directory.
 
+    The caller, realistically only ``clone()``, expects that ``targetdir`` will
+    be the root of a valid ki repository after this function is called, so we
+    need to do our repo initialization with gitpython in here, as opposed to in
+    ``clone()``.
+
     Parameters
     ----------
     col_file : pathlib.Path
@@ -1703,45 +1708,44 @@ def _clone(
     ignore_path = targetdir / GITIGNORE_FILE
     ignore_path.write_text(".ki/\n")
 
-    # TODO: The lines after this point are broken, because we have two Results
-    # but the return value of ``_clone()`` only depends on one of them.
+    # Write notes to disk. We do explicit error checking here because if we
+    # don't the repository initialization will run even when there's a failure.
+    # This would be very bad for speed, because gitpython calls have quite a
+    # bit of overhead sometimes (although maybe not for ``Repo.init()`` calls,
+    # since they aren't networked).
+    wrote: OkErr = write_repository(col_file, targetdir, leaves, silent)
+    if wrote.is_err():
+        return wrote
 
-    # Write notes to disk.
-    res = write_repository(col_file, targetdir, leaves, silent)
+    initialized: OkErr = init_kirepos(targetdir, leaves, msg, write)
+    if initialized.is_err():
+        return initialized
 
-    # Consider putting call to append_md5sum() at end of write_repository().
+    # Store the md5sum of the anki collection file in the hashes file (we
+    # always append, never overwrite).
+    appended: OkErr = append_md5sum(ki_dir, col_file.name, md5sum, silent)
+    if appended.is_err():
+        return appended
 
-    # Append to hashes file.
-    res = append_md5sum(ki_dir, col_file.name, md5sum, silent)
-    return res if res.is_err() else Ok(md5sum)
+    return Ok(md5sum)
 
 
 @safe
 @beartype
-def init_repo(root: EmptyDir) -> Result[git.Repo, Exception]:
-    return Ok(git.Repo.init(root, initial_branch=BRANCH_NAME))
-
-
-# TODO: Where is this supposed to go?
-def init_kirepo(
-    targetdir: ExtantDir, ki_dir: ExtantDir, msg: str, write: bool
+def init_kirepos(
+    targetdir: ExtantDir, leaves: Leaves, msg: str, write: bool
 ) -> Result[bool, Exception]:
-    """Initialize git repo and commit contents."""
+    """
+    Initialize both git repos and commit contents of the main one.
+    """
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # Initialize ki files and directories.
-    touch_res = ftouch(ki_dir, LAST_PUSH_FILE)
-    fforce_mkdir(ki_dir / BACKUPS_DIR)
-    no_modules_dir = fforce_mkdir(ki_dir / NO_SM_DIR)
-
     # Initialize no_submodules_tree.
-    # UNSAFE: This assumes ``no_modules_dir`` is empty. Better to wrap git repo
-    # initialization into a safe function that requires an ``EmptyDir``, and
-    # refactor the ``fmkleaves`` function to be able to create all directories
-    # and files needed atomically, and avoid naming conflicts.
-    no_modules_repo = git.Repo.init(no_modules_dir, initial_branch=BRANCH_NAME)
+    no_modules_repo = git.Repo.init(leaves.files[NO_SM_DIR], initial_branch=BRANCH_NAME)
+
+    return Ok()
 
 
 @ki.command()
