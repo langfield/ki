@@ -139,7 +139,17 @@ class UpdatesRejectedError(Exception):
 
     @beartype
     def __init__(self, message: str):
-        message = prefix + f"'{message}'\n" + HINT
+        message = UpdatesRejectedError.prefix + f"'{message}'\n" + HINT
+        super().__init__(message)
+
+
+class TargetExistsError(Exception):
+    prefix = "fatal: destination path "
+    suffix = " already exists and is not an empty directory."
+
+    @beartype
+    def __init__(self, target: str):
+        message = TargetExistsError.prefix + f"'{target}'" + TargetExistsError.suffix
         super().__init__(message)
 
 
@@ -203,6 +213,14 @@ class KiRepoRef:
 
     kirepo: KiRepo
     sha: str
+
+
+@beartype
+@dataclass(frozen=True)
+class Leaves:
+    root: ExtantDir
+    files: Dict[str, ExtantFile]
+    dirs: Dict[str, EmptyDir]
 
 
 @safe
@@ -503,8 +521,8 @@ def fmkdtemp() -> Result[EmptyDir, Exception]:
     return M_emptydir(Path(tempfile.mkdtemp()))
 
 
-@safe
 # pylint: disable=unused-argument
+@safe
 @beartype
 def fcopyfile(
     source: ExtantFile, target: Path, target_root: ExtantDir
@@ -784,14 +802,15 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         sm.update()
 
         # Guaranteed to exist by gitpython.
-        sm_path: ExtantDir = M_xdir(Path(sm.module().working_tree_dir))
+        sm_path = Path(sm.module().working_tree_dir)
         repo.git.rm(sm_path, cached=True)
 
         # May not exist.
         repo.git.rm(gitmodules_path)
 
-        # Guaranteed to exist by gitpython.
-        ExtantDir(sm_path / GIT).unlink()
+        # Guaranteed to exist by gitpython, and safe because we pass
+        # ``missing_ok=True``, which means no error is raised.
+        (sm_path / GIT).unlink(missing_ok=True)
 
         # Should still exist after git.rm().
         repo.git.add(sm_path)
@@ -870,13 +889,6 @@ def get_deltas_since_last_push(
             deltas.append(Delta(change_type, b_path, b_relpath))
 
     return deltas
-
-
-@beartype
-def get_head(repo: git.Repo) -> Optional[RepoRef]:
-    """Get the HEAD ref, or None if it doesn't exist."""
-    maybe_ref = MaybeHeadRepoRef(repo)
-    return None if isinstance(maybe_ref.value, str) else JUST(maybe_ref)
 
 
 @beartype
@@ -1220,7 +1232,7 @@ def write_repository(
                     paths[fid] = html_file
 
         tidied: OkErr = tidy_html_recursively(root, silent)
-        wrote: OkErr = write_notes(a, targetdir, tidied)
+        wrote: OkErr = write_notes(a, targetdir, decks, paths, tidied)
 
     # Replace with frmtree.
     shutil.rmtree(root)
@@ -1231,7 +1243,11 @@ def write_repository(
 @safe
 @beartype
 def write_notes(
-    a: Anki, targetdir: ExtantDir, decks: Dict[str, List[KiNote]], tidied: bool
+    a: Anki,
+    targetdir: ExtantDir,
+    decks: Dict[str, List[KiNote]],
+    paths: Dict[str, ExtantFile],
+    tidied: bool,
 ) -> Result[bool, Exception]:
     """
     There is a bug in 'write_notes()'. Then sorting of deck names is done by
@@ -1259,7 +1275,7 @@ def write_notes(
 
     for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
         deck_dir: Res[ExtantDir] = create_deck_dir(deck_name, targetdir)
-        wrote: OkErr = write_deck(a, decks[deck_name], deck_dir)
+        wrote: OkErr = write_deck(a, decks[deck_name], deck_dir, paths, models_map)
         if wrote.is_err():
             return wrote
 
@@ -1269,7 +1285,11 @@ def write_notes(
 @safe
 @beartype
 def write_deck(
-    a: Anki, deck: List[KiNote], deck_dir: ExtantDir
+    a: Anki,
+    deck: List[KiNote],
+    deck_dir: ExtantDir,
+    paths: Dict[str, ExtantFile],
+    models_map: Dict[int, NotetypeDict],
 ) -> Result[bool, Exception]:
     model_ids: Set[int] = set()
     for kinote in deck:
@@ -1397,10 +1417,25 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
 
 @safe
 @beartype
-def remove_submodules_from_stage_kirepo(
-    stage_kirepo: KiRepo, kirepo: KiRepo, md5sum: str
+def convert_stage_kirepo(
+    stage_kirepo: KiRepo, kirepo: KiRepo
 ) -> Result[KiRepo, Exception]:
-    # Unsubmodule the stage repo.
+    """
+    Convert the staging repository into a format that is amenable to taking
+    diffs across all files in all submodules.
+
+    To do this, we first convert all submodules into ordinary subdirectories of
+    the git repository. Then we replace the dot git directory of the staging
+    repo with the .git directory of the repo in ``.ki/no_submodules_tree/``,
+    which, as its name suggests, is a copy of the main repository with all its
+    submodules converted into directories.
+
+    This is done in order to preserve the history of
+    ``.ki/no_submodules_tree/``. The staging repository can be thought of as
+    the next commit to this repo.
+
+    We return a reloaded version of the staging repository, re-read from disk.
+    """
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
@@ -1409,9 +1444,8 @@ def remove_submodules_from_stage_kirepo(
     del stage_kirepo
 
     # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
-    res: OkErr = copytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
-    if res.is_err():
-        return res
+    stage_git_dir = copytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
+    stage_root: Res[ExtantDir] = fparent(stage_git_dir)
 
     # Reload stage kirepo.
     stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
@@ -1435,18 +1469,6 @@ def ki() -> None:
     Takes no arguments, only has three subcommands (clone, pull, push).
     """
     return
-
-
-@beartype
-def TARGET_EXISTS_MSG(targetdir: ExtantDir) -> str:
-    msg = f"fatal: destination path '{targetdir}' already exists "
-    msg += "and is not an empty directory."
-    return msg
-
-
-class TargetExistsError(Exception):
-    msg = f"fatal: destination path '{targetdir}' already exists "
-    msg += "and is not an empty directory."
 
 
 @safe
@@ -1492,23 +1514,22 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 
     cwd: Res[ExtantDir] = fcwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
-
-    md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
     # Check that we are inside a ki repository, and get the associated collection.
-    root: ExtantDir = ftest(targetdir)
-    kirepo: KiRepo = IO(get_ki_repo(root))
+    kirepo: Res[KiRepo] = M_kirepo(M_xdir(targetdir))
 
     # Get reference to HEAD of current repo.
-    head: KiRepoRef = IO(MaybeHeadKiRepoRef(kirepo))
+    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
 
     # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-    stage_kirepo = remove_submodules_from_stage_kirepo(stage_kirepo, kirepo, md5sum)
-    stage_kirepo.repo.git.add(all=True)
-    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+    stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
+
+    committed: OkErr = commit(stage_kirepo.repo, f"Pull changes from ref {head.sha}")
+
     update_no_submodules_tree(kirepo, stage_kirepo.root)
 
     # Dump HEAD ref of current repo in ``.ki/last_push``.
@@ -1523,12 +1544,11 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     return Ok()
 
 
+@safe
 @beartype
-@dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]
+def commit(repo: git.Repo, message: str) -> Result[bool, Exception]:
+    repo.git.add(all=True)
+    repo.index.commit(message)
 
 
 @safe
@@ -1735,7 +1755,7 @@ def push() -> Result[bool, Exception]:
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-    stage_kirepo = remove_submodules_from_stage_kirepo(stage_kirepo, kirepo, md5sum)
+    stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
     head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
