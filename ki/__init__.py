@@ -1227,7 +1227,7 @@ def write_repository(
                     html_file: Res[ExtantFile] = ftouch(root, fid)
                     if html_file.is_err():
                         return html_file
-                    html_file: ExtantFile = html_file.ok()
+                    html_file: ExtantFile = html_file.unwrap()
                     html_file.write_text(fieldtext)
                     paths[fid] = html_file
 
@@ -1474,6 +1474,10 @@ def ki() -> None:
 @safe
 @beartype
 def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
+    """
+    Make an empty directory out of ``path``. If the directory already exists,
+    we return an exception unless it is empty.
+    """
     path: OkErr = ftest(path)
     if path.is_err():
         return path
@@ -1517,7 +1521,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
     # Check that we are inside a ki repository, and get the associated collection.
-    kirepo: Res[KiRepo] = M_kirepo(M_xdir(targetdir))
+    targetdir: Res[ExtantDir] = M_xdir(targetdir)
+    kirepo: Res[KiRepo] = M_kirepo(targetdir)
 
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
@@ -1528,18 +1533,95 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
 
-    committed: OkErr = commit(stage_kirepo.repo, f"Pull changes from ref {head.sha}")
+    processed: OkErr = postprocess_clone_repos(stage_kirepo, head)
+    cleanup_after_clone(targetdir, kirepo, head, processed)
 
-    update_no_submodules_tree(kirepo, stage_kirepo.root)
+
+@safe
+@beartype
+def postprocess_clone_repos(
+    stage_kirepo: KiRepo, head: KiRepoRef
+) -> Result[ExtantDir, Exception]:
+    """
+    Commit the staging repo with a descriptive commit message that contains the
+    reference commit hash of the relevant commit of the main repository. In
+    this case (since we're cloning), it should always be the first commit of
+    the main repository.
+    """
+    committed: OkErr = commit(stage_kirepo.repo, f"Pull changes from ref {head.sha}")
+    if committed.is_err():
+        return committed
+
+    # Completely annihilate the ``.ki/no_submodules_tree``
+    # directory/repository, and replace it with ``stage_kirepo``. This is a
+    # sensible operation because earlier, we copied the ``.git/`` directory
+    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
+    # preserved.
+    no_modules_root: NoPath = rmtree(working_dir(head.kirepo.no_modules_repo))
+    copied: OkErr = copytree(stage_kirepo.root, no_modules_root)
+
+    return copied
+
+
+@beartype
+def cleanup_after_clone(
+    targetdir: OkErr, kirepo: OkErr, head: OkErr, processed: OkErr
+) -> Result[bool, Exception]:
+    """
+    Cleanup without lifting errors.
+
+    Unlike nearly every other function, we do not want to forward errors into
+    the return value here, so it does not make sense for this function to be
+    decorated with @safe.
+
+    Write the HEAD commit hash of the ki repository we've just cloned to the
+    file ``.ki/last_push``, which is a file that always exists if a ki
+    repository is valid, and contains either nothing, or a single SHA
+    referencing either the first commit (i.e. the commit made during a clone),
+    or the commit of the last successful ``push()`` call.
+
+    The parameters are in a very specific order, which is to say that they're
+    in the order in which errors would be raised within ``clone()``. The
+    control flow does not depend on the order of the arguments, but the
+    if-return blocks below should mirror it, and having the parameters in the
+    same order is nice.
+    """
+    # If any of the Result parameters are errors, we should print a 'failed' message.
+    if targetdir.is_err() or kirepo.is_err() or head.is_err() or processed.is_err():
+        echo("Failed: exiting.")
+
+    # We get an error here only in the case where the ``M_xdir()`` call failed
+    # on ``targetdir``. We cannot assume that it doesn't exist, because we may
+    # have returned the exception inside ``fmkdempty()``, which errors-out when
+    # the target already exists and is nonempty. This means we definitely do
+    # not want to remove ``targetdir`` or its contents in this case, because we
+    # would be deleting the user's data.
+    if targetdir.is_err():
+        return targetdir
+
+    # Otherwise, we must have that either we created ``targetdir`` and it did
+    # not exist prior, or it was an empty directory before. In either case, we
+    # can probably remove it safely. We do this bit without using our @safe-d
+    # wrappers because it is very important that these three lines do not fail.
+    # If they do, we would have an 'exception raised while handling an
+    # exception'-type error to display to the user, which would be gross. So we
+    # assume that these statements can never raise exceptions.
+    # TODO: Consider removing only its contents instead.
+    targetdir: ExtantDir = targetdir.unwrap()
+    if targetdir.is_dir():
+        shutil.rmtree(targetdir)
+
+    # We return the first ``Err`` value we find, so that the failure message
+    # indicates the first thing that went wrong.
+    if kirepo.is_err():
+        return kirepo
+    if head.is_err():
+        return head
+    if processed.is_err():
+        return processed
 
     # Dump HEAD ref of current repo in ``.ki/last_push``.
-    kirepo.last_push_file.write_text(head.sha)
-
-    # TODO: Should figure out how to clean up in case of errors.
-    if False:
-        echo("Failed: exiting.")
-        if targetdir.is_dir():
-            shutil.rmtree(targetdir)
+    kirepo.last_push_file.write_text(head.unwrap().sha)
 
     return Ok()
 
@@ -1567,13 +1649,13 @@ def fmkleaves(
             res: OkErr = ftouch(root, token)
             if res.is_err():
                 return res
-            new_files[key] = res.ok()
+            new_files[key] = res.unwrap()
     if dirs is not None:
         for key, token in dirs.items():
             res: OkErr = fmksubdir(root, singleton(token))
             if res.is_err():
                 return res
-            new_dirs[key] = res.ok()
+            new_dirs[key] = res.unwrap()
     return Ok(Leaves(M_xdir(root), new_files, dirs))
 
 
@@ -1621,6 +1703,9 @@ def _clone(
     ignore_path = targetdir / GITIGNORE_FILE
     ignore_path.write_text(".ki/\n")
 
+    # TODO: The lines after this point are broken, because we have two Results
+    # but the return value of ``_clone()`` only depends on one of them.
+
     # Write notes to disk.
     res = write_repository(col_file, targetdir, leaves, silent)
 
@@ -1637,6 +1722,7 @@ def init_repo(root: EmptyDir) -> Result[git.Repo, Exception]:
     return Ok(git.Repo.init(root, initial_branch=BRANCH_NAME))
 
 
+# TODO: Where is this supposed to go?
 def init_kirepo(
     targetdir: ExtantDir, ki_dir: ExtantDir, msg: str, write: bool
 ) -> Result[bool, Exception]:
@@ -1910,8 +1996,15 @@ def push() -> Result[bool, Exception]:
     new_md5sum = md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
+    # Completely annihilate the ``.ki/no_submodules_tree``
+    # directory/repository, and replace it with ``stage_kirepo``. This is a
+    # sensible operation because earlier, we copied the ``.git/`` directory
+    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
+    # preserved.
+    no_modules_root: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
+    copytree(stage_kirepo.root, no_modules_root)
+
     # Dump HEAD ref of current repo in ``.ki/last_push``.
-    update_no_submodules_tree(kirepo, stage_kirepo.root)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
