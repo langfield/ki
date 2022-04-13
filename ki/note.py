@@ -80,13 +80,18 @@ class KiNote(Note):
     @beartype
     def set_deck(self, deck: str) -> None:
         """Move note to deck."""
-        # TODO: This can possibly raise an error. Check.
-        newdid = self.a.col.decks.id(deck)
+        # Get the id for deck with name ``deck``, and create it if it doesn't
+        # already exist. The type signature for this API method says that it
+        # may return ``None``, but this is only in the case where we pass
+        # ``create=False``. So in reality we do not expect an exception to ever
+        # be raised here.
+        newdid: int = self.a.col.decks.id(deck, create=True)
         cids = [c.id for c in self.n.cards()]
 
         if cids:
             self.a.col.set_deck(cids, newdid)
             self.a.modified = True
+
         # TODO: Remove implicit assumption that all cards are in the same deck.
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
 
