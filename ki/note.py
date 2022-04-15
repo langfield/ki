@@ -8,13 +8,13 @@ import markdownify
 from beartype import beartype
 from beartype.typing import Dict, List
 
-from apy.anki import Note, Anki
+from apy.anki import Anki
 from apy.convert import markdown_to_html, html_to_markdown
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 
 
-class KiNote(Note):
+class KiNote:
     """
     A subclass of ``apy.Note`` for applying transformations to HTML in note
     fields. This is distinct from the anki ``Note`` class, which is accessible
@@ -30,8 +30,11 @@ class KiNote(Note):
 
     @beartype
     def __init__(self, a: Anki, note: anki.notes.Note):
-
-        super().__init__(a, note)
+        self.a = a
+        self.n = note
+        self.model_name = note.note_type()['name']
+        self.fields = [x for x, y in self.n.items()]
+        self.suspended = any(c.queue == -1 for c in self.n.cards())
 
         # TODO: Remove implicit assumption that all cards are in the same deck.
         self.deck = self.a.col.decks.name(self.n.cards()[0].did)
@@ -63,7 +66,7 @@ class KiNote(Note):
         ]
 
         lines += [f"deck: {self.get_deck()}"]
-        lines += [f"tags: {self.get_tag_string()}"]
+        lines += [f"tags: {', '.join(self.n.tags)}"]
 
         if not any(GENERATED_HTML_SENTINEL in field for field in self.n.values()):
             lines += ["markdown: false"]
