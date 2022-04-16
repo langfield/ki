@@ -119,7 +119,7 @@ def get_col_file() -> ki.ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, col_file)
-    return ki.ftest(Path(col_file))
+    return ki.fftest(Path(col_file))
 
 
 @beartype
@@ -131,7 +131,7 @@ def get_multideck_col_file() -> ki.ExtantFile:
         os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME)
     )
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, col_file)
-    return ki.ftest(Path(col_file))
+    return ki.fftest(Path(col_file))
 
 
 @beartype
@@ -141,7 +141,7 @@ def get_html_col_file() -> ki.ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, col_file)
-    return ki.ftest(Path(col_file))
+    return ki.fftest(Path(col_file))
 
 
 @beartype
@@ -805,7 +805,7 @@ def test_push_generates_correct_backup():
 
         backup = False
         for path in paths:
-            if ki.md5(ki.ftest(Path(path))) == old_hash:
+            if ki.md5(ki.fftest(Path(path))) == old_hash:
                 backup = True
 
         assert backup
@@ -1053,9 +1053,9 @@ def test_parse_markdown_note():
     transformer = ki.NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ki.ftest(Path(NOTE_5_PATH)))
+        ki.parse_markdown_note(parser, transformer, ki.fftest(Path(NOTE_5_PATH)))
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ki.ftest(Path(NOTE_6_PATH)))
+        ki.parse_markdown_note(parser, transformer, ki.fftest(Path(NOTE_6_PATH)))
 
 
 def test_get_batches():
@@ -1535,7 +1535,7 @@ def test_write_notes_generates_deck_tree_correctly():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = ki.ftest(Path(MULTIDECK_REPODIR))
+        targetdir = ki.fftest(Path(MULTIDECK_REPODIR))
         targetdir = ki.fmkdir(targetdir)
         ki.write_notes(col_file, targetdir, silent=False)
 
@@ -1557,5 +1557,5 @@ def test_write_notes_handles_html():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = ki.fmkdir(ki.ftest(Path(HTML_REPODIR)))
+        targetdir = ki.fmkdir(ki.fftest(Path(HTML_REPODIR)))
         ki.write_notes(col_file, targetdir, silent=False)

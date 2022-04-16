@@ -644,7 +644,6 @@ def fftest(
     return NoPath(path)
 
 
-@safe
 @beartype
 def ftouch(directory: ExtantDir, name: str) -> ExtantFile:
     """Touch a file."""
@@ -662,6 +661,7 @@ def fmkleaves(
     dirs: Optional[Dict[str, str]] = None,
 ) -> Result[Leaves, Exception]:
     """Safely populate an empty directory with empty files and empty subdirectories."""
+    # TODO: Make sure that the names are unique.
     new_files: Dict[str, ExtantFile] = {}
     new_dirs: Dict[str, EmptyDir] = {}
     if files is not None:
@@ -669,8 +669,10 @@ def fmkleaves(
             new_files[key] = ftouch(root, token)
     if dirs is not None:
         for key, token in dirs.items():
-            new_dirs[key] = ffmksubdir(root, singleton(token))
-    return Ok(Leaves(M_xdir(root), new_files, dirs))
+            # We lie to the ``ffmksubdir`` call and tell it the root is empty
+            # on every iteration.
+            new_dirs[key] = ffmksubdir(EmptyDir(root), singleton(token))
+    return Ok(Leaves(root, new_files, dirs))
 
 
 @safe
@@ -697,7 +699,6 @@ def ffmksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
     return EmptyDir(subdir)
 
 
-@safe
 @beartype
 def ffforce_mkdir(path: Path) -> ExtantDir:
     """Make a directory (with parents, ok if it already exists)."""
@@ -734,9 +735,10 @@ def ffmkdtemp() -> EmptyDir:
 
 @beartype
 def ffcopyfile(
-    source: ExtantFile, target_root: ExtantDir, name: Singleton
+    source: ExtantFile, target_root: ExtantDir, name: str
 ) -> ExtantFile:
     """Force copy a file (potentially overwrites the target path)."""
+    name = singleton(name)
     target = target_root / name
     shutil.copyfile(source, target)
     return ExtantFile(target)
@@ -1141,7 +1143,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
 
     except KeyError as err:
         return Err(err)
-    return notetype
+    return Ok(notetype)
 
 
 @safe
@@ -1324,7 +1326,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
 def backup(kirepo: KiRepo) -> None:
     """Backup collection to `.ki/backups`."""
     md5sum = md5(kirepo.col_file)
-    name = singleton(f"{md5sum}.anki2")
+    name = f"{md5sum}.anki2"
     backup_file = fftest(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
@@ -1349,7 +1351,6 @@ def append_md5sum(
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
     echo(f"Wrote md5sum to '{hashes_file}'", silent)
-    return Ok()
 
 
 @beartype
@@ -1417,7 +1418,7 @@ def get_colnote_from_flatnote(
         notetype=new_notetype,
         sortf_text=sortf_text,
     )
-    return colnote
+    return Ok(colnote)
 
 
 @beartype
@@ -1443,12 +1444,12 @@ def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
         new=False,
         deck=deck,
         title="",
-        old_nid=note.nid,
+        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
     )
-    return colnote
+    return Ok(colnote)
 
 
 @beartype
@@ -1470,6 +1471,7 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
+@safe
 @beartype
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
@@ -1947,7 +1949,7 @@ def init_repos(
 
     # Initialize the copy of the repository with submodules replaced with
     # subdirectories that lives in ``.ki/no_submodules_tree/``.
-    _ = git.Repo.init(leaves.files[NO_SM_DIR], initial_branch=BRANCH_NAME)
+    _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
     return Ok()
 
@@ -2175,9 +2177,8 @@ def push_deltas(
     # Copy collection to a temp directory.
     temp_col_dir: ExtantDir = ffmkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
-    new_col_file: ExtantFile = ffcopyfile(
-        kirepo.col_file, temp_col_dir, singleton(kirepo.col_file.name)
-    )
+    col_name: str = kirepo.col_file.name
+    new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, temp_col_dir, col_name)
 
     head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
     if head.is_err():
@@ -2256,7 +2257,6 @@ def push_deltas(
         _ = kirepo.repo.index.commit(msg)
 
     # Backup collection file and overwrite collection.
-    col_name: Singleton = singleton(kirepo.col_file.name)
     backup(kirepo)
     new_col_file = ffcopyfile(new_col_file, fparent(kirepo.col_file), col_name)
     echo(f"Overwrote '{kirepo.col_file}'")
