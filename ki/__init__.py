@@ -1082,7 +1082,7 @@ def diff_repos(
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
 
-    return deltas
+    return Ok(deltas)
 
 
 @beartype
@@ -1171,7 +1171,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
         # Add mappings to dictionary.
         all_models.update(models)
 
-    return all_models
+    return Ok(all_models)
 
 
 @beartype

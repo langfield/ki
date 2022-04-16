@@ -344,7 +344,6 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
             assert "199216c39eeabe23a1da016a99ffd3e2  collection.anki2" in hashes
 
 
-@pytest.mark.skip
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
     col_file = get_col_file()
