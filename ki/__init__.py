@@ -495,7 +495,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
         ki_dir = fftest(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
-        current = fparent(current)
+        current = ffparent(current)
 
     if current == FS_ROOT:
         return Err(NotKiRepoError())
@@ -714,17 +714,14 @@ def fchdir(directory: ExtantDir) -> ExtantDir:
     return old
 
 
-@safe
 @beartype
-def fparent(
+def ffparent(
     path: Union[ExtantFile, ExtantDir]
-) -> Result[Union[ExtantFile, ExtantDir], Exception]:
+) -> ExtantDir:
     """Get the parent of a path that exists."""
     if path.resolve() == FS_ROOT:
-        return M_xdir(FS_ROOT)
-    if isinstance(path, ExtantFile):
-        return M_xdir(path.parent)
-    return M_xdir(path.parent)
+        return ExtantDir(FS_ROOT)
+    return ExtantDir(path.parent)
 
 
 @beartype
@@ -1702,7 +1699,7 @@ def convert_stage_kirepo(
 
     # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
     stage_git_dir = copytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
-    stage_root: Res[ExtantDir] = fparent(stage_git_dir)
+    stage_root: ExtantDir = ffparent(stage_git_dir)
 
     # Reload stage kirepo.
     stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
@@ -1965,17 +1962,11 @@ def pull() -> Result[bool, Exception]:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
     kirepo: Res[KiRepo] = M_kirepo(cwd)
-    con: Res[sqlite3.Connection] = lock(kirepo)
-    pulled: OkErr = _pull(kirepo, con)
-    return pulled
+    if kirepo.is_err():
+        return kirepo
+    kirepo: KiRepo = kirepo.unwrap()
+    con: sqlite3.Connection = lock(kirepo)
 
-
-@safe
-@beartype
-def _pull(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
-    """
-    This function exists because we need to unwrap the ``kirepo`` Result in ``pull()``.
-    """
     md5sum: str = md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -2093,14 +2084,11 @@ def push() -> Result[bool, Exception]:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = fcwd()
     kirepo: Res[KiRepo] = M_kirepo(cwd)
-    con: Res[sqlite3.Connection] = lock(kirepo)
-    return _push(kirepo, con)
+    if kirepo.is_err():
+        return kirepo
+    kirepop: KiRepo = kirepo.unwrap()
+    con: sqlite3.Connection = lock(kirepo)
 
-
-@safe
-@beartype
-def _push(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
-    """ """
     md5sum: str = md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -2258,7 +2246,7 @@ def push_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    new_col_file = ffcopyfile(new_col_file, fparent(kirepo.col_file), col_name)
+    new_col_file = ffcopyfile(new_col_file, ffparent(kirepo.col_file), col_name)
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Append to hashes file.
