@@ -86,13 +86,13 @@ TODO
 - Add a section in docs that explains what a `ki` repository is.
 - Try pdoc instead of pdoc3.
 - Convert path manipulation code to pathlib. (DONE)
-- Profile code.
+- Profile code. (DONE)
 - Use NestedText instead of markdown. (NO)
 - Add asciinema gif for simple workflow.
 - Test that strange targetdirs are handled well.
 - Test branches work as expected.
 - Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
-- Remove all beautiful soup usage.
+- Remove all beautiful soup usage. (DONE)
 - Test decknames with leadings dots and resulting collisons from stripping dots.
 - Handle problem of notes with cards in distinct decks by symlinking notes,
   making the choice of where the ground-truth note lives arbitrarily (perhaps
@@ -102,6 +102,10 @@ TODO
   allowing UTF-8).
 - Add this for html detection https://stackoverflow.com/a/70585604
 - Do fieldnames have to be distinct within a model?
+
+16-April-2022
+-------------
+Merge write_deck() and write_decks(). (DONE)
 
 
 Triage

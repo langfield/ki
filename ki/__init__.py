@@ -42,8 +42,8 @@ import git
 from git.exc import GitCommandError
 
 import anki
-from anki.notes import Note
-from anki.collection import Collection
+from anki import notetypes_pb2
+from anki.collection import Collection, Note
 
 from apy.convert import markdown_to_html, plain_to_html
 
@@ -61,11 +61,12 @@ from beartype.typing import (
 )
 
 from ki.safe import safe
-from ki.note import KiNote
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
 
+ChangeNotetypeInfo = notetypes_pb2.ChangeNotetypeInfo
+ChangeNotetypeRequest = notetypes_pb2.ChangeNotetypeRequest
 FieldDict = Dict[str, Any]
 NotetypeDict = Dict[str, Any]
 TemplateDict = Dict[str, Union[str, int, None]]
@@ -110,6 +111,7 @@ FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
+GENERATED_HTML_SENTINEL = "data-original-markdown"
 
 # TYPES
 
@@ -227,6 +229,13 @@ class MissingFieldOrdinalError(Exception):
         super().__init__(msg)
 
 
+class MissingNoteIdError(Exception):
+    @beartype
+    def __init__(self, nid: int):
+        msg = f"Failed to locate note with nid '{nid}' in Anki database."
+        super().__init__(msg)
+
+
 # WARNINGS
 
 
@@ -337,6 +346,21 @@ class ExtantNotetype:
     # database. We keep this around to preserve extra keys that may not always
     # exist, but the ones above should be required for Anki to function.
     dict: Dict[str, Any]
+
+
+@beartype
+@dataclass(frozen=True)
+class ColNote:
+    """A note that exists in the Anki DB."""
+
+    n: Note
+    new: bool
+    deck: str
+    title: str
+    old_nid: int
+    markdown: bool
+    notetype: Notetype
+    sortf_text: str
 
 
 @beartype
@@ -709,8 +733,11 @@ def ffmkdtemp() -> EmptyDir:
 
 
 @beartype
-def ffcopyfile(source: ExtantFile, target: Path, target_root: ExtantDir) -> ExtantFile:
+def ffcopyfile(
+    source: ExtantFile, target_root: ExtantDir, name: Singleton
+) -> ExtantFile:
     """Force copy a file (potentially overwrites the target path)."""
+    target = target_root / name
     shutil.copyfile(source, target)
     return ExtantFile(target)
 
@@ -1138,7 +1165,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
         with open(models_file, "r", encoding="UTF-8") as models_f:
             models: Dict[str, Notetype] = {}
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
-            for mid, nt in new_nts.items():
+            for _, nt in new_nts.items():
                 parsed = parse_notetype_dict(nt)
                 if parsed.is_err():
                     return parsed
@@ -1184,59 +1211,59 @@ def parse_markdown_note(
     # UNSAFE!
     return flatnotes[0]
 
+
+@safe
 @beartype
-def set_deck(col: Collection, note: Note, deck: str) -> None:
-    """Move note to deck."""
-    # Get the id for deck with name ``deck``, and create it if it doesn't
-    # already exist. The type signature for this API method says that it
-    # may return ``None``, but this is only in the case where we pass
-    # ``create=False``. So in reality we do not expect an exception to ever
-    # be raised here.
-    newdid: int = note.col.decks.id(deck, create=True)
+def update_note(
+    note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
+) -> Result[Note, Exception]:
+    """
+    Change all the data of ``note`` to that given in ``flatnote``.
+
+    This is only to be called on notes whose nid already exists in the
+    database.  Creates a new deck if ``flatnote.deck`` doesn't exist.  Assumes
+    that the model has already been added to the collection, and raises an
+    exception if it finds otherwise.  Changes notetype to that specified by
+    ``flatnote.model``.  Overwrites all fields with ``flatnote.fields``.
+
+    Updates:
+    - tags
+    - deck
+    - model
+    - fields
+    """
+    note.tags = flatnote.tags
+
+    # Set the deck of the given note, and create a deck with this name if it
+    # doesn't already exist. See the comments/docstrings in the implementation.
+    newdid: int = note.col.decks.id(flatnote.deck, create=True)
     cids = [c.id for c in note.cards()]
 
     # Set deck for all cards of this note.
     if cids:
         note.col.set_deck(cids, newdid)
 
+    change_notetype_request = ChangeNotetypeRequest()
+    change_notetype_info: ChangeNotetypeInfo = note.col.models.change_notetype_info(
+        old_notetype_id=old_notetype.id, new_notetype_id=new_notetype.id
+    )
+    change_notetype_request.ParseFromString(change_notetype_info)
 
-@beartype
-def update_note(note: Note, flatnote: FlatNote) -> Result[Note, Exception]:
-    """
-    Update an `apy` Note in a collection.
-
-    This is only to be called on notes whose nid already exists in the
-    database. It assumes that the model has already been added to the
-    collection, and raises an exception if it finds otherwise.
-
-    Currently fails if the model has changed. It does not update the model name
-    of the KiNote, and it also assumes that the field names have not changed.
-    """
-    note.tags = flatnote.tags
-
-    # Set the deck of the given note, and create a deck with this name if it
-    # doesn't already exist. See the comments/docstrings in the implementation.
-    set_deck(note, flatnote.deck)
-
-    # Get new notetype from collection (None if nonexistent).
-    notetype: Optional[NotetypeDict] = note.col.models.by_name(flatnote.model)
-
-    # If notetype doesn't exist, raise an error. The caller (should) always
-    # create all new notetypes before calling this function, so this would only
-    # happen if the ``models.json`` file is incorrect (i.e. doesn't contain all
-    # the models listed in the note files).
-    if notetype is None:
-        return Err(MissingNotetypeError(flatnote.model))
+    # pylint: disable=no-member
+    change_notetype_request.note_ids.extend([note.id])
+    # pylint: enable=no-member
+    note.col.models.change_notetype_of_notes(change_notetype_request)
 
     # Validate field keys against notetype.
-    old_model = note.note_type()
-    validated: OkErr = validate_flatnote_fields(old_model, flatnote)
+    validated: OkErr = validate_flatnote_fields(new_notetype, flatnote)
     if validated.is_err():
         # TODO: Figure out a better way to handle warnings.
         logger.warning(validated.err())
         return Ok()
 
-    # Set field values.
+    # Set field values. This is correct because every field name that appears
+    # in ``new_notetype`` is contained in ``flatnote.fields``, or else we would
+    # have printed a warning and returned above.
     # TODO: Check if these apy methods can raise exceptions.
     for key, field in flatnote.fields.items():
         if flatnote.markdown:
@@ -1246,6 +1273,7 @@ def update_note(note: Note, flatnote: FlatNote) -> Result[Note, Exception]:
 
     # Flush note, mark collection as modified, and display any warnings.
     note.flush()
+
     # TODO: Return modification status.
     display_fields_health_warning(note)
     return Ok(note)
@@ -1254,17 +1282,17 @@ def update_note(note: Note, flatnote: FlatNote) -> Result[Note, Exception]:
 @safe
 @beartype
 def validate_flatnote_fields(
-    model: NotetypeDict, flatnote: FlatNote
+    notetype: Notetype, flatnote: FlatNote
 ) -> Result[bool, Warning]:
     """Validate that the fields given in the note match the notetype."""
     # Set current notetype for collection to `model_name`.
-    model_field_names = [field["name"] for field in model["flds"]]
+    field_names: List[str] = [field.name for field in notetype.flds]
 
-    if len(flatnote.fields.keys()) != len(model_field_names):
+    if len(flatnote.fields.keys()) != len(field_names):
         msg = f"Not enough fields for model {flatnote.model}!"
         return Err(NoteFieldValidationWarning(msg))
 
-    for x, y in zip(model_field_names, flatnote.fields.keys()):
+    for x, y in zip(field_names, flatnote.fields.keys()):
         if x != y:
             msg = f"Inconsistent field names ({x} != {y})"
             return Err(NoteFieldValidationWarning(msg))
@@ -1272,7 +1300,9 @@ def validate_flatnote_fields(
 
 
 @beartype
-def add_note_from_flatnote(col: Collection, flatnote: FlatNote) -> Result[Note, Exception]:
+def add_note_from_flatnote(
+    col: Collection, flatnote: FlatNote
+) -> Result[Note, Exception]:
     """Add a note given its FlatNote representation, provided it passes health check."""
     # If a notetype with name ``flatnote.model`` does not exist, we return an
     # error, since we expect all necessary models to have been created by the
@@ -1280,54 +1310,11 @@ def add_note_from_flatnote(col: Collection, flatnote: FlatNote) -> Result[Note, 
     model_id: Optional[int] = col.models.id(flatnote.model)
     if model_id is None:
         return Err(MissingNotetypeError(flatnote.model))
-    notetype: NotetypeDict = col.models.get(model_id)
     note = col.new_note(model_id)
 
     # Create new deck if deck does not exist. This updates ``note.id``.
     col.add_note(note, col.decks.id(flatnote.deck))
     return Ok(note)
-
-
-@beartype
-def get_sort_field_text(kinote: KiNote) -> Result[str, Warning]:
-    """
-    NOTE: The only way we could get a failure here is because of a KeyError in
-    the note.__get__() call at the end, which would indicate a bug in ``ki`` or
-    a corrupt ``models.json`` file, since ``ki`` creates the models files, and
-    thus every model should have a sort field, and ``ki`` also constructs
-    ``note`` from the parsed model, so it shoould have that field. So an Error
-    is more appropriate here, not a warning.
-
-    It is easily possible to implement this without use of ``apy.Anki`` at all.
-    See the comments below.
-
-    It is not possible to implement this function without using ``note``, since
-    the alternative would be accessing the sort field content from ``flatnote``
-    (which would have to be passed in as an argument), and we cannot do this in
-    ``write_note()``, where this function is called, because we do not have
-    FlatNotes in the 'clone()' procedure.
-
-    The ``apy.Anki.col.models.field_map()`` call may raise a KeyError if
-    ``notetype`` doesn't have the requisite fields.
-
-    notetype may not have a sortf key
-    sort_idx may not be in field_names
-    sort_field_name may not be in note
-    """
-    nt: Optional[NotetypeDict] = kinote.n.note_type()
-    if nt is None:
-        return Err(MissingNotetypeError)
-    notetype: Res[Notetype] = parse_notetype_dict(nt)
-    if notetype.is_err():
-        return notetype
-
-    # Get the text of the sort field of ``kinote``.
-    try:
-        sort_field_text: str = kinote.n[notetype.sortf.name]
-    except KeyError as err:
-        return Err(err)
-
-    return sort_field_text
 
 
 @beartype
@@ -1410,6 +1397,101 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
         yield lst[i : i + n]
 
 
+@safe
+@beartype
+def get_colnote_from_flatnote(
+    col: Collection, flatnote: FlatNote
+) -> Result[ColNote, Exception]:
+    model_id: Optional[int] = col.models.id(flatnote.model)
+    if model_id is None:
+        return Err(MissingNotetypeError(flatnote.model))
+
+    new = False
+    note: Note
+    try:
+        note = col.get_note(flatnote.nid)
+    except anki.errors.NotFoundError:
+        note = col.new_note(model_id)
+        col.add_note(note, col.decks.id(flatnote.deck, create=True))
+        new = True
+
+    old_notetype: Res[Notetype] = parse_notetype_dict(note.note_type())
+    new_notetype: Res[Notetype] = parse_notetype_dict(col.models.get(model_id))
+
+    note: OkErr = update_note(note, flatnote, old_notetype, new_notetype)
+    if note.is_err():
+        return note
+    note: Note = note.unwrap()
+
+    # Get sort field content.
+    try:
+        sortf_text: str = note[new_notetype.sortf.name]
+    except KeyError as err:
+        return Err(err)
+
+    colnote = ColNote(
+        n=note,
+        new=new,
+        deck=flatnote.deck,
+        title=flatnote.title,
+        old_nid=flatnote.nid,
+        markdown=flatnote.markdown,
+        notetype=new_notetype,
+        sortf_text=sortf_text,
+    )
+    return colnote
+
+
+@beartype
+def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
+    try:
+        note = col.get_note(nid)
+    except anki.errors.NotFoundError:
+        return Err(MissingNoteIdError(nid))
+    notetype: OkErr = parse_notetype_dict(note.note_type())
+    if notetype.is_err():
+        return notetype
+    notetype: Notetype = notetype.unwrap()
+
+    # Get sort field content.
+    try:
+        sortf_text: str = note[notetype.sortf.name]
+    except KeyError as err:
+        return Err(err)
+
+    deck = col.decks.name(note.cards()[0].did)
+    colnote = ColNote(
+        n=note,
+        new=False,
+        deck=deck,
+        title="",
+        old_nid=note.nid,
+        markdown=False,
+        notetype=notetype,
+        sortf_text=sortf_text,
+    )
+    return colnote
+
+
+@beartype
+def get_header_lines(colnote) -> List[str]:
+    """Get header of markdown representation of note."""
+    lines = [
+        "## Note",
+        f"nid: {colnote.n.id}",
+        f"model: {colnote.notetype.name}",
+    ]
+
+    lines += [f"deck: {colnote.deck}"]
+    lines += [f"tags: {', '.join(colnote.n.tags)}"]
+
+    if not any(GENERATED_HTML_SENTINEL in field for field in colnote.n.values()):
+        lines += ["markdown: false"]
+
+    lines += [""]
+    return lines
+
+
 @beartype
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
@@ -1428,16 +1510,19 @@ def write_repository(
     root: EmptyDir = ffmksubdir(tempdir, FIELD_HTML_SUFFIX)
 
     paths: Dict[str, ExtantFile] = {}
-    decks: Dict[str, List[KiNote]] = {}
+    decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
     col = Collection(col_file)
 
     all_nids = list(col.find_notes(query=""))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
-        kinote = KiNote(a, col.get_note(nid))
-        decks[kinote.deck] = decks.get(kinote.deck, []) + [kinote]
-        for fieldname, fieldtext in kinote.fields.items():
+        colnote: OkErr = get_colnote(col, nid)
+        if colnote.is_err():
+            return colnote
+        colnote: ColNote = colnote.unwrap()
+        decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
+        for fieldname, fieldtext in colnote.n.items():
             if re.search(HTML_REGEX, fieldtext):
                 fid: str = get_field_note_id(nid, fieldname)
                 html_file: ExtantFile = ftouch(root, fid)
@@ -1449,7 +1534,9 @@ def write_repository(
     # is an Err. If it is an Ok, it simply removes that key-value pair from
     # ``kwargs`` and calls the function as it normally would.
     tidied: OkErr = tidy_html_recursively(root, silent)
-    wrote: OkErr = write_decks(col, targetdir, decks, paths, tidied)
+    if tidied.is_err():
+        return tidied
+    wrote: OkErr = write_decks(col, targetdir, decks, paths)
 
     # Replace with frmtree.
     shutil.rmtree(root)
@@ -1462,9 +1549,8 @@ def write_repository(
 def write_decks(
     col: Collection,
     targetdir: ExtantDir,
-    decks: Dict[str, List[KiNote]],
+    decks: Dict[str, List[ColNote]],
     paths: Dict[str, ExtantFile],
-    tidied: bool,
 ) -> Result[bool, Exception]:
     """
     There is a bug in 'write_decks()'. The sorting of deck names is done by
@@ -1494,66 +1580,36 @@ def write_decks(
 
     for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
         deck_dir: ExtantDir = create_deck_dir(deck_name, targetdir)
-        wrote: OkErr = write_deck(col, decks[deck_name], deck_dir, paths, models_map)
-        if wrote.is_err():
-            return wrote
+        model_ids: Set[int] = set()
+        deck: List[ColNote] = decks[deck_name]
+        for colnote in deck:
+            model_ids.add(colnote.notetype.id)
+            notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
+            payload: str = get_tidy_payload(colnote, paths)
+            notepath.write_text(payload, encoding="UTF-8")
 
-    return Ok()
-
-
-@safe
-@beartype
-def write_deck(
-    col: Collection,
-    deck: List[KiNote],
-    deck_dir: ExtantDir,
-    paths: Dict[str, ExtantFile],
-    models_map: Dict[int, NotetypeDict],
-) -> Result[bool, Exception]:
-    model_ids: Set[int] = set()
-    for kinote in deck:
-
-        # Add the notetype id.
-        nt: Optional[NotetypeDict] = kinote.n.note_type()
-        if nt is None:
-            logger.warning(f"Couldn't find notetype for {kinote}")
-            continue
-        notetype: Notetype = parse_notetype_dict(nt)
-        model_ids.add(notetype.id)
-
-        # An Exception is returned here in the case where we cannot find the
-        # sort field name in ``kinote.n``, which is something we do not expect
-        # to happen unless the 'models.json' file was corrupted.
-        sort_field_text: Res[str] = get_sort_field_text(kinote)
-        if sort_field_text.is_err():
-            return sort_field_text
-
-        notepath: ExtantFile = get_note_path(sort_field_text, deck_dir)
-        payload: str = get_tidy_payload(kinote, paths)
-        notepath.write_text(payload, encoding="UTF-8")
-
-    # Write ``models.json`` for current deck.
-    deck_models_map = {mid: models_map[mid] for mid in model_ids}
-    with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
-        json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+        # Write ``models.json`` for current deck.
+        deck_models_map = {mid: models_map[mid] for mid in model_ids}
+        with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
+            json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
     return Ok()
 
 
 @beartype
-def get_tidy_payload(kinote: KiNote, paths: Dict[str, ExtantFile]) -> str:
+def get_tidy_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
     """Get the payload for the note (HTML-tidied if necessary)."""
     # Get tidied html if it exists.
     tidyfields = {}
-    for fieldname, fieldtext in kinote.fields.items():
-        fid = get_field_note_id(kinote.n.id, fieldname)
+    for fieldname, fieldtext in colnote.n.items():
+        fid = get_field_note_id(colnote.n.id, fieldname)
         if fid in paths:
             tidyfields[fieldname] = paths[fid].read_text()
         else:
             tidyfields[fieldname] = fieldtext
 
     # Construct note repr from tidyfields map.
-    lines = kinote.get_header_lines()
+    lines = get_header_lines(colnote)
     for fieldname, fieldtext in tidyfields.items():
         lines.append("### " + fieldname)
         lines.append(fieldtext)
@@ -1885,7 +1941,10 @@ def _clone(
     # bit of overhead sometimes (although maybe not for ``Repo.init()`` calls,
     # since they aren't networked).
     wrote: OkErr = write_repository(col_file, targetdir, leaves, silent)
-    initialized: OkErr = init_repos(targetdir, leaves, msg, wrote)
+    if wrote.is_err():
+        return wrote
+
+    initialized: OkErr = init_repos(targetdir, leaves, msg)
     if initialized.is_err():
         return initialized
 
@@ -1899,7 +1958,7 @@ def _clone(
 @safe
 @beartype
 def init_repos(
-    targetdir: ExtantDir, leaves: Leaves, msg: str, wrote: bool
+    targetdir: ExtantDir, leaves: Leaves, msg: str
 ) -> Result[bool, Exception]:
     """
     Initialize both git repos and commit contents of the main one.
@@ -1935,7 +1994,7 @@ def pull() -> Result[bool, Exception]:
 @beartype
 def _pull(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
     """
-    This function exists because we need to unfold the ``kirepo`` Result in ``pull()``.
+    This function exists because we need to unwrap the ``kirepo`` Result in ``pull()``.
     """
     md5sum: str = md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
@@ -2108,18 +2167,22 @@ def _push(kirepo: KiRepo, con: sqlite3.Connection) -> Result[bool, Exception]:
     # Map model names to models.
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
 
-    return process_deltas(deltas, models, kirepo, md5sum, parser, transformer)
+    return push_deltas(
+        deltas, models, kirepo, md5sum, parser, transformer, stage_kirepo, con
+    )
 
 
 @safe
 @beartype
-def process_deltas(
+def push_deltas(
     deltas: List[Delta],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
     md5sum: str,
     parser: Lark,
     transformer: NoteTransformer,
+    stage_kirepo: KiRepo,
+    con: sqlite3.Connection,
 ) -> Result[bool, Exception]:
 
     # If there are no changes, quit.
@@ -2134,7 +2197,9 @@ def process_deltas(
     # Copy collection to a temp directory.
     temp_col_dir: ExtantDir = ffmkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
-    new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, new_col_file, temp_col_dir)
+    new_col_file: ExtantFile = ffcopyfile(
+        kirepo.col_file, temp_col_dir, singleton(kirepo.col_file.name)
+    )
 
     head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
     if head.is_err():
@@ -2148,7 +2213,6 @@ def process_deltas(
     col = Collection(new_col_file)
 
     # Add all new models.
-    extant_models: Dict[str, ExtantNotetype] = {}
     for model in models.values():
         if col.models.id_for_name(model.name) is not None:
 
@@ -2181,27 +2245,16 @@ def process_deltas(
             col.remove_notes([flatnote.nid])
             continue
 
-        # If a kinote with this nid exists in DB, update it.
+        # If a note with this nid exists in DB, update it.
         # TODO: If relevant prefix of sort field has changed, we regenerate
         # the file. Recall that the sort field is used to determine the
         # filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        found = True
-        try:
-            note: Note = col.get_note(flatnote.nid)
-        except anki.errors.NotFoundError:
-            note: Res[Note] = add_note_from_flatnote(col, flatnote)
-            found = False
-        note: Res[Note] = update_note(note, flatnote)
-
-        regenerated: Res[str] = regenerate_note_file(
-                note, flatnote, kirepo.root, delta.relpath, found
-        )
+        colnote: OkErr = get_colnote_from_flatnote(col, flatnote)
+        regenerated: OkErr = regenerate_note_file(colnote, kirepo.root, delta.relpath)
         if regenerated.is_err():
             return regenerated
-
-        commit_msg_line = regenerated.unfold()
-        log.append(commit_msg_line)
+        log += regenerated.unwrap()
 
     # Commit nid reassignments.
     logger.warning(f"Reassigned {len(log)} nids.")
@@ -2226,7 +2279,9 @@ def process_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo.col_file)
-    new_col_file = ffcopyfile(new_col_file, kirepo.col_file, fparent(kirepo.col_file))
+    new_col_file = ffcopyfile(
+        new_col_file, fparent(kirepo.col_file), singleton(kirepo.col_file.name)
+    )
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Append to hashes file.
@@ -2253,21 +2308,29 @@ def process_deltas(
 @safe
 @beartype
 def regenerate_note_file(
-    root: ExtantDir, relpath: Path
-) -> Result[str, Exception]:
+    colnote: ColNote, root: ExtantDir, relpath: Path
+) -> Result[List[str], Exception]:
     """
-    Construct the contents of a note corresponding to the arguments ``kinote``,
+    Construct the contents of a note corresponding to the arguments ``colnote``,
     which itself was created from ``flatnote``, and then write it to disk.
 
+    Returns a list of lines to add to the commit message (either an empty list,
+    or a list containing a single line).
+
     This function is intended to be used when we are adding *completely* new
-    notes, in which case the caller generates a new nid, which is contained
-    within the data of ``kinote``. In general, this is the branch taken
-    whenever Anki fails to recognize the nid given in the note file, which can
-    be accessed via ``flatnote.nid``. Thus, we expect ``kinote.n.id`` and
-    ``flatnote.nid`` to differ, since the former has the newly assigned nid for
-    this note, yielded by the Anki runtime, and the latter has whatever was
-    written in the file.
+    notes, in which case the caller generates a new note with a newly generated
+    nid, which can be accessed at ``colnote.n.id``. In general, this is the
+    branch taken whenever Anki fails to recognize the nid given in the note
+    file, which can be accessed via ``colnote.old_nid``. Thus, we only
+    regenerate if ``colnote.n.id`` and ``colnote.old_nid`` to differ, since the
+    former has the newly assigned nid for this note, yielded by the Anki
+    runtime, and the latter has whatever was written in the file.
     """
+    # If this is a new note, then we didn't reassign its nid, and we don't need
+    # to regenerate the file. So we don't add a line to the commit message.
+    if colnote.new:
+        return []
+
     # Get paths to note in local repo, as distinct from staging repo.
     repo_note_path: Path = root / relpath
 
@@ -2275,19 +2338,12 @@ def regenerate_note_file(
     if repo_note_path.is_file():
         repo_note_path.unlink()
 
-    # An Exception is returned here in the case where we cannot find the sort
-    # field name in ``kinote.n``, which is something we do not expect to happen
-    # unless the 'models.json' file was corrupted.
-    sort_field_text: Res[str] = get_sort_field_text(kinote)
-    if sort_field_text.is_err():
-        return sort_field_text
-
     parent: ExtantDir = ffforce_mkdir(repo_note_path.parent)
-    new_note_path: ExtantFile = get_note_path(sort_field_text, parent)
-    new_note_path.write_text(str(kinote), encoding="UTF-8")
+    new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
+    new_note_path.write_text(str(colnote), encoding="UTF-8")
 
     # TODO: Figure out if this still works without os.path.relpath.
     new_note_relpath = os.path.relpath(new_note_path, root)
 
-    msg = f"Reassigned nid: '{flatnote.nid}' -> '{kinote.n.id}' in '{new_note_relpath}'"
-    return Ok(msg)
+    msg = f"Reassigned nid: '{colnote.old_nid}' -> '{colnote.n.id}' in '{new_note_relpath}'"
+    return Ok([msg])

@@ -32,7 +32,7 @@ class KiNote:
     def __init__(self, a: Anki, note: anki.notes.Note):
         self.a = a
         self.n = note
-        self.model_name = note.note_type()['name']
+        self.model_name = note.note_type()["name"]
         self.fields = [x for x, y in self.n.items()]
         self.suspended = any(c.queue == -1 for c in self.n.cards())
 
