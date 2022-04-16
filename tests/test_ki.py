@@ -421,7 +421,6 @@ def test_clone_fails_if_collection_doesnt_exist():
         assert not os.path.isdir(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_creates_directory():
     """Does it create the directory?"""
     col_file = get_col_file()
@@ -434,7 +433,6 @@ def test_clone_creates_directory():
         assert os.path.isdir(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     col_file = get_html_col_file()
@@ -450,7 +448,6 @@ def test_clone_handles_html():
         assert "<!DOCTYPE html>" in contents
 
 
-@pytest.mark.skip
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     col_file = get_col_file()
@@ -463,8 +460,8 @@ def test_clone_errors_when_directory_is_populated():
             hi_file.write("hi\n")
 
         # Should error out because directory already exists.
-        out = clone(runner, col_file)
-        assert "is not an empty" in out
+        with pytest.raises(ki.TargetExistsError):
+            out = clone(runner, col_file)
 
 
 @pytest.mark.skip
