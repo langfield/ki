@@ -464,7 +464,6 @@ def test_clone_errors_when_directory_is_populated():
             out = clone(runner, col_file)
 
 
-@pytest.mark.skip
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
     col_file = get_html_col_file()
@@ -476,10 +475,9 @@ def test_clone_cleans_up_on_error():
         shutil.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
         try:
-            os.environ["PATH"] = ""
-            out = clone(runner, col_file)
-            assert "No such file or directory: 'tidy'" in out
-            assert "Failed: exiting." in out
+            with pytest.raises(git.InvalidGitRepositoryError):
+                os.environ["PATH"] = ""
+                out = clone(runner, col_file)
             assert not os.path.isdir(HTML_REPODIR)
         finally:
             os.environ["PATH"] = old_path

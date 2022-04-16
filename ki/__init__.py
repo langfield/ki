@@ -31,15 +31,13 @@ from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
+import git
 import click
 import prettyprinter as pp
 from tqdm import tqdm
 from lark import Lark
 from loguru import logger
 from result import Result, Err, Ok, OkErr
-
-import git
-from git.exc import GitCommandError, InvalidGitRepositoryError
 
 import anki
 from anki import notetypes_pb2
@@ -477,7 +475,7 @@ def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
     try:
         repo = git.Repo(root)
-    except InvalidGitRepositoryError as err:
+    except git.InvalidGitRepositoryError as err:
         return Err(err)
     return Ok(repo)
 
@@ -856,7 +854,7 @@ def ref_exists(repo: git.Repo, ref: str) -> bool:
     """Check if git commit reference exists in repository."""
     try:
         repo.git.rev_parse("--verify", ref)
-    except GitCommandError:
+    except git.GitCommandError:
         return False
     return True
 
