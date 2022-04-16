@@ -67,9 +67,7 @@ logging.basicConfig(level=logging.INFO)
 
 ChangeNotetypeInfo = notetypes_pb2.ChangeNotetypeInfo
 ChangeNotetypeRequest = notetypes_pb2.ChangeNotetypeRequest
-FieldDict = Dict[str, Any]
 NotetypeDict = Dict[str, Any]
-TemplateDict = Dict[str, Union[str, int, None]]
 
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
@@ -112,6 +110,8 @@ REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
+
+MD = ".md"
 
 # TYPES
 
@@ -1197,9 +1197,6 @@ def display_fields_health_warning(note: anki.notes.Note) -> int:
     return health
 
 
-# UNREFACTORED
-
-
 @beartype
 def parse_markdown_note(
     parser: Lark, transformer: NoteTransformer, notes_file: ExtantFile
@@ -1300,29 +1297,9 @@ def validate_flatnote_fields(
 
 
 @beartype
-def add_note_from_flatnote(
-    col: Collection, flatnote: FlatNote
-) -> Result[Note, Exception]:
-    """Add a note given its FlatNote representation, provided it passes health check."""
-    # If a notetype with name ``flatnote.model`` does not exist, we return an
-    # error, since we expect all necessary models to have been created by the
-    # caller.
-    model_id: Optional[int] = col.models.id(flatnote.model)
-    if model_id is None:
-        return Err(MissingNotetypeError(flatnote.model))
-    note = col.new_note(model_id)
-
-    # Create new deck if deck does not exist. This updates ``note.id``.
-    col.add_note(note, col.decks.id(flatnote.deck))
-    return Ok(note)
-
-
-@beartype
 def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     """Get note path from sort field text."""
     field_text = sort_field_text
-
-    MD = ".md"
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -1343,23 +1320,24 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     return note_path
 
 
-# TODO: Refactor into a safe function.
 @beartype
-def backup(col_file: ExtantFile) -> None:
+def backup(kirepo: KiRepo) -> None:
     """Backup collection to `.ki/backups`."""
-    md5sum = md5(col_file)
-    backupsdir = Path.cwd() / ".ki" / "backups"
-    assert not backupsdir.is_file()
-    if not backupsdir.is_dir():
-        backupsdir.mkdir()
-    backup_path = backupsdir / f"{md5sum}.anki2"
-    if backup_path.is_file():
-        click.secho("Backup already exists.", bold=True)
+    md5sum = md5(kirepo.col_file)
+    name = singleton(f"{md5sum}.anki2")
+    backup_file = fftest(kirepo.backups_dir / name)
+
+    # We assume here that no one would ever make e.g. a directory called
+    # ``name``, since ``name`` contains the md5sum of the collection file, and
+    # thus that is extraordinarily improbable. So the only thing we have to
+    # check for is that we haven't already written a backup file to this
+    # location.
+    if isinstance(backup_file, ExtantFile):
+        echo("Backup already exists.")
         return
-    assert not backup_path.is_file()
-    echo(f"Writing backup of .anki2 file to '{backupsdir}'")
-    shutil.copyfile(col_file, backup_path)
-    assert backup_path.is_file()
+
+    echo(f"Writing backup of .anki2 file to '{backup_file}'")
+    ffcopyfile(kirepo.col_file, kirepo.backups_dir, name)
 
 
 @beartype
@@ -2278,10 +2256,9 @@ def push_deltas(
         _ = kirepo.repo.index.commit(msg)
 
     # Backup collection file and overwrite collection.
-    backup(kirepo.col_file)
-    new_col_file = ffcopyfile(
-        new_col_file, fparent(kirepo.col_file), singleton(kirepo.col_file.name)
-    )
+    col_name: Singleton = singleton(kirepo.col_file.name)
+    backup(kirepo)
+    new_col_file = ffcopyfile(new_col_file, fparent(kirepo.col_file), col_name)
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Append to hashes file.
