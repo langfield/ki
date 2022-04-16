@@ -39,7 +39,7 @@ from loguru import logger
 from result import Result, Err, Ok, OkErr
 
 import git
-from git.exc import GitCommandError
+from git.exc import GitCommandError, InvalidGitRepositoryError
 
 import anki
 from anki import notetypes_pb2
@@ -477,7 +477,7 @@ def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
     try:
         repo = git.Repo(root)
-    except Exception as err:
+    except InvalidGitRepositoryError as err:
         return Err(err)
     return Ok(repo)
 
@@ -532,7 +532,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
         last_push_file: ExtantFile,
         no_modules_repo: git.Repo,
     ) -> Result[KiRepo, Exception]:
-        return KiRepo(
+        return Ok(KiRepo(
             repo,
             root,
             ki_dir,
@@ -543,7 +543,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
             models_file,
             last_push_file,
             no_modules_repo,
-        )
+        ))
 
     return constructor(
         repo,
@@ -591,7 +591,7 @@ def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
 def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
     try:
-        ref = KiRepoRef(kirepo, ki.repo.repo.head.commit.hexsha)
+        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
     except ValueError as err:
         return Err(err)
     return Ok(ref)
@@ -600,20 +600,18 @@ def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
 # DANGER
 
 
-@safe
 @beartype
-def rmtree(target: ExtantDir) -> Result[NoPath, Exception]:
+def ffrmtree(target: ExtantDir) -> NoPath:
     """Call shutil.rmtree()."""
     shutil.rmtree(target)
-    return M_nopath(target)
+    return NoPath(target)
 
 
-@safe
 @beartype
-def copytree(source: ExtantDir, target: NoPath) -> Result[ExtantDir, Exception]:
+def ffcopytree(source: ExtantDir, target: NoPath) -> ExtantDir:
     """Call shutil.copytree()."""
     shutil.copytree(source, target)
-    return M_xdir(target)
+    return ExtantDir(target)
 
 
 @beartype
@@ -672,7 +670,7 @@ def fmkleaves(
             # We lie to the ``ffmksubdir`` call and tell it the root is empty
             # on every iteration.
             new_dirs[key] = ffmksubdir(EmptyDir(root), singleton(token))
-    return Ok(Leaves(root, new_files, dirs))
+    return Ok(Leaves(root, new_files, new_dirs))
 
 
 @safe
@@ -775,7 +773,7 @@ def fcreate_local_remote(
     ``target`` called ``name``.
     """
     # TODO: Can this fail? What if the remote name already exists?
-    return repo.create_remote(name, target.git_dir)
+    return Ok(repo.create_remote(name, target.git_dir))
 
 
 @beartype
@@ -804,18 +802,16 @@ def join(path_1: Path, path_2: Path) -> Result[Path, Exception]:
     return Ok(path_1 / path_2)
 
 
-@safe
 @beartype
-def working_dir(repo: git.Repo) -> Result[ExtantDir, Exception]:
+def working_dir(repo: git.Repo) -> ExtantDir:
     """Get working directory of a repo."""
-    return M_xdir(Path(repo.working_dir))
+    return ExtantDir(repo.working_dir)
 
 
-@safe
 @beartype
-def git_dir(repo: git.Repo) -> Result[ExtantDir, Exception]:
+def git_dir(repo: git.Repo) -> ExtantDir:
     """Get git directory of a repo."""
-    return M_xdir(Path(repo.git_dir))
+    return ExtantDir(repo.git_dir)
 
 
 # SAFE
@@ -916,13 +912,14 @@ def get_ephemeral_kirepo(
     """
     ref: Res[RepoRef] = M_repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
     ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
-    ephem_ki_dir: Res[NoPath] = M_nopath(join(working_dir(ephem), KI))
-
-    # Functions that don't return anything used in the next statement must have
-    # their results caught and optionally returned.
-    res: OkErr = copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    if res.is_err():
-        return res
+    if ephem.is_err():
+        return ephem
+    ephem: git.Repo = ephem.unwrap()
+    ephem_ki_dir: OkErr = M_nopath(join(working_dir(ephem), Path(KI)))
+    if ephem_ki_dir.is_err():
+        return ephem_ki_dir
+    ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
+    ffcopytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
     kirepo: Res[KiRepo] = M_kirepo(working_dir(ephem))
 
     return kirepo
@@ -1398,6 +1395,7 @@ def get_colnote_from_flatnote(
     if note.is_err():
         return note
     note: Note = note.unwrap()
+    new_notetype: Notetype = new_notetype.unwrap()
 
     # Get sort field content.
     try:
@@ -1490,7 +1488,9 @@ def write_repository(
     decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
+    cwd: ExtantDir = fcwd()
     col = Collection(col_file)
+    fchdir(cwd)
 
     all_nids = list(col.find_notes(query=""))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
@@ -1693,12 +1693,12 @@ def convert_stage_kirepo(
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
-    stage_git_dir: Res[NoPath] = rmtree(git_dir(stage_kirepo.repo))
+    stage_git_dir: NoPath = ffrmtree(git_dir(stage_kirepo.repo))
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
     # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
-    stage_git_dir = copytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
+    stage_git_dir = ffcopytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
     stage_root: ExtantDir = ffparent(stage_git_dir)
 
     # Reload stage kirepo.
@@ -1777,6 +1777,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
     processed: OkErr = postprocess_clone_repos(stage_kirepo, head)
+    kirepo: Res[KiRepo] = M_kirepo(targetdir)
     return cleanup_after_clone(targetdir, kirepo, head, processed)
 
 
@@ -1794,10 +1795,10 @@ def postprocess_clone_repos(
     # sensible operation because earlier, we copied the ``.git/`` directory
     # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = rmtree(working_dir(head.kirepo.no_modules_repo))
-    copied: OkErr = copytree(stage_kirepo.root, no_modules_root)
+    no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
+    copied: ExtantDir = ffcopytree(stage_kirepo.root, no_modules_root)
 
-    return copied
+    return Ok(copied)
 
 
 @beartype
@@ -1823,42 +1824,46 @@ def cleanup_after_clone(
     if-return blocks below should mirror it, and having the parameters in the
     same order is nice.
     """
-    # If any of the Result parameters are errors, we should print a 'failed' message.
+    # If any of the Result parameters are errors, we should print a 'failed'
+    # message.
     if targetdir.is_err() or kirepo.is_err() or head.is_err() or processed.is_err():
         echo("Failed: exiting.")
 
-    # We get an error here only in the case where the ``M_xdir()`` call failed
-    # on ``targetdir``. We cannot assume that it doesn't exist, because we may
-    # have returned the exception inside ``fmkdempty()``, which errors-out when
-    # the target already exists and is nonempty. This means we definitely do
-    # not want to remove ``targetdir`` or its contents in this case, because we
-    # would be deleting the user's data.
-    if targetdir.is_err():
-        return targetdir
+        # We get an error here only in the case where the ``M_xdir()`` call
+        # failed on ``targetdir``. We cannot assume that it doesn't exist,
+        # because we may have returned the exception inside ``fmkdempty()``,
+        # which errors-out when the target already exists and is nonempty. This
+        # means we definitely do not want to remove ``targetdir`` or its
+        # contents in this case, because we would be deleting the user's data.
+        if targetdir.is_err():
+            return targetdir
 
-    # Otherwise, we must have that either we created ``targetdir`` and it did
-    # not exist prior, or it was an empty directory before. In either case, we
-    # can probably remove it safely. We do this bit without using our @safe-d
-    # wrappers because it is very important that these three lines do not fail.
-    # If they do, we would have an 'exception raised while handling an
-    # exception'-type error to display to the user, which would be gross. So we
-    # assume that these statements can never raise exceptions.
-    # TODO: Consider removing only its contents instead.
-    targetdir: ExtantDir = targetdir.unwrap()
-    if targetdir.is_dir():
-        shutil.rmtree(targetdir)
+        # Otherwise, we must have that either we created ``targetdir`` and it
+        # did not exist prior, or it was an empty directory before. In either
+        # case, we can probably remove it safely. We do this bit without using
+        # our @safe-d wrappers because it is very important that these three
+        # lines do not fail.  If they do, we would have an 'exception raised
+        # while handling an exception'-type error to display to the user, which
+        # would be gross. So we assume that these statements can never raise
+        # exceptions.  TODO: Consider removing only its contents instead.
+        targetdir: ExtantDir = targetdir.unwrap()
+        if targetdir.is_dir():
+            shutil.rmtree(targetdir)
 
-    # We return the first ``Err`` value we find, so that the failure message
-    # indicates the first thing that went wrong.
-    if kirepo.is_err():
-        return kirepo
-    if head.is_err():
-        return head
-    if processed.is_err():
-        return processed
+        # We return the first ``Err`` value we find, so that the failure message
+        # indicates the first thing that went wrong.
+        if kirepo.is_err():
+            return kirepo
+        if head.is_err():
+            return head
+        if processed.is_err():
+            return processed
+
+    kirepo: KiRepo = kirepo.unwrap()
+    head: KiRepoRef = head.unwrap()
 
     # Dump HEAD ref of current repo in ``.ki/last_push``.
-    kirepo.last_push_file.write_text(head.unwrap().sha)
+    kirepo.last_push_file.write_text(head.sha)
 
     return Ok()
 
@@ -2086,7 +2091,7 @@ def push() -> Result[bool, Exception]:
     kirepo: Res[KiRepo] = M_kirepo(cwd)
     if kirepo.is_err():
         return kirepo
-    kirepop: KiRepo = kirepo.unwrap()
+    kirepo: KiRepo = kirepo.unwrap()
     con: sqlite3.Connection = lock(kirepo)
 
     md5sum: str = md5(kirepo.col_file)
@@ -2100,8 +2105,11 @@ def push() -> Result[bool, Exception]:
     head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+    stage_kirepo: OkErr = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
+    if stage_kirepo.is_err():
+        return stage_kirepo
+    stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit, and then after the following line, the
@@ -2177,17 +2185,25 @@ def push_deltas(
     echo(f"Writing changes to '{new_col_file}'...")
 
     # Edit the copy with `apy`.
+    cwd: ExtantDir = fcwd()
     col = Collection(new_col_file)
+    fchdir(cwd)
 
     # Add all new models.
     for model in models.values():
+
+        # TODO: Consider waiting to parse ``models`` until after the
+        # ``ensure_name_unique()`` call.
         if col.models.id_for_name(model.name) is not None:
 
             # Mutate ``model.dict`` (appends checksum to name), and then
             # re-parse the mutated dictionary and update the ``model``
             # reference.
             col.models.ensure_name_unique(model.dict)
-            model: Notetype = parse_notetype_dict(model.dict)
+            model: OkErr = parse_notetype_dict(model.dict)
+            if model.is_err():
+                return model
+            model: Notetype = model.unwrap()
             col.models.add(model.dict)
             model.__class__ = ExtantNotetype
 
@@ -2258,8 +2274,8 @@ def push_deltas(
     # sensible operation because earlier, we copied the ``.git/`` directory
     # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = rmtree(working_dir(kirepo.no_modules_repo))
-    copytree(stage_kirepo.root, no_modules_root)
+    no_modules_root: NoPath = ffrmtree(working_dir(kirepo.no_modules_repo))
+    ffcopytree(stage_kirepo.root, no_modules_root)
 
     # Dump HEAD ref of current repo in ``.ki/last_push``.
     kirepo.last_push_file.write_text(head.sha)

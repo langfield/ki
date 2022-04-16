@@ -97,11 +97,13 @@ def clone(runner: CliRunner, collection: ki.ExtantFile, directory: str = "") -> 
         standalone_mode=False,
         catch_exceptions=False,
     )
+    if isinstance(res.return_value, Err):
+        raise res.return_value.unwrap_err()
     return res.output
 
 
 @beartype
-def pull(runner: CliRunner) -> click.testing.Result:
+def pull(runner: CliRunner) -> str:
     """Make a test `ki pull` call."""
     res = runner.invoke(ki.ki, ["pull"], standalone_mode=False, catch_exceptions=False)
     if isinstance(res.return_value, Err):
@@ -311,7 +313,6 @@ def test_fails_without_ki_subdirectory(tmp_path: Path):
 
 
 @beartype
-@pytest.mark.skip
 def test_computes_and_stores_md5sum(tmp_path: Path):
     """Does ki add new hash to `.ki/hashes`?"""
     col_file = get_col_file()
