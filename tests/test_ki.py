@@ -483,7 +483,6 @@ def test_clone_cleans_up_on_error():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
     col_file = get_col_file()
@@ -495,7 +494,6 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
         clone(runner, col_file)
 
 
-@pytest.mark.skip
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
@@ -517,7 +515,6 @@ def test_clone_generates_expected_notes():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
@@ -542,7 +539,6 @@ def test_clone_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     col_file = get_col_file()
@@ -557,7 +553,6 @@ def test_clone_generates_ki_subdirectory():
         assert os.path.isdir(kidir)
 
 
-@pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     col_file = get_col_file()
@@ -570,7 +565,6 @@ def test_cloned_collection_is_git_repository():
         assert is_git_repo(REPODIR)
 
 
-@pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     col_file = get_col_file()
@@ -592,7 +586,6 @@ def test_clone_commits_directory_contents():
         assert len(commits) == 1
 
 
-@pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     col_file = get_col_file()
@@ -607,7 +600,6 @@ def test_clone_leaves_collection_file_unchanged():
         assert original_md5 == updated_md5
 
 
-@pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
     col_file = get_col_file()
@@ -627,7 +619,6 @@ def test_clone_directory_argument_works():
 # PULL
 
 
-@pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     col_file = get_col_file()
@@ -644,7 +635,6 @@ def test_pull_fails_if_collection_no_longer_exists():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     col_file = get_col_file()
@@ -664,7 +654,6 @@ def test_pull_writes_changes_correctly():
         assert os.path.isfile(NOTE_1)
 
 
-@pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     col_file = get_col_file()
@@ -684,7 +673,6 @@ def test_pull_unchanged_collection_is_no_op():
         assert orig_hash == new_hash
 
 
-@pytest.mark.skip
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     col_file = get_col_file()
@@ -704,7 +692,6 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
-@pytest.mark.skip
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     col_file = get_col_file()
