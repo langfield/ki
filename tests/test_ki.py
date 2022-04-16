@@ -369,7 +369,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_output():
     """Does it print nice things?"""
     col_file = get_col_file()

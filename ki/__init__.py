@@ -43,7 +43,7 @@ from git.exc import GitCommandError, InvalidGitRepositoryError
 
 import anki
 from anki import notetypes_pb2
-from anki.collection import Collection, Note
+from anki.collection import Collection, Note, OpChangesWithId
 
 from apy.convert import markdown_to_html, plain_to_html
 
@@ -1008,35 +1008,6 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
 @safe
 @beartype
-def get_deltas_since_last_push(
-    ref: RepoRef,
-    md5sum: str,
-    ignore_fn: Callable[[Path], bool],
-    parser: Lark,
-    transformer: NoteTransformer,
-) -> Result[List[Delta], Exception]:
-    """
-    Get the list of all deltas (changed files) since the last time that ``ki
-    push`` was run successfully.
-
-    In order to treat submodules, we keep a separate version of the entire
-    repository in ``.ki/no_submodules_tree``. This is itself a git submodule.
-    It is NOT a kirepo, because it does not have a .ki directory of its own.
-
-    We need only commit to it during push calls, so there is no need to make
-    any adjustments to ``_clone()``.
-
-    Parameters
-    ----------
-    """
-
-    a_repo: Res[git.Repo] = get_ephemeral_repo(DELETED_SUFFIX, ref, md5sum)
-    b_repo: git.Repo = ref.repo
-    return diff_repos(a_repo, b_repo, ref, ignore_fn, parser, transformer)
-
-
-@safe
-@beartype
 def diff_repos(
     a_repo: git.Repo,
     b_repo: git.Repo,
@@ -1059,6 +1030,7 @@ def diff_repos(
 
             a_path = fftest(a_dir / diff.a_path)
             b_path = fftest(b_dir / diff.b_path)
+            logger.debug(f"Diffing {change_type}:\na: {a_path}\nb: {b_path}")
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -1081,6 +1053,9 @@ def diff_repos(
                 if a_flatnote.nid != b_flatnote.nid:
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
+                    continue
+
+            deltas.append(Delta(change_type, b_path, b_relpath))
 
     return Ok(deltas)
 
@@ -1236,16 +1211,11 @@ def update_note(
     if cids:
         note.col.set_deck(cids, newdid)
 
-    change_notetype_request = ChangeNotetypeRequest()
-    change_notetype_info: ChangeNotetypeInfo = note.col.models.change_notetype_info(
-        old_notetype_id=old_notetype.id, new_notetype_id=new_notetype.id
-    )
-    change_notetype_request.ParseFromString(change_notetype_info)
-
-    # pylint: disable=no-member
-    change_notetype_request.note_ids.extend([note.id])
-    # pylint: enable=no-member
-    note.col.models.change_notetype_of_notes(change_notetype_request)
+    # Change notetype of note.
+    fmap: Dict[str, None] = {}
+    for field in old_notetype.flds:
+        fmap[field.ord] = None
+    note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
 
     # Validate field keys against notetype.
     validated: OkErr = validate_flatnote_fields(new_notetype, flatnote)
@@ -1375,7 +1345,7 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
 def get_colnote_from_flatnote(
     col: Collection, flatnote: FlatNote
 ) -> Result[ColNote, Exception]:
-    model_id: Optional[int] = col.models.id(flatnote.model)
+    model_id: Optional[int] = col.models.id_for_name(flatnote.model)
     if model_id is None:
         return Err(MissingNotetypeError(flatnote.model))
 
@@ -2115,6 +2085,10 @@ def push() -> Result[bool, Exception]:
     # to HEAD *before* we commit, and then after the following line, the
     # reference we got will be HEAD~1, hence the variable name.
     head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
+    if head_1.is_err():
+        return head_1
+    head_1: RepoRef = head_1.unwrap()
+
     committed: OkErr = commit_stage_repo(stage_kirepo, head)
     if committed.is_err():
         return committed
@@ -2136,9 +2110,9 @@ def push() -> Result[bool, Exception]:
     transformer = NoteTransformer()
 
     # Get deltas.
-    deltas: Res[List[Delta]] = get_deltas_since_last_push(
-        head_1, md5sum, ignore_fn, parser, transformer
-    )
+    a_repo: Res[git.Repo] = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
+    b_repo: git.Repo = head_1.repo
+    deltas: OkErr = diff_repos(a_repo, b_repo, head_1, ignore_fn, parser, transformer)
 
     # Map model names to models.
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
@@ -2193,19 +2167,16 @@ def push_deltas(
     for model in models.values():
 
         # TODO: Consider waiting to parse ``models`` until after the
-        # ``ensure_name_unique()`` call.
+        # ``add_dict()`` call.
         if col.models.id_for_name(model.name) is not None:
 
-            # Mutate ``model.dict`` (appends checksum to name), and then
-            # re-parse the mutated dictionary and update the ``model``
-            # reference.
-            col.models.ensure_name_unique(model.dict)
-            model: OkErr = parse_notetype_dict(model.dict)
+            nt_copy: NotetypeDict = copy.deepcopy(model.dict)
+            nt_copy["id"] = 0
+            changes: OpChangesWithId = col.models.add_dict(nt_copy)
+            nt: NotetypeDict = col.models.get(changes.id)
+            model: OkErr = parse_notetype_dict(nt)
             if model.is_err():
                 return model
-            model: Notetype = model.unwrap()
-            col.models.add(model.dict)
-            model.__class__ = ExtantNotetype
 
     # Gather logging statements to display.
     log: List[str] = []
@@ -2310,7 +2281,7 @@ def regenerate_note_file(
     # If this is a new note, then we didn't reassign its nid, and we don't need
     # to regenerate the file. So we don't add a line to the commit message.
     if colnote.new:
-        return []
+        return Ok([])
 
     # Get paths to note in local repo, as distinct from staging repo.
     repo_note_path: Path = root / relpath
