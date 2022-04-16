@@ -408,7 +408,6 @@ def test_output():
 # CLONE
 
 
-@pytest.mark.skip
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
     col_file = get_col_file()
@@ -417,7 +416,8 @@ def test_clone_fails_if_collection_doesnt_exist():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        clone(runner, col_file)
+        with pytest.raises(FileNotFoundError):
+            clone(runner, col_file)
         assert not os.path.isdir(REPODIR)
 
 
