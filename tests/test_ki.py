@@ -817,7 +817,6 @@ def test_push_verifies_md5sum():
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     col_file = get_col_file()
@@ -853,7 +852,6 @@ def test_push_generates_correct_backup():
         assert backup
 
 
-@pytest.mark.skip
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     col_file = get_col_file()
@@ -872,7 +870,7 @@ def test_push_doesnt_write_uncommitted_changes():
         os.chdir(REPODIR)
         out = push(runner)
         assert "ki push: up to date." in out
-        assert not os.path.isdir(".ki/backups")
+        assert len(os.listdir('.ki/backups')) == 0
 
 
 @pytest.mark.skip
