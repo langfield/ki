@@ -208,6 +208,8 @@ class MissingNotetypeError(Exception):
         super().__init__(msg)
 
 
+# TODO: Add note type to error message.
+# TODO: Make this error message more like ``MissingNotetypeError``.
 class MissingFieldError(Exception):
     @beartype
     def __init__(self, nid: int, field: str):
@@ -318,24 +320,6 @@ class Template:
 @dataclass(frozen=True)
 class Notetype:
     """A typechecked version of ``anki.models.NotetypeDict`` for use within ki."""
-
-    id: int
-    name: str
-    type: int
-    flds: List[Field]
-    tmpls: List[Template]
-    sortf: Field
-
-    # A copy of the ``NotetypeDict`` object as it was returned from the Anki
-    # database. We keep this around to preserve extra keys that may not always
-    # exist, but the ones above should be required for Anki to function.
-    dict: Dict[str, Any]
-
-
-@beartype
-@dataclass(frozen=True)
-class ExtantNotetype:
-    """A version of Notetype that indicates it exists in the Anki DB."""
 
     id: int
     name: str
@@ -518,7 +502,13 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     no_modules_repo = M_repo(no_modules_dir)
 
     # Check that collection file exists.
-    col_file = parse_config_file(config_file)
+    if config_file.is_err():
+        return config_file
+    config_file: ExtantFile = config_file.unwrap()
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
+    col_file = M_xfile(col_file)
 
     @safe
     @beartype
@@ -617,7 +607,7 @@ def ffcopytree(source: ExtantDir, target: NoPath) -> ExtantDir:
 
 
 @beartype
-def fcwd() -> ExtantDir:
+def ffcwd() -> ExtantDir:
     """Call Path.cwd()."""
     return ExtantDir(Path.cwd())
 
@@ -675,12 +665,11 @@ def fmkleaves(
     return Ok(Leaves(root, new_files, new_dirs))
 
 
-@safe
 @beartype
-def fmkdir(path: NoPath) -> Result[EmptyDir, Exception]:
+def ffmkdir(path: NoPath) -> EmptyDir:
     """Make a directory (with parents)."""
     path.mkdir(parents=True)
-    return M_emptydir(path)
+    return EmptyDir(path)
 
 
 @beartype
@@ -707,9 +696,9 @@ def ffforce_mkdir(path: Path) -> ExtantDir:
 
 
 @beartype
-def fchdir(directory: ExtantDir) -> ExtantDir:
+def ffchdir(directory: ExtantDir) -> ExtantDir:
     """Changes working directory and returns old cwd."""
-    old: ExtantDir = fcwd()
+    old: ExtantDir = ffcwd()
     os.chdir(directory)
     return old
 
@@ -741,21 +730,6 @@ def ffcopyfile(
     return ExtantFile(target)
 
 
-@safe
-@beartype
-def fmkdempty(path: Path) -> Result[EmptyDir, Exception]:
-    """
-    Make an empty directory out of ``path``. If the directory already exists,
-    we return an exception unless it is empty.
-    """
-    path = fftest(path)
-    if isinstance(path, NoPath):
-        return fmkdir(path)
-    if isinstance(path, EmptyDir):
-        return Ok(path)
-    return Err(TargetExistsError(path))
-
-
 @beartype
 def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
     """Call root.rglob() and returns only files."""
@@ -765,43 +739,10 @@ def frglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
     return list(files)
 
 
-@safe
-@beartype
-def fcreate_local_remote(
-    repo: git.Repo, target: git.Repo, name: str
-) -> Result[git.Remote, Exception]:
-    """
-    Create a remote for ``repo`` pointing to the local git repository
-    ``target`` called ``name``.
-    """
-    # TODO: Can this fail? What if the remote name already exists?
-    return Ok(repo.create_remote(name, target.git_dir))
-
-
 @beartype
 def is_empty(directory: ExtantDir) -> bool:
     """Check if directory is empty, quickly."""
     return not next(os.scandir(directory), None)
-
-
-@safe
-@beartype
-def parse_config_file(config_file: ExtantFile) -> Result[ExtantFile, Exception]:
-    """
-    Parse the .ki/config file for the path to the .anki2 collection file
-    associated with this repository. Return this path.
-    """
-    # Parse config file.
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    return M_xfile(col_file)
-
-
-@safe
-@beartype
-def join(path_1: Path, path_2: Path) -> Result[Path, Exception]:
-    return Ok(path_1 / path_2)
 
 
 @beartype
@@ -917,7 +858,7 @@ def get_ephemeral_kirepo(
     if ephem.is_err():
         return ephem
     ephem: git.Repo = ephem.unwrap()
-    ephem_ki_dir: OkErr = M_nopath(join(working_dir(ephem), Path(KI)))
+    ephem_ki_dir: OkErr = M_nopath(Path(ephem.working_dir) / KI)
     if ephem_ki_dir.is_err():
         return ephem_ki_dir
     ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
@@ -946,6 +887,7 @@ def is_anki_note(path: ExtantFile) -> bool:
     return True
 
 
+# TODO: Rename this.
 @beartype
 def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
@@ -962,7 +904,6 @@ def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
             return False
 
     # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
-    # UNSAFE STUFF!
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path)
         if not is_anki_note(file):
@@ -1349,6 +1290,7 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
         yield lst[i : i + n]
 
 
+# TODO: Rename this.
 @safe
 @beartype
 def get_colnote_from_flatnote(
@@ -1470,9 +1412,9 @@ def write_repository(
     decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
-    cwd: ExtantDir = fcwd()
+    cwd: ExtantDir = ffcwd()
     col = Collection(col_file)
-    fchdir(cwd)
+    ffchdir(cwd)
 
     all_nids = list(col.find_notes(query=""))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
@@ -1701,6 +1643,7 @@ def convert_stage_kirepo(
     return stage_kirepo
 
 
+# TODO: Remove this function.
 @safe
 @beartype
 def commit_stage_repo(kirepo: KiRepo, head: KiRepoRef) -> Result[bool, Exception]:
@@ -1721,7 +1664,13 @@ def get_target(
     cwd: ExtantDir, col_file: ExtantFile, directory: str
 ) -> Result[EmptyDir, Exception]:
     # Create default target directory.
-    return fmkdempty(Path(directory) if directory != "" else cwd / col_file.stem)
+    path = fftest(Path(directory) if directory != "" else cwd / col_file.stem)
+    if isinstance(path, NoPath):
+        path.mkdir(parents=True)
+        return M_emptydir(path)
+    if isinstance(path, EmptyDir):
+        return Ok(path)
+    return Err(TargetExistsError(path))
 
 
 @click.group()
@@ -1754,7 +1703,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     echo("Cloning.")
     col_file: Res[ExtantFile] = M_xfile(Path(collection))
 
-    cwd: ExtantDir = fcwd()
+    cwd: ExtantDir = ffcwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
     md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
@@ -1959,7 +1908,7 @@ def pull() -> Result[bool, Exception]:
     """
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = fcwd()
+    cwd: ExtantDir = ffcwd()
     kirepo: Res[KiRepo] = M_kirepo(cwd)
     if kirepo.is_err():
         return kirepo
@@ -2001,13 +1950,13 @@ def pull() -> Result[bool, Exception]:
 def pull_theirs_from_remote(
     repo: git.Repo, root: ExtantDir, remote: git.Remote
 ) -> Result[bool, Exception]:
-    cwd: ExtantDir = fchdir(root)
+    cwd: ExtantDir = ffchdir(root)
     echo(f"Pulling into {root}")
     repo.git.config("pull.rebase", "false")
     # TODO: This is not yet safe. Consider rewriting with gitpython.
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
     repo.delete_remote(remote)
-    fchdir(cwd)
+    ffchdir(cwd)
     return Ok()
 
 
@@ -2040,9 +1989,12 @@ def pull_changes_from_remote_repo(
     merge conflict, because there is no shared history.
     """
     remote_repo: Res[git.Repo] = M_repo(anki_remote_root)
+    if remote_repo.is_err():
+        return remote_repo
+    remote_repo: git.Repo = remote_repo.unwrap()
 
     # Create git remote pointing to anki remote repo.
-    anki_remote: OkErr = fcreate_local_remote(last_push_repo, remote_repo, REMOTE_NAME)
+    anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
 
     # Pull anki remote repo into ``last_push_repo``.
     last_push_root: Res[ExtantDir] = working_dir(last_push_repo)
@@ -2081,7 +2033,7 @@ def push() -> Result[bool, Exception]:
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = fcwd()
+    cwd: ExtantDir = ffcwd()
     kirepo: Res[KiRepo] = M_kirepo(cwd)
     if kirepo.is_err():
         return kirepo
@@ -2183,10 +2135,10 @@ def push_deltas(
     echo(f"Writing changes to '{new_col_file}'...")
 
     # Edit the copy with `apy`.
-    cwd: ExtantDir = fcwd()
+    cwd: ExtantDir = ffcwd()
     modified = True
     col = Collection(new_col_file)
-    fchdir(cwd)
+    ffchdir(cwd)
 
     # Add all new models.
     for model in models.values():

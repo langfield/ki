@@ -330,7 +330,7 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        logger.debug(f"CWD: {ki.fcwd()}")
+        logger.debug(f"CWD: {ki.ffcwd()}")
 
         # Pull edited collection.
         os.chdir(REPODIR)
