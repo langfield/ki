@@ -873,7 +873,6 @@ def test_push_doesnt_write_uncommitted_changes():
         assert len(os.listdir('.ki/backups')) == 0
 
 
-@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     col_file = get_col_file()
@@ -913,7 +912,6 @@ def test_push_doesnt_fail_after_pull():
         push(runner)
 
 
-@pytest.mark.skip
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
     col_file = get_col_file()
@@ -933,7 +931,6 @@ def test_no_op_push_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     col_file = get_col_file()
@@ -965,7 +962,6 @@ def test_push_deletes_notes():
         assert not os.path.isfile(NOTE_0)
 
 
-@pytest.mark.skip
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     col_file = get_col_file()
@@ -991,7 +987,6 @@ def test_push_still_works_from_subdirectories():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     col_file = get_col_file()
@@ -1052,7 +1047,6 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
-@pytest.mark.skip
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
     col_file = get_col_file()
