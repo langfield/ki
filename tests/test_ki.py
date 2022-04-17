@@ -799,7 +799,6 @@ def test_push_writes_changes_correctly(tmp_path: Path):
         assert len(new_notes) == 2
 
 
-@pytest.mark.skip
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     col_file = get_col_file()
@@ -814,8 +813,8 @@ def test_push_verifies_md5sum():
 
         # Make sure ki complains.
         os.chdir(REPODIR)
-        out = push(runner)
-        assert "Failed to push some refs to" in out
+        with pytest.raises(ki.UpdatesRejectedError):
+            push(runner)
 
 
 @pytest.mark.skip
