@@ -106,6 +106,7 @@ TODO
 16-April-2022
 -------------
 Merge write_deck() and write_decks(). (DONE)
+Fix bug where reassigned nid differs from old nid in commit msg.
 
 
 Triage

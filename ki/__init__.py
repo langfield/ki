@@ -241,6 +241,10 @@ class NoteFieldValidationWarning(Warning):
     pass
 
 
+class UnhealthyNoteWarning(Warning):
+    pass
+
+
 # ENUMS
 
 
@@ -1018,6 +1022,7 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(b_repo.working_dir)
+    logger.debug(f"Diffing {ref.sha} against {b_repo.head.commit.hexsha}")
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -1028,7 +1033,7 @@ def diff_repos(
 
             a_path = fftest(a_dir / diff.a_path)
             b_path = fftest(b_dir / diff.b_path)
-            logger.debug(f"Diffing {change_type}:\na: {a_path}\nb: {b_path}")
+            # logger.debug(f"Diffing {change_type}:\na: {a_path}\nb: {b_path}")
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -1049,10 +1054,12 @@ def diff_repos(
                 a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
                 b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
                 if a_flatnote.nid != b_flatnote.nid:
+                    logger.debug(f"Adding delta: {change_type} {a_path} {b_path}")
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
                     continue
 
+            logger.debug(f"Adding delta: {change_type} {b_path}")
             deltas.append(Delta(change_type, b_path, b_relpath))
 
     return Ok(deltas)
@@ -1232,11 +1239,15 @@ def update_note(
         else:
             note[key] = plain_to_html(field)
 
-    # Flush note, mark collection as modified, and display any warnings.
+    # Flush fields to collection object.
     note.flush()
 
-    # TODO: Return modification status.
-    display_fields_health_warning(note)
+    # Remove if unhealthy.
+    health = display_fields_health_warning(note)
+    if health != 0:
+        note.col.remove_notes([note.id])
+        return Err(UnhealthyNoteWarning(str(note.id)))
+
     return Ok(note)
 
 
@@ -1352,8 +1363,10 @@ def get_colnote_from_flatnote(
     try:
         note = col.get_note(flatnote.nid)
     except anki.errors.NotFoundError:
+        logger.debug(f"Failed to find '{flatnote.nid}'")
         note = col.new_note(model_id)
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
+        logger.debug(f"Got new nid '{note.id}'")
         new = True
 
     old_notetype: Res[Notetype] = parse_notetype_dict(note.note_type())
@@ -1362,6 +1375,7 @@ def get_colnote_from_flatnote(
     note: OkErr = update_note(note, flatnote, old_notetype, new_notetype)
     if note.is_err():
         return note
+
     note: Note = note.unwrap()
     new_notetype: Notetype = new_notetype.unwrap()
 
@@ -1542,22 +1556,34 @@ def write_decks(
 
 
 @beartype
+def get_colnote_repr(colnote: ColNote) -> str:
+    lines = get_header_lines(colnote)
+    for field_name, field_text in colnote.n.items():
+        lines.append("### " + field_name)
+        lines.append(field_text)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@beartype
 def get_tidy_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
     """Get the payload for the note (HTML-tidied if necessary)."""
     # Get tidied html if it exists.
     tidyfields = {}
-    for fieldname, fieldtext in colnote.n.items():
-        fid = get_field_note_id(colnote.n.id, fieldname)
+    for field_name, field_text in colnote.n.items():
+        fid = get_field_note_id(colnote.n.id, field_name)
         if fid in paths:
-            tidyfields[fieldname] = paths[fid].read_text()
+            tidyfields[field_name] = paths[fid].read_text()
         else:
-            tidyfields[fieldname] = fieldtext
+            tidyfields[field_name] = field_text
 
+    # TODO: Make this use ``get_colnote_repr()``.
     # Construct note repr from tidyfields map.
     lines = get_header_lines(colnote)
-    for fieldname, fieldtext in tidyfields.items():
-        lines.append("### " + fieldname)
-        lines.append(fieldtext)
+    for field_name, field_text in tidyfields.items():
+        lines.append("### " + field_name)
+        lines.append(field_text)
         lines.append("")
 
     return "\n".join(lines)
@@ -2158,6 +2184,7 @@ def push_deltas(
 
     # Edit the copy with `apy`.
     cwd: ExtantDir = fcwd()
+    modified = True
     col = Collection(new_col_file)
     fchdir(cwd)
 
@@ -2192,8 +2219,10 @@ def push_deltas(
         # Parse the file at ``delta.path`` into a ``FlatNote``, and
         # add/edit/delete in collection.
         flatnote = parse_markdown_note(parser, transformer, delta.path)
+        logger.debug(f"Resolving delta:\n{pp.pformat(delta)}\n{pp.pformat(flatnote)}")
 
         if is_delete(delta):
+            logger.debug(f"Deleting note {flatnote.nid}")
             col.remove_notes([flatnote.nid])
             continue
 
@@ -2205,6 +2234,9 @@ def push_deltas(
         colnote: OkErr = get_colnote_from_flatnote(col, flatnote)
         regenerated: OkErr = regenerate_note_file(colnote, kirepo.root, delta.relpath)
         if regenerated.is_err():
+            regen_err: Exception = regenerated.unwrap_err()
+            if isinstance(regen_err, Warning):
+                continue
             return regenerated
         log += regenerated.unwrap()
 
@@ -2228,6 +2260,12 @@ def push_deltas(
         # Commit in main repository.
         kirepo.repo.git.add(all=True)
         _ = kirepo.repo.index.commit(msg)
+
+    if modified:
+        echo('Database was modified.')
+        col.close()
+    elif col.db:
+        col.close(False)
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
@@ -2276,9 +2314,10 @@ def regenerate_note_file(
     former has the newly assigned nid for this note, yielded by the Anki
     runtime, and the latter has whatever was written in the file.
     """
-    # If this is a new note, then we didn't reassign its nid, and we don't need
-    # to regenerate the file. So we don't add a line to the commit message.
-    if colnote.new:
+    # If this is not a new note, then we didn't reassign its nid, and we don't
+    # need to regenerate the file. So we don't add a line to the commit
+    # message.
+    if not colnote.new:
         return Ok([])
 
     # Get paths to note in local repo, as distinct from staging repo.
@@ -2290,7 +2329,7 @@ def regenerate_note_file(
 
     parent: ExtantDir = ffforce_mkdir(repo_note_path.parent)
     new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
-    new_note_path.write_text(str(colnote), encoding="UTF-8")
+    new_note_path.write_text(get_colnote_repr(colnote), encoding="UTF-8")
 
     # TODO: Figure out if this still works without os.path.relpath.
     new_note_relpath = os.path.relpath(new_note_path, root)
