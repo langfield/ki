@@ -1267,21 +1267,20 @@ def test_update_note_sets_field_contents():
     assert "</p>" in note.fields[0]
 
 
-@pytest.mark.skip
 def test_update_note_removes_field_contents():
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "c"
-        flatnote = FlatNote(
-            "title", 0, "Basic", "Default", [], False, {"Front": field, "Back": field}
-        )
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
 
-        assert "a" in kinote.n.fields[0]
-        ki.update_note(kinote, flatnote)
-        assert "a" not in kinote.n.fields[0]
+    field = "c"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote(
+        "title", 0, "Basic", "Default", [], False, fields
+    )
+
+    assert "a" in note.fields[0]
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    assert "a" not in note.fields[0]
 
 
 @pytest.mark.skip
