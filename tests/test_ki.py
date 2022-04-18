@@ -1273,9 +1273,7 @@ def test_update_note_removes_field_contents():
 
     field = "c"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote(
-        "title", 0, "Basic", "Default", [], False, fields
-    )
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
     assert "a" in note.fields[0]
     notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
@@ -1283,26 +1281,19 @@ def test_update_note_removes_field_contents():
     assert "a" not in note.fields[0]
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_on_nonexistent_notetype_name():
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "c"
-        flatnote = FlatNote(
-            "title",
-            0,
-            "nonbasic",
-            "Default",
-            [],
-            False,
-            {"Front": field, "Back": field},
-        )
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
 
-        with pytest.raises(FileNotFoundError):
-            ki.update_note(kinote, flatnote)
+    field = "data"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Nonexistent", "Default", [], False, fields)
+
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    error: Exception = res.unwrap_err()
+    assert isinstance(error, Exception)
+    assert isinstance(error, ki.NotetypeMismatchError)
 
 
 @pytest.mark.skip

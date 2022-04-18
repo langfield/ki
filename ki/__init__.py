@@ -152,100 +152,6 @@ class ExtantStrangePath(type(Path())):
     """
 
 
-# EXCEPTIONS
-
-
-class ExpectedFileButGotDirectoryError(Exception):
-    pass
-
-
-class ExpectedDirectoryButGotFileError(Exception):
-    pass
-
-
-class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
-    pass
-
-
-class StrangeExtantPathError(Exception):
-    pass
-
-
-class NotKiRepoError(Exception):
-    @beartype
-    def __init__(self):
-        msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
-        msg += "Stopping at filesystem boundary."
-        super().__init__(msg)
-
-
-class UpdatesRejectedError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
-        super().__init__(msg)
-
-
-class TargetExistsError(Exception):
-    @beartype
-    def __init__(self, target: Path):
-        msg = f"fatal: destination path '{target}' already exists and is "
-        msg += "not an empty directory."
-        super().__init__(msg)
-
-
-class GitRefNotFoundError(Exception):
-    @beartype
-    def __init__(self, repo: git.Repo, sha: str):
-        msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(msg)
-
-
-class CollectionChecksumError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f"Checksum mismatch on {col_file}. Was file changed?"
-        super().__init__(msg)
-
-
-class MissingNotetypeError(Exception):
-    @beartype
-    def __init__(self, model: str):
-        msg = f"Notetype '{model}' doesn't exist. "
-        msg += "Create it in Anki before adding notes via ki. "
-        msg += "This may be caused by a corrupted '{MODELS_FILE}' file. "
-        msg += "The models file must contain definitions for all models that appear "
-        msg += "in all note files."
-        super().__init__(msg)
-
-
-class MissingFieldOrdinalError(Exception):
-    @beartype
-    def __init__(self, ord: int, nt: Dict[str, Any]):
-        msg = f"Field with ordinal {ord} missing from notetype '{pp.pformat(nt)}'."
-        super().__init__(msg)
-
-
-class MissingNoteIdError(Exception):
-    @beartype
-    def __init__(self, nid: int):
-        msg = f"Failed to locate note with nid '{nid}' in Anki database."
-        super().__init__(msg)
-
-
-# WARNINGS
-
-
-# TODO: Make this warning more descriptive. Should given the note id, the path,
-# the field(s) which are missing, and the model.
-class NoteFieldValidationWarning(Warning):
-    pass
-
-
-class UnhealthyNoteWarning(Warning):
-    pass
-
-
 # ENUMS
 
 
@@ -378,6 +284,111 @@ class Leaves:
     root: ExtantDir
     files: Dict[str, ExtantFile]
     dirs: Dict[str, EmptyDir]
+
+
+# EXCEPTIONS
+
+
+class ExpectedFileButGotDirectoryError(Exception):
+    pass
+
+
+class ExpectedDirectoryButGotFileError(Exception):
+    pass
+
+
+class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+    pass
+
+
+class StrangeExtantPathError(Exception):
+    pass
+
+
+class NotKiRepoError(Exception):
+    @beartype
+    def __init__(self):
+        msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
+        msg += "Stopping at filesystem boundary."
+        super().__init__(msg)
+
+
+class UpdatesRejectedError(Exception):
+    @beartype
+    def __init__(self, col_file: ExtantFile):
+        msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
+        super().__init__(msg)
+
+
+class TargetExistsError(Exception):
+    @beartype
+    def __init__(self, target: Path):
+        msg = f"fatal: destination path '{target}' already exists and is "
+        msg += "not an empty directory."
+        super().__init__(msg)
+
+
+class GitRefNotFoundError(Exception):
+    @beartype
+    def __init__(self, repo: git.Repo, sha: str):
+        msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        super().__init__(msg)
+
+
+class CollectionChecksumError(Exception):
+    @beartype
+    def __init__(self, col_file: ExtantFile):
+        msg = f"Checksum mismatch on {col_file}. Was file changed?"
+        super().__init__(msg)
+
+
+class MissingNotetypeError(Exception):
+    @beartype
+    def __init__(self, model: str):
+        msg = f"Notetype '{model}' doesn't exist. "
+        msg += "Create it in Anki before adding notes via ki. "
+        msg += "This may be caused by a corrupted '{MODELS_FILE}' file. "
+        msg += "The models file must contain definitions for all models that appear "
+        msg += "in all note files."
+        super().__init__(msg)
+
+
+class MissingFieldOrdinalError(Exception):
+    @beartype
+    def __init__(self, ord: int, nt: Dict[str, Any]):
+        msg = f"Field with ordinal {ord} missing from notetype '{pp.pformat(nt)}'."
+        super().__init__(msg)
+
+
+class MissingNoteIdError(Exception):
+    @beartype
+    def __init__(self, nid: int):
+        msg = f"Failed to locate note with nid '{nid}' in Anki database."
+        super().__init__(msg)
+
+
+class NotetypeMismatchError(Exception):
+    @beartype
+    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
+        msg = f"Notetype '{flatnote.model}' "
+        msg += f"specified in FlatNote with nid '{flatnote.nid}' "
+        msg += f"does not match passed notetype '{new_notetype}'. "
+        msg += f"This should NEVER happen, "
+        msg += f"and indicates a bug in the caller to 'update_note()'."
+        super().__init__(msg)
+
+
+# WARNINGS
+
+
+# TODO: Make this warning more descriptive. Should given the note id, the path,
+# the field(s) which are missing, and the model.
+class NoteFieldValidationWarning(Warning):
+    pass
+
+
+class UnhealthyNoteWarning(Warning):
+    pass
 
 
 # MAYBES
@@ -1148,6 +1159,13 @@ def update_note(
     - model
     - fields
     """
+
+    # Check that the passed argument `new_notetype` has a name consistent with
+    # the model specified in `flatnote`. The former should be derived from the
+    # latter, and if they don't match, there is a bug in the caller.
+    if flatnote.model != new_notetype.name:
+        return Err(NotetypeMismatchError(flatnote, new_notetype))
+
     note.tags = flatnote.tags
 
     # Set the deck of the given note, and create a deck with this name if it
