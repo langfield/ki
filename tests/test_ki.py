@@ -1176,33 +1176,25 @@ def test_update_note_raises_error_on_too_few_fields():
     warning: Warning = res.unwrap_err()
     assert isinstance(warning, Warning)
     assert isinstance(warning, ki.NoteFieldValidationWarning)
-    assert "Not enough fields for model Basic!" in str(warning)
+    assert "Wrong number of fields for model Basic!" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
-    col_file = get_col_file()
-    query = ""
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    field = "data"
 
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "data"
+    # Note that "Left" field is extra.
+    fields = {"Front": field, "Back": field, "Left": field}
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
-        # Note that "Back" field is missing.
-        flatnote = FlatNote(
-            "title",
-            0,
-            "Basic",
-            "Default",
-            [],
-            False,
-            {"Front": field, "Back": field, "Left": field},
-        )
-
-        with pytest.raises(ValueError):
-            ki.update_note(kinote, flatnote)
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    warning: Warning = res.unwrap_err()
+    assert isinstance(warning, Warning)
+    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert "Wrong number of fields for model Basic!" in str(warning)
 
 
 @pytest.mark.skip
@@ -1354,13 +1346,30 @@ def test_display_fields_health_warning_catches_empty_notes():
         assert health == 1
 
 
-@pytest.mark.skip
 def test_slugify():
     text = "\u1234"
     result = ki.slugify(text, allow_unicode=False)
 
     # Filter out Ethiopian syllable see.
     assert result == ""
+
+
+def test_slugify_handles_html_tags():
+    text = "<img src=\"card11front.jpg\" />"
+    result = ki.slugify(text, allow_unicode=True)
+
+    assert result == "img-srccard11frontjpg"
+
+
+def test_get_note_path_produces_nonempty_filenames():
+    field_text = '<img src="card11front.jpg" />'
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        deck_dir: ki.ExtantDir = ki.ffforce_mkdir(Path("a"))
+        path: ki.ExtantFile = ki.get_note_path(field_text, deck_dir)
+        logger.debug(path)
+        assert os.path.isfile(path)
+        assert path.name == "img-srccard11frontjpg.md"
 
 
 @pytest.mark.skip
