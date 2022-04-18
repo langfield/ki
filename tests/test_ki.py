@@ -1355,7 +1355,7 @@ def test_slugify():
 
 
 def test_slugify_handles_html_tags():
-    text = "<img src=\"card11front.jpg\" />"
+    text = '<img src="card11front.jpg" />'
     result = ki.slugify(text, allow_unicode=True)
 
     assert result == "img-srccard11frontjpg"
@@ -1366,10 +1366,14 @@ def test_get_note_path_produces_nonempty_filenames():
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir: ki.ExtantDir = ki.ffforce_mkdir(Path("a"))
+
         path: ki.ExtantFile = ki.get_note_path(field_text, deck_dir)
-        logger.debug(path)
         assert os.path.isfile(path)
         assert path.name == "img-srccard11frontjpg.md"
+
+        # Check that it even works if the field is empty.
+        path: ki.ExtantFile = ki.get_note_path("", deck_dir)
+        assert os.path.isfile(path)
 
 
 @pytest.mark.skip

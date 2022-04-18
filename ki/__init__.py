@@ -968,7 +968,6 @@ def diff_repos(
 
             a_path = fftest(a_dir / diff.a_path)
             b_path = fftest(b_dir / diff.b_path)
-            # logger.debug(f"Diffing {change_type}:\na: {a_path}\nb: {b_path}")
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -1210,7 +1209,6 @@ def validate_flatnote_fields(
 @beartype
 def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     """Get note path from sort field text."""
-    logger.debug(f"{sort_field_text = }")
     field_text = sort_field_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
