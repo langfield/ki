@@ -113,6 +113,15 @@ GENERATED_HTML_SENTINEL = "data-original-markdown"
 
 MD = ".md"
 
+# Emoji regex character classes.
+EMOJIS = u"\U0001F600-\U0001F64F"
+PICTOGRAPHS = u"\U0001F300-\U0001F5FF"
+TRANSPORTS = u"\U0001F680-\U0001F6FF"
+FLAGS = u"\U0001F1E0-\U0001F1FF"
+
+# Regex to filter out bad stuff from filenames.
+SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
+
 # TYPES
 
 
@@ -1221,15 +1230,17 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
         field_text = sort_field_text
 
     name = field_text[:MAX_FIELNAME_LEN]
+    slug = slugify(name, allow_unicode=True)
 
-    # Make it so `slugify()` cannot possibly return an empty string, because
-    # then we get a `Path('.')` which is a bug, and causes a runtime exception.
-    # If all else fails, generate a random hex string to use as the filename.
-    if len(name) == 0:
-        name = secrets.token_hex(10)
+    # Make it so `slug` cannot possibly be an empty string, because then we get
+    # a `Path('.')` which is a bug, and causes a runtime exception.  If all
+    # else fails, generate a random hex string to use as the filename.
+    if len(slug) == 0:
+        slug = secrets.token_hex(10)
+        logger.warning(f"Slug for {name} is empty. Using {slug} as filename")
 
-    name = Path(slugify(name, allow_unicode=True))
-    filename = name.with_suffix(MD)
+    filename = Path(slug)
+    filename = filename.with_suffix(MD)
     note_path = fftest(deck_dir / filename)
 
     i = 1
@@ -1622,11 +1633,12 @@ def echo(string: str, silent: bool = False) -> None:
 @beartype
 def slugify(value: str, allow_unicode: bool = False) -> str:
     """
-    Taken from https://github.com/django/django/blob/master/django/utils/text.py
-    Convert to ASCII if 'allow_unicode' is False. Convert spaces or repeated
-    dashes to single dashes. Remove characters that aren't alphanumerics,
-    underscores, or hyphens. Convert to lowercase. Also strip leading and
-    trailing whitespace, dashes, and underscores.
+    Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
+    spaces or repeated dashes to single dashes. Remove characters that aren't
+    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
+    leading and trailing whitespace, dashes, and underscores.
+
+    [1] https://github.com/django/django/blob/master/django/utils/text.py
     """
     if allow_unicode:
         value = unicodedata.normalize("NFKC", value)
@@ -1636,7 +1648,8 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
             .encode("ascii", "ignore")
             .decode("ascii")
         )
-    value = re.sub(r"[^\w\s-]", "", value.lower())
+
+    value = re.sub(SLUG_REGEX, "", value.lower())
     result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
 
     return result
