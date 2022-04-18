@@ -1225,9 +1225,9 @@ def test_update_note_sets_tags():
 
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("", 0, "Basic", "Default", ["tag"], False, fields)
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
 
     assert note.tags == []
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
     res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
     assert note.tags == ["tag"]
 
@@ -1239,35 +1239,32 @@ def test_update_note_sets_deck():
 
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "Basic", "deck", [], False, fields)
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "Default"
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
     res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
 
 
-@pytest.mark.skip
 def test_update_note_sets_field_contents():
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "TITLE\ndata"
-        flatnote = FlatNote(
-            "title", 0, "Basic", "Default", [], True, {"Front": field, "Back": field}
-        )
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
 
-        assert "TITLE" not in kinote.n.fields[0]
+    field = "TITLE\ndata"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], True, fields)
 
-        ki.update_note(kinote, flatnote)
+    assert "TITLE" not in note.fields[0]
 
-        assert "TITLE" in kinote.n.fields[0]
-        assert "</p>" in kinote.n.fields[0]
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+
+    assert "TITLE" in note.fields[0]
+    assert "</p>" in note.fields[0]
 
 
 @pytest.mark.skip
