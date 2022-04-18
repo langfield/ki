@@ -1225,28 +1225,29 @@ def test_update_note_sets_tags():
 
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("", 0, "Basic", "Default", ["tag"], False, fields)
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
 
     assert note.tags == []
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
     res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
     assert note.tags == ["tag"]
 
 
-@pytest.mark.skip
 def test_update_note_sets_deck():
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "data"
-        flatnote = FlatNote(
-            "title", 0, "Basic", "deck", [], False, {"Front": field, "Back": field}
-        )
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    field = "data"
 
-        assert kinote.get_deck() == "Default"
-        ki.update_note(kinote, flatnote)
-        assert kinote.get_deck() == "deck"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Basic", "deck", [], False, fields)
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+
+    # TODO: Remove implicit assumption that all cards are in the same deck, and
+    # work with cards instead of notes.
+    deck = col.decks.name(note.cards()[0].did)
+    assert deck == "Default"
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    deck = col.decks.name(note.cards()[0].did)
+    assert deck == "deck"
 
 
 @pytest.mark.skip
