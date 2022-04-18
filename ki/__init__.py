@@ -226,6 +226,8 @@ class MissingNoteIdError(Exception):
 # WARNINGS
 
 
+# TODO: Make this warning more descriptive. Should given the note id, the path,
+# the field(s) which are missing, and the model.
 class NoteFieldValidationWarning(Warning):
     pass
 
