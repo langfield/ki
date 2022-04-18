@@ -1197,24 +1197,24 @@ def test_update_note_raises_error_on_too_many_fields():
     assert "Wrong number of fields for model Basic!" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
-    col_file = get_col_file()
-    query = ""
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    field = "data"
 
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "data"
+    # Field `Backus` has wrong name, should be `Back`.
+    fields = {"Front": field, "Backus": field}
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
-        # Note that "Back" field is missing.
-        flatnote = FlatNote(
-            "title", 0, "Basic", "Default", [], False, {"Front": field, "Backus": field}
-        )
-
-        with pytest.raises(ValueError):
-            ki.update_note(kinote, flatnote)
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    warning: Warning = res.unwrap_err()
+    assert isinstance(warning, Warning)
+    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert "Inconsistent field names" in str(warning)
+    assert "Backus" in str(warning)
+    assert "Back" in str(warning)
 
 
 @pytest.mark.skip
