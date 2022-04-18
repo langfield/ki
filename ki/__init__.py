@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Python package `ki` is a command-line interface for the version control and
-editing of ``.anki2`` collections as git repositories of markdown files.
+editing of `.anki2` collections as git repositories of markdown files.
 Rather than providing an interactive UI like the Anki desktop client, `ki` aims
 to allow natural editing *in the filesystem*.
 
@@ -20,6 +20,7 @@ import json
 import copy
 import shutil
 import logging
+import secrets
 import hashlib
 import sqlite3
 import tempfile
@@ -288,7 +289,7 @@ class KiRepo:
 @beartype
 @dataclass(frozen=True)
 class Field:
-    """A typechecked version of ``anki.models.FieldDict`` for use within ki."""
+    """A typechecked version of `anki.models.FieldDict` for use within ki."""
 
     name: str
     ord: Optional[int]
@@ -297,7 +298,7 @@ class Field:
 @beartype
 @dataclass(frozen=True)
 class Template:
-    """A typechecked version of ``anki.models.TemplateDict`` for use within ki."""
+    """A typechecked version of `anki.models.TemplateDict` for use within ki."""
 
     name: str
     qfmt: str
@@ -308,7 +309,7 @@ class Template:
 @beartype
 @dataclass(frozen=True)
 class Notetype:
-    """A typechecked version of ``anki.models.NotetypeDict`` for use within ki."""
+    """A typechecked version of `anki.models.NotetypeDict` for use within ki."""
 
     id: int
     name: str
@@ -317,7 +318,7 @@ class Notetype:
     tmpls: List[Template]
     sortf: Field
 
-    # A copy of the ``NotetypeDict`` object as it was returned from the Anki
+    # A copy of the `NotetypeDict` object as it was returned from the Anki
     # database. We keep this around to preserve extra keys that may not always
     # exist, but the ones above should be required for Anki to function.
     dict: Dict[str, Any]
@@ -342,8 +343,8 @@ class ColNote:
 @dataclass(frozen=True)
 class KiRepoRef:
     """
-    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
-    commit hash of ``repo``.
+    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
+    commit hash of `repo`.
     """
 
     kirepo: KiRepo
@@ -354,8 +355,8 @@ class KiRepoRef:
 @dataclass(frozen=True)
 class RepoRef:
     """
-    UNSAFE: A repo-commit pair, where ``sha`` is guaranteed to be an extant
-    commit hash of ``repo``.
+    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
+    commit hash of `repo`.
     """
 
     repo: git.Repo
@@ -442,7 +443,7 @@ def M_emptydir(path: Path) -> Result[ExtantDir, Exception]:
     # Unwrap the value otherwise.
     directory: ExtantDir = res.unwrap()
     if is_empty(directory):
-        return Ok(EmptyDir(Path(directory)))
+        return Ok(EmptyDir(Path(directory).resolve()))
     return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
 
 
@@ -460,12 +461,12 @@ def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
 @safe
 @beartype
 def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
-    """Get the containing ki repository of ``path``."""
+    """Get the containing ki repository of `path`."""
     current = cwd
 
-    # Note that ``current`` is an ``ExtantDir`` but ``FS_ROOT`` is a ``Path``.
-    # We can make this comparison because both are instances of ``Path`` and
-    # ``Path`` implements the ``==`` operator nicely.
+    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
+    # We can make this comparison because both are instances of `Path` and
+    # `Path` implements the `==` operator nicely.
     while current != FS_ROOT:
         ki_dir = fftest(current / KI)
         if isinstance(ki_dir, ExtantDir):
@@ -594,13 +595,13 @@ def ffrmtree(target: ExtantDir) -> NoPath:
 def ffcopytree(source: ExtantDir, target: NoPath) -> ExtantDir:
     """Call shutil.copytree()."""
     shutil.copytree(source, target)
-    return ExtantDir(target)
+    return ExtantDir(target.resolve())
 
 
 @beartype
 def ffcwd() -> ExtantDir:
     """Call Path.cwd()."""
-    return ExtantDir(Path.cwd())
+    return ExtantDir(Path.cwd().resolve())
 
 
 @beartype
@@ -610,10 +611,11 @@ def fftest(
     """
     Fast ftest, where the f just means function.
 
-    Test whether ``path`` is a file, a directory, or something else. If
+    Test whether `path` is a file, a directory, or something else. If
     something else, we consider that, for the sake of simplicity, a
     NoPath.
     """
+    path = path.resolve()
     if path.is_file():
         return ExtantFile(path)
     if path.is_dir():
@@ -630,7 +632,7 @@ def ftouch(directory: ExtantDir, name: str) -> ExtantFile:
     """Touch a file."""
     path = directory / singleton(name)
     path.touch()
-    return ExtantFile(path)
+    return ExtantFile(path.resolve())
 
 
 @safe
@@ -653,7 +655,7 @@ def fmkleaves(
             leaves.add(str(token))
     if dirs is not None:
         for key, token in dirs.items():
-            # We lie to the ``ffmksubdir`` call and tell it the root is empty
+            # We lie to the `ffmksubdir` call and tell it the root is empty
             # on every iteration.
             if str(token) in leaves:
                 return Err(FileExistsError(str(token)))
@@ -682,14 +684,14 @@ def ffmksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
     subdir = directory / suffix
     subdir.mkdir(parents=True)
     directory.__class__ = ExtantDir
-    return EmptyDir(subdir)
+    return EmptyDir(subdir.resolve())
 
 
 @beartype
 def ffforce_mkdir(path: Path) -> ExtantDir:
     """Make a directory (with parents, ok if it already exists)."""
     path.mkdir(parents=True, exist_ok=True)
-    return ExtantDir(path)
+    return ExtantDir(path.resolve())
 
 
 @beartype
@@ -704,14 +706,14 @@ def ffchdir(directory: ExtantDir) -> ExtantDir:
 def ffparent(path: Union[ExtantFile, ExtantDir]) -> ExtantDir:
     """Get the parent of a path that exists."""
     if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT)
+        return ExtantDir(FS_ROOT.resolve())
     return ExtantDir(path.parent)
 
 
 @beartype
 def ffmkdtemp() -> EmptyDir:
     """Make a temporary directory (in /tmp)."""
-    return EmptyDir(tempfile.mkdtemp())
+    return EmptyDir(tempfile.mkdtemp()).resolve()
 
 
 @beartype
@@ -720,7 +722,7 @@ def ffcopyfile(source: ExtantFile, target_root: ExtantDir, name: str) -> ExtantF
     name = singleton(name)
     target = target_root / name
     shutil.copyfile(source, target)
-    return ExtantFile(target)
+    return ExtantFile(target.resolve())
 
 
 @beartype
@@ -741,13 +743,13 @@ def is_empty(directory: ExtantDir) -> bool:
 @beartype
 def working_dir(repo: git.Repo) -> ExtantDir:
     """Get working directory of a repo."""
-    return ExtantDir(repo.working_dir)
+    return ExtantDir(repo.working_dir).resolve()
 
 
 @beartype
 def git_dir(repo: git.Repo) -> ExtantDir:
     """Get git directory of a repo."""
-    return ExtantDir(repo.git_dir)
+    return ExtantDir(repo.git_dir).resolve()
 
 
 # SAFE
@@ -812,8 +814,8 @@ def get_ephemeral_repo(
     target: Path = root / md5sum
 
     # UNSAFE: But only called here, and it should be guaranteed to work because
-    # ``repo`` is actually a git repository, presumably there is always an
-    # active branch, and ``target`` does not exist.
+    # `repo` is actually a git repository, presumably there is always an
+    # active branch, and `target` does not exist.
     ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
 
     # Do a reset --hard to the given SHA.
@@ -829,13 +831,13 @@ def get_ephemeral_kirepo(
 ) -> Result[KiRepo, Exception]:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
-    ``kirepo.repo`` into a temp directory and hard reset to the given commit
+    `kirepo.repo` into a temp directory and hard reset to the given commit
     hash.
 
     Parameters
     ----------
     suffix : pathlib.Path
-        /tmp/.../ path suffix, e.g. ``ki/local/``.
+        /tmp/.../ path suffix, e.g. `ki/local/`.
     kirepo_ref : KiRepoRef
         The ki repository to clone, and a commit for it.
     md5sum : str
@@ -880,7 +882,6 @@ def is_anki_note(path: ExtantFile) -> bool:
     return True
 
 
-# TODO: Rename this.
 @beartype
 def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
@@ -889,16 +890,16 @@ def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> bool:
             logger.warning(f"Ignoring {path} matching pattern {p}")
             return False
 
-    # Ignore files that match a pattern in ``patterns`` ('*' not supported).
+    # Ignore files that match a pattern in `patterns` ('*' not supported).
     for ignore_path in [root / p for p in patterns]:
         parents = [path.resolve()] + [p.resolve() for p in path.parents]
         if ignore_path.resolve() in parents:
             logger.warning(f"Ignoring {path} matching pattern {ignore_path}")
             return False
 
-    # If ``path`` is an extant file (not a directory) and NOT a note, ignore it.
+    # If `path` is an extant file (not a directory) and NOT a note, ignore it.
     if path.exists() and path.resolve().is_file():
-        file = ExtantFile(path)
+        file = ExtantFile(path.resolve())
         if not is_anki_note(file):
             logger.warning(f"Not Anki note {file}")
             return False
@@ -930,7 +931,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         repo.git.rm(gitmodules_path)
 
         # Guaranteed to exist by gitpython, and safe because we pass
-        # ``missing_ok=True``, which means no error is raised.
+        # `missing_ok=True`, which means no error is raised.
         (sm_path / GIT).unlink(missing_ok=True)
 
         # Should still exist after git.rm().
@@ -1004,16 +1005,16 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
     """
     Convert an Anki NotetypeDict into a Notetype dataclass.
 
-    Anki returns objects of type ``NotetypeDict`` (see pylib/anki/models.py)
-    when you call a method like ``col.models.all()``. This is a dictionary
+    Anki returns objects of type `NotetypeDict` (see pylib/anki/models.py)
+    when you call a method like `col.models.all()`. This is a dictionary
     mapping strings to various stuff, and we read all its data into a python
     dataclass here so that we can access it safely. Since we don't expect Anki
     to ever give us 'invalid' notetypes (since we define 'valid' as being
     processable by Anki), we return an exception if the parse fails.
 
     Note on naming convention: Below, abbreviated variable names represent
-    dicts coming from Anki, like ``nt: NotetypeDict`` or ``fld: FieldDict``.
-    Full words like ``field: Field`` represent ki dataclasses. The parameters
+    dicts coming from Anki, like `nt: NotetypeDict` or `fld: FieldDict`.
+    Full words like `field: Field` represent ki dataclasses. The parameters
     of the dataclasses, however, use abbreviations for consistency with Anki
     map keys.
     """
@@ -1034,7 +1035,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
                 )
             )
 
-        # Guarantee that 'sortf' exists in ``notetype.flds``.
+        # Guarantee that 'sortf' exists in `notetype.flds`.
         sort_ordinal: int = nt["sortf"]
         if sort_ordinal not in fields:
             return Err(MissingFieldOrdinalError)
@@ -1058,7 +1059,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
 @beartype
 def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Exception]:
     """
-    Find and merge all ``models.json`` files recursively.
+    Find and merge all `models.json` files recursively.
 
     Should we check for duplicates?
 
@@ -1125,13 +1126,13 @@ def update_note(
     note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> Result[Note, Exception]:
     """
-    Change all the data of ``note`` to that given in ``flatnote``.
+    Change all the data of `note` to that given in `flatnote`.
 
     This is only to be called on notes whose nid already exists in the
-    database.  Creates a new deck if ``flatnote.deck`` doesn't exist.  Assumes
+    database.  Creates a new deck if `flatnote.deck` doesn't exist.  Assumes
     that the model has already been added to the collection, and raises an
     exception if it finds otherwise.  Changes notetype to that specified by
-    ``flatnote.model``.  Overwrites all fields with ``flatnote.fields``.
+    `flatnote.model`.  Overwrites all fields with `flatnote.fields`.
 
     Updates:
     - tags
@@ -1164,7 +1165,7 @@ def update_note(
         return validated
 
     # Set field values. This is correct because every field name that appears
-    # in ``new_notetype`` is contained in ``flatnote.fields``, or else we would
+    # in `new_notetype` is contained in `flatnote.fields`, or else we would
     # have printed a warning and returned above.
     # TODO: Check if these apy methods can raise exceptions.
     for key, field in flatnote.fields.items():
@@ -1194,8 +1195,9 @@ def validate_flatnote_fields(
     # Set current notetype for collection to `model_name`.
     field_names: List[str] = [field.name for field in notetype.flds]
 
+    # TODO: Use a more descriptive error message.
     if len(flatnote.fields.keys()) != len(field_names):
-        msg = f"Not enough fields for model {flatnote.model}!"
+        msg = f"Wrong number of fields for model {flatnote.model}!"
         return Err(NoteFieldValidationWarning(msg))
 
     for x, y in zip(field_names, flatnote.fields.keys()):
@@ -1208,12 +1210,26 @@ def validate_flatnote_fields(
 @beartype
 def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     """Get note path from sort field text."""
+    logger.debug(f"{sort_field_text = }")
     field_text = sort_field_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
     field_text = re.sub("<[^<]+?>", "", field_text)
+
+    # If the HTML stripping removed all text, we just slugify the raw sort
+    # field text.
+    if len(field_text) == 0:
+        field_text = sort_field_text
+
     name = field_text[:MAX_FIELNAME_LEN]
+
+    # Make it so `slugify()` cannot possibly return an empty string, because
+    # then we get a `Path('.')` which is a bug, and causes a runtime exception.
+    # If all else fails, generate a random hex string to use as the filename.
+    if len(name) == 0:
+        name = secrets.token_hex(10)
+
     name = Path(slugify(name, allow_unicode=True))
     filename = name.with_suffix(MD)
     note_path = fftest(deck_dir / filename)
@@ -1237,7 +1253,7 @@ def backup(kirepo: KiRepo) -> None:
     backup_file = fftest(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
-    # ``name``, since ``name`` contains the md5sum of the collection file, and
+    # `name`, since `name` contains the md5sum of the collection file, and
     # thus that is extraordinarily improbable. So the only thing we have to
     # check for is that we haven't already written a backup file to this
     # location.
@@ -1389,7 +1405,7 @@ def get_header_lines(colnote) -> List[str]:
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
 ) -> Result[bool, Exception]:
-    """Write notes to appropriate directories in ``targetdir``."""
+    """Write notes to appropriate directories in `targetdir`."""
 
     # Create config file.
     config_file: ExtantFile = leaves.files[CONFIG_FILE]
@@ -1424,10 +1440,10 @@ def write_repository(
                 html_file.write_text(fieldtext, encoding="UTF-8")
                 paths[fid] = html_file
 
-    # TODO: Consider adding a block in ``safe()`` that looks for a token
-    # keyword argument, like ``_err``, and bypasses the function call if it
+    # TODO: Consider adding a block in `safe()` that looks for a token
+    # keyword argument, like `_err`, and bypasses the function call if it
     # is an Err. If it is an Ok, it simply removes that key-value pair from
-    # ``kwargs`` and calls the function as it normally would.
+    # `kwargs` and calls the function as it normally would.
     tidied: OkErr = tidy_html_recursively(root, silent)
     if tidied.is_err():
         return tidied
@@ -1462,7 +1478,7 @@ def write_decks(
     from the deck names.
     """
     # Accumulate pairs of model ids and notetype maps. The return type of the
-    # ``ModelManager.get()`` call below indicates that it may return ``None``,
+    # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
     # from the Anki DB.
     models_map: Dict[int, NotetypeDict] = {}
@@ -1483,7 +1499,7 @@ def write_decks(
             payload: str = get_note_payload(colnote, paths)
             notepath.write_text(payload, encoding="UTF-8")
 
-        # Write ``models.json`` for current deck.
+        # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in model_ids}
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
@@ -1560,7 +1576,7 @@ def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
         else:
             tidyfields[field_name] = field_text
 
-    # TODO: Make this use ``get_colnote_repr()``.
+    # TODO: Make this use `get_colnote_repr()`.
     # Construct note repr from tidyfields map.
     lines = get_header_lines(colnote)
     for field_name, field_text in tidyfields.items():
@@ -1605,7 +1621,6 @@ def echo(string: str, silent: bool = False) -> None:
         # logger.info(string)
 
 
-# TODO: Refactor into a safe function.
 @beartype
 def slugify(value: str, allow_unicode: bool = False) -> str:
     """
@@ -1624,13 +1639,15 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
             .decode("ascii")
         )
     value = re.sub(r"[^\w\s-]", "", value.lower())
-    return re.sub(r"[-\s]+", "-", value).strip("-_")
+    result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
+
+    return result
 
 
 @safe
 @beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Exception]:
-    """Call html5-tidy on each file in ``root``, editing in-place."""
+    """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     batches: List[List[ExtantFile]] = list(get_batches(frglob(root, "*"), BATCH_SIZE))
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
@@ -1656,12 +1673,12 @@ def flatten_staging_repo(
 
     To do this, we first convert all submodules into ordinary subdirectories of
     the git repository. Then we replace the dot git directory of the staging
-    repo with the .git directory of the repo in ``.ki/no_submodules_tree/``,
+    repo with the .git directory of the repo in `.ki/no_submodules_tree/`,
     which, as its name suggests, is a copy of the main repository with all its
     submodules converted into directories.
 
     This is done in order to preserve the history of
-    ``.ki/no_submodules_tree/``. The staging repository can be thought of as
+    `.ki/no_submodules_tree/`. The staging repository can be thought of as
     the next commit to this repo.
 
     We return a reloaded version of the staging repository, re-read from disk.
@@ -1673,7 +1690,7 @@ def flatten_staging_repo(
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
-    # Copy the .git folder from ``no_submodules_tree`` into the stage repo.
+    # Copy the .git folder from `no_submodules_tree` into the stage repo.
     stage_git_dir = ffcopytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
     stage_root: ExtantDir = ffparent(stage_git_dir)
 
@@ -1742,16 +1759,16 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     if targetdir.is_err() or head.is_err():
         echo("Failed: exiting.")
 
-        # We get an error here only in the case where the ``M_xdir()`` call
-        # failed on ``targetdir``. We cannot assume that it doesn't exist,
-        # because we may have returned the exception inside ``fmkdempty()``,
+        # We get an error here only in the case where the `M_xdir()` call
+        # failed on `targetdir`. We cannot assume that it doesn't exist,
+        # because we may have returned the exception inside `fmkdempty()`,
         # which errors-out when the target already exists and is nonempty. This
-        # means we definitely do not want to remove ``targetdir`` or its
+        # means we definitely do not want to remove `targetdir` or its
         # contents in this case, because we would be deleting the user's data.
         if targetdir.is_err():
             return targetdir
 
-        # Otherwise, we must have that either we created ``targetdir`` and it
+        # Otherwise, we must have that either we created `targetdir` and it
         # did not exist prior, or it was an empty directory before. In either
         # case, we can probably remove it safely. We do this bit without using
         # our @safe-d wrappers because it is very important that these three
@@ -1766,7 +1783,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 
     head: KiRepoRef = head.unwrap()
 
-    # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
+    # Get staging repository in temp directory, and copy to `no_submodules_tree`.
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
@@ -1779,10 +1796,10 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
-    # Completely annihilate the ``.ki/no_submodules_tree``
-    # directory/repository, and replace it with ``stage_kirepo``. This is a
-    # sensible operation because earlier, we copied the ``.git/`` directory
-    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
+    # Completely annihilate the `.ki/no_submodules_tree`
+    # directory/repository, and replace it with `stage_kirepo`. This is a
+    # sensible operation because earlier, we copied the `.git/` directory
+    # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
     no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
     ffcopytree(stage_kirepo.root, no_modules_root)
@@ -1793,7 +1810,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
 
-    # Dump HEAD ref of current repo in ``.ki/last_push``.
+    # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
 
     return Ok()
@@ -1807,10 +1824,10 @@ def _clone(
     """
     Clone an Anki collection into a directory.
 
-    The caller, realistically only ``clone()``, expects that ``targetdir`` will
+    The caller, realistically only `clone()`, expects that `targetdir` will
     be the root of a valid ki repository after this function is called, so we
     need to do our repo initialization with gitpython in here, as opposed to in
-    ``clone()``.
+    `clone()`.
 
     Parameters
     ----------
@@ -1851,7 +1868,7 @@ def _clone(
     # Write notes to disk. We do explicit error checking here because if we
     # don't the repository initialization will run even when there's a failure.
     # This would be very bad for speed, because gitpython calls have quite a
-    # bit of overhead sometimes (although maybe not for ``Repo.init()`` calls,
+    # bit of overhead sometimes (although maybe not for `Repo.init()` calls,
     # since they aren't networked).
     wrote: OkErr = write_repository(col_file, targetdir, leaves, silent)
     if wrote.is_err():
@@ -1881,7 +1898,7 @@ def init_repos(
     _ = repo.index.commit(msg)
 
     # Initialize the copy of the repository with submodules replaced with
-    # subdirectories that lives in ``.ki/no_submodules_tree/``.
+    # subdirectories that lives in `.ki/no_submodules_tree/`.
     _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
     return Ok()
@@ -1958,11 +1975,11 @@ def pull_changes_from_remote_repo(
     _cloned: str,
 ) -> Result[bool, Exception]:
     """
-    Load the git repository at ``anki_remote_root``, force pull (preferring
+    Load the git repository at `anki_remote_root`, force pull (preferring
     'theirs', i.e. the new stuff from the sqlite3 database) changes from that
     repository (which is cloned straight from the collection, which in general
-    may have new changes) into ``last_push_repo``, and then pull
-    ``last_push_repo`` into the main repository.
+    may have new changes) into `last_push_repo`, and then pull
+    `last_push_repo` into the main repository.
 
     We pull in this sequence in order to avoid merge conflicts. Since we first
     pull into a snapshot of the repository as it looked when we last pushed to
@@ -1984,13 +2001,13 @@ def pull_changes_from_remote_repo(
     # Create git remote pointing to anki remote repo.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
 
-    # Pull anki remote repo into ``last_push_repo``.
+    # Pull anki remote repo into `last_push_repo`.
     last_push_root: Res[ExtantDir] = working_dir(last_push_repo)
     pulled: OkErr = pull_theirs_from_remote(last_push_repo, last_push_root, anki_remote)
     if pulled.is_err():
         return pulled
 
-    # Create remote pointing to ``last_push`` repo and pull into ``repo``.
+    # Create remote pointing to `last_push` repo and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     p = subprocess.run(
@@ -2132,8 +2149,8 @@ def push_deltas(
     # Add all new models.
     for model in models.values():
 
-        # TODO: Consider waiting to parse ``models`` until after the
-        # ``add_dict()`` call.
+        # TODO: Consider waiting to parse `models` until after the
+        # `add_dict()` call.
         if col.models.id_for_name(model.name) is not None:
 
             nt_copy: NotetypeDict = copy.deepcopy(model.dict)
@@ -2157,7 +2174,7 @@ def push_deltas(
 
     for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
 
-        # Parse the file at ``delta.path`` into a ``FlatNote``, and
+        # Parse the file at `delta.path` into a `FlatNote`, and
         # add/edit/delete in collection.
         flatnote = parse_markdown_note(parser, transformer, delta.path)
         logger.debug(f"Resolving delta:\n{pp.pformat(delta)}\n{pp.pformat(flatnote)}")
@@ -2192,7 +2209,7 @@ def push_deltas(
             # TODO: Remove submodule update calls, and use the gitpython
             # API to check if the submodules exist instead. The update
             # calls make a remote fetch which takes an extremely long time,
-            # and the user should have run ``git submodule update``
+            # and the user should have run `git submodule update`
             # themselves anyway.
             subrepo: git.Repo = sm.update().module()
             subrepo.git.add(all=True)
@@ -2217,15 +2234,15 @@ def push_deltas(
     new_md5sum = md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
-    # Completely annihilate the ``.ki/no_submodules_tree``
-    # directory/repository, and replace it with ``stage_kirepo``. This is a
-    # sensible operation because earlier, we copied the ``.git/`` directory
-    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
+    # Completely annihilate the `.ki/no_submodules_tree`
+    # directory/repository, and replace it with `stage_kirepo`. This is a
+    # sensible operation because earlier, we copied the `.git/` directory
+    # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
     no_modules_root: NoPath = ffrmtree(working_dir(kirepo.no_modules_repo))
     ffcopytree(stage_kirepo.root, no_modules_root)
 
-    # Dump HEAD ref of current repo in ``.ki/last_push``.
+    # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
@@ -2240,20 +2257,20 @@ def regenerate_note_file(
     colnote: ColNote, root: ExtantDir, relpath: Path
 ) -> Result[List[str], Exception]:
     """
-    Construct the contents of a note corresponding to the arguments ``colnote``,
-    which itself was created from ``flatnote``, and then write it to disk.
+    Construct the contents of a note corresponding to the arguments `colnote`,
+    which itself was created from `flatnote`, and then write it to disk.
 
     Returns a list of lines to add to the commit message (either an empty list,
     or a list containing a single line).
 
     This function is intended to be used when we are adding *completely* new
     notes, in which case the caller generates a new note with a newly generated
-    nid, which can be accessed at ``colnote.n.id``. In general, this is the
+    nid, which can be accessed at `colnote.n.id`. In general, this is the
     branch taken whenever Anki fails to recognize the nid given in the note
-    file, which can be accessed via ``colnote.old_nid``. Thus, we only
-    regenerate if ``colnote.n.id`` and ``colnote.old_nid`` to differ, since the
-    former has the newly assigned nid for this note, yielded by the Anki
-    runtime, and the latter has whatever was written in the file.
+    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
+    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
+    newly assigned nid for this note, yielded by the Anki runtime, and the
+    latter has whatever was written in the file.
     """
     # If this is not a new note, then we didn't reassign its nid, and we don't
     # need to regenerate the file. So we don't add a line to the commit
@@ -2272,7 +2289,7 @@ def regenerate_note_file(
     new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
     new_note_path.write_text(get_colnote_repr(colnote), encoding="UTF-8")
 
-    # TODO: Figure out if this still works without os.path.relpath.
+    # TODO: Figure out if this still works if we use pathlib instead.
     new_note_relpath = os.path.relpath(new_note_path, root)
 
     msg = f"Reassigned nid: '{colnote.old_nid}' -> '{colnote.n.id}' in '{new_note_relpath}'"
