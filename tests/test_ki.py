@@ -25,7 +25,6 @@ from beartype import beartype
 from beartype.typing import List
 
 import ki
-from ki.note import KiNote
 from ki.transformer import FlatNote
 
 
@@ -195,14 +194,20 @@ def checksum_git_repository(path: str) -> str:
 
 
 @beartype
-def get_notes(collection: ki.ExtantFile) -> List[KiNote]:
+def get_notes(collection: ki.ExtantFile) -> List[ki.ColNote]:
     """Get a list of notes from a path."""
-    # Import with apy.
-    query = ""
-    with Anki(path=collection) as a:
-        notes: List[KiNote] = []
-        for i in set(a.col.find_notes(query)):
-            notes.append(KiNote(a, a.col.get_note(i)))
+    cwd: ExtantDir = ki.ffcwd()
+    col = ki.Collection(collection)
+    ki.ffchdir(cwd)
+
+    notes: List[ki.ColNote] = []
+    for nid in set(col.find_notes("")):
+        colnote: OkErr = ki.get_colnote(col, nid)
+        if colnote.is_err():
+            raise colnote
+        colnote: ki.ColNote = colnote.unwrap()
+        notes.append(colnote)
+
     return notes
 
 

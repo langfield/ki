@@ -33,6 +33,7 @@ from dataclasses import dataclass
 
 import git
 import click
+import markdownify
 import prettyprinter as pp
 from tqdm import tqdm
 from lark import Lark
@@ -43,7 +44,7 @@ import anki
 from anki import notetypes_pb2
 from anki.collection import Collection, Note, OpChangesWithId
 
-from apy.convert import markdown_to_html, plain_to_html
+from apy.convert import markdown_to_html, plain_to_html, html_to_markdown
 
 from beartype import beartype
 from beartype.typing import (
@@ -205,20 +206,6 @@ class MissingNotetypeError(Exception):
         msg += "This may be caused by a corrupted '{MODELS_FILE}' file. "
         msg += "The models file must contain definitions for all models that appear "
         msg += "in all note files."
-        super().__init__(msg)
-
-
-# TODO: Add note type to error message.
-# TODO: Make this error message more like ``MissingNotetypeError``.
-class MissingFieldError(Exception):
-    @beartype
-    def __init__(self, nid: int, field: str):
-        msg = f"Field {field} missing from note '{nid}'. "
-        msg += "This indicates a corrupt 'models.json' file or a bug in ki, "
-        msg += "or, very improbably, a bug in Anki itself, "
-        msg += (
-            "since this note was constructed from a model read from an Anki SQLite3 DB."
-        )
         super().__init__(msg)
 
 
@@ -651,17 +638,23 @@ def fmkleaves(
     dirs: Optional[Dict[str, str]] = None,
 ) -> Result[Leaves, Exception]:
     """Safely populate an empty directory with empty files and empty subdirectories."""
-    # TODO: Make sure that the names are unique.
+    leaves: Set[str] = set()
     new_files: Dict[str, ExtantFile] = {}
     new_dirs: Dict[str, EmptyDir] = {}
     if files is not None:
         for key, token in files.items():
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
             new_files[key] = ftouch(root, token)
+            leaves.add(str(token))
     if dirs is not None:
         for key, token in dirs.items():
             # We lie to the ``ffmksubdir`` call and tell it the root is empty
             # on every iteration.
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
             new_dirs[key] = ffmksubdir(EmptyDir(root), singleton(token))
+            leaves.add(str(token))
     return Ok(Leaves(root, new_files, new_dirs))
 
 
@@ -889,7 +882,7 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 # TODO: Rename this.
 @beartype
-def path_ignore_fn(path: Path, patterns: List[str], root: ExtantDir) -> bool:
+def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> bool:
     """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
     for p in patterns:
         if p == path.name:
@@ -955,7 +948,7 @@ def diff_repos(
     a_repo: git.Repo,
     b_repo: git.Repo,
     ref: RepoRef,
-    ignore_fn: Callable[[Path], bool],
+    filter_fn: Callable[[Path], bool],
     parser: Lark,
     transformer: NoteTransformer,
 ) -> Result[List[Delta], Exception]:
@@ -968,7 +961,7 @@ def diff_repos(
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            if not ignore_fn(a_dir / diff.a_path) or not ignore_fn(a_dir / diff.b_path):
+            if not filter_fn(a_dir / diff.a_path) or not filter_fn(a_dir / diff.b_path):
                 logger.warning(f"Ignoring:\n{diff.a_path}\n{diff.b_path}")
                 continue
 
@@ -1290,10 +1283,9 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
         yield lst[i : i + n]
 
 
-# TODO: Rename this.
 @safe
 @beartype
-def get_colnote_from_flatnote(
+def push_flatnote_to_anki(
     col: Collection, flatnote: FlatNote
 ) -> Result[ColNote, Exception]:
     model_id: Optional[int] = col.models.id_for_name(flatnote.model)
@@ -1357,6 +1349,8 @@ def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
     except KeyError as err:
         return Err(err)
 
+    # TODO: Remove implicit assumption that all cards are in the same deck, and
+    # work with cards instead of notes.
     deck = col.decks.name(note.cards()[0].did)
     colnote = ColNote(
         n=note,
@@ -1486,7 +1480,7 @@ def write_decks(
         for colnote in deck:
             model_ids.add(colnote.notetype.id)
             notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
-            payload: str = get_tidy_payload(colnote, paths)
+            payload: str = get_note_payload(colnote, paths)
             notepath.write_text(payload, encoding="UTF-8")
 
         # Write ``models.json`` for current deck.
@@ -1498,18 +1492,64 @@ def write_decks(
 
 
 @beartype
+def html_to_screen(html: str) -> str:
+    """Convert html for printing to screen."""
+    html = re.sub(r"\<style\>.*\<\/style\>", "", html, flags=re.S)
+
+    generated = GENERATED_HTML_SENTINEL in html
+    if generated:
+        plain = html_to_markdown(html)
+        if html != markdown_to_html(plain):
+            html_clean = re.sub(r' data-original-markdown="[^"]*"', "", html)
+            plain += (
+                "\n\n### Current HTML → Markdown\n"
+                f"{markdownify.markdownify(html_clean)}"
+            )
+            plain += f"\n### Current HTML\n{html_clean}"
+    else:
+        plain = html
+
+    # For convenience: Un-escape some common LaTeX constructs
+    plain = plain.replace(r"\\\\", r"\\")
+    plain = plain.replace(r"\\{", r"\{")
+    plain = plain.replace(r"\\}", r"\}")
+    plain = plain.replace(r"\*}", r"*}")
+
+    plain = plain.replace(r"&lt;", "<")
+    plain = plain.replace(r"&gt;", ">")
+    plain = plain.replace(r"&amp;", "&")
+    plain = plain.replace(r"&nbsp;", " ")
+
+    plain = plain.replace("<br>", "\n")
+    plain = plain.replace("<br/>", "\n")
+    plain = plain.replace("<br />", "\n")
+    plain = plain.replace("<div>", "\n")
+    plain = plain.replace("</div>", "")
+
+    # For convenience: Fix mathjax escaping (but only if the html is generated)
+    if generated:
+        plain = plain.replace(r"\[", r"[")
+        plain = plain.replace(r"\]", r"]")
+        plain = plain.replace(r"\(", r"(")
+        plain = plain.replace(r"\)", r")")
+
+    plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
+    return plain.strip()
+
+
+@beartype
 def get_colnote_repr(colnote: ColNote) -> str:
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append("### " + field_name)
-        lines.append(field_text)
+        lines.append(html_to_screen(field_text))
         lines.append("")
 
     return "\n".join(lines)
 
 
 @beartype
-def get_tidy_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
+def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
     """Get the payload for the note (HTML-tidied if necessary)."""
     # Get tidied html if it exists.
     tidyfields = {}
@@ -1525,7 +1565,7 @@ def get_tidy_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
     lines = get_header_lines(colnote)
     for field_name, field_text in tidyfields.items():
         lines.append("### " + field_name)
-        lines.append(field_text)
+        lines.append(html_to_screen(field_text))
         lines.append("")
 
     return "\n".join(lines)
@@ -1607,7 +1647,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
 
 @safe
 @beartype
-def convert_stage_kirepo(
+def flatten_staging_repo(
     stage_kirepo: KiRepo, kirepo: KiRepo
 ) -> Result[KiRepo, Exception]:
     """
@@ -1641,21 +1681,6 @@ def convert_stage_kirepo(
     stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
 
     return stage_kirepo
-
-
-# TODO: Remove this function.
-@safe
-@beartype
-def commit_stage_repo(kirepo: KiRepo, head: KiRepoRef) -> Result[bool, Exception]:
-    """
-    Commit the staging repo with a descriptive commit message that contains the
-    reference commit hash of the relevant commit of the main repository. In
-    this case (since we're cloning), it should always be the first commit of
-    the main repository.
-    """
-    kirepo.repo.git.add(all=True)
-    kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
-    return Ok()
 
 
 @safe
@@ -1714,62 +1739,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
 
-    # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
-
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-    stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
-    processed: OkErr = postprocess_clone_repos(stage_kirepo, head)
-    kirepo: Res[KiRepo] = M_kirepo(targetdir)
-    return cleanup_after_clone(targetdir, kirepo, head, processed)
-
-
-@safe
-@beartype
-def postprocess_clone_repos(
-    stage_kirepo: KiRepo, head: KiRepoRef
-) -> Result[ExtantDir, Exception]:
-    committed: OkErr = commit_stage_repo(stage_kirepo, head)
-    if committed.is_err():
-        return committed
-
-    # Completely annihilate the ``.ki/no_submodules_tree``
-    # directory/repository, and replace it with ``stage_kirepo``. This is a
-    # sensible operation because earlier, we copied the ``.git/`` directory
-    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
-    # preserved.
-    no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
-    copied: ExtantDir = ffcopytree(stage_kirepo.root, no_modules_root)
-
-    return Ok(copied)
-
-
-@beartype
-def cleanup_after_clone(
-    targetdir: OkErr, kirepo: OkErr, head: OkErr, processed: OkErr
-) -> Result[bool, Exception]:
-    """
-    Cleanup without lifting errors.
-
-    Unlike nearly every other function, we do not want to forward errors into
-    the return value here, so it does not make sense for this function to be
-    decorated with @safe.
-
-    Write the HEAD commit hash of the ki repository we've just cloned to the
-    file ``.ki/last_push``, which is a file that always exists if a ki
-    repository is valid, and contains either nothing, or a single SHA
-    referencing either the first commit (i.e. the commit made during a clone),
-    or the commit of the last successful ``push()`` call.
-
-    The parameters are in a very specific order, which is to say that they're
-    in the order in which errors would be raised within ``clone()``. The
-    control flow does not depend on the order of the arguments, but the
-    if-return blocks below should mirror it, and having the parameters in the
-    same order is nice.
-    """
-    # If any of the Result parameters are errors, we should print a 'failed'
-    # message.
-    if targetdir.is_err() or kirepo.is_err() or head.is_err() or processed.is_err():
+    if targetdir.is_err() or head.is_err():
         echo("Failed: exiting.")
 
         # We get an error here only in the case where the ``M_xdir()`` call
@@ -1792,18 +1762,36 @@ def cleanup_after_clone(
         targetdir: ExtantDir = targetdir.unwrap()
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
+        return head
 
-        # We return the first ``Err`` value we find, so that the failure message
-        # indicates the first thing that went wrong.
-        if kirepo.is_err():
-            return kirepo
-        if head.is_err():
-            return head
-        if processed.is_err():
-            return processed
-
-    kirepo: KiRepo = kirepo.unwrap()
     head: KiRepoRef = head.unwrap()
+
+    # Get staging repository in temp directory, and copy to ``no_submodules_tree``.
+
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+    stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
+    if stage_kirepo.is_err():
+        echo("Failed: exiting.")
+        return stage_kirepo
+    stage_kirepo: KiRepo = stage_kirepo.unwrap()
+
+    stage_kirepo.repo.git.add(all=True)
+    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+
+    # Completely annihilate the ``.ki/no_submodules_tree``
+    # directory/repository, and replace it with ``stage_kirepo``. This is a
+    # sensible operation because earlier, we copied the ``.git/`` directory
+    # from ``.ki/no_submodules_tree`` to the staging repo. So the history is
+    # preserved.
+    no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
+    ffcopytree(stage_kirepo.root, no_modules_root)
+
+    kirepo: Res[KiRepo] = M_kirepo(targetdir)
+    if kirepo.is_err():
+        echo("Failed: exiting.")
+        return kirepo
+    kirepo: KiRepo = kirepo.unwrap()
 
     # Dump HEAD ref of current repo in ``.ki/last_push``.
     kirepo.last_push_file.write_text(head.sha)
@@ -2049,10 +2037,13 @@ def push() -> Result[bool, Exception]:
 
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
+    if head.is_err():
+        return head
+    head: KiRepoRef = head.unwrap()
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: OkErr = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-    stage_kirepo = convert_stage_kirepo(stage_kirepo, kirepo)
+    stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
     if stage_kirepo.is_err():
         return stage_kirepo
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
@@ -2065,12 +2056,11 @@ def push() -> Result[bool, Exception]:
         return head_1
     head_1: RepoRef = head_1.unwrap()
 
-    committed: OkErr = commit_stage_repo(stage_kirepo, head)
-    if committed.is_err():
-        return committed
+    stage_kirepo.repo.git.add(all=True)
+    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
     # Get filter function.
-    ignore_fn = functools.partial(path_ignore_fn, patterns=IGNORE, root=kirepo.root)
+    filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
 
     head_kirepo: Res[KiRepo] = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
@@ -2088,7 +2078,7 @@ def push() -> Result[bool, Exception]:
     # Get deltas.
     a_repo: Res[git.Repo] = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
-    deltas: OkErr = diff_repos(a_repo, b_repo, head_1, ignore_fn, parser, transformer)
+    deltas: OkErr = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 
     # Map model names to models.
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
@@ -2136,9 +2126,9 @@ def push_deltas(
 
     # Edit the copy with `apy`.
     cwd: ExtantDir = ffcwd()
-    modified = True
     col = Collection(new_col_file)
     ffchdir(cwd)
+    modified = True
 
     # Add all new models.
     for model in models.values():
@@ -2183,7 +2173,7 @@ def push_deltas(
         # the file. Recall that the sort field is used to determine the
         # filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote: OkErr = get_colnote_from_flatnote(col, flatnote)
+        colnote: OkErr = push_flatnote_to_anki(col, flatnote)
         regenerated: OkErr = regenerate_note_file(colnote, kirepo.root, delta.relpath)
         if regenerated.is_err():
             regen_err: Exception = regenerated.unwrap_err()
