@@ -1171,11 +1171,12 @@ def test_update_note_raises_error_on_too_few_fields():
 
     # Note that "Back" field is missing.
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field})
-
     notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-
-    with pytest.raises(ValueError):
-        ki.update_note(note, flatnote, notetype, notetype)
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    warning: Warning = res.unwrap_err()
+    assert isinstance(warning, Warning)
+    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert "Not enough fields for model Basic!" in str(warning)
 
 
 @pytest.mark.skip
