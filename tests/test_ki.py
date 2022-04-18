@@ -1217,28 +1217,19 @@ def test_update_note_raises_error_wrong_field_name():
     assert "Back" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_sets_tags():
     """Do we update tags of anki note?"""
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
-        field = "data"
-        flatnote = FlatNote(
-            "title",
-            0,
-            "Basic",
-            "Default",
-            ["tag"],
-            False,
-            {"Front": field, "Back": field},
-        )
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    field = "data"
 
-        assert kinote.n.tags == []
-        ki.update_note(kinote, flatnote)
-        assert kinote.n.tags == ["tag"]
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("", 0, "Basic", "Default", ["tag"], False, fields)
+
+    assert note.tags == []
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    assert note.tags == ["tag"]
 
 
 @pytest.mark.skip
