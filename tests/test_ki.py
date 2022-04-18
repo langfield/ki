@@ -1346,12 +1346,25 @@ def test_display_fields_health_warning_catches_empty_notes():
         assert health == 1
 
 
-def test_slugify():
+def test_slugify_filters_unicode_when_asked():
     text = "\u1234"
     result = ki.slugify(text, allow_unicode=False)
 
     # Filter out Ethiopian syllable see.
     assert result == ""
+
+
+def test_slugify_handles_unicode():
+    """Test that slugify handles unicode alphanumerics."""
+    # Hiragana should be okay.
+    text = "ゅ"
+    result = ki.slugify(text, allow_unicode=True)
+    assert result == text
+
+    # Emojis as well.
+    text = "😶"
+    result = ki.slugify(text, allow_unicode=True)
+    assert result == text
 
 
 def test_slugify_handles_html_tags():
