@@ -511,18 +511,20 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
         last_push_file: ExtantFile,
         no_modules_repo: git.Repo,
     ) -> Result[KiRepo, Exception]:
-        return Ok(KiRepo(
-            repo,
-            root,
-            ki_dir,
-            col_file,
-            backups_dir,
-            config_file,
-            hashes_file,
-            models_file,
-            last_push_file,
-            no_modules_repo,
-        ))
+        return Ok(
+            KiRepo(
+                repo,
+                root,
+                ki_dir,
+                col_file,
+                backups_dir,
+                config_file,
+                hashes_file,
+                models_file,
+                last_push_file,
+                no_modules_repo,
+            )
+        )
 
     return constructor(
         repo,
@@ -697,9 +699,7 @@ def ffchdir(directory: ExtantDir) -> ExtantDir:
 
 
 @beartype
-def ffparent(
-    path: Union[ExtantFile, ExtantDir]
-) -> ExtantDir:
+def ffparent(path: Union[ExtantFile, ExtantDir]) -> ExtantDir:
     """Get the parent of a path that exists."""
     if path.resolve() == FS_ROOT:
         return ExtantDir(FS_ROOT)
@@ -713,9 +713,7 @@ def ffmkdtemp() -> EmptyDir:
 
 
 @beartype
-def ffcopyfile(
-    source: ExtantFile, target_root: ExtantDir, name: str
-) -> ExtantFile:
+def ffcopyfile(source: ExtantFile, target_root: ExtantDir, name: str) -> ExtantFile:
     """Force copy a file (potentially overwrites the target path)."""
     name = singleton(name)
     target = target_root / name
@@ -759,7 +757,7 @@ def singleton(name: str) -> Singleton:
     return Singleton(name.replace("/", ""))
 
 
-# UNSAFE: Should catch exception and transform into nice Err that tells user what to do.
+# TODO: Should catch exception and transform into nice Err that tells user what to do.
 @beartype
 def lock(kirepo: KiRepo) -> sqlite3.Connection:
     """Acquire a lock on a SQLite3 database given a path."""
@@ -1159,9 +1157,9 @@ def update_note(
     # Validate field keys against notetype.
     validated: OkErr = validate_flatnote_fields(new_notetype, flatnote)
     if validated.is_err():
-        # TODO: Figure out a better way to handle warnings.
+        # TODO: Decide where warnings should be printed.
         logger.warning(validated.err())
-        return Ok()
+        return validated
 
     # Set field values. This is correct because every field name that appears
     # in ``new_notetype`` is contained in ``flatnote.fields``, or else we would
@@ -2065,7 +2063,7 @@ def push() -> Result[bool, Exception]:
     head_kirepo: Res[KiRepo] = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Read grammar.
-    # UNSAFE! Should we assume this always exists? A nice error message should
+    # TODO:! Should we assume this always exists? A nice error message should
     # be printed on initialization if the grammar file is missing. No
     # computation should be done, and none of the click commands should work.
     grammar_path = Path(__file__).resolve().parent / "grammar.lark"
@@ -2124,7 +2122,6 @@ def push_deltas(
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
-    # Edit the copy with `apy`.
     cwd: ExtantDir = ffcwd()
     col = Collection(new_col_file)
     ffchdir(cwd)
@@ -2204,7 +2201,7 @@ def push_deltas(
         _ = kirepo.repo.index.commit(msg)
 
     if modified:
-        echo('Database was modified.')
+        echo("Database was modified.")
         col.close()
     elif col.db:
         col.close(False)
