@@ -1296,21 +1296,20 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
     assert isinstance(error, ki.NotetypeMismatchError)
 
 
-@pytest.mark.skip
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        KiNote(a, a.col.get_note(i))
-        field = "c"
-        flatnote = FlatNote(
-            "title", 0, "Cloze", "Default", [], False, {"Text": field, "Back Extra": ""}
-        )
-        result = ki.add_note_from_flatnote(a, flatnote)
-        captured = capfd.readouterr()
-        assert result is None
-        assert "unknown error code" in captured.err
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+
+    field = "data"
+    fields = {"Text": field, "Back Extra": ""}
+    flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
+
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+
+    captured = capfd.readouterr()
+    assert "unknown error code" in captured.err
+    assert res is None
 
 
 @pytest.mark.skip

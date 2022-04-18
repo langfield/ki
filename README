@@ -108,6 +108,17 @@ TODO
 Merge write_deck() and write_decks(). (DONE)
 Fix bug where reassigned nid differs from old nid in commit msg.
 
+19-April-2022
+-------------
+Finish refactoring tests.
+Write tests for all ki functions.
+Move types, errors, maybes, and generic functions into separate files.
+Functions that return a `result.Result` should be prefixed with a capital
+letter, like F.mkleaves(), or M.kirepo().
+Other, normal functions should use lowercase, like f.copytree().
+Remove ki qualified import from tests to make code copying easier.
+Split tests into integration/unit.
+
 
 Triage
 ------
