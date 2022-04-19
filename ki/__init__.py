@@ -1167,6 +1167,7 @@ def update_note(
         return Err(NotetypeMismatchError(flatnote, new_notetype))
 
     note.tags = flatnote.tags
+    note.flush()
 
     # Set the deck of the given note, and create a deck with this name if it
     # doesn't already exist. See the comments/docstrings in the implementation.
@@ -1182,6 +1183,7 @@ def update_note(
     for field in old_notetype.flds:
         fmap[field.ord] = None
     note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
+    note.load()
 
     # Validate field keys against notetype.
     validated: OkErr = validate_flatnote_fields(new_notetype, flatnote)

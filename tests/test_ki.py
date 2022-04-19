@@ -1246,6 +1246,7 @@ def test_update_note_sets_deck():
     assert deck == "Default"
     notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
     res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    res.unwrap()
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
 
@@ -1304,12 +1305,31 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     fields = {"Text": field, "Back Extra": ""}
     flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
 
+    clz: ki.NotetypeDict = col.models.by_name("Cloze")
+    cloze: ki.Notetype = ki.parse_notetype_dict(clz)
     notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    res: OkErr = ki.update_note(note, flatnote, notetype, cloze)
+    warning = res.unwrap_err()
+    assert isinstance(warning, Exception)
+    assert isinstance(warning, ki.UnhealthyNoteWarning)
 
     captured = capfd.readouterr()
     assert "unknown error code" in captured.err
-    assert res is None
+
+
+def test_update_note_changes_notetype(capfd):
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+
+    field = "data"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Basic (and reversed card)", "Default", [], False, fields)
+
+    rev: ki.NotetypeDict = col.models.by_name("Basic (and reversed card)")
+    reverse: ki.Notetype = ki.parse_notetype_dict(rev)
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, reverse)
+    res.unwrap()
 
 
 @pytest.mark.skip

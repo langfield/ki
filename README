@@ -624,6 +624,59 @@ Bugs
 
 12. Nid reassignment in submodules doesn't get committed.
 
+
+13. KeyError can be raised within `update_note()` when field names are wrong
+    for notetype.
+
+
+    self = <anki.notes.Note object at 0x7f45f510b0a0>, key = Text
+
+        def _field_index(self, key: str) -> int:
+            try:
+    >           return self._fmap[key][0]
+    E           KeyError: Text
+
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:150: KeyError
+
+    The above exception was the direct cause of the following exception:
+
+    capfd = <_pytest.capture.CaptureFixture object at 0x7f45f510bee0>
+
+        def test_display_fields_health_warning_catches_missing_clozes(capfd):
+            col = open_collection(get_col_file())
+            note = col.get_note(set(col.find_notes("")).pop())
+
+            field = "data"
+            fields = {"Text": field, "Back Extra": ""}
+            flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
+
+            clz: ki.NotetypeDict = col.models.by_name("Cloze")
+            cloze: ki.Notetype = ki.parse_notetype_dict(clz)
+            notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    >       res: OkErr = ki.update_note(note, flatnote, notetype, cloze)
+
+    tests/test_ki.py:1310:
+    ki/safe.py:101: in decorated
+        result = func(*args, **kwargs)
+    <@beartype(ki.update_note) at 0x7f45f520c790>:88: in update_note
+        ???
+    ki/__init__.py:1201: in update_note
+        note[key] = plain_to_html(field)
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:158: in __setitem__
+        self.fields[self._field_index(key)] = value
+
+    self = <anki.notes.Note object at 0x7f45f510b0a0>, key = Text
+
+        def _field_index(self, key: str) -> int:
+            try:
+                return self._fmap[key][0]
+            except Exception as exc:
+    >           raise KeyError(key) from exc
+    E           KeyError: Text
+
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:152: KeyError
+
+
 On making push faster
 ---------------------
 We only want to update notes in the SQLite DB that have changed since the last
