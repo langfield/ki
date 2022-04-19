@@ -84,6 +84,7 @@ from ki import (
     flatten_staging_repo,
     filter_note_path,
     lock,
+    unsubmodule_repo,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -1577,41 +1578,19 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         assert "last_push" not in captured.err
 
 
-def test_get_ephemeral_repo_removes_gitmodules():
+def test_unsubmodule_repo_removes_gitmodules():
     """
-    When you have a ki repo with submodules, does an ephemeral version of that
-    repo have its submodules removed? (It should.) We test this by checking if
-    the `.gitmodules` file exists.
-
-    We also check if this is still true if we remove delete the submodules in
-    the main repo, and then commit the deletion.
+    When you have a ki repo with submodules, does calling
+    `unsubmodule_repo()`on it remove them? We test this by checking if the
+    `.gitmodules` file exists.
     """
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
-
-        ref: RepoRef = M_head_repo_ref(repo).unwrap()
-        staging_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, "AAA").unwrap()
-        staging_root = Path(staging_repo.working_dir)
-        gitmodules_path = staging_root / ".gitmodules"
-
-        assert not gitmodules_path.exists()
-
-        # Push changes.
-        os.chdir(repo.working_dir)
-        push(runner)
-
-        # Remove submodule.
-        shutil.rmtree(SUBMODULE_DIRNAME)
-        repo.git.add(all=True)
-        _ = repo.index.commit("Remove submodule.")
-
-        ref: RepoRef = M_head_repo_ref(repo).unwrap()
-        staging_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, "AAA").unwrap()
-        staging_root = Path(staging_repo.working_dir)
-        gitmodules_path = staging_root / ".gitmodules"
-
+        gitmodules_path = Path(repo.working_dir) / ".gitmodules"
+        assert gitmodules_path.exists()
+        unsubmodule_repo(repo)
         assert not gitmodules_path.exists()
 
 
