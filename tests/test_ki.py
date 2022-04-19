@@ -31,6 +31,7 @@ from beartype.typing import List, Callable
 import ki
 from ki import (
     BRANCH_NAME,
+    LOCAL_SUFFIX,
     STAGE_SUFFIX,
     DELETED_SUFFIX,
     IGNORE,
@@ -54,6 +55,7 @@ from ki import (
     M_kirepo,
     M_head_kirepo_ref,
     M_head_repo_ref,
+    M_repo_ref,
     fftest,
     ffmkdir,
     ffcwd,
@@ -1575,15 +1577,22 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         assert "last_push" not in captured.err
 
 
-@pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
+    """
+    When you have a ki repo with submodules, does an ephemeral version of that
+    repo have its submodules removed? (It should.) We test this by checking if
+    the `.gitmodules` file exists.
+
+    We also check if this is still true if we remove delete the submodules in
+    the main repo, and then commit the deletion.
+    """
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
 
-        sha = str(repo.head.commit)
-        staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+        ref: RepoRef = M_head_repo_ref(repo).unwrap()
+        staging_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, "AAA").unwrap()
         staging_root = Path(staging_repo.working_dir)
         gitmodules_path = staging_root / ".gitmodules"
 
@@ -1598,8 +1607,8 @@ def test_get_ephemeral_repo_removes_gitmodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        sha = str(repo.head.commit)
-        staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+        ref: RepoRef = M_head_repo_ref(repo).unwrap()
+        staging_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, "AAA").unwrap()
         staging_root = Path(staging_repo.working_dir)
         gitmodules_path = staging_root / ".gitmodules"
 
