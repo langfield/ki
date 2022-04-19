@@ -1400,11 +1400,10 @@ def test_update_note_converts_markdown_formatting_to_html():
     assert "<em>hello</em>" in note.fields[0]
 
 
-@pytest.mark.skip
-def test_get_deltas_since_last_push(capfd):
+def test_diff_repos(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
         clone(runner, col_file)
@@ -1413,7 +1412,7 @@ def test_get_deltas_since_last_push(capfd):
         last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
         last_push_path.write_text("")
 
-        deltas = ki.get_deltas_since_last_push(repo)
+        deltas = ki.diff_repos(repo)
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
