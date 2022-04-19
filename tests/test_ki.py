@@ -15,17 +15,57 @@ import pytest
 import bitstring
 import checksumdir
 import prettyprinter as pp
+from lark import Lark
 from lark.exceptions import UnexpectedToken
 from loguru import logger
 from result import Result, Err, Ok, OkErr
-from apy.anki import Anki
 from click.testing import CliRunner
+from anki.collection import Collection
 
 from beartype import beartype
 from beartype.typing import List
 
 import ki
-from ki.transformer import FlatNote
+from ki import (
+    BRANCH_NAME,
+    NotetypeDict,
+    GitChangeType,
+    Notetype,
+    ColNote,
+    ExtantDir,
+    ExtantFile,
+    TargetExistsError,
+    NotKiRepoError,
+    UpdatesRejectedError,
+    NotetypeMismatchError,
+    UnhealthyNoteWarning,
+    NoteFieldValidationWarning,
+    fftest,
+    ffmkdir,
+    ffcwd,
+    ffforce_mkdir,
+    ffchdir,
+    md5,
+    write_decks,
+    get_note_payload,
+    create_deck_dir,
+    tidy_html_recursively,
+    get_note_path,
+    git_subprocess_pull,
+    get_colnote,
+    backup,
+    get_ephemeral_repo,
+    diff_repos,
+    update_note,
+    parse_notetype_dict,
+    slugify,
+    display_fields_health_warning,
+    is_anki_note,
+    ftouch,
+    get_batches,
+    parse_markdown_note,
+)
+from ki.transformer import FlatNote, NoteTransformer
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
@@ -88,7 +128,7 @@ def invoke(*args, **kwargs):
 
 
 @beartype
-def clone(runner: CliRunner, collection: ki.ExtantFile, directory: str = "") -> str:
+def clone(runner: CliRunner, collection: ExtantFile, directory: str = "") -> str:
     """Make a test `ki clone` call."""
     res = runner.invoke(
         ki.ki,
@@ -120,33 +160,33 @@ def push(runner: CliRunner) -> str:
 
 
 @beartype
-def get_col_file() -> ki.ExtantFile:
+def get_col_file() -> ExtantFile:
     """Put `collection.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, col_file)
-    return ki.fftest(Path(col_file))
+    return fftest(Path(col_file))
 
 
 @beartype
-def get_multideck_col_file() -> ki.ExtantFile:
+def get_multideck_col_file() -> ExtantFile:
     """Put `multideck.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, col_file)
-    return ki.fftest(Path(col_file))
+    return fftest(Path(col_file))
 
 
 @beartype
-def get_html_col_file() -> ki.ExtantFile:
+def get_html_col_file() -> ExtantFile:
     """Put `html.anki2` in a tempdir and return its abspath."""
     # Copy collection to tempdir.
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, col_file)
-    return ki.fftest(Path(col_file))
+    return fftest(Path(col_file))
 
 
 @beartype
@@ -162,7 +202,7 @@ def is_git_repo(path: str) -> bool:
 
 
 @beartype
-def randomly_swap_1_bit(path: ki.ExtantFile) -> None:
+def randomly_swap_1_bit(path: ExtantFile) -> None:
     """Randomly swap a bit in a file."""
     # Read in bytes.
     with open(path, "rb") as file:
@@ -192,18 +232,18 @@ def checksum_git_repository(path: str) -> str:
 
 
 @beartype
-def get_notes(collection: ki.ExtantFile) -> List[ki.ColNote]:
+def get_notes(collection: ExtantFile) -> List[ColNote]:
     """Get a list of notes from a path."""
-    cwd: ki.ExtantDir = ki.ffcwd()
-    col = ki.Collection(collection)
-    ki.ffchdir(cwd)
+    cwd: ExtantDir = ffcwd()
+    col = Collection(collection)
+    ffchdir(cwd)
 
-    notes: List[ki.ColNote] = []
+    notes: List[ColNote] = []
     for nid in set(col.find_notes("")):
-        colnote: OkErr = ki.get_colnote(col, nid)
+        colnote: OkErr = get_colnote(col, nid)
         if colnote.is_err():
             raise colnote
-        colnote: ki.ColNote = colnote.unwrap()
+        colnote: ColNote = colnote.unwrap()
         notes.append(colnote)
 
     return notes
@@ -214,7 +254,7 @@ def get_staging_repo(repo: git.Repo) -> git.Repo:
     """Get deltas from ephemeral staging repo."""
     # Get ephemeral repo (submodules converted to ordinary directories).
     sha = str(repo.head.commit)
-    staging_repo = ki.get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+    staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
 
     # Copy `.ki/` directory into the staging repo.
     staging_repo_kidir = Path(staging_repo.working_dir) / ".ki"
@@ -224,7 +264,7 @@ def get_staging_repo(repo: git.Repo) -> git.Repo:
 
 
 @beartype
-def get_repo_with_submodules(runner: CliRunner, col_file: ki.ExtantFile) -> git.Repo:
+def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Repo:
     """Return repo with committed submodule."""
     # Clone collection in cwd.
     clone(runner, col_file)
@@ -233,7 +273,7 @@ def get_repo_with_submodules(runner: CliRunner, col_file: ki.ExtantFile) -> git.
     # Create submodule out of GITREPO_PATH.
     submodule_name = SUBMODULE_DIRNAME
     shutil.copytree(GITREPO_PATH, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=ki.BRANCH_NAME)
+    git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
     sm = git.Repo(submodule_name)
     sm.git.add(all=True)
     _ = sm.index.commit("Initial commit.")
@@ -313,9 +353,9 @@ def test_fails_without_ki_subdirectory(tmp_path: Path):
         tempdir = tempfile.mkdtemp()
         copy_tree(GITREPO_PATH, tempdir)
         os.chdir(tempdir)
-        with pytest.raises(ki.NotKiRepoError):
+        with pytest.raises(NotKiRepoError):
             pull(runner)
-        with pytest.raises(ki.NotKiRepoError):
+        with pytest.raises(NotKiRepoError):
             push(runner)
 
 
@@ -338,7 +378,7 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        logger.debug(f"CWD: {ki.ffcwd()}")
+        logger.debug(f"CWD: {ffcwd()}")
 
         # Pull edited collection.
         os.chdir(REPODIR)
@@ -474,7 +514,7 @@ def test_clone_errors_when_directory_is_populated():
             hi_file.write("hi\n")
 
         # Should error out because directory already exists.
-        with pytest.raises(ki.TargetExistsError):
+        with pytest.raises(TargetExistsError):
             out = clone(runner, col_file)
 
 
@@ -526,8 +566,8 @@ def test_clone_generates_expected_notes():
         assert os.path.isdir(os.path.join(REPODIR, "Default"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
-        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
+        cloned_md5 = md5(ExtantFile(cloned_note_path))
+        true_md5 = md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -551,8 +591,8 @@ def test_clone_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
-        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
+        cloned_md5 = md5(ExtantFile(cloned_note_path))
+        true_md5 = md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -611,14 +651,14 @@ def test_clone_commits_directory_contents():
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     col_file = get_col_file()
-    original_md5 = ki.md5(col_file)
+    original_md5 = md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
         clone(runner, col_file)
 
-        updated_md5 = ki.md5(col_file)
+        updated_md5 = md5(col_file)
         assert original_md5 == updated_md5
 
 
@@ -815,7 +855,7 @@ def test_push_verifies_md5sum():
 
         # Make sure ki complains.
         os.chdir(REPODIR)
-        with pytest.raises(ki.UpdatesRejectedError):
+        with pytest.raises(UpdatesRejectedError):
             push(runner)
 
 
@@ -823,7 +863,7 @@ def test_push_verifies_md5sum():
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     col_file = get_col_file()
-    old_hash = ki.md5(col_file)
+    old_hash = md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -847,12 +887,12 @@ def test_push_generates_correct_backup():
         os.chdir(".ki/backups")
         paths = os.listdir()
 
-        backup = False
+        backup_exists = False
         for path in paths:
-            if ki.md5(ki.fftest(Path(path))) == old_hash:
-                backup = True
+            if md5(fftest(Path(path))) == old_hash:
+                backup_exists = True
 
-        assert backup
+        assert backup_exists
 
 
 @pytest.mark.skip
@@ -1100,25 +1140,25 @@ def test_parse_markdown_note():
     grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.
-    parser = ki.Lark(grammar, start="file", parser="lalr")
-    transformer = ki.NoteTransformer()
+    parser = Lark(grammar, start="file", parser="lalr")
+    transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ki.fftest(Path(NOTE_5_PATH)))
+        parse_markdown_note(parser, transformer, fftest(Path(NOTE_5_PATH)))
     with pytest.raises(UnexpectedToken):
-        ki.parse_markdown_note(parser, transformer, ki.fftest(Path(NOTE_6_PATH)))
+        parse_markdown_note(parser, transformer, fftest(Path(NOTE_6_PATH)))
 
 
 def test_get_batches():
     """Does it get batches from a list of strings?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ki.ffcwd()
-        one = ki.ftouch(root, "note1.md")
-        two = ki.ftouch(root, "note2.md")
-        three = ki.ftouch(root, "note3.md")
-        four = ki.ftouch(root, "note4.md")
-        batches = list(ki.get_batches([one, two, three, four], n=2))
+        root = ffcwd()
+        one = ftouch(root, "note1.md")
+        two = ftouch(root, "note2.md")
+        three = ftouch(root, "note3.md")
+        four = ftouch(root, "note4.md")
+        batches = list(get_batches([one, two, three, four], n=2))
         assert batches == [[one, two], [three, four]]
 
 
@@ -1126,40 +1166,40 @@ def test_is_anki_note():
     """Do the checks in ``is_anki_note()`` actually do anything?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ki.ffcwd()
-        mda = ki.ftouch(root, "note.mda")
-        amd = ki.ftouch(root, "note.amd")
-        mdtxt = ki.ftouch(root, "note.mdtxt")
-        nd = ki.ftouch(root, "note.nd")
+        root = ffcwd()
+        mda = ftouch(root, "note.mda")
+        amd = ftouch(root, "note.amd")
+        mdtxt = ftouch(root, "note.mdtxt")
+        nd = ftouch(root, "note.nd")
 
-        assert ki.is_anki_note(mda) is False
-        assert ki.is_anki_note(amd) is False
-        assert ki.is_anki_note(mdtxt) is False
-        assert ki.is_anki_note(nd) is False
+        assert is_anki_note(mda) is False
+        assert is_anki_note(amd) is False
+        assert is_anki_note(mdtxt) is False
+        assert is_anki_note(nd) is False
 
-        note_file: ki.ExtantFile = ki.ftouch(root, "note.md")
+        note_file: ExtantFile = ftouch(root, "note.md")
 
         note_file.write_text("", encoding="UTF-8")
-        assert ki.is_anki_note(note_file) is False
+        assert is_anki_note(note_file) is False
 
         note_file.write_text("one line", encoding="UTF-8")
-        assert ki.is_anki_note(note_file) is False
+        assert is_anki_note(note_file) is False
 
         note_file.write_text("### Note\n## Note\n", encoding="UTF-8")
-        assert ki.is_anki_note(note_file) is False
+        assert is_anki_note(note_file) is False
 
         note_file.write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
-        assert ki.is_anki_note(note_file) is False
+        assert is_anki_note(note_file) is False
 
         note_file.write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
-        assert ki.is_anki_note(note_file) is True
+        assert is_anki_note(note_file) is True
 
 
 @beartype
-def open_collection(col_file: ki.ExtantFile) -> ki.Collection:
-    cwd: ki.ExtantDir = ki.ffcwd()
-    col = ki.Collection(col_file)
-    ki.ffchdir(cwd)
+def open_collection(col_file: ExtantFile) -> Collection:
+    cwd: ExtantDir = ffcwd()
+    col = Collection(col_file)
+    ffchdir(cwd)
     return col
 
 
@@ -1171,11 +1211,11 @@ def test_update_note_raises_error_on_too_few_fields():
 
     # Note that "Back" field is missing.
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field})
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     warning: Warning = res.unwrap_err()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert isinstance(warning, NoteFieldValidationWarning)
     assert "Wrong number of fields for model Basic!" in str(warning)
 
 
@@ -1189,11 +1229,11 @@ def test_update_note_raises_error_on_too_many_fields():
     fields = {"Front": field, "Back": field, "Left": field}
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     warning: Warning = res.unwrap_err()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert isinstance(warning, NoteFieldValidationWarning)
     assert "Wrong number of fields for model Basic!" in str(warning)
 
 
@@ -1207,11 +1247,11 @@ def test_update_note_raises_error_wrong_field_name():
     fields = {"Front": field, "Backus": field}
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     warning: Warning = res.unwrap_err()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, ki.NoteFieldValidationWarning)
+    assert isinstance(warning, NoteFieldValidationWarning)
     assert "Inconsistent field names" in str(warning)
     assert "Backus" in str(warning)
     assert "Back" in str(warning)
@@ -1227,8 +1267,8 @@ def test_update_note_sets_tags():
     flatnote = FlatNote("", 0, "Basic", "Default", ["tag"], False, fields)
 
     assert note.tags == []
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     assert note.tags == ["tag"]
 
 
@@ -1244,8 +1284,8 @@ def test_update_note_sets_deck():
     # work with cards instead of notes.
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "Default"
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     res.unwrap()
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
@@ -1261,8 +1301,8 @@ def test_update_note_sets_field_contents():
 
     assert "TITLE" not in note.fields[0]
 
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
 
     assert "TITLE" in note.fields[0]
     assert "</p>" in note.fields[0]
@@ -1277,8 +1317,8 @@ def test_update_note_removes_field_contents():
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
     assert "a" in note.fields[0]
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     assert "a" not in note.fields[0]
 
 
@@ -1290,11 +1330,11 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "Nonexistent", "Default", [], False, fields)
 
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     error: Exception = res.unwrap_err()
     assert isinstance(error, Exception)
-    assert isinstance(error, ki.NotetypeMismatchError)
+    assert isinstance(error, NotetypeMismatchError)
 
 
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
@@ -1305,13 +1345,13 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     fields = {"Text": field, "Back Extra": ""}
     flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
 
-    clz: ki.NotetypeDict = col.models.by_name("Cloze")
-    cloze: ki.Notetype = ki.parse_notetype_dict(clz)
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, cloze)
+    clz: NotetypeDict = col.models.by_name("Cloze")
+    cloze: Notetype = parse_notetype_dict(clz)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, cloze)
     warning = res.unwrap_err()
     assert isinstance(warning, Exception)
-    assert isinstance(warning, ki.UnhealthyNoteWarning)
+    assert isinstance(warning, UnhealthyNoteWarning)
 
     captured = capfd.readouterr()
     assert "unknown error code" in captured.err
@@ -1323,12 +1363,14 @@ def test_update_note_changes_notetype(capfd):
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic (and reversed card)", "Default", [], False, fields)
+    flatnote = FlatNote(
+        "title", 0, "Basic (and reversed card)", "Default", [], False, fields
+    )
 
-    rev: ki.NotetypeDict = col.models.by_name("Basic (and reversed card)")
-    reverse: ki.Notetype = ki.parse_notetype_dict(rev)
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, reverse)
+    rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
+    reverse: Notetype = parse_notetype_dict(rev)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, reverse)
     res.unwrap()
 
 
@@ -1337,13 +1379,13 @@ def test_display_fields_health_warning_catches_empty_notes():
     note = col.get_note(set(col.find_notes("")).pop())
 
     note.fields = []
-    health = ki.display_fields_health_warning(note)
+    health = display_fields_health_warning(note)
     assert health == 1
 
 
 def test_slugify_filters_unicode_when_asked():
     text = "\u1234"
-    result = ki.slugify(text, allow_unicode=False)
+    result = slugify(text, allow_unicode=False)
 
     # Filter out Ethiopian syllable see.
     assert result == ""
@@ -1353,18 +1395,18 @@ def test_slugify_handles_unicode():
     """Test that slugify handles unicode alphanumerics."""
     # Hiragana should be okay.
     text = "ゅ"
-    result = ki.slugify(text, allow_unicode=True)
+    result = slugify(text, allow_unicode=True)
     assert result == text
 
     # Emojis as well.
     text = "😶"
-    result = ki.slugify(text, allow_unicode=True)
+    result = slugify(text, allow_unicode=True)
     assert result == text
 
 
 def test_slugify_handles_html_tags():
     text = '<img src="card11front.jpg" />'
-    result = ki.slugify(text, allow_unicode=True)
+    result = slugify(text, allow_unicode=True)
 
     assert result == "img-srccard11frontjpg"
 
@@ -1373,14 +1415,14 @@ def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
     runner = CliRunner()
     with runner.isolated_filesystem():
-        deck_dir: ki.ExtantDir = ki.ffforce_mkdir(Path("a"))
+        deck_dir: ExtantDir = ffforce_mkdir(Path("a"))
 
-        path: ki.ExtantFile = ki.get_note_path(field_text, deck_dir)
+        path: ExtantFile = get_note_path(field_text, deck_dir)
         assert os.path.isfile(path)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
-        path: ki.ExtantFile = ki.get_note_path("", deck_dir)
+        path: ExtantFile = get_note_path("", deck_dir)
         assert os.path.isfile(path)
 
 
@@ -1395,8 +1437,8 @@ def test_update_note_converts_markdown_formatting_to_html():
     flatnote = FlatNote("title", 0, "Basic", "Default", [], True, fields)
 
     assert "a" in note.fields[0]
-    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
-    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    res: OkErr = update_note(note, flatnote, notetype, notetype)
     assert "<em>hello</em>" in note.fields[0]
 
 
@@ -1412,7 +1454,7 @@ def test_diff_repos(capfd, tmp_path):
         last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
         last_push_path.write_text("")
 
-        deltas = ki.diff_repos(repo)
+        deltas = diff_repos(repo)
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
@@ -1432,7 +1474,7 @@ def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
         last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
         os.remove(last_push_path)
 
-        deltas = ki.get_deltas_since_last_push(repo)
+        deltas = get_deltas_since_last_push(repo)
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
@@ -1447,7 +1489,7 @@ def test_get_ephemeral_repo_removes_gitmodules():
         repo = get_repo_with_submodules(runner, col_file)
 
         sha = str(repo.head.commit)
-        staging_repo = ki.get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+        staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
         staging_root = Path(staging_repo.working_dir)
         gitmodules_path = staging_root / ".gitmodules"
 
@@ -1463,7 +1505,7 @@ def test_get_ephemeral_repo_removes_gitmodules():
         _ = repo.index.commit("Remove submodule.")
 
         sha = str(repo.head.commit)
-        staging_repo = ki.get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
+        staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
         staging_root = Path(staging_repo.working_dir)
         gitmodules_path = staging_root / ".gitmodules"
 
@@ -1481,10 +1523,10 @@ def test_get_deltas_since_last_push_handles_submodules():
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
         staging_repo = get_staging_repo(repo)
-        deltas = ki.get_deltas_since_last_push(staging_repo)
+        deltas = get_deltas_since_last_push(staging_repo)
         assert len(deltas) == 1
         delta = deltas[0]
-        assert delta.status == ki.GitChangeType.ADDED
+        assert delta.status == GitChangeType.ADDED
         assert "ki/local/AAA/submodule/Default/a.md" in str(delta.path)
 
         # Push changes.
@@ -1497,7 +1539,7 @@ def test_get_deltas_since_last_push_handles_submodules():
         _ = repo.index.commit("Remove submodule.")
 
         staging_repo = get_staging_repo(repo)
-        deltas = ki.get_deltas_since_last_push(staging_repo)
+        deltas = get_deltas_since_last_push(staging_repo)
         logger.debug(f"Deltas: {pp.pformat(deltas)}")
 
         for delta in deltas:
@@ -1512,8 +1554,8 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         clone(runner, col_file)
         os.chdir(REPODIR)
 
-        ki.backup(col_file)
-        ki.backup(col_file)
+        backup(col_file)
+        backup(col_file)
         captured = capfd.readouterr()
         assert "Backup already exists." in captured.out
 
@@ -1533,7 +1575,7 @@ def test_git_subprocess_pull():
 
         # Pull, poorly.
         with pytest.raises(ValueError):
-            ki.git_subprocess_pull("anki", "main")
+            git_subprocess_pull("anki", "main")
 
 
 @pytest.mark.skip
@@ -1545,10 +1587,10 @@ def test_get_note_path():
         i = set(a.col.find_notes(query)).pop()
         _ = KiNote(a, a.col.get_note(i))
 
-        deck_dir = ki.ffcwd()
+        deck_dir = ffcwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        note_path = ki.get_note_path("a", deck_dir)
+        note_path = get_note_path("a", deck_dir)
         assert str(note_path.name) == "a_1.md"
 
 
@@ -1557,14 +1599,14 @@ def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ki.ffcwd()
+        root = ffcwd()
         file = root / "a.html"
         file.write_text("ay")
         old_path = os.environ["PATH"]
         try:
             os.environ["PATH"] = ""
             with pytest.raises(FileNotFoundError):
-                ki.tidy_html_recursively(root, False)
+                tidy_html_recursively(root, False)
         finally:
             os.environ["PATH"] = old_path
 
@@ -1574,8 +1616,8 @@ def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ki.ffcwd()
-        path = ki.create_deck_dir(deckname, root)
+        root = ffcwd()
+        path = create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
@@ -1585,8 +1627,8 @@ def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ki.ffcwd()
-        path = ki.create_deck_dir(deckname, root)
+        root = ffcwd()
+        path = create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
@@ -1603,7 +1645,7 @@ def test_get_note_payload():
         path = Path(fid)
         heyoo = "HEYOOOOO"
         path.write_text(heyoo, encoding="UTF-8")
-        result = ki.get_note_payload(kinote, {fid: path})
+        result = get_note_payload(kinote, {fid: path})
         assert heyoo in result
         assert "\nb\n" in result
 
@@ -1617,9 +1659,9 @@ def test_write_notes_generates_deck_tree_correctly():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = ki.fftest(Path(MULTIDECK_REPODIR))
-        targetdir = ki.ffmkdir(targetdir)
-        ki.write_notes(col_file, targetdir, silent=False)
+        targetdir = fftest(Path(MULTIDECK_REPODIR))
+        targetdir = ffmkdir(targetdir)
+        write_notes(col_file, targetdir, silent=False)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
@@ -1627,8 +1669,8 @@ def test_write_notes_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = ki.md5(ki.ExtantFile(cloned_note_path))
-        true_md5 = ki.md5(ki.ExtantFile(true_note_path))
+        cloned_md5 = md5(ExtantFile(cloned_note_path))
+        true_md5 = md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -1640,5 +1682,5 @@ def test_write_notes_handles_html():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = ki.ffmkdir(ki.fftest(Path(HTML_REPODIR)))
-        ki.write_notes(col_file, targetdir, silent=False)
+        targetdir = ffmkdir(fftest(Path(HTML_REPODIR)))
+        write_notes(col_file, targetdir, silent=False)
