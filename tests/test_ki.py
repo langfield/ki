@@ -1594,7 +1594,6 @@ def test_unsubmodule_repo_removes_gitmodules():
         assert not gitmodules_path.exists()
 
 
-@pytest.mark.skip
 def test_diff_repos_handles_submodules():
     """
     Does 'diff_repos()' correctly generate deltas
@@ -1604,15 +1603,25 @@ def test_diff_repos_handles_submodules():
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
-        staging_repo = get_staging_repo(repo)
-        deltas = diff_repos(staging_repo)
+
+        os.chdir(REPODIR)
+
+        args: DiffReposArgs = get_diff_repos_args()
+        deltas: List[Delta] = diff_repos(
+            args.a_repo,
+            args.b_repo,
+            args.head_1,
+            args.filter_fn,
+            args.parser,
+            args.transformer,
+        ).unwrap()
+
         assert len(deltas) == 1
         delta = deltas[0]
         assert delta.status == GitChangeType.ADDED
-        assert "ki/local/AAA/submodule/Default/a.md" in str(delta.path)
+        assert "submodule/Default/a.md" in str(delta.path)
 
         # Push changes.
-        os.chdir(REPODIR)
         push(runner)
 
         # Remove submodule.
@@ -1620,9 +1629,15 @@ def test_diff_repos_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        staging_repo = get_staging_repo(repo)
-        deltas = diff_repos(staging_repo)
-        logger.debug(f"Deltas: {pp.pformat(deltas)}")
+        args: DiffReposArgs = get_diff_repos_args()
+        deltas: List[Delta] = diff_repos(
+            args.a_repo,
+            args.b_repo,
+            args.head_1,
+            args.filter_fn,
+            args.parser,
+            args.transformer,
+        ).unwrap()
 
         for delta in deltas:
             assert delta.path.is_file()
