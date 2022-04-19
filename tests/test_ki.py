@@ -1704,7 +1704,6 @@ def test_tidy_html_recursively():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
@@ -1715,7 +1714,6 @@ def test_create_deck_dir():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
