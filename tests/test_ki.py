@@ -1724,20 +1724,31 @@ def test_create_deck_dir_strips_leading_periods():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_get_note_payload():
-    col_file = get_col_file()
-    query = ""
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    colnote: ColNote = get_colnote(col, note.id).unwrap()
     runner = CliRunner()
-    with runner.isolated_filesystem(), Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        kinote = KiNote(a, a.col.get_note(i))
+    with runner.isolated_filesystem():
+
+        # Field-note content id for the note returned by our `col.get_note()`
+        # call above. Perhaps this should not be hardcoded.
         fid = "1645010162168front"
+
+        # We use the fid as the filename as well for convenience, but there is
+        # no reason this must be the case.
         path = Path(fid)
+
+        # Dump content to the file. This represents our tidied HTML source.
         heyoo = "HEYOOOOO"
         path.write_text(heyoo, encoding="UTF-8")
-        result = get_note_payload(kinote, {fid: path})
+
+        result = get_note_payload(colnote, {fid: path})
+
+        # Check that the dumped `front` field content is there.
         assert heyoo in result
+
+        # The `back` field content.
         assert "\nb\n" in result
 
 

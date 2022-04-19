@@ -1673,9 +1673,22 @@ def get_colnote_repr(colnote: ColNote) -> str:
     return "\n".join(lines)
 
 
+# TODO: Come up with a better name than `paths`.
 @beartype
 def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
-    """Get the payload for the note (HTML-tidied if necessary)."""
+    """
+    Return the markdown-converted contents of the Anki note represented by
+    `colnote` as a string.
+
+    Given a `ColNote`, which is a dataclass wrapper around a `Note` object
+    which has been loaded from the DB, and a mapping from `fid`s (unique
+    identifiers of field-note pairs) to paths, we check for each field of each
+    note whether that field's `fid` is contained in `paths`. If so, that means
+    that the caller dumped the contents of this field to a file (the file with
+    this path, in fact) in order to autoformat the HTML source. If this field
+    was tidied/autoformatted, we read from that path to get the tidied source,
+    otherwise, we use the field content present in the `ColNote`.
+    """
     # Get tidied html if it exists.
     tidyfields = {}
     for field_name, field_text in colnote.n.items():
