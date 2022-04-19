@@ -41,6 +41,7 @@ from ki import (
     Delta,
     ExtantDir,
     ExtantFile,
+    MissingFileError,
     TargetExistsError,
     NotKiRepoError,
     UpdatesRejectedError,
@@ -1144,6 +1145,24 @@ def test_push_generates_correct_title_for_notes():
         assert "r.md" in notes
 
 
+def test_push_displays_informative_error_when_last_push_file_is_missing(capfd):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+        repo = git.Repo(REPODIR)
+
+        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
+        os.remove(last_push_path)
+
+        # We should get a missing file error.
+        os.chdir(REPODIR)
+        with pytest.raises(MissingFileError):
+            push(runner)
+
+
 # UTILS
 
 
@@ -1557,26 +1576,6 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
 
 
 @pytest.mark.skip
-def test_get_deltas_since_last_push_when_last_push_file_is_missing(capfd):
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, col_file)
-        repo = git.Repo(REPODIR)
-
-        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
-        os.remove(last_push_path)
-
-        deltas = get_deltas_since_last_push(repo)
-        changed = [str(delta.path) for delta in deltas]
-        captured = capfd.readouterr()
-        assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
-        assert "last_push" in captured.err
-
-
-@pytest.mark.skip
 def test_get_ephemeral_repo_removes_gitmodules():
     col_file = get_col_file()
     runner = CliRunner()
@@ -1608,9 +1607,9 @@ def test_get_ephemeral_repo_removes_gitmodules():
 
 
 @pytest.mark.skip
-def test_get_deltas_since_last_push_handles_submodules():
+def test_diff_repos_handles_submodules():
     """
-    Does 'get_deltas_since_last_push()' correctly generate deltas
+    Does 'diff_repos()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
     col_file = get_col_file()
@@ -1618,7 +1617,7 @@ def test_get_deltas_since_last_push_handles_submodules():
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, col_file)
         staging_repo = get_staging_repo(repo)
-        deltas = get_deltas_since_last_push(staging_repo)
+        deltas = diff_repos(staging_repo)
         assert len(deltas) == 1
         delta = deltas[0]
         assert delta.status == GitChangeType.ADDED
@@ -1634,7 +1633,7 @@ def test_get_deltas_since_last_push_handles_submodules():
         _ = repo.index.commit("Remove submodule.")
 
         staging_repo = get_staging_repo(repo)
-        deltas = get_deltas_since_last_push(staging_repo)
+        deltas = diff_repos(staging_repo)
         logger.debug(f"Deltas: {pp.pformat(deltas)}")
 
         for delta in deltas:

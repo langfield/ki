@@ -122,6 +122,55 @@ FLAGS = "\U0001F1E0-\U0001F1FF"
 # Regex to filter out bad stuff from filenames.
 SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
 
+
+BACKUPS_DIR_INFO = """
+This is the '.ki/backups' directory, used to store backups of the '.anki2'
+collection database file before ki overwrites it during a push. It may be
+missing because the current ki repository has become corrupted.
+"""
+
+CONFIG_FILE_INFO = """
+This is the '.ki/config' file, used to store the path to a '.anki2' collection
+database file. It may be missing because the current ki repository has become
+corrupted.
+"""
+
+HASHES_FILE_INFO = """
+This is the '.ki/hashes' file, used to store recent md5sums of the '.anki2'
+collection database file, which allow ki to determine when updates should be
+rejected, i.e. when the user must pull remote changes before they can push
+local ones. It may be missing because the current ki repository has become
+corrupted.
+"""
+
+MODELS_FILE_INFO = """
+This is the top-level 'models.json' file, which contains serialized notetypes
+for all notes in the current repository. Ki should always create this during
+cloning. If it has been manually deleted, try reverting to an earlier commit.
+Otherwise, it may indicate that the repository has become corrupted.
+"""
+
+LAST_PUSH_FILE_INFO = """
+This is the '.ki/last_push' file, used internally by ki to keep diffs and
+eliminate unnecessary merge conflicts during pull operations. It should never
+be missing, and if it is, the repository may have become corrupted.
+"""
+
+NO_MODULES_DIR_INFO = """
+This is the '.ki/no_submodules_tree' file, used internally by ki to keep track
+of what notes need to be written/modified/deleted in the Anki database. It
+should never be missing, and if it is, the repository may have become
+corrupted.
+"""
+
+COL_FILE_INFO = """
+This is the '.anki2' database file that contains all the data for a user's
+collection. This path was contained in the '.ki/config' file, indicating that
+the collection this repository previously referred to has been moved or
+deleted. The path can be manually fixed by editing the '.ki/config' file.
+"""
+
+
 # TYPES
 
 
@@ -289,20 +338,51 @@ class Leaves:
 # EXCEPTIONS
 
 
-class ExpectedFileButGotDirectoryError(Exception):
-    pass
+class MissingFileError(FileNotFoundError):
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = f"File not found: '{path}'{info}"
+        super().__init__(msg)
+
+
+class MissingDirectoryError(Exception):
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = f"Directory not found: '{path}'{info}"
+        super().__init__(msg)
+
+
+class ExpectedFileButGotDirectoryError(FileNotFoundError):
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = "A file was expected at this location, but got a directory: "
+        msg += f"'{path}'{info}"
+        super().__init__(msg)
 
 
 class ExpectedDirectoryButGotFileError(Exception):
-    pass
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = "A directory was expected at this location, but got a file: "
+        msg += f"'{path}'{info}"
+        super().__init__(msg)
 
 
 class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
-    pass
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = "An empty directory was expected at this location, but it is nonempty: "
+        msg += f"'{path}'{info}"
+        super().__init__(msg)
 
 
 class StrangeExtantPathError(Exception):
-    pass
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = "A normal file or directory was expected, but got a weird pseudofile "
+        msg += "(e.g. a socket, or a device): "
+        msg += f"'{path}'{info}"
+        super().__init__(msg)
 
 
 class NotKiRepoError(Exception):
@@ -409,7 +489,7 @@ def M_nopath(path: Path) -> Result[NoPath, Exception]:
 
 @safe
 @beartype
-def M_xfile(path: Path) -> Result[ExtantFile, Exception]:
+def M_xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
     """
     Attempt to instantiate an ExtantFile.
     """
@@ -418,11 +498,11 @@ def M_xfile(path: Path) -> Result[ExtantFile, Exception]:
 
     # Check that path exists and is a file.
     if not path.exists():
-        return Err(FileNotFoundError(str(path)))
+        return Err(MissingFileError(path, info))
     if path.is_dir():
-        return Err(ExpectedFileButGotDirectoryError(str(path)))
+        return Err(ExpectedFileButGotDirectoryError(path, info))
     if not path.is_file():
-        return Err(StrangeExtantPathError(str(path)))
+        return Err(StrangeExtantPathError(path, info))
 
     # Must be an extant file.
     return Ok(ExtantFile(path))
@@ -430,7 +510,7 @@ def M_xfile(path: Path) -> Result[ExtantFile, Exception]:
 
 @safe
 @beartype
-def M_xdir(path: Path) -> Result[ExtantDir, Exception]:
+def M_xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
     """
     Attempt to instantiate an ExtantDir.
     """
@@ -439,12 +519,12 @@ def M_xdir(path: Path) -> Result[ExtantDir, Exception]:
 
     # Check that path exists and is a directory.
     if not path.exists():
-        return Err(FileNotFoundError(str(path)))
+        return Err(MissingDirectoryError(path, info))
     if path.is_dir():
         return Ok(ExtantDir(path))
     if path.is_file():
-        return Err(ExpectedDirectoryButGotFileError(str(path)))
-    return Err(StrangeExtantPathError(str(path)))
+        return Err(ExpectedDirectoryButGotFileError(path, info))
+    return Err(StrangeExtantPathError(path, info))
 
 
 @safe
@@ -501,14 +581,14 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     repo: OkErr = M_repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
-    backups_dir = M_xdir(ki_dir / BACKUPS_DIR)
-    config_file = M_xfile(ki_dir / CONFIG_FILE)
-    hashes_file = M_xfile(ki_dir / HASHES_FILE)
-    models_file = M_xfile(root / MODELS_FILE)
-    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE)
+    backups_dir = M_xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
+    config_file = M_xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
+    hashes_file = M_xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
+    models_file = M_xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
+    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
     # Load the no_submodules_tree.
-    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR)
+    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
     no_modules_repo = M_repo(no_modules_dir)
 
     # Check that collection file exists.
@@ -518,7 +598,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     config = configparser.ConfigParser()
     config.read(config_file)
     col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    col_file = M_xfile(col_file)
+    col_file = M_xfile(col_file, info=COL_FILE_INFO)
 
     @safe
     @beartype
