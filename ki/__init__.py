@@ -1975,6 +1975,7 @@ def _clone(
     # Create .ki subdirectory.
     ki_dir: EmptyDir = ffmksubdir(targetdir, Path(KI))
 
+    # Populate the .ki subdirectory with empty metadata files.
     leaves: Res[Leaves] = fmkleaves(
         ki_dir,
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},

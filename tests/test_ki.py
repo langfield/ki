@@ -35,11 +35,17 @@ from ki import (
     STAGE_SUFFIX,
     DELETED_SUFFIX,
     IGNORE,
+    KI,
+    CONFIG_FILE,
+    LAST_PUSH_FILE,
+    BACKUPS_DIR,
+    NO_SM_DIR,
     NotetypeDict,
     GitChangeType,
     Notetype,
     ColNote,
     Delta,
+    Leaves,
     ExtantDir,
     ExtantFile,
     MissingFileError,
@@ -61,6 +67,7 @@ from ki import (
     ffcwd,
     ffforce_mkdir,
     ffchdir,
+    fmkleaves,
     md5,
     write_decks,
     get_ephemeral_kirepo,
@@ -85,6 +92,7 @@ from ki import (
     filter_note_path,
     lock,
     unsubmodule_repo,
+    write_repository,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -268,20 +276,6 @@ def get_notes(collection: ExtantFile) -> List[ColNote]:
         notes.append(colnote)
 
     return notes
-
-
-@beartype
-def get_staging_repo(repo: git.Repo) -> git.Repo:
-    """Get deltas from ephemeral staging repo."""
-    # Get ephemeral repo (submodules converted to ordinary directories).
-    sha = str(repo.head.commit)
-    staging_repo = get_ephemeral_repo(Path("ki/local"), repo, "AAA", sha)
-
-    # Copy `.ki/` directory into the staging repo.
-    staging_repo_kidir = Path(staging_repo.working_dir) / ".ki"
-    shutil.copytree(Path(repo.working_dir) / ".ki", staging_repo_kidir)
-
-    return staging_repo
 
 
 @beartype
@@ -1752,8 +1746,7 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
-@pytest.mark.skip
-def test_write_notes_generates_deck_tree_correctly():
+def test_write_repository_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK_REPODIR, MULTI_NOTE_PATH)
@@ -1763,7 +1756,14 @@ def test_write_notes_generates_deck_tree_correctly():
 
         targetdir = fftest(Path(MULTIDECK_REPODIR))
         targetdir = ffmkdir(targetdir)
-        write_notes(col_file, targetdir, silent=False)
+        ki_dir = ffmkdir(fftest(Path(MULTIDECK_REPODIR) / KI))
+        leaves: OkErr = fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        )
+
+        write_repository(col_file, targetdir, leaves, silent=False)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
@@ -1777,12 +1777,18 @@ def test_write_notes_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
-def test_write_notes_handles_html():
+def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
     col_file = get_html_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         targetdir = ffmkdir(fftest(Path(HTML_REPODIR)))
-        write_notes(col_file, targetdir, silent=False)
+        ki_dir = ffmkdir(fftest(Path(HTML_REPODIR) / KI))
+        leaves: OkErr = fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        )
+        write_repository(col_file, targetdir, leaves, silent=False).unwrap()
+        raise NotImplementedError
