@@ -1643,16 +1643,16 @@ def test_diff_repos_handles_submodules():
             assert delta.path.is_file()
 
 
-@pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(capfd):
+    """Do we print a nice message when we backup an already-backed-up file?"""
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, col_file)
         os.chdir(REPODIR)
-
-        backup(col_file)
-        backup(col_file)
+        kirepo: KiRepo = M_kirepo(ffcwd()).unwrap()
+        backup(kirepo)
+        backup(kirepo)
         captured = capfd.readouterr()
         assert "Backup already exists." in captured.out
 
