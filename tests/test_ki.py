@@ -1687,7 +1687,6 @@ def test_get_note_path():
         assert str(note_path.name) == "a_1.md"
 
 
-@pytest.mark.skip
 def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
@@ -1698,8 +1697,9 @@ def test_tidy_html_recursively():
         old_path = os.environ["PATH"]
         try:
             os.environ["PATH"] = ""
-            with pytest.raises(FileNotFoundError):
-                tidy_html_recursively(root, False)
+            error = tidy_html_recursively(root, False).unwrap_err()
+            assert isinstance(error, FileNotFoundError)
+            assert "'tidy'" in str(error)
         finally:
             os.environ["PATH"] = old_path
 
