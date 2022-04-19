@@ -1332,16 +1332,13 @@ def test_update_note_changes_notetype(capfd):
     res.unwrap()
 
 
-@pytest.mark.skip
 def test_display_fields_health_warning_catches_empty_notes():
-    col_file = get_col_file()
-    query = ""
-    with Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        note = a.col.get_note(i)
-        note.fields = []
-        health = ki.display_fields_health_warning(note)
-        assert health == 1
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+
+    note.fields = []
+    health = ki.display_fields_health_warning(note)
+    assert health == 1
 
 
 def test_slugify_filters_unicode_when_asked():
@@ -1387,41 +1384,20 @@ def test_get_note_path_produces_nonempty_filenames():
         assert os.path.isfile(path)
 
 
-@pytest.mark.skip
-def test_add_note_from_flatnote_returns_kinote():
-    col_file = get_col_file()
-    with Anki(path=col_file) as a:
-        field = "x"
-        flatnote = FlatNote(
-            "title",
-            0,
-            "Basic",
-            "Default",
-            ["tag"],
-            False,
-            {"Front": field, "Back": field},
-        )
-        result = ki.add_note_from_flatnote(a, flatnote)
-        assert isinstance(result, KiNote)
+def test_update_note_converts_markdown_formatting_to_html():
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
 
+    # We MUST pass markdown=True to the FlatNote constructor, or else this will
+    # not work.
+    field = "*hello*"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], True, fields)
 
-@pytest.mark.skip
-def test_add_note_from_flatnote_returns_markdown_parsed_kinote():
-    col_file = get_col_file()
-    with Anki(path=col_file) as a:
-        field = "*hello*"
-        flatnote = FlatNote(
-            "title",
-            0,
-            "Basic",
-            "Default",
-            ["tag"],
-            True,
-            {"Front": field, "Back": field},
-        )
-        result = ki.add_note_from_flatnote(a, flatnote)
-        assert isinstance(result, KiNote)
-        assert "<em>hello</em>" in result.n.fields[0]
+    assert "a" in note.fields[0]
+    notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    res: OkErr = ki.update_note(note, flatnote, notetype, notetype)
+    assert "<em>hello</em>" in note.fields[0]
 
 
 @pytest.mark.skip
