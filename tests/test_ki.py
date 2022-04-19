@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import tempfile
+import functools
 import subprocess
 from pathlib import Path
 from distutils.dir_util import copy_tree
@@ -12,6 +13,7 @@ from importlib.metadata import version
 import git
 import click
 import pytest
+import sqlite3
 import bitstring
 import checksumdir
 import prettyprinter as pp
@@ -28,10 +30,14 @@ from beartype.typing import List
 import ki
 from ki import (
     BRANCH_NAME,
+    STAGE_SUFFIX,
+    DELETED_SUFFIX,
+    IGNORE,
     NotetypeDict,
     GitChangeType,
     Notetype,
     ColNote,
+    Delta,
     ExtantDir,
     ExtantFile,
     TargetExistsError,
@@ -40,6 +46,12 @@ from ki import (
     NotetypeMismatchError,
     UnhealthyNoteWarning,
     NoteFieldValidationWarning,
+    KiRepo,
+    KiRepoRef,
+    RepoRef,
+    M_kirepo,
+    M_head_kirepo_ref,
+    M_head_repo_ref,
     fftest,
     ffmkdir,
     ffcwd,
@@ -47,6 +59,7 @@ from ki import (
     ffchdir,
     md5,
     write_decks,
+    get_ephemeral_kirepo,
     get_note_payload,
     create_deck_dir,
     tidy_html_recursively,
@@ -64,6 +77,9 @@ from ki import (
     ftouch,
     get_batches,
     parse_markdown_note,
+    flatten_staging_repo,
+    filter_note_path,
+    lock,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -1449,12 +1465,48 @@ def test_diff_repos(capfd, tmp_path):
 
         # Clone collection in cwd.
         clone(runner, col_file)
-        repo = git.Repo(REPODIR)
+        os.chdir(REPODIR)
 
-        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
-        last_push_path.write_text("")
+        # Check that we are inside a ki repository, and get the associated collection.
+        cwd: ExtantDir = ffcwd()
+        kirepo: KiRepo = M_kirepo(cwd).unwrap()
+        con: sqlite3.Connection = lock(kirepo)
+        md5sum: str = md5(kirepo.col_file)
 
-        deltas = diff_repos(repo)
+        # Get reference to HEAD of current repo.
+        head: KiRepoRef = M_head_kirepo_ref(kirepo).unwrap()
+
+        # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+        stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
+        stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo).unwrap()
+
+        # This statement cannot be any farther down because we must get a reference
+        # to HEAD *before* we commit, and then after the following line, the
+        # reference we got will be HEAD~1, hence the variable name.
+        head_1: RepoRef = M_head_repo_ref(stage_kirepo.repo).unwrap()
+
+        stage_kirepo.repo.git.add(all=True)
+        stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+
+        # Get filter function.
+        filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
+
+        # Read grammar.
+        # TODO:! Should we assume this always exists? A nice error message should
+        # be printed on initialization if the grammar file is missing. No
+        # computation should be done, and none of the click commands should work.
+        grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
+        grammar = grammar_path.read_text(encoding="UTF-8")
+
+        # Instantiate parser.
+        parser = Lark(grammar, start="file", parser="lalr")
+        transformer = NoteTransformer()
+
+        # Get deltas.
+        a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum).unwrap()
+        b_repo: git.Repo = head_1.repo
+        deltas: List[Delta] = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer).unwrap()
+
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
         assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
