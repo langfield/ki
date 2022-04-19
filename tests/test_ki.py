@@ -1657,7 +1657,6 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         assert "Backup already exists." in captured.out
 
 
-@pytest.mark.skip
 def test_git_subprocess_pull():
     col_file = get_col_file()
     runner = CliRunner()
@@ -1675,15 +1674,12 @@ def test_git_subprocess_pull():
             git_subprocess_pull("anki", "main")
 
 
-@pytest.mark.skip
 def test_get_note_path():
-    col_file = get_col_file()
-    query = ""
+    """Do we add ordinals to generated filenames if there are duplicates?"""
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
     runner = CliRunner()
-    with runner.isolated_filesystem(), Anki(path=col_file) as a:
-        i = set(a.col.find_notes(query)).pop()
-        _ = KiNote(a, a.col.get_note(i))
-
+    with runner.isolated_filesystem():
         deck_dir = ffcwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
