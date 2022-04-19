@@ -3,17 +3,18 @@
 import os
 import random
 import shutil
+import sqlite3
 import tempfile
 import functools
 import subprocess
 from pathlib import Path
+from dataclasses import dataclass
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import git
 import click
 import pytest
-import sqlite3
 import bitstring
 import checksumdir
 import prettyprinter as pp
@@ -25,7 +26,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype
-from beartype.typing import List
+from beartype.typing import List, Callable
 
 import ki
 from ki import (
@@ -1458,7 +1459,79 @@ def test_update_note_converts_markdown_formatting_to_html():
     assert "<em>hello</em>" in note.fields[0]
 
 
-def test_diff_repos(capfd, tmp_path):
+@beartype
+@dataclass(frozen=True)
+class DiffReposArgs:
+    a_repo: git.Repo
+    b_repo: git.Repo
+    head_1: RepoRef
+    filter_fn: Callable
+    parser: Lark
+    transformer: NoteTransformer
+
+
+@beartype
+def get_diff_repos_args() -> DiffReposArgs:
+    """
+    A test 'fixture' (not really a pytest fixture, but a setup function) to be
+    called when we need to test `diff_repos()`.
+
+    Basically a section of the code from `push()`, but without any error
+    handling, since we expect things to work out nicely, and for the
+    repositories operated upon during tests to be valid.
+
+    Returns the values needed to pass as arguments to `diff_repos()`.
+
+    This makes ephemeral repositories, so we should make any changes we expect
+    to see the results of in `deltas: List[Delta]` *before* calling this
+    function. For example, if we wanted to add a note, and then expected to see
+    a `GitChangeType.ADDED`, then we should do that in `REPODIR` before calling
+    this function.
+    """
+
+    # Check that we are inside a ki repository, and get the associated collection.
+    cwd: ExtantDir = ffcwd()
+    kirepo: KiRepo = M_kirepo(cwd).unwrap()
+    con: sqlite3.Connection = lock(kirepo)
+    md5sum: str = md5(kirepo.col_file)
+
+    # Get reference to HEAD of current repo.
+    head: KiRepoRef = M_head_kirepo_ref(kirepo).unwrap()
+
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
+    stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo).unwrap()
+
+    # This statement cannot be any farther down because we must get a reference
+    # to HEAD *before* we commit, and then after the following line, the
+    # reference we got will be HEAD~1, hence the variable name.
+    head_1: RepoRef = M_head_repo_ref(stage_kirepo.repo).unwrap()
+
+    stage_kirepo.repo.git.add(all=True)
+    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+
+    # Get filter function.
+    filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
+
+    # Read grammar.
+    # TODO:! Should we assume this always exists? A nice error message should
+    # be printed on initialization if the grammar file is missing. No
+    # computation should be done, and none of the click commands should work.
+    grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+
+    # Instantiate parser.
+    parser = Lark(grammar, start="file", parser="lalr")
+    transformer = NoteTransformer()
+
+    # Get deltas.
+    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum).unwrap()
+    b_repo: git.Repo = head_1.repo
+
+    return DiffReposArgs(a_repo, b_repo, head_1, filter_fn, parser, transformer)
+
+
+def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1467,49 +1540,19 @@ def test_diff_repos(capfd, tmp_path):
         clone(runner, col_file)
         os.chdir(REPODIR)
 
-        # Check that we are inside a ki repository, and get the associated collection.
-        cwd: ExtantDir = ffcwd()
-        kirepo: KiRepo = M_kirepo(cwd).unwrap()
-        con: sqlite3.Connection = lock(kirepo)
-        md5sum: str = md5(kirepo.col_file)
-
-        # Get reference to HEAD of current repo.
-        head: KiRepoRef = M_head_kirepo_ref(kirepo).unwrap()
-
-        # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-        stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
-        stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo).unwrap()
-
-        # This statement cannot be any farther down because we must get a reference
-        # to HEAD *before* we commit, and then after the following line, the
-        # reference we got will be HEAD~1, hence the variable name.
-        head_1: RepoRef = M_head_repo_ref(stage_kirepo.repo).unwrap()
-
-        stage_kirepo.repo.git.add(all=True)
-        stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
-
-        # Get filter function.
-        filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
-
-        # Read grammar.
-        # TODO:! Should we assume this always exists? A nice error message should
-        # be printed on initialization if the grammar file is missing. No
-        # computation should be done, and none of the click commands should work.
-        grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
-        grammar = grammar_path.read_text(encoding="UTF-8")
-
-        # Instantiate parser.
-        parser = Lark(grammar, start="file", parser="lalr")
-        transformer = NoteTransformer()
-
-        # Get deltas.
-        a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum).unwrap()
-        b_repo: git.Repo = head_1.repo
-        deltas: List[Delta] = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer).unwrap()
+        args: DiffReposArgs = get_diff_repos_args()
+        deltas: List[Delta] = diff_repos(
+            args.a_repo,
+            args.b_repo,
+            args.head_1,
+            args.filter_fn,
+            args.parser,
+            args.transformer,
+        ).unwrap()
 
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
-        assert changed == ["collection/Default/c.md", "collection/Default/a.md"]
+        assert changed == []
         assert "last_push" not in captured.err
 
 
