@@ -329,31 +329,10 @@ def git_dir(repo: git.Repo) -> ExtantDir:
     return ExtantDir(repo.git_dir).resolve()
 
 
-# SAFE
-
-
 @beartype
 def singleton(name: str) -> Singleton:
     """Removes all forward slashes and returns a Singleton pathlib.Path."""
     return Singleton(name.replace("/", ""))
-
-
-# TODO: Should catch exception and transform into nice Err that tells user what to do.
-@beartype
-def lock(kirepo: KiRepo) -> sqlite3.Connection:
-    """Acquire a lock on a SQLite3 database given a path."""
-    con = sqlite3.connect(kirepo.col_file)
-    con.isolation_level = "EXCLUSIVE"
-    con.execute("BEGIN EXCLUSIVE")
-    return con
-
-
-@beartype
-def unlock(con: sqlite3.Connection) -> bool:
-    """Unlock a SQLite3 database."""
-    con.commit()
-    con.close()
-    return True
 
 
 @beartype
@@ -373,6 +352,59 @@ def ref_exists(repo: git.Repo, ref: str) -> bool:
         repo.git.rev_parse("--verify", ref)
     except git.GitCommandError:
         return False
+    return True
+
+
+@beartype
+def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, None]:
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
+@beartype
+def slugify(value: str, allow_unicode: bool = False) -> str:
+    """
+    Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
+    spaces or repeated dashes to single dashes. Remove characters that aren't
+    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
+    leading and trailing whitespace, dashes, and underscores.
+
+    [1] https://github.com/django/django/blob/master/django/utils/text.py
+    """
+    if allow_unicode:
+        value = unicodedata.normalize("NFKC", value)
+    else:
+        value = (
+            unicodedata.normalize("NFKD", value)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+
+    value = re.sub(SLUG_REGEX, "", value.lower())
+    result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
+
+    return result
+
+
+# SAFE
+
+
+# TODO: Should catch exception and transform into nice Err that tells user what to do.
+@beartype
+def lock(kirepo: KiRepo) -> sqlite3.Connection:
+    """Acquire a lock on a SQLite3 database given a path."""
+    con = sqlite3.connect(kirepo.col_file)
+    con.isolation_level = "EXCLUSIVE"
+    con.execute("BEGIN EXCLUSIVE")
+    return con
+
+
+@beartype
+def unlock(con: sqlite3.Connection) -> bool:
+    """Unlock a SQLite3 database."""
+    con.commit()
+    con.close()
     return True
 
 
@@ -878,13 +910,6 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
     return f"{nid}{slugify(fieldname, allow_unicode=True)}"
 
 
-@beartype
-def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, None]:
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
-
-
 @safe
 @beartype
 def push_flatnote_to_anki(
@@ -1218,31 +1243,6 @@ def echo(string: str, silent: bool = False) -> None:
     if not silent:
         click.secho(string, bold=True)
         # logger.info(string)
-
-
-@beartype
-def slugify(value: str, allow_unicode: bool = False) -> str:
-    """
-    Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
-    spaces or repeated dashes to single dashes. Remove characters that aren't
-    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
-    leading and trailing whitespace, dashes, and underscores.
-
-    [1] https://github.com/django/django/blob/master/django/utils/text.py
-    """
-    if allow_unicode:
-        value = unicodedata.normalize("NFKC", value)
-    else:
-        value = (
-            unicodedata.normalize("NFKD", value)
-            .encode("ascii", "ignore")
-            .decode("ascii")
-        )
-
-    value = re.sub(SLUG_REGEX, "", value.lower())
-    result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
-
-    return result
 
 
 @safe
