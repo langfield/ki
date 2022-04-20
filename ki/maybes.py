@@ -171,7 +171,7 @@ def emptydir(path: Path) -> Result[ExtantDir, Exception]:
     directory: ExtantDir = res.unwrap()
     if F.is_empty(directory):
         return Ok(EmptyDir(Path(directory).resolve()))
-    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
+    return Err(ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(directory))
 
 
 @monadic
