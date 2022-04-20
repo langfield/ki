@@ -916,3 +916,26 @@ def test_write_repository_handles_html():
         # The tidy call should add the DOCTYPE tag and indentation.
         assert "<!DOCTYPE html>\n<title></title>" in contents
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents
+
+
+def test_maybe_kirepo_displays_nice_errors(tmp_path):
+    """Does a nice error get printed when kirepo metadata is missing?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Case where `.ki/` directory is completely gone.
+        clone(runner, col_file)
+        targetdir: ExtantDir = F.test(Path(REPODIR))
+        shutil.rmtree(targetdir / KI)
+        error: Exception = M.kirepo(targetdir).unwrap_err()
+        assert "fatal: not a ki repository" in str(error)
+        shutil.rmtree(targetdir)
+
+        # Case where `.ki/backups` directory is completely gone.
+        clone(runner, col_file)
+        targetdir: ExtantDir = F.test(Path(REPODIR))
+        shutil.rmtree(targetdir / KI / BACKUPS_DIR)
+        error: Exception = M.kirepo(targetdir).unwrap_err()
+        assert "fatal: not a ki repository" in str(error)
+        shutil.rmtree(targetdir)
