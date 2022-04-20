@@ -62,7 +62,6 @@ from beartype.typing import (
 
 import ki.maybes as M
 import ki.functional as F
-from ki.monadic import monadic
 from ki.types import (
     MODELS_FILE,
     ExtantFile,
@@ -99,6 +98,19 @@ from ki.types import (
     NoteFieldValidationWarning,
     UnhealthyNoteWarning,
 )
+from ki.maybes import (
+    GIT,
+    GITIGNORE_FILE,
+    GITMODULES_FILE,
+    KI,
+    NO_SM_DIR,
+    CONFIG_FILE,
+    HASHES_FILE,
+    BACKUPS_DIR,
+    LAST_PUSH_FILE,
+)
+from ki.monadic import monadic
+from ki.functional import FS_ROOT
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -110,19 +122,6 @@ NotetypeDict = Dict[str, Any]
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
 
-FS_ROOT = Path("/")
-
-GIT = ".git"
-GITIGNORE_FILE = ".gitignore"
-GITMODULES_FILE = ".gitmodules"
-
-KI = ".ki"
-CONFIG_FILE = "config"
-HASHES_FILE = "hashes"
-BACKUPS_DIR = "backups"
-LAST_PUSH_FILE = "last_push"
-NO_SM_DIR = "no_submodules_tree"
-
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -130,20 +129,12 @@ BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 70
 MAX_FIELNAME_LEN = 30
-HINT = (
-    "hint: Updates were rejected because the tip of your current branch is behind\n"
-    + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
-    + "hint: 'ki pull ...') before pushing again."
-)
 IGNORE = [GIT, KI, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
 LOCAL_SUFFIX = Path("ki/local")
 STAGE_SUFFIX = Path("ki/stage")
 REMOTE_SUFFIX = Path("ki/remote")
 DELETED_SUFFIX = Path("ki/deleted")
 FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
-
-REMOTE_CONFIG_SECTION = "remote"
-COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 
@@ -1010,7 +1001,9 @@ def echo(string: str, silent: bool = False) -> None:
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Exception]:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
-    batches: List[List[ExtantFile]] = list(F.get_batches(F.rglob(root, "*"), BATCH_SIZE))
+    batches: List[List[ExtantFile]] = list(
+        F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
+    )
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.

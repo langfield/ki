@@ -14,7 +14,6 @@ from beartype import beartype
 
 import ki.maybes as M
 import ki.functional as F
-from ki.monadic import monadic
 from ki.types import (
     MODELS_FILE,
     ExtantFile,
@@ -33,8 +32,8 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
 )
-
-FS_ROOT = Path("/")
+from ki.monadic import monadic
+from ki.functional import FS_ROOT
 
 KI = ".ki"
 GIT = ".git"

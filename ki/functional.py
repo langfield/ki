@@ -245,7 +245,9 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
 
     return result
 
+
 # Only monadic function in here.
+
 
 @monadic
 @beartype
