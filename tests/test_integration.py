@@ -24,8 +24,8 @@ from beartype.typing import List
 
 import ki
 import ki.functional as F
-from ki import (
-    BRANCH_NAME,
+from ki import BRANCH_NAME, get_colnote
+from ki.types import (
     ColNote,
     ExtantDir,
     ExtantFile,
@@ -33,8 +33,6 @@ from ki import (
     TargetExistsError,
     NotKiRepoError,
     UpdatesRejectedError,
-    get_colnote,
-    is_anki_note,
 )
 
 
