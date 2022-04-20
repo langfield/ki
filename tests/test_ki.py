@@ -74,7 +74,7 @@ from ki import (
     write_repository,
     get_target,
 )
-from ki.types import ExpectedEmptyDirectoryButGotNonEmptyDirectoryError
+from ki.types import ExpectedEmptyDirectoryButGotNonEmptyDirectoryError, StrangeExtantPathError
 from ki.transformer import FlatNote, NoteTransformer
 
 
@@ -1056,7 +1056,7 @@ def test_get_target(tmp_path):
 
 
 def test_maybe_emptydir(tmp_path):
-    """Do we print a nice error when the targetdir is nonempty?"""
+    """Do we print a nice error when the directory is unexpectedly nonempty?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         Path("file").touch()
@@ -1065,3 +1065,15 @@ def test_maybe_emptydir(tmp_path):
         assert isinstance(error, ExpectedEmptyDirectoryButGotNonEmptyDirectoryError)
         assert "but it is nonempty" in str(error)
         assert str(Path.cwd()) in str(error)
+
+
+def test_maybe_xdir(tmp_path):
+    """Do we print a nice error when there is a non-file non-directory thing?"""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        os.mkfifo("pipe")
+        error: Exception = M.xfile(Path("pipe")).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, StrangeExtantPathError)
+        assert "pseudofile" in str(error)
+        assert "pipe" in str(error)
