@@ -114,11 +114,10 @@ Remove ki qualified import from tests to make code copying easier. (DONE)
 
 20-April-2022
 -------------
+Move types, errors, maybes, and generic functions into separate files. (DONE)
+Fix imports in tests to reflect new repository structure.
+Remove all duplicated constant declarations.
 Write tests for all ki functions.
-Move types, errors, maybes, and generic functions into separate files.
-Functions that return a `result.Result` should be prefixed with a capital
-letter, like F.mkleaves(), or M.kirepo().
-Other, normal functions should use lowercase, like f.copytree().
 Split tests into integration/unit.
 Fix bug where reassigned nid differs from old nid in commit msg.
 
@@ -128,12 +127,12 @@ Triage
 Ghostwrite hypothesis tests (NO)
 Command line output (DONE)
 Test backlog (DONE)
-Images
 Submodules (DONE)
 Modifying note types (DONE)
 Changing note types (DONE)
 Pulling in remote changes in submodules without losing review data
 Generating HTML
+Media
 
 
 Won't fix
