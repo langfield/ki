@@ -4,21 +4,13 @@
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines
 
-import re
 import configparser
 from pathlib import Path
 
 import git
 from result import Result, Err, Ok, OkErr
 
-from anki import notetypes_pb2
-
 from beartype import beartype
-from beartype.typing import (
-    List,
-    Dict,
-    Any
-)
 
 from ki.safe import safe
 from ki.types import (
@@ -39,6 +31,7 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
 )
+import ki.maybes as M
 
 FS_ROOT = Path("/")
 
@@ -110,7 +103,7 @@ deleted. The path can be manually fixed by editing the '.ki/config' file.
 
 @safe
 @beartype
-def M_nopath(path: Path) -> Result[NoPath, Exception]:
+def nopath(path: Path) -> Result[NoPath, Exception]:
     """
     Maybe convert a path to a NoPath, i.e. a path that did not exist at
     resolve-time, which is when this function was called.
@@ -123,7 +116,7 @@ def M_nopath(path: Path) -> Result[NoPath, Exception]:
 
 @safe
 @beartype
-def M_xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
+def xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
     """
     Attempt to instantiate an ExtantFile.
     """
@@ -144,7 +137,7 @@ def M_xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
 
 @safe
 @beartype
-def M_xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
+def xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
     """
     Attempt to instantiate an ExtantDir.
     """
@@ -163,12 +156,12 @@ def M_xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
 
 @safe
 @beartype
-def M_emptydir(path: Path) -> Result[ExtantDir, Exception]:
+def emptydir(path: Path) -> Result[ExtantDir, Exception]:
     """
     Attempt to instantiate an ExtantDir.
     """
     # Check if it's an extant directory.
-    res: OkErr = M_xdir(path)
+    res: OkErr = M.xdir(path)
 
     # Return the Err if not.
     if res.is_err():
@@ -183,7 +176,7 @@ def M_emptydir(path: Path) -> Result[ExtantDir, Exception]:
 
 @safe
 @beartype
-def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
+def repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
     try:
         repo = git.Repo(root)
@@ -194,7 +187,7 @@ def M_repo(root: ExtantDir) -> Result[git.Repo, Exception]:
 
 @safe
 @beartype
-def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
+def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     """Get the containing ki repository of `path`."""
     current = cwd
 
@@ -212,18 +205,18 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 
     # Root directory and ki directory of repo now guaranteed to exist.
     root = current
-    repo: OkErr = M_repo(root)
+    repo: OkErr = M.repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
-    backups_dir = M_xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
-    config_file = M_xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
-    hashes_file = M_xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
-    models_file = M_xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
+    backups_dir = M.xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
+    config_file = M.xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
+    hashes_file = M.xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
+    models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
+    last_push_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
     # Load the no_submodules_tree.
-    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M_repo(no_modules_dir)
+    no_modules_dir = M.xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
+    no_modules_repo = M.repo(no_modules_dir)
 
     # Check that collection file exists.
     if config_file.is_err():
@@ -232,7 +225,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     config = configparser.ConfigParser()
     config.read(config_file)
     col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    col_file = M_xfile(col_file, info=COL_FILE_INFO)
+    col_file = M.xfile(col_file, info=COL_FILE_INFO)
 
     @safe
     @beartype
@@ -279,7 +272,7 @@ def M_kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 
 @safe
 @beartype
-def M_kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
+def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
     if not ref_exists(kirepo.repo, sha):
         return Err(GitRefNotFoundError(kirepo.repo, sha))
     return Ok(KiRepoRef(kirepo, sha))
@@ -287,7 +280,7 @@ def M_kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
 
 @safe
 @beartype
-def M_repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
+def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
     if not ref_exists(repo, sha):
         return Err(GitRefNotFoundError(repo, sha))
     return Ok(RepoRef(repo, sha))
@@ -295,7 +288,7 @@ def M_repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
 
 @safe
 @beartype
-def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
+def head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = RepoRef(repo, repo.head.commit.hexsha)
@@ -306,7 +299,7 @@ def M_head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
 
 @safe
 @beartype
-def M_head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
+def head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)

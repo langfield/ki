@@ -97,6 +97,7 @@ from ki.types import (
     NoteFieldValidationWarning,
     UnhealthyNoteWarning,
 )
+import ki.maybes as M
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -424,17 +425,17 @@ def get_ephemeral_kirepo(
     KiRepo
         The cloned repository.
     """
-    ref: Res[RepoRef] = M_repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+    ref: Res[RepoRef] = M.repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
     ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
     if ephem.is_err():
         return ephem
     ephem: git.Repo = ephem.unwrap()
-    ephem_ki_dir: OkErr = M_nopath(Path(ephem.working_dir) / KI)
+    ephem_ki_dir: OkErr = M.nopath(Path(ephem.working_dir) / KI)
     if ephem_ki_dir.is_err():
         return ephem_ki_dir
     ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
     ffcopytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    kirepo: Res[KiRepo] = M_kirepo(working_dir(ephem))
+    kirepo: Res[KiRepo] = M.kirepo(working_dir(ephem))
 
     return kirepo
 
@@ -1295,7 +1296,7 @@ def flatten_staging_repo(
     stage_root: ExtantDir = ffparent(stage_git_dir)
 
     # Reload stage kirepo.
-    stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
+    stage_kirepo: Res[KiRepo] = M.kirepo(stage_root)
 
     return stage_kirepo
 
@@ -1309,7 +1310,7 @@ def get_target(
     path = fftest(Path(directory) if directory != "" else cwd / col_file.stem)
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M_emptydir(path)
+        return M.emptydir(path)
     if isinstance(path, EmptyDir):
         return Ok(path)
     return Err(TargetExistsError(path))
@@ -1343,18 +1344,18 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         Note: we check that this directory does not yet exist.
     """
     echo("Cloning.")
-    col_file: Res[ExtantFile] = M_xfile(Path(collection))
+    col_file: Res[ExtantFile] = M.xfile(Path(collection))
 
     cwd: ExtantDir = ffcwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
     md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
 
     # Check that we are inside a ki repository, and get the associated collection.
-    targetdir: Res[ExtantDir] = M_xdir(targetdir)
-    kirepo: Res[KiRepo] = M_kirepo(targetdir)
+    targetdir: Res[ExtantDir] = M.xdir(targetdir)
+    kirepo: Res[KiRepo] = M.kirepo(targetdir)
 
     # Get reference to HEAD of current repo.
-    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
+    head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
 
     if targetdir.is_err() or head.is_err():
         echo("Failed: exiting.")
@@ -1404,7 +1405,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
     ffcopytree(stage_kirepo.root, no_modules_root)
 
-    kirepo: Res[KiRepo] = M_kirepo(targetdir)
+    kirepo: Res[KiRepo] = M.kirepo(targetdir)
     if kirepo.is_err():
         echo("Failed: exiting.")
         return kirepo
@@ -1516,7 +1517,7 @@ def pull() -> Result[bool, Exception]:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = ffcwd()
-    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    kirepo: Res[KiRepo] = M.kirepo(cwd)
     if kirepo.is_err():
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
@@ -1535,7 +1536,7 @@ def pull() -> Result[bool, Exception]:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    ref: Res[RepoRef] = M_repo_ref(kirepo.repo, sha)
+    ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
     last_push_repo: Res[git.Repo] = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
@@ -1596,7 +1597,7 @@ def pull_changes_from_remote_repo(
     of the database every time would mean that everything would look like a
     merge conflict, because there is no shared history.
     """
-    remote_repo: Res[git.Repo] = M_repo(anki_remote_root)
+    remote_repo: Res[git.Repo] = M.repo(anki_remote_root)
     if remote_repo.is_err():
         return remote_repo
     remote_repo: git.Repo = remote_repo.unwrap()
@@ -1642,7 +1643,7 @@ def push() -> Result[bool, Exception]:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = ffcwd()
-    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    kirepo: Res[KiRepo] = M.kirepo(cwd)
     if kirepo.is_err():
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
@@ -1656,7 +1657,7 @@ def push() -> Result[bool, Exception]:
         return Err(UpdatesRejectedError(kirepo.col_file))
 
     # Get reference to HEAD of current repo.
-    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
+    head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
     if head.is_err():
         return head
     head: KiRepoRef = head.unwrap()
@@ -1671,7 +1672,7 @@ def push() -> Result[bool, Exception]:
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit, and then after the following line, the
     # reference we got will be HEAD~1, hence the variable name.
-    head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
+    head_1: Res[RepoRef] = M.head_repo_ref(stage_kirepo.repo)
     if head_1.is_err():
         return head_1
     head_1: RepoRef = head_1.unwrap()
@@ -1736,7 +1737,7 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
+    head: Res[RepoRef] = M.head_repo_ref(kirepo.repo)
     if head.is_err():
         echo("Failed: no commits in repository. Couldn't find HEAD ref.")
         return Ok()
