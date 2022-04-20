@@ -84,7 +84,7 @@ def test(
     if path.is_file():
         return ExtantFile(path)
     if path.is_dir():
-        if is_empty(path):
+        if is_empty(ExtantDir(path)):
             return EmptyDir(path)
         return ExtantDir(path)
     if path.exists():

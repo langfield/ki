@@ -80,13 +80,6 @@ from ki.types import (
     KiRepoRef,
     RepoRef,
     Leaves,
-    MissingFileError,
-    MissingDirectoryError,
-    ExpectedFileButGotDirectoryError,
-    ExpectedDirectoryButGotFileError,
-    ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
-    StrangeExtantPathError,
-    NotKiRepoError,
     UpdatesRejectedError,
     TargetExistsError,
     GitRefNotFoundError,
@@ -1268,6 +1261,7 @@ def pull() -> Result[bool, Exception]:
     cwd: ExtantDir = F.cwd()
     kirepo: Res[KiRepo] = M.kirepo(cwd)
     if kirepo.is_err():
+        echo(str(kirepo.err()))
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
     con: sqlite3.Connection = lock(kirepo)

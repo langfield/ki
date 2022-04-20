@@ -120,6 +120,7 @@ Fix imports in tests to reflect new repository structure. (DONE)
 Remove all duplicated constant declarations. (DONE)
 Split tests into integration/unit. (DONE)
 Write tests for all ki functions.
+Make sure all warnings and errors are actually displayed at the command line.
 
 
 Triage

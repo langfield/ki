@@ -191,14 +191,14 @@ class Leaves:
 class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
-        msg = f"File not found: '{path}'{info}"
+        msg = f"File not found: '{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
 class MissingDirectoryError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
-        msg = f"Directory not found: '{path}'{info}"
+        msg = f"Directory not found: '{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
@@ -206,7 +206,7 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "A file was expected at this location, but got a directory: "
-        msg += f"'{path}'{info}"
+        msg += f"'{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
@@ -214,7 +214,7 @@ class ExpectedDirectoryButGotFileError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "A directory was expected at this location, but got a file: "
-        msg += f"'{path}'{info}"
+        msg += f"'{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
@@ -222,7 +222,7 @@ class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "An empty directory was expected at this location, but it is nonempty: "
-        msg += f"'{path}'{info}"
+        msg += f"'{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
@@ -231,7 +231,7 @@ class StrangeExtantPathError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "A normal file or directory was expected, but got a weird pseudofile "
         msg += "(e.g. a socket, or a device): "
-        msg += f"'{path}'{info}"
+        msg += f"'{path}'{info.rstrip()}"
         super().__init__(msg)
 
 
