@@ -683,7 +683,45 @@ from beartype.typing import (
     Callable,
 )
 
-from ki.safe import safe
+import ki.maybes as M
+import ki.functional as F
+from ki.monadic import monadic
+from ki.types import (
+    MODELS_FILE,
+    ExtantFile,
+    ExtantDir,
+    EmptyDir,
+    NoPath,
+    Singleton,
+    ExtantStrangePath,
+    GitChangeType,
+    Delta,
+    KiRepo,
+    Field,
+    Template,
+    Notetype,
+    ColNote,
+    KiRepoRef,
+    RepoRef,
+    Leaves,
+    MissingFileError,
+    MissingDirectoryError,
+    ExpectedFileButGotDirectoryError,
+    ExpectedDirectoryButGotFileError,
+    ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
+    StrangeExtantPathError,
+    NotKiRepoError,
+    UpdatesRejectedError,
+    TargetExistsError,
+    GitRefNotFoundError,
+    CollectionChecksumError,
+    MissingNotetypeError,
+    MissingFieldOrdinalError,
+    MissingNoteIdError,
+    NotetypeMismatchError,
+    NoteFieldValidationWarning,
+    UnhealthyNoteWarning,
+)
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -707,8 +745,6 @@ HASHES_FILE = &#34;hashes&#34;
 BACKUPS_DIR = &#34;backups&#34;
 LAST_PUSH_FILE = &#34;last_push&#34;
 NO_SM_DIR = &#34;no_submodules_tree&#34;
-
-MODELS_FILE = &#34;models.json&#34;
 
 BATCH_SIZE = 500
 HTML_REGEX = r&#34;&lt;/?\s*[a-z-][^&gt;]*\s*&gt;|(\&amp;(?:[\w\d]+|#\d+|#x[a-f\d]+);)&#34;
@@ -736,753 +772,6 @@ GENERATED_HTML_SENTINEL = &#34;data-original-markdown&#34;
 
 MD = &#34;.md&#34;
 
-# Emoji regex character classes.
-EMOJIS = &#34;\U0001F600-\U0001F64F&#34;
-PICTOGRAPHS = &#34;\U0001F300-\U0001F5FF&#34;
-TRANSPORTS = &#34;\U0001F680-\U0001F6FF&#34;
-FLAGS = &#34;\U0001F1E0-\U0001F1FF&#34;
-
-# Regex to filter out bad stuff from filenames.
-SLUG_REGEX = re.compile(r&#34;[^\w\s\-&#34; + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + &#34;]&#34;)
-
-
-BACKUPS_DIR_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/backups&#39; directory, used to store backups of the &#39;.anki2&#39;
-collection database file before ki overwrites it during a push. It may be
-missing because the current ki repository has become corrupted.
-&#34;&#34;&#34;
-
-CONFIG_FILE_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/config&#39; file, used to store the path to a &#39;.anki2&#39; collection
-database file. It may be missing because the current ki repository has become
-corrupted.
-&#34;&#34;&#34;
-
-HASHES_FILE_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/hashes&#39; file, used to store recent md5sums of the &#39;.anki2&#39;
-collection database file, which allow ki to determine when updates should be
-rejected, i.e. when the user must pull remote changes before they can push
-local ones. It may be missing because the current ki repository has become
-corrupted.
-&#34;&#34;&#34;
-
-MODELS_FILE_INFO = &#34;&#34;&#34;
-This is the top-level &#39;models.json&#39; file, which contains serialized notetypes
-for all notes in the current repository. Ki should always create this during
-cloning. If it has been manually deleted, try reverting to an earlier commit.
-Otherwise, it may indicate that the repository has become corrupted.
-&#34;&#34;&#34;
-
-LAST_PUSH_FILE_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/last_push&#39; file, used internally by ki to keep diffs and
-eliminate unnecessary merge conflicts during pull operations. It should never
-be missing, and if it is, the repository may have become corrupted.
-&#34;&#34;&#34;
-
-NO_MODULES_DIR_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/no_submodules_tree&#39; file, used internally by ki to keep track
-of what notes need to be written/modified/deleted in the Anki database. It
-should never be missing, and if it is, the repository may have become
-corrupted.
-&#34;&#34;&#34;
-
-COL_FILE_INFO = &#34;&#34;&#34;
-This is the &#39;.anki2&#39; database file that contains all the data for a user&#39;s
-collection. This path was contained in the &#39;.ki/config&#39; file, indicating that
-the collection this repository previously referred to has been moved or
-deleted. The path can be manually fixed by editing the &#39;.ki/config&#39; file.
-&#34;&#34;&#34;
-
-
-# TYPES
-
-
-class ExtantFile(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that file *was* extant when it was resolved.&#34;&#34;&#34;
-
-
-class ExtantDir(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* extant when it was resolved.&#34;&#34;&#34;
-
-
-class EmptyDir(ExtantDir):
-    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved.&#34;&#34;&#34;
-
-
-class NoPath(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that path *was not* extant when it was resolved.&#34;&#34;&#34;
-
-
-class Singleton(type(Path())):
-    &#34;&#34;&#34;UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`).&#34;&#34;&#34;
-
-
-class ExtantStrangePath(type(Path())):
-    &#34;&#34;&#34;
-    UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
-    when it was resolved.
-    &#34;&#34;&#34;
-
-
-# ENUMS
-
-
-class GitChangeType(Enum):
-    &#34;&#34;&#34;Enum for git file change types.&#34;&#34;&#34;
-
-    ADDED = &#34;A&#34;
-    DELETED = &#34;D&#34;
-    RENAMED = &#34;R&#34;
-    MODIFIED = &#34;M&#34;
-    TYPECHANGED = &#34;T&#34;
-
-
-# DATACLASSES
-
-
-@beartype
-@dataclass(frozen=True)
-class Delta:
-    &#34;&#34;&#34;The git delta for a single file.&#34;&#34;&#34;
-
-    status: GitChangeType
-    path: ExtantFile
-    relpath: Path
-
-
-@beartype
-@dataclass(frozen=True)
-class KiRepo:
-    &#34;&#34;&#34;
-    UNSAFE: A ki repository, including:
-    - .ki/hashes
-    - .ki/config
-
-    Existence of collection path is guaranteed.
-    &#34;&#34;&#34;
-
-    repo: git.Repo
-    root: ExtantDir
-    ki_dir: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    last_push_file: ExtantFile
-    no_modules_repo: git.Repo
-
-
-@beartype
-@dataclass(frozen=True)
-class Field:
-    &#34;&#34;&#34;A typechecked version of `anki.models.FieldDict` for use within ki.&#34;&#34;&#34;
-
-    name: str
-    ord: Optional[int]
-
-
-@beartype
-@dataclass(frozen=True)
-class Template:
-    &#34;&#34;&#34;A typechecked version of `anki.models.TemplateDict` for use within ki.&#34;&#34;&#34;
-
-    name: str
-    qfmt: str
-    afmt: str
-    ord: Optional[int]
-
-
-@beartype
-@dataclass(frozen=True)
-class Notetype:
-    &#34;&#34;&#34;A typechecked version of `anki.models.NotetypeDict` for use within ki.&#34;&#34;&#34;
-
-    id: int
-    name: str
-    type: int
-    flds: List[Field]
-    tmpls: List[Template]
-    sortf: Field
-
-    # A copy of the `NotetypeDict` object as it was returned from the Anki
-    # database. We keep this around to preserve extra keys that may not always
-    # exist, but the ones above should be required for Anki to function.
-    dict: Dict[str, Any]
-
-
-@beartype
-@dataclass(frozen=True)
-class ColNote:
-    &#34;&#34;&#34;A note that exists in the Anki DB.&#34;&#34;&#34;
-
-    n: Note
-    new: bool
-    deck: str
-    title: str
-    old_nid: int
-    markdown: bool
-    notetype: Notetype
-    sortf_text: str
-
-
-@beartype
-@dataclass(frozen=True)
-class KiRepoRef:
-    &#34;&#34;&#34;
-    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
-    commit hash of `repo`.
-    &#34;&#34;&#34;
-
-    kirepo: KiRepo
-    sha: str
-
-
-@beartype
-@dataclass(frozen=True)
-class RepoRef:
-    &#34;&#34;&#34;
-    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
-    commit hash of `repo`.
-    &#34;&#34;&#34;
-
-    repo: git.Repo
-    sha: str
-
-
-@beartype
-@dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]
-
-
-# EXCEPTIONS
-
-
-class MissingFileError(FileNotFoundError):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;File not found: &#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class MissingDirectoryError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;Directory not found: &#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class ExpectedFileButGotDirectoryError(FileNotFoundError):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A file was expected at this location, but got a directory: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class ExpectedDirectoryButGotFileError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A directory was expected at this location, but got a file: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;An empty directory was expected at this location, but it is nonempty: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class StrangeExtantPathError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A normal file or directory was expected, but got a weird pseudofile &#34;
-        msg += &#34;(e.g. a socket, or a device): &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)
-
-
-class NotKiRepoError(Exception):
-    @beartype
-    def __init__(self):
-        msg = &#34;fatal: not a ki repository (or any parent up to mount point /)\n&#34;
-        msg += &#34;Stopping at filesystem boundary.&#34;
-        super().__init__(msg)
-
-
-class UpdatesRejectedError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
-        super().__init__(msg)
-
-
-class TargetExistsError(Exception):
-    @beartype
-    def __init__(self, target: Path):
-        msg = f&#34;fatal: destination path &#39;{target}&#39; already exists and is &#34;
-        msg += &#34;not an empty directory.&#34;
-        super().__init__(msg)
-
-
-class GitRefNotFoundError(Exception):
-    @beartype
-    def __init__(self, repo: git.Repo, sha: str):
-        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
-        super().__init__(msg)
-
-
-class CollectionChecksumError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
-        super().__init__(msg)
-
-
-class MissingNotetypeError(Exception):
-    @beartype
-    def __init__(self, model: str):
-        msg = f&#34;Notetype &#39;{model}&#39; doesn&#39;t exist. &#34;
-        msg += &#34;Create it in Anki before adding notes via ki. &#34;
-        msg += &#34;This may be caused by a corrupted &#39;{MODELS_FILE}&#39; file. &#34;
-        msg += &#34;The models file must contain definitions for all models that appear &#34;
-        msg += &#34;in all note files.&#34;
-        super().__init__(msg)
-
-
-class MissingFieldOrdinalError(Exception):
-    @beartype
-    def __init__(self, ord: int, nt: Dict[str, Any]):
-        msg = f&#34;Field with ordinal {ord} missing from notetype &#39;{pp.pformat(nt)}&#39;.&#34;
-        super().__init__(msg)
-
-
-class MissingNoteIdError(Exception):
-    @beartype
-    def __init__(self, nid: int):
-        msg = f&#34;Failed to locate note with nid &#39;{nid}&#39; in Anki database.&#34;
-        super().__init__(msg)
-
-
-class NotetypeMismatchError(Exception):
-    @beartype
-    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
-        msg = f&#34;Notetype &#39;{flatnote.model}&#39; &#34;
-        msg += f&#34;specified in FlatNote with nid &#39;{flatnote.nid}&#39; &#34;
-        msg += f&#34;does not match passed notetype &#39;{new_notetype}&#39;. &#34;
-        msg += f&#34;This should NEVER happen, &#34;
-        msg += f&#34;and indicates a bug in the caller to &#39;update_note()&#39;.&#34;
-        super().__init__(msg)
-
-
-# WARNINGS
-
-
-# TODO: Make this warning more descriptive. Should given the note id, the path,
-# the field(s) which are missing, and the model.
-class NoteFieldValidationWarning(Warning):
-    pass
-
-
-class UnhealthyNoteWarning(Warning):
-    pass
-
-
-# MAYBES
-
-
-@safe
-@beartype
-def M_nopath(path: Path) -&gt; Result[NoPath, Exception]:
-    &#34;&#34;&#34;
-    Maybe convert a path to a NoPath, i.e. a path that did not exist at
-    resolve-time, which is when this function was called.
-    &#34;&#34;&#34;
-    path = path.resolve()
-    if path.exists():
-        return Err(FileExistsError(str(path)))
-    return Ok(NoPath(path))
-
-
-@safe
-@beartype
-def M_xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantFile.
-    &#34;&#34;&#34;
-    # Resolve path.
-    path = path.resolve()
-
-    # Check that path exists and is a file.
-    if not path.exists():
-        return Err(MissingFileError(path, info))
-    if path.is_dir():
-        return Err(ExpectedFileButGotDirectoryError(path, info))
-    if not path.is_file():
-        return Err(StrangeExtantPathError(path, info))
-
-    # Must be an extant file.
-    return Ok(ExtantFile(path))
-
-
-@safe
-@beartype
-def M_xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantDir.
-    &#34;&#34;&#34;
-    # Resolve path.
-    path = path.resolve()
-
-    # Check that path exists and is a directory.
-    if not path.exists():
-        return Err(MissingDirectoryError(path, info))
-    if path.is_dir():
-        return Ok(ExtantDir(path))
-    if path.is_file():
-        return Err(ExpectedDirectoryButGotFileError(path, info))
-    return Err(StrangeExtantPathError(path, info))
-
-
-@safe
-@beartype
-def M_emptydir(path: Path) -&gt; Result[ExtantDir, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantDir.
-    &#34;&#34;&#34;
-    # Check if it&#39;s an extant directory.
-    res: OkErr = M_xdir(path)
-
-    # Return the Err if not.
-    if res.is_err():
-        return res
-
-    # Unwrap the value otherwise.
-    directory: ExtantDir = res.unwrap()
-    if is_empty(directory):
-        return Ok(EmptyDir(Path(directory).resolve()))
-    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
-
-
-@safe
-@beartype
-def M_repo(root: ExtantDir) -&gt; Result[git.Repo, Exception]:
-    &#34;&#34;&#34;Read a git repo safely.&#34;&#34;&#34;
-    try:
-        repo = git.Repo(root)
-    except git.InvalidGitRepositoryError as err:
-        return Err(err)
-    return Ok(repo)
-
-
-@safe
-@beartype
-def M_kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
-    &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
-    current = cwd
-
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
-        ki_dir = fftest(current / KI)
-        if isinstance(ki_dir, ExtantDir):
-            break
-        current = ffparent(current)
-
-    if current == FS_ROOT:
-        return Err(NotKiRepoError())
-
-    # Root directory and ki directory of repo now guaranteed to exist.
-    root = current
-    repo: OkErr = M_repo(root)
-
-    # Check that relevant files in .ki/ subdirectory exist.
-    backups_dir = M_xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
-    config_file = M_xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
-    hashes_file = M_xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
-    models_file = M_xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
-
-    # Load the no_submodules_tree.
-    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M_repo(no_modules_dir)
-
-    # Check that collection file exists.
-    if config_file.is_err():
-        return config_file
-    config_file: ExtantFile = config_file.unwrap()
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    col_file = M_xfile(col_file, info=COL_FILE_INFO)
-
-    @safe
-    @beartype
-    def constructor(
-        repo: git.Repo,
-        root: ExtantDir,
-        ki_dir: ExtantDir,
-        col_file: ExtantFile,
-        backups_dir: ExtantDir,
-        config_file: ExtantFile,
-        hashes_file: ExtantFile,
-        models_file: ExtantFile,
-        last_push_file: ExtantFile,
-        no_modules_repo: git.Repo,
-    ) -&gt; Result[KiRepo, Exception]:
-        return Ok(
-            KiRepo(
-                repo,
-                root,
-                ki_dir,
-                col_file,
-                backups_dir,
-                config_file,
-                hashes_file,
-                models_file,
-                last_push_file,
-                no_modules_repo,
-            )
-        )
-
-    return constructor(
-        repo,
-        root,
-        ki_dir,
-        col_file,
-        backups_dir,
-        config_file,
-        hashes_file,
-        models_file,
-        last_push_file,
-        no_modules_repo,
-    )
-
-
-@safe
-@beartype
-def M_kirepo_ref(kirepo: KiRepo, sha: str) -&gt; Result[KiRepoRef, Exception]:
-    if not ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))
-
-
-@safe
-@beartype
-def M_repo_ref(repo: git.Repo, sha: str) -&gt; Result[RepoRef, Exception]:
-    if not ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))
-
-
-@safe
-@beartype
-def M_head_repo_ref(repo: git.Repo) -&gt; Result[RepoRef, Exception]:
-    # GitPython raises a ValueError when references don&#39;t exist.
-    try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)
-
-
-@safe
-@beartype
-def M_head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
-    # GitPython raises a ValueError when references don&#39;t exist.
-    try:
-        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)
-
-
-# DANGER
-
-
-@beartype
-def ffrmtree(target: ExtantDir) -&gt; NoPath:
-    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
-    shutil.rmtree(target)
-    return NoPath(target)
-
-
-@beartype
-def ffcopytree(source: ExtantDir, target: NoPath) -&gt; ExtantDir:
-    &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
-    shutil.copytree(source, target)
-    return ExtantDir(target.resolve())
-
-
-@beartype
-def ffcwd() -&gt; ExtantDir:
-    &#34;&#34;&#34;Call Path.cwd().&#34;&#34;&#34;
-    return ExtantDir(Path.cwd().resolve())
-
-
-@beartype
-def fftest(
-    path: Path,
-) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
-    &#34;&#34;&#34;
-    Fast ftest, where the f just means function.
-
-    Test whether `path` is a file, a directory, or something else. If
-    something else, we consider that, for the sake of simplicity, a
-    NoPath.
-    &#34;&#34;&#34;
-    path = path.resolve()
-    if path.is_file():
-        return ExtantFile(path)
-    if path.is_dir():
-        if is_empty(path):
-            return EmptyDir(path)
-        return ExtantDir(path)
-    if path.exists():
-        return ExtantStrangePath(path)
-    return NoPath(path)
-
-
-@beartype
-def ftouch(directory: ExtantDir, name: str) -&gt; ExtantFile:
-    &#34;&#34;&#34;Touch a file.&#34;&#34;&#34;
-    path = directory / singleton(name)
-    path.touch()
-    return ExtantFile(path.resolve())
-
-
-@safe
-@beartype
-def fmkleaves(
-    root: EmptyDir,
-    *,
-    files: Optional[Dict[str, str]] = None,
-    dirs: Optional[Dict[str, str]] = None,
-) -&gt; Result[Leaves, Exception]:
-    &#34;&#34;&#34;Safely populate an empty directory with empty files and empty subdirectories.&#34;&#34;&#34;
-    leaves: Set[str] = set()
-    new_files: Dict[str, ExtantFile] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
-    if files is not None:
-        for key, token in files.items():
-            if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
-            new_files[key] = ftouch(root, token)
-            leaves.add(str(token))
-    if dirs is not None:
-        for key, token in dirs.items():
-            # We lie to the `ffmksubdir` call and tell it the root is empty
-            # on every iteration.
-            if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
-            new_dirs[key] = ffmksubdir(EmptyDir(root), singleton(token))
-            leaves.add(str(token))
-    return Ok(Leaves(root, new_files, new_dirs))
-
-
-@beartype
-def ffmkdir(path: NoPath) -&gt; EmptyDir:
-    &#34;&#34;&#34;Make a directory (with parents).&#34;&#34;&#34;
-    path.mkdir(parents=True)
-    return EmptyDir(path)
-
-
-@beartype
-def ffmksubdir(directory: EmptyDir, suffix: Path) -&gt; EmptyDir:
-    &#34;&#34;&#34;
-    Make a subdirectory of an empty directory (with parents).
-
-    Returns
-    -------
-    EmptyDir
-        The created subdirectory.
-    &#34;&#34;&#34;
-    subdir = directory / suffix
-    subdir.mkdir(parents=True)
-    directory.__class__ = ExtantDir
-    return EmptyDir(subdir.resolve())
-
-
-@beartype
-def ffforce_mkdir(path: Path) -&gt; ExtantDir:
-    &#34;&#34;&#34;Make a directory (with parents, ok if it already exists).&#34;&#34;&#34;
-    path.mkdir(parents=True, exist_ok=True)
-    return ExtantDir(path.resolve())
-
-
-@beartype
-def ffchdir(directory: ExtantDir) -&gt; ExtantDir:
-    &#34;&#34;&#34;Changes working directory and returns old cwd.&#34;&#34;&#34;
-    old: ExtantDir = ffcwd()
-    os.chdir(directory)
-    return old
-
-
-@beartype
-def ffparent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get the parent of a path that exists.&#34;&#34;&#34;
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
-    return ExtantDir(path.parent)
-
-
-@beartype
-def ffmkdtemp() -&gt; EmptyDir:
-    &#34;&#34;&#34;Make a temporary directory (in /tmp).&#34;&#34;&#34;
-    return EmptyDir(tempfile.mkdtemp()).resolve()
-
-
-@beartype
-def ffcopyfile(source: ExtantFile, target_root: ExtantDir, name: str) -&gt; ExtantFile:
-    &#34;&#34;&#34;Force copy a file (potentially overwrites the target path).&#34;&#34;&#34;
-    name = singleton(name)
-    target = target_root / name
-    shutil.copyfile(source, target)
-    return ExtantFile(target.resolve())
-
-
-@beartype
-def frglob(root: ExtantDir, pattern: str) -&gt; List[ExtantFile]:
-    &#34;&#34;&#34;Call root.rglob() and returns only files.&#34;&#34;&#34;
-    files = filter(
-        lambda p: isinstance(p, ExtantFile), map(fftest, root.rglob(pattern))
-    )
-    return list(files)
-
-
-@beartype
-def is_empty(directory: ExtantDir) -&gt; bool:
-    &#34;&#34;&#34;Check if directory is empty, quickly.&#34;&#34;&#34;
-    return not next(os.scandir(directory), None)
-
-
-@beartype
-def working_dir(repo: git.Repo) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get working directory of a repo.&#34;&#34;&#34;
-    return ExtantDir(repo.working_dir).resolve()
-
-
-@beartype
-def git_dir(repo: git.Repo) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get git directory of a repo.&#34;&#34;&#34;
-    return ExtantDir(repo.git_dir).resolve()
-
-
-# SAFE
-
-
-@beartype
-def singleton(name: str) -&gt; Singleton:
-    &#34;&#34;&#34;Removes all forward slashes and returns a Singleton pathlib.Path.&#34;&#34;&#34;
-    return Singleton(name.replace(&#34;/&#34;, &#34;&#34;))
-
 
 # TODO: Should catch exception and transform into nice Err that tells user what to do.
 @beartype
@@ -1502,34 +791,14 @@ def unlock(con: sqlite3.Connection) -&gt; bool:
     return True
 
 
-@beartype
-def md5(path: ExtantFile) -&gt; str:
-    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
-    hash_md5 = hashlib.md5()
-    with open(path, &#34;rb&#34;) as f:
-        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
-
-@beartype
-def ref_exists(repo: git.Repo, ref: str) -&gt; bool:
-    &#34;&#34;&#34;Check if git commit reference exists in repository.&#34;&#34;&#34;
-    try:
-        repo.git.rev_parse(&#34;--verify&#34;, ref)
-    except git.GitCommandError:
-        return False
-    return True
-
-
-@safe
+@monadic
 @beartype
 def get_ephemeral_repo(
     suffix: Path, repo_ref: RepoRef, md5sum: str
 ) -&gt; Result[git.Repo, Exception]:
     &#34;&#34;&#34;Get a temporary copy of a git repository in /tmp/&lt;suffix&gt;/.&#34;&#34;&#34;
-    tempdir: EmptyDir = ffmkdtemp()
-    root: EmptyDir = ffmksubdir(tempdir, suffix)
+    tempdir: EmptyDir = F.mkdtemp()
+    root: EmptyDir = F.mksubdir(tempdir, suffix)
 
     # Git clone `repo` at latest commit in `/tmp/.../&lt;suffix&gt;/&lt;md5sum&gt;`.
     repo: git.Repo = repo_ref.repo
@@ -1547,7 +816,7 @@ def get_ephemeral_repo(
     return Ok(ephem)
 
 
-@safe
+@monadic
 @beartype
 def get_ephemeral_kirepo(
     suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
@@ -1571,17 +840,17 @@ def get_ephemeral_kirepo(
     KiRepo
         The cloned repository.
     &#34;&#34;&#34;
-    ref: Res[RepoRef] = M_repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+    ref: Res[RepoRef] = M.repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
     ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
     if ephem.is_err():
         return ephem
     ephem: git.Repo = ephem.unwrap()
-    ephem_ki_dir: OkErr = M_nopath(Path(ephem.working_dir) / KI)
+    ephem_ki_dir: OkErr = M.nopath(Path(ephem.working_dir) / KI)
     if ephem_ki_dir.is_err():
         return ephem_ki_dir
     ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
-    ffcopytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    kirepo: Res[KiRepo] = M_kirepo(working_dir(ephem))
+    F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
+    kirepo: Res[KiRepo] = M.kirepo(F.working_dir(ephem))
 
     return kirepo
 
@@ -1666,7 +935,7 @@ def unsubmodule_repo(repo: git.Repo) -&gt; None:
         _ = repo.index.commit(&#34;Remove &#39;.gitmodules&#39; file.&#34;)
 
 
-@safe
+@monadic
 @beartype
 def diff_repos(
     a_repo: git.Repo,
@@ -1689,8 +958,8 @@ def diff_repos(
                 logger.warning(f&#34;Ignoring:\n{diff.a_path}\n{diff.b_path}&#34;)
                 continue
 
-            a_path = fftest(a_dir / diff.a_path)
-            b_path = fftest(b_dir / diff.b_path)
+            a_path = F.test(a_dir / diff.a_path)
+            b_path = F.test(b_dir / diff.b_path)
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -1777,7 +1046,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -&gt; Result[Notetype, Exception]:
     return Ok(notetype)
 
 
-@safe
+@monadic
 @beartype
 def get_models_recursively(kirepo: KiRepo) -&gt; Result[Dict[str, Notetype], Exception]:
     &#34;&#34;&#34;
@@ -1794,7 +1063,7 @@ def get_models_recursively(kirepo: KiRepo) -&gt; Result[Dict[str, Notetype], Exc
     all_models: Dict[str, Notetype] = {}
 
     # Load notetypes from json files.
-    for models_file in frglob(kirepo.root, MODELS_FILE):
+    for models_file in F.rglob(kirepo.root, MODELS_FILE):
         with open(models_file, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as models_f:
             models: Dict[str, Notetype] = {}
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
@@ -1842,7 +1111,7 @@ def parse_markdown_note(
     return flatnotes[0]
 
 
-@safe
+@monadic
 @beartype
 def update_note(
     note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
@@ -1917,7 +1186,7 @@ def update_note(
     return Ok(note)
 
 
-@safe
+@monadic
 @beartype
 def validate_flatnote_fields(
     notetype: Notetype, flatnote: FlatNote
@@ -1953,7 +1222,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; ExtantFile:
         field_text = sort_field_text
 
     name = field_text[:MAX_FIELNAME_LEN]
-    slug = slugify(name, allow_unicode=True)
+    slug = F.slugify(name, allow_unicode=True)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception.  If all
@@ -1964,15 +1233,15 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; ExtantFile:
 
     filename = Path(slug)
     filename = filename.with_suffix(MD)
-    note_path = fftest(deck_dir / filename)
+    note_path = F.test(deck_dir / filename)
 
     i = 1
     while not isinstance(note_path, NoPath):
         filename = Path(f&#34;{name}_{i}&#34;).with_suffix(MD)
-        note_path = fftest(deck_dir / filename)
+        note_path = F.test(deck_dir / filename)
         i += 1
 
-    note_path: ExtantFile = ftouch(deck_dir, str(filename))
+    note_path: ExtantFile = F.touch(deck_dir, str(filename))
 
     return note_path
 
@@ -1980,9 +1249,9 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; ExtantFile:
 @beartype
 def backup(kirepo: KiRepo) -&gt; None:
     &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
-    md5sum = md5(kirepo.col_file)
+    md5sum = F.md5(kirepo.col_file)
     name = f&#34;{md5sum}.anki2&#34;
-    backup_file = fftest(kirepo.backups_dir / name)
+    backup_file = F.test(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
     # `name`, since `name` contains the md5sum of the collection file, and
@@ -1994,7 +1263,7 @@ def backup(kirepo: KiRepo) -&gt; None:
         return
 
     echo(f&#34;Writing backup of .anki2 file to &#39;{backup_file}&#39;&#34;)
-    ffcopyfile(kirepo.col_file, kirepo.backups_dir, name)
+    F.copyfile(kirepo.col_file, kirepo.backups_dir, name)
 
 
 @beartype
@@ -2015,23 +1284,16 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -&gt; ExtantDir:
     components = deck_name.split(&#34;::&#34;)
     components = [re.sub(r&#34;^\.&#34;, r&#34;&#34;, comp) for comp in components]
     deck_path = Path(targetdir, *components)
-    return ffforce_mkdir(deck_path)
+    return F.force_mkdir(deck_path)
 
 
 @beartype
 def get_field_note_id(nid: int, fieldname: str) -&gt; str:
     &#34;&#34;&#34;A str ID that uniquely identifies field-note pairs.&#34;&#34;&#34;
-    return f&#34;{nid}{slugify(fieldname, allow_unicode=True)}&#34;
+    return f&#34;{nid}{F.slugify(fieldname, allow_unicode=True)}&#34;
 
 
-@beartype
-def get_batches(lst: List[ExtantFile], n: int) -&gt; Generator[ExtantFile, None, None]:
-    &#34;&#34;&#34;Yield successive n-sized chunks from lst.&#34;&#34;&#34;
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]
-
-
-@safe
+@monadic
 @beartype
 def push_flatnote_to_anki(
     col: Collection, flatnote: FlatNote
@@ -2132,7 +1394,7 @@ def get_header_lines(colnote) -&gt; List[str]:
     return lines
 
 
-@safe
+@monadic
 @beartype
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
@@ -2147,16 +1409,16 @@ def write_repository(
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
-    tempdir: EmptyDir = ffmkdtemp()
-    root: EmptyDir = ffmksubdir(tempdir, FIELD_HTML_SUFFIX)
+    tempdir: EmptyDir = F.mkdtemp()
+    root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
     paths: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(col_file)
-    ffchdir(cwd)
+    F.chdir(cwd)
 
     all_nids = list(col.find_notes(query=&#34;&#34;))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
@@ -2168,7 +1430,7 @@ def write_repository(
         for fieldname, fieldtext in colnote.n.items():
             if re.search(HTML_REGEX, fieldtext):
                 fid: str = get_field_note_id(nid, fieldname)
-                html_file: ExtantFile = ftouch(root, fid)
+                html_file: ExtantFile = F.touch(root, fid)
                 html_file.write_text(fieldtext, encoding=&#34;UTF-8&#34;)
                 paths[fid] = html_file
 
@@ -2187,7 +1449,7 @@ def write_repository(
     return wrote
 
 
-@safe
+@monadic
 @beartype
 def write_decks(
     col: Collection,
@@ -2366,37 +1628,12 @@ def echo(string: str, silent: bool = False) -&gt; None:
         # logger.info(string)
 
 
-@beartype
-def slugify(value: str, allow_unicode: bool = False) -&gt; str:
-    &#34;&#34;&#34;
-    Taken from [1]. Convert to ASCII if &#39;allow_unicode&#39; is False. Convert
-    spaces or repeated dashes to single dashes. Remove characters that aren&#39;t
-    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
-    leading and trailing whitespace, dashes, and underscores.
-
-    [1] https://github.com/django/django/blob/master/django/utils/text.py
-    &#34;&#34;&#34;
-    if allow_unicode:
-        value = unicodedata.normalize(&#34;NFKC&#34;, value)
-    else:
-        value = (
-            unicodedata.normalize(&#34;NFKD&#34;, value)
-            .encode(&#34;ascii&#34;, &#34;ignore&#34;)
-            .decode(&#34;ascii&#34;)
-        )
-
-    value = re.sub(SLUG_REGEX, &#34;&#34;, value.lower())
-    result: str = re.sub(r&#34;[-\s]+&#34;, &#34;-&#34;, value).strip(&#34;-_&#34;)
-
-    return result
-
-
-@safe
+@monadic
 @beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; Result[bool, Exception]:
     &#34;&#34;&#34;Call html5-tidy on each file in `root`, editing in-place.&#34;&#34;&#34;
     # Spin up subprocesses for tidying field HTML in-place.
-    batches: List[List[ExtantFile]] = list(get_batches(frglob(root, &#34;*&#34;), BATCH_SIZE))
+    batches: List[List[ExtantFile]] = list(F.get_batches(F.rglob(root, &#34;*&#34;), BATCH_SIZE))
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.
@@ -2409,7 +1646,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; Result[bool, Exce
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def flatten_staging_repo(
     stage_kirepo: KiRepo, kirepo: KiRepo
@@ -2433,30 +1670,30 @@ def flatten_staging_repo(
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
-    stage_git_dir: NoPath = ffrmtree(git_dir(stage_kirepo.repo))
+    stage_git_dir: NoPath = F.rmtree(F.git_dir(stage_kirepo.repo))
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
     # Copy the .git folder from `no_submodules_tree` into the stage repo.
-    stage_git_dir = ffcopytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
-    stage_root: ExtantDir = ffparent(stage_git_dir)
+    stage_git_dir = F.copytree(F.git_dir(kirepo.no_modules_repo), stage_git_dir)
+    stage_root: ExtantDir = F.parent(stage_git_dir)
 
     # Reload stage kirepo.
-    stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
+    stage_kirepo: Res[KiRepo] = M.kirepo(stage_root)
 
     return stage_kirepo
 
 
-@safe
+@monadic
 @beartype
 def get_target(
     cwd: ExtantDir, col_file: ExtantFile, directory: str
 ) -&gt; Result[EmptyDir, Exception]:
     # Create default target directory.
-    path = fftest(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
+    path = F.test(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M_emptydir(path)
+        return M.emptydir(path)
     if isinstance(path, EmptyDir):
         return Ok(path)
     return Err(TargetExistsError(path))
@@ -2490,23 +1727,23 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; Result[bool, Excep
         Note: we check that this directory does not yet exist.
     &#34;&#34;&#34;
     echo(&#34;Cloning.&#34;)
-    col_file: Res[ExtantFile] = M_xfile(Path(collection))
+    col_file: Res[ExtantFile] = M.xfile(Path(collection))
 
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
     md5sum: Res[str] = _clone(col_file, targetdir, msg=&#34;Initial commit&#34;, silent=False)
 
     # Check that we are inside a ki repository, and get the associated collection.
-    targetdir: Res[ExtantDir] = M_xdir(targetdir)
-    kirepo: Res[KiRepo] = M_kirepo(targetdir)
+    targetdir: Res[ExtantDir] = M.xdir(targetdir)
+    kirepo: Res[KiRepo] = M.kirepo(targetdir)
 
     # Get reference to HEAD of current repo.
-    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
+    head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
 
     if targetdir.is_err() or head.is_err():
         echo(&#34;Failed: exiting.&#34;)
 
-        # We get an error here only in the case where the `M_xdir()` call
+        # We get an error here only in the case where the `M.xdir()` call
         # failed on `targetdir`. We cannot assume that it doesn&#39;t exist,
         # because we may have returned the exception inside `fmkdempty()`,
         # which errors-out when the target already exists and is nonempty. This
@@ -2515,14 +1752,10 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; Result[bool, Excep
         if targetdir.is_err():
             return targetdir
 
-        # Otherwise, we must have that either we created `targetdir` and it
-        # did not exist prior, or it was an empty directory before. In either
-        # case, we can probably remove it safely. We do this bit without using
-        # our @safe-d wrappers because it is very important that these three
-        # lines do not fail.  If they do, we would have an &#39;exception raised
-        # while handling an exception&#39;-type error to display to the user, which
-        # would be gross. So we assume that these statements can never raise
-        # exceptions.  TODO: Consider removing only its contents instead.
+        # Otherwise, we must have that either we created `targetdir` and it did
+        # not exist prior, or it was an empty directory before. In either case,
+        # we can probably remove it safely.
+        # TODO: Consider removing only its contents instead.
         targetdir: ExtantDir = targetdir.unwrap()
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
@@ -2548,10 +1781,10 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; Result[bool, Excep
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = ffrmtree(working_dir(head.kirepo.no_modules_repo))
-    ffcopytree(stage_kirepo.root, no_modules_root)
+    no_modules_root: NoPath = F.rmtree(F.working_dir(head.kirepo.no_modules_repo))
+    F.copytree(stage_kirepo.root, no_modules_root)
 
-    kirepo: Res[KiRepo] = M_kirepo(targetdir)
+    kirepo: Res[KiRepo] = M.kirepo(targetdir)
     if kirepo.is_err():
         echo(&#34;Failed: exiting.&#34;)
         return kirepo
@@ -2563,7 +1796,7 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; Result[bool, Excep
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def _clone(
     col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
@@ -2596,16 +1829,16 @@ def _clone(
     echo(f&#34;Found .anki2 file at &#39;{col_file}&#39;&#34;, silent=silent)
 
     # Create .ki subdirectory.
-    ki_dir: EmptyDir = ffmksubdir(targetdir, Path(KI))
+    ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: Res[Leaves] = fmkleaves(
+    leaves: Res[Leaves] = F.fmkleaves(
         ki_dir,
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
         dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
     )
 
-    md5sum = md5(col_file)
+    md5sum = F.md5(col_file)
     echo(f&#34;Computed md5sum: {md5sum}&#34;, silent)
     echo(f&#34;Cloning into &#39;{targetdir}&#39;...&#34;, silent=silent)
 
@@ -2633,7 +1866,8 @@ def _clone(
     return Ok(md5sum)
 
 
-@safe
+# TODO: Remove this function.
+@monadic
 @beartype
 def init_repos(
     targetdir: ExtantDir, leaves: Leaves, msg: str
@@ -2661,14 +1895,14 @@ def pull() -&gt; Result[bool, Exception]:
     &#34;&#34;&#34;
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = ffcwd()
-    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    cwd: ExtantDir = F.cwd()
+    kirepo: Res[KiRepo] = M.kirepo(cwd)
     if kirepo.is_err():
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
     con: sqlite3.Connection = lock(kirepo)
 
-    md5sum: str = md5(kirepo.col_file)
+    md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split(&#34;\n&#34;)
     hashes = list(filter(lambda l: l != &#34;&#34;, hashes))
     logger.debug(f&#34;Hashes:\n{pp.pformat(hashes)}&#34;)
@@ -2681,12 +1915,12 @@ def pull() -&gt; Result[bool, Exception]:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    ref: Res[RepoRef] = M_repo_ref(kirepo.repo, sha)
+    ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
     last_push_repo: Res[git.Repo] = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
     msg = f&#34;Fetch changes from DB at &#39;{kirepo.col_file}&#39; with md5sum &#39;{md5sum}&#39;&#34;
-    anki_remote_root: EmptyDir = ffmksubdir(ffmkdtemp(), REMOTE_SUFFIX / md5sum)
+    anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     # This should return the repository as well.
     cloned: Res[str] = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
@@ -2698,22 +1932,23 @@ def pull() -&gt; Result[bool, Exception]:
     return Ok(unlock(con))
 
 
-@safe
+# TODO: Remove this function.
+@monadic
 @beartype
 def pull_theirs_from_remote(
     repo: git.Repo, root: ExtantDir, remote: git.Remote
 ) -&gt; Result[bool, Exception]:
-    cwd: ExtantDir = ffchdir(root)
+    cwd: ExtantDir = F.chdir(root)
     echo(f&#34;Pulling into {root}&#34;)
     repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
     # TODO: This is not yet safe. Consider rewriting with gitpython.
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
     repo.delete_remote(remote)
-    ffchdir(cwd)
+    F.chdir(cwd)
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def pull_changes_from_remote_repo(
     kirepo: KiRepo,
@@ -2741,7 +1976,7 @@ def pull_changes_from_remote_repo(
     of the database every time would mean that everything would look like a
     merge conflict, because there is no shared history.
     &#34;&#34;&#34;
-    remote_repo: Res[git.Repo] = M_repo(anki_remote_root)
+    remote_repo: Res[git.Repo] = M.repo(anki_remote_root)
     if remote_repo.is_err():
         return remote_repo
     remote_repo: git.Repo = remote_repo.unwrap()
@@ -2750,7 +1985,7 @@ def pull_changes_from_remote_repo(
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
 
     # Pull anki remote repo into `last_push_repo`.
-    last_push_root: Res[ExtantDir] = working_dir(last_push_repo)
+    last_push_root: Res[ExtantDir] = F.working_dir(last_push_repo)
     pulled: OkErr = pull_theirs_from_remote(last_push_repo, last_push_root, anki_remote)
     if pulled.is_err():
         return pulled
@@ -2771,7 +2006,7 @@ def pull_changes_from_remote_repo(
     append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
 
     # Check that md5sum hasn&#39;t changed.
-    if md5(kirepo.col_file) != md5sum:
+    if F.md5(kirepo.col_file) != md5sum:
         return Err(CollectionChecksumError(kirepo.col_file))
     return Ok()
 
@@ -2786,14 +2021,14 @@ def push() -&gt; Result[bool, Exception]:
     pp.install_extras(exclude=[&#34;ipython&#34;, &#34;django&#34;, &#34;ipython_repr_pretty&#34;])
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = ffcwd()
-    kirepo: Res[KiRepo] = M_kirepo(cwd)
+    cwd: ExtantDir = F.cwd()
+    kirepo: Res[KiRepo] = M.kirepo(cwd)
     if kirepo.is_err():
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
     con: sqlite3.Connection = lock(kirepo)
 
-    md5sum: str = md5(kirepo.col_file)
+    md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split(&#34;\n&#34;)
     hashes = list(filter(lambda l: l != &#34;&#34;, hashes))
     logger.debug(f&#34;Hashes:\n{pp.pformat(hashes)}&#34;)
@@ -2801,7 +2036,7 @@ def push() -&gt; Result[bool, Exception]:
         return Err(UpdatesRejectedError(kirepo.col_file))
 
     # Get reference to HEAD of current repo.
-    head: Res[KiRepoRef] = M_head_kirepo_ref(kirepo)
+    head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
     if head.is_err():
         return head
     head: KiRepoRef = head.unwrap()
@@ -2816,7 +2051,7 @@ def push() -&gt; Result[bool, Exception]:
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit, and then after the following line, the
     # reference we got will be HEAD~1, hence the variable name.
-    head_1: Res[RepoRef] = M_head_repo_ref(stage_kirepo.repo)
+    head_1: Res[RepoRef] = M.head_repo_ref(stage_kirepo.repo)
     if head_1.is_err():
         return head_1
     head_1: RepoRef = head_1.unwrap()
@@ -2853,7 +2088,7 @@ def push() -&gt; Result[bool, Exception]:
     )
 
 
-@safe
+@monadic
 @beartype
 def push_deltas(
     deltas: List[Delta],
@@ -2876,12 +2111,12 @@ def push_deltas(
     echo(f&#34;Verified md5sum matches latest hash in &#39;{kirepo.hashes_file}&#39;&#34;)
 
     # Copy collection to a temp directory.
-    temp_col_dir: ExtantDir = ffmkdtemp()
+    temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
-    new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, temp_col_dir, col_name)
+    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
+    head: Res[RepoRef] = M.head_repo_ref(kirepo.repo)
     if head.is_err():
         echo(&#34;Failed: no commits in repository. Couldn&#39;t find HEAD ref.&#34;)
         return Ok()
@@ -2889,9 +2124,9 @@ def push_deltas(
     echo(f&#34;Generating local .anki2 file from latest commit: {head.sha}&#34;)
     echo(f&#34;Writing changes to &#39;{new_col_file}&#39;...&#34;)
 
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(new_col_file)
-    ffchdir(cwd)
+    F.chdir(cwd)
     modified = True
 
     # Add all new models.
@@ -2975,11 +2210,11 @@ def push_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    new_col_file = ffcopyfile(new_col_file, ffparent(kirepo.col_file), col_name)
+    new_col_file = F.copyfile(new_col_file, F.parent(kirepo.col_file), col_name)
     echo(f&#34;Overwrote &#39;{kirepo.col_file}&#39;&#34;)
 
     # Append to hashes file.
-    new_md5sum = md5(new_col_file)
+    new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Completely annihilate the `.ki/no_submodules_tree`
@@ -2987,8 +2222,8 @@ def push_deltas(
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = ffrmtree(working_dir(kirepo.no_modules_repo))
-    ffcopytree(stage_kirepo.root, no_modules_root)
+    no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
+    F.copytree(stage_kirepo.root, no_modules_root)
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
@@ -2999,7 +2234,7 @@ def push_deltas(
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def regenerate_note_file(
     colnote: ColNote, root: ExtantDir, relpath: Path
@@ -3033,7 +2268,7 @@ def regenerate_note_file(
     if repo_note_path.is_file():
         repo_note_path.unlink()
 
-    parent: ExtantDir = ffforce_mkdir(repo_note_path.parent)
+    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
     new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
     new_note_path.write_text(get_colnote_repr(colnote), encoding=&#34;UTF-8&#34;)
 
@@ -3047,13 +2282,25 @@ def regenerate_note_file(
 <section>
 <h2 class="section-title" id="header-submodules">Sub-modules</h2>
 <dl>
-<dt><code class="name"><a title="ki.safe" href="safe.html">ki.safe</a></code></dt>
+<dt><code class="name"><a title="ki.functional" href="functional.html">ki.functional</a></code></dt>
 <dd>
-<div class="desc"><p>A function decorator for use with functions returning <code>result.Result</code>.</p></div>
+<div class="desc"><p>Type-safe, non Anki-specific functions.</p></div>
+</dd>
+<dt><code class="name"><a title="ki.maybes" href="maybes.html">ki.maybes</a></code></dt>
+<dd>
+<div class="desc"><p>Monadic factory functions for safely handling errors in type construction.</p></div>
+</dd>
+<dt><code class="name"><a title="ki.monadic" href="monadic.html">ki.monadic</a></code></dt>
+<dd>
+<div class="desc"><p>A function decorator to lift functions up to the category <code>result.Result</code>.</p></div>
 </dd>
 <dt><code class="name"><a title="ki.transformer" href="transformer.html">ki.transformer</a></code></dt>
 <dd>
 <div class="desc"><p>A Lark transformer for the ki note grammar.</p></div>
+</dd>
+<dt><code class="name"><a title="ki.types" href="types.html">ki.types</a></code></dt>
+<dd>
+<div class="desc"><p>Types for ki.</p></div>
 </dd>
 </dl>
 </section>
@@ -3062,306 +2309,8 @@ def regenerate_note_file(
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
-<dt id="ki.M_emptydir"><code class="name flex">
-<span>def <span class="ident">M_emptydir</span></span>(<span>path: pathlib.Path) ‑> Union[result.result.Ok[<a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Attempt to instantiate an ExtantDir.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_emptydir(path: Path) -&gt; Result[ExtantDir, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantDir.
-    &#34;&#34;&#34;
-    # Check if it&#39;s an extant directory.
-    res: OkErr = M_xdir(path)
-
-    # Return the Err if not.
-    if res.is_err():
-        return res
-
-    # Unwrap the value otherwise.
-    directory: ExtantDir = res.unwrap()
-    if is_empty(directory):
-        return Ok(EmptyDir(Path(directory).resolve()))
-    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))</code></pre>
-</details>
-</dd>
-<dt id="ki.M_head_kirepo_ref"><code class="name flex">
-<span>def <span class="ident">M_head_kirepo_ref</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[<a title="ki.KiRepoRef" href="#ki.KiRepoRef">KiRepoRef</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
-    # GitPython raises a ValueError when references don&#39;t exist.
-    try:
-        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)</code></pre>
-</details>
-</dd>
-<dt id="ki.M_head_repo_ref"><code class="name flex">
-<span>def <span class="ident">M_head_repo_ref</span></span>(<span>repo: git.repo.base.Repo) ‑> Union[result.result.Ok[<a title="ki.RepoRef" href="#ki.RepoRef">RepoRef</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_head_repo_ref(repo: git.Repo) -&gt; Result[RepoRef, Exception]:
-    # GitPython raises a ValueError when references don&#39;t exist.
-    try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
-    except ValueError as err:
-        return Err(err)
-    return Ok(ref)</code></pre>
-</details>
-</dd>
-<dt id="ki.M_kirepo"><code class="name flex">
-<span>def <span class="ident">M_kirepo</span></span>(<span>cwd: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> Union[result.result.Ok[<a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get the containing ki repository of <code>path</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
-    &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
-    current = cwd
-
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
-        ki_dir = fftest(current / KI)
-        if isinstance(ki_dir, ExtantDir):
-            break
-        current = ffparent(current)
-
-    if current == FS_ROOT:
-        return Err(NotKiRepoError())
-
-    # Root directory and ki directory of repo now guaranteed to exist.
-    root = current
-    repo: OkErr = M_repo(root)
-
-    # Check that relevant files in .ki/ subdirectory exist.
-    backups_dir = M_xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
-    config_file = M_xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
-    hashes_file = M_xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
-    models_file = M_xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    last_push_file = M_xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
-
-    # Load the no_submodules_tree.
-    no_modules_dir = M_xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M_repo(no_modules_dir)
-
-    # Check that collection file exists.
-    if config_file.is_err():
-        return config_file
-    config_file: ExtantFile = config_file.unwrap()
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
-    col_file = M_xfile(col_file, info=COL_FILE_INFO)
-
-    @safe
-    @beartype
-    def constructor(
-        repo: git.Repo,
-        root: ExtantDir,
-        ki_dir: ExtantDir,
-        col_file: ExtantFile,
-        backups_dir: ExtantDir,
-        config_file: ExtantFile,
-        hashes_file: ExtantFile,
-        models_file: ExtantFile,
-        last_push_file: ExtantFile,
-        no_modules_repo: git.Repo,
-    ) -&gt; Result[KiRepo, Exception]:
-        return Ok(
-            KiRepo(
-                repo,
-                root,
-                ki_dir,
-                col_file,
-                backups_dir,
-                config_file,
-                hashes_file,
-                models_file,
-                last_push_file,
-                no_modules_repo,
-            )
-        )
-
-    return constructor(
-        repo,
-        root,
-        ki_dir,
-        col_file,
-        backups_dir,
-        config_file,
-        hashes_file,
-        models_file,
-        last_push_file,
-        no_modules_repo,
-    )</code></pre>
-</details>
-</dd>
-<dt id="ki.M_kirepo_ref"><code class="name flex">
-<span>def <span class="ident">M_kirepo_ref</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, sha: str) ‑> Union[result.result.Ok[<a title="ki.KiRepoRef" href="#ki.KiRepoRef">KiRepoRef</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_kirepo_ref(kirepo: KiRepo, sha: str) -&gt; Result[KiRepoRef, Exception]:
-    if not ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))</code></pre>
-</details>
-</dd>
-<dt id="ki.M_nopath"><code class="name flex">
-<span>def <span class="ident">M_nopath</span></span>(<span>path: pathlib.Path) ‑> Union[result.result.Ok[<a title="ki.NoPath" href="#ki.NoPath">NoPath</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Maybe convert a path to a NoPath, i.e. a path that did not exist at
-resolve-time, which is when this function was called.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_nopath(path: Path) -&gt; Result[NoPath, Exception]:
-    &#34;&#34;&#34;
-    Maybe convert a path to a NoPath, i.e. a path that did not exist at
-    resolve-time, which is when this function was called.
-    &#34;&#34;&#34;
-    path = path.resolve()
-    if path.exists():
-        return Err(FileExistsError(str(path)))
-    return Ok(NoPath(path))</code></pre>
-</details>
-</dd>
-<dt id="ki.M_repo"><code class="name flex">
-<span>def <span class="ident">M_repo</span></span>(<span>root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> Union[result.result.Ok[git.repo.base.Repo], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Read a git repo safely.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_repo(root: ExtantDir) -&gt; Result[git.Repo, Exception]:
-    &#34;&#34;&#34;Read a git repo safely.&#34;&#34;&#34;
-    try:
-        repo = git.Repo(root)
-    except git.InvalidGitRepositoryError as err:
-        return Err(err)
-    return Ok(repo)</code></pre>
-</details>
-</dd>
-<dt id="ki.M_repo_ref"><code class="name flex">
-<span>def <span class="ident">M_repo_ref</span></span>(<span>repo: git.repo.base.Repo, sha: str) ‑> Union[result.result.Ok[<a title="ki.RepoRef" href="#ki.RepoRef">RepoRef</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_repo_ref(repo: git.Repo, sha: str) -&gt; Result[RepoRef, Exception]:
-    if not ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))</code></pre>
-</details>
-</dd>
-<dt id="ki.M_xdir"><code class="name flex">
-<span>def <span class="ident">M_xdir</span></span>(<span>path: pathlib.Path, info: str = '') ‑> Union[result.result.Ok[<a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Attempt to instantiate an ExtantDir.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantDir.
-    &#34;&#34;&#34;
-    # Resolve path.
-    path = path.resolve()
-
-    # Check that path exists and is a directory.
-    if not path.exists():
-        return Err(MissingDirectoryError(path, info))
-    if path.is_dir():
-        return Ok(ExtantDir(path))
-    if path.is_file():
-        return Err(ExpectedDirectoryButGotFileError(path, info))
-    return Err(StrangeExtantPathError(path, info))</code></pre>
-</details>
-</dd>
-<dt id="ki.M_xfile"><code class="name flex">
-<span>def <span class="ident">M_xfile</span></span>(<span>path: pathlib.Path, info: str = '') ‑> Union[result.result.Ok[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Attempt to instantiate an ExtantFile.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def M_xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception]:
-    &#34;&#34;&#34;
-    Attempt to instantiate an ExtantFile.
-    &#34;&#34;&#34;
-    # Resolve path.
-    path = path.resolve()
-
-    # Check that path exists and is a file.
-    if not path.exists():
-        return Err(MissingFileError(path, info))
-    if path.is_dir():
-        return Err(ExpectedFileButGotDirectoryError(path, info))
-    if not path.is_file():
-        return Err(StrangeExtantPathError(path, info))
-
-    # Must be an extant file.
-    return Ok(ExtantFile(path))</code></pre>
-</details>
-</dd>
 <dt id="ki.append_md5sum"><code class="name flex">
-<span>def <span class="ident">append_md5sum</span></span>(<span>ki_dir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, tag: str, md5sum: str, silent: bool = False) ‑> None</span>
+<span>def <span class="ident">append_md5sum</span></span>(<span>ki_dir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, tag: str, md5sum: str, silent: bool = False) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Append an md5sum hash to the hashes file.</p></div>
@@ -3381,7 +2330,7 @@ def append_md5sum(
 </details>
 </dd>
 <dt id="ki.backup"><code class="name flex">
-<span>def <span class="ident">backup</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>) ‑> None</span>
+<span>def <span class="ident">backup</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Backup collection to <code>.ki/backups</code>.</p></div>
@@ -3392,9 +2341,9 @@ def append_md5sum(
 <pre><code class="python">@beartype
 def backup(kirepo: KiRepo) -&gt; None:
     &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
-    md5sum = md5(kirepo.col_file)
+    md5sum = F.md5(kirepo.col_file)
     name = f&#34;{md5sum}.anki2&#34;
-    backup_file = fftest(kirepo.backups_dir / name)
+    backup_file = F.test(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
     # `name`, since `name` contains the md5sum of the collection file, and
@@ -3406,11 +2355,11 @@ def backup(kirepo: KiRepo) -&gt; None:
         return
 
     echo(f&#34;Writing backup of .anki2 file to &#39;{backup_file}&#39;&#34;)
-    ffcopyfile(kirepo.col_file, kirepo.backups_dir, name)</code></pre>
+    F.copyfile(kirepo.col_file, kirepo.backups_dir, name)</code></pre>
 </details>
 </dd>
 <dt id="ki.create_deck_dir"><code class="name flex">
-<span>def <span class="ident">create_deck_dir</span></span>(<span>deck_name: str, targetdir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
+<span>def <span class="ident">create_deck_dir</span></span>(<span>deck_name: str, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Construct path to deck directory and create it.</p></div>
@@ -3425,11 +2374,11 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -&gt; ExtantDir:
     components = deck_name.split(&#34;::&#34;)
     components = [re.sub(r&#34;^\.&#34;, r&#34;&#34;, comp) for comp in components]
     deck_path = Path(targetdir, *components)
-    return ffforce_mkdir(deck_path)</code></pre>
+    return F.force_mkdir(deck_path)</code></pre>
 </details>
 </dd>
 <dt id="ki.diff_repos"><code class="name flex">
-<span>def <span class="ident">diff_repos</span></span>(<span>a_repo: git.repo.base.Repo, b_repo: git.repo.base.Repo, ref: <a title="ki.RepoRef" href="#ki.RepoRef">RepoRef</a>, filter_fn: collections.abc.Callable[[pathlib.Path], bool], parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>) ‑> Union[result.result.Ok[list[<a title="ki.Delta" href="#ki.Delta">Delta</a>]], result.result.Err[Exception]]</span>
+<span>def <span class="ident">diff_repos</span></span>(<span>a_repo: git.repo.base.Repo, b_repo: git.repo.base.Repo, ref: <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a>, filter_fn: collections.abc.Callable[[pathlib.Path], bool], parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>) ‑> Union[result.result.Ok[list[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>]], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -3437,7 +2386,7 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -&gt; ExtantDir:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def diff_repos(
     a_repo: git.Repo,
@@ -3460,8 +2409,8 @@ def diff_repos(
                 logger.warning(f&#34;Ignoring:\n{diff.a_path}\n{diff.b_path}&#34;)
                 continue
 
-            a_path = fftest(a_dir / diff.a_path)
-            b_path = fftest(b_dir / diff.b_path)
+            a_path = F.test(a_dir / diff.a_path)
+            b_path = F.test(b_dir / diff.b_path)
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
@@ -3538,219 +2487,8 @@ def echo(string: str, silent: bool = False) -&gt; None:
         # logger.info(string)</code></pre>
 </details>
 </dd>
-<dt id="ki.ffchdir"><code class="name flex">
-<span>def <span class="ident">ffchdir</span></span>(<span>directory: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Changes working directory and returns old cwd.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffchdir(directory: ExtantDir) -&gt; ExtantDir:
-    &#34;&#34;&#34;Changes working directory and returns old cwd.&#34;&#34;&#34;
-    old: ExtantDir = ffcwd()
-    os.chdir(directory)
-    return old</code></pre>
-</details>
-</dd>
-<dt id="ki.ffcopyfile"><code class="name flex">
-<span>def <span class="ident">ffcopyfile</span></span>(<span>source: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, target_root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, name: str) ‑> <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Force copy a file (potentially overwrites the target path).</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffcopyfile(source: ExtantFile, target_root: ExtantDir, name: str) -&gt; ExtantFile:
-    &#34;&#34;&#34;Force copy a file (potentially overwrites the target path).&#34;&#34;&#34;
-    name = singleton(name)
-    target = target_root / name
-    shutil.copyfile(source, target)
-    return ExtantFile(target.resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.ffcopytree"><code class="name flex">
-<span>def <span class="ident">ffcopytree</span></span>(<span>source: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, target: <a title="ki.NoPath" href="#ki.NoPath">NoPath</a>) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call shutil.copytree().</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffcopytree(source: ExtantDir, target: NoPath) -&gt; ExtantDir:
-    &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
-    shutil.copytree(source, target)
-    return ExtantDir(target.resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.ffcwd"><code class="name flex">
-<span>def <span class="ident">ffcwd</span></span>(<span>) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call Path.cwd().</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffcwd() -&gt; ExtantDir:
-    &#34;&#34;&#34;Call Path.cwd().&#34;&#34;&#34;
-    return ExtantDir(Path.cwd().resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.ffforce_mkdir"><code class="name flex">
-<span>def <span class="ident">ffforce_mkdir</span></span>(<span>path: pathlib.Path) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Make a directory (with parents, ok if it already exists).</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffforce_mkdir(path: Path) -&gt; ExtantDir:
-    &#34;&#34;&#34;Make a directory (with parents, ok if it already exists).&#34;&#34;&#34;
-    path.mkdir(parents=True, exist_ok=True)
-    return ExtantDir(path.resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.ffmkdir"><code class="name flex">
-<span>def <span class="ident">ffmkdir</span></span>(<span>path: <a title="ki.NoPath" href="#ki.NoPath">NoPath</a>) ‑> <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Make a directory (with parents).</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffmkdir(path: NoPath) -&gt; EmptyDir:
-    &#34;&#34;&#34;Make a directory (with parents).&#34;&#34;&#34;
-    path.mkdir(parents=True)
-    return EmptyDir(path)</code></pre>
-</details>
-</dd>
-<dt id="ki.ffmkdtemp"><code class="name flex">
-<span>def <span class="ident">ffmkdtemp</span></span>(<span>) ‑> <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Make a temporary directory (in /tmp).</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffmkdtemp() -&gt; EmptyDir:
-    &#34;&#34;&#34;Make a temporary directory (in /tmp).&#34;&#34;&#34;
-    return EmptyDir(tempfile.mkdtemp()).resolve()</code></pre>
-</details>
-</dd>
-<dt id="ki.ffmksubdir"><code class="name flex">
-<span>def <span class="ident">ffmksubdir</span></span>(<span>directory: <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>, suffix: pathlib.Path) ‑> <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Make a subdirectory of an empty directory (with parents).</p>
-<h2 id="returns">Returns</h2>
-<dl>
-<dt><code><a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></code></dt>
-<dd>The created subdirectory.</dd>
-</dl></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffmksubdir(directory: EmptyDir, suffix: Path) -&gt; EmptyDir:
-    &#34;&#34;&#34;
-    Make a subdirectory of an empty directory (with parents).
-
-    Returns
-    -------
-    EmptyDir
-        The created subdirectory.
-    &#34;&#34;&#34;
-    subdir = directory / suffix
-    subdir.mkdir(parents=True)
-    directory.__class__ = ExtantDir
-    return EmptyDir(subdir.resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.ffparent"><code class="name flex">
-<span>def <span class="ident">ffparent</span></span>(<span>path: Union[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>]) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get the parent of a path that exists.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffparent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get the parent of a path that exists.&#34;&#34;&#34;
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
-    return ExtantDir(path.parent)</code></pre>
-</details>
-</dd>
-<dt id="ki.ffrmtree"><code class="name flex">
-<span>def <span class="ident">ffrmtree</span></span>(<span>target: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> <a title="ki.NoPath" href="#ki.NoPath">NoPath</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call shutil.rmtree().</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ffrmtree(target: ExtantDir) -&gt; NoPath:
-    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
-    shutil.rmtree(target)
-    return NoPath(target)</code></pre>
-</details>
-</dd>
-<dt id="ki.fftest"><code class="name flex">
-<span>def <span class="ident">fftest</span></span>(<span>path: pathlib.Path) ‑> Union[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>, <a title="ki.ExtantStrangePath" href="#ki.ExtantStrangePath">ExtantStrangePath</a>, <a title="ki.NoPath" href="#ki.NoPath">NoPath</a>]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Fast ftest, where the f just means function.</p>
-<p>Test whether <code>path</code> is a file, a directory, or something else. If
-something else, we consider that, for the sake of simplicity, a
-NoPath.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def fftest(
-    path: Path,
-) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
-    &#34;&#34;&#34;
-    Fast ftest, where the f just means function.
-
-    Test whether `path` is a file, a directory, or something else. If
-    something else, we consider that, for the sake of simplicity, a
-    NoPath.
-    &#34;&#34;&#34;
-    path = path.resolve()
-    if path.is_file():
-        return ExtantFile(path)
-    if path.is_dir():
-        if is_empty(path):
-            return EmptyDir(path)
-        return ExtantDir(path)
-    if path.exists():
-        return ExtantStrangePath(path)
-    return NoPath(path)</code></pre>
-</details>
-</dd>
 <dt id="ki.filter_note_path"><code class="name flex">
-<span>def <span class="ident">filter_note_path</span></span>(<span>path: pathlib.Path, patterns: list[str], root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> bool</span>
+<span>def <span class="ident">filter_note_path</span></span>(<span>path: pathlib.Path, patterns: list[str], root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> bool</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Lambda to be used as first argument to filter(). Filters out paths-to-ignore.</p></div>
@@ -3784,7 +2522,7 @@ def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -&gt; boo
 </details>
 </dd>
 <dt id="ki.flatten_staging_repo"><code class="name flex">
-<span>def <span class="ident">flatten_staging_repo</span></span>(<span>stage_kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[<a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">flatten_staging_repo</span></span>(<span>stage_kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[<a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Convert the staging repository into a format that is amenable to taking
@@ -3802,7 +2540,7 @@ the next commit to this repo.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def flatten_staging_repo(
     stage_kirepo: KiRepo, kirepo: KiRepo
@@ -3826,111 +2564,22 @@ def flatten_staging_repo(
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
-    stage_git_dir: NoPath = ffrmtree(git_dir(stage_kirepo.repo))
+    stage_git_dir: NoPath = F.rmtree(F.git_dir(stage_kirepo.repo))
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
     # Copy the .git folder from `no_submodules_tree` into the stage repo.
-    stage_git_dir = ffcopytree(git_dir(kirepo.no_modules_repo), stage_git_dir)
-    stage_root: ExtantDir = ffparent(stage_git_dir)
+    stage_git_dir = F.copytree(F.git_dir(kirepo.no_modules_repo), stage_git_dir)
+    stage_root: ExtantDir = F.parent(stage_git_dir)
 
     # Reload stage kirepo.
-    stage_kirepo: Res[KiRepo] = M_kirepo(stage_root)
+    stage_kirepo: Res[KiRepo] = M.kirepo(stage_root)
 
     return stage_kirepo</code></pre>
 </details>
 </dd>
-<dt id="ki.fmkleaves"><code class="name flex">
-<span>def <span class="ident">fmkleaves</span></span>(<span>root: <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>, *, files: Optional[dict[str, str]] = None, dirs: Optional[dict[str, str]] = None) ‑> Union[result.result.Ok[<a title="ki.Leaves" href="#ki.Leaves">Leaves</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Safely populate an empty directory with empty files and empty subdirectories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@safe
-@beartype
-def fmkleaves(
-    root: EmptyDir,
-    *,
-    files: Optional[Dict[str, str]] = None,
-    dirs: Optional[Dict[str, str]] = None,
-) -&gt; Result[Leaves, Exception]:
-    &#34;&#34;&#34;Safely populate an empty directory with empty files and empty subdirectories.&#34;&#34;&#34;
-    leaves: Set[str] = set()
-    new_files: Dict[str, ExtantFile] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
-    if files is not None:
-        for key, token in files.items():
-            if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
-            new_files[key] = ftouch(root, token)
-            leaves.add(str(token))
-    if dirs is not None:
-        for key, token in dirs.items():
-            # We lie to the `ffmksubdir` call and tell it the root is empty
-            # on every iteration.
-            if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
-            new_dirs[key] = ffmksubdir(EmptyDir(root), singleton(token))
-            leaves.add(str(token))
-    return Ok(Leaves(root, new_files, new_dirs))</code></pre>
-</details>
-</dd>
-<dt id="ki.frglob"><code class="name flex">
-<span>def <span class="ident">frglob</span></span>(<span>root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, pattern: str) ‑> list[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call root.rglob() and returns only files.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def frglob(root: ExtantDir, pattern: str) -&gt; List[ExtantFile]:
-    &#34;&#34;&#34;Call root.rglob() and returns only files.&#34;&#34;&#34;
-    files = filter(
-        lambda p: isinstance(p, ExtantFile), map(fftest, root.rglob(pattern))
-    )
-    return list(files)</code></pre>
-</details>
-</dd>
-<dt id="ki.ftouch"><code class="name flex">
-<span>def <span class="ident">ftouch</span></span>(<span>directory: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, name: str) ‑> <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Touch a file.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ftouch(directory: ExtantDir, name: str) -&gt; ExtantFile:
-    &#34;&#34;&#34;Touch a file.&#34;&#34;&#34;
-    path = directory / singleton(name)
-    path.touch()
-    return ExtantFile(path.resolve())</code></pre>
-</details>
-</dd>
-<dt id="ki.get_batches"><code class="name flex">
-<span>def <span class="ident">get_batches</span></span>(<span>lst: list[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>], n: int) ‑> collections.abc.Generator[<a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, None, None]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Yield successive n-sized chunks from lst.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def get_batches(lst: List[ExtantFile], n: int) -&gt; Generator[ExtantFile, None, None]:
-    &#34;&#34;&#34;Yield successive n-sized chunks from lst.&#34;&#34;&#34;
-    for i in range(0, len(lst), n):
-        yield lst[i : i + n]</code></pre>
-</details>
-</dd>
 <dt id="ki.get_colnote"><code class="name flex">
-<span>def <span class="ident">get_colnote</span></span>(<span>col: anki.collection.Collection, nid: int) ‑> Union[result.result.Ok[<a title="ki.ColNote" href="#ki.ColNote">ColNote</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">get_colnote</span></span>(<span>col: anki.collection.Collection, nid: int) ‑> Union[result.result.Ok[<a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -3972,7 +2621,7 @@ def get_colnote(col: Collection, nid: int) -&gt; Result[ColNote, Exception]:
 </details>
 </dd>
 <dt id="ki.get_colnote_repr"><code class="name flex">
-<span>def <span class="ident">get_colnote_repr</span></span>(<span>colnote: <a title="ki.ColNote" href="#ki.ColNote">ColNote</a>) ‑> str</span>
+<span>def <span class="ident">get_colnote_repr</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>) ‑> str</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -3992,7 +2641,7 @@ def get_colnote_repr(colnote: ColNote) -&gt; str:
 </details>
 </dd>
 <dt id="ki.get_ephemeral_kirepo"><code class="name flex">
-<span>def <span class="ident">get_ephemeral_kirepo</span></span>(<span>suffix: pathlib.Path, kirepo_ref: <a title="ki.KiRepoRef" href="#ki.KiRepoRef">KiRepoRef</a>, md5sum: str) ‑> Union[result.result.Ok[<a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">get_ephemeral_kirepo</span></span>(<span>suffix: pathlib.Path, kirepo_ref: <a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a>, md5sum: str) ‑> Union[result.result.Ok[<a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
@@ -4002,21 +2651,21 @@ hash.</p>
 <dl>
 <dt><strong><code>suffix</code></strong> :&ensp;<code>pathlib.Path</code></dt>
 <dd>/tmp/&hellip;/ path suffix, e.g. <code>ki/local/</code>.</dd>
-<dt><strong><code>kirepo_ref</code></strong> :&ensp;<code><a title="ki.KiRepoRef" href="#ki.KiRepoRef">KiRepoRef</a></code></dt>
+<dt><strong><code>kirepo_ref</code></strong> :&ensp;<code>KiRepoRef</code></dt>
 <dd>The ki repository to clone, and a commit for it.</dd>
 <dt><strong><code>md5sum</code></strong> :&ensp;<code>str</code></dt>
 <dd>The md5sum of the associated anki collection.</dd>
 </dl>
 <h2 id="returns">Returns</h2>
 <dl>
-<dt><code><a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a></code></dt>
+<dt><code>KiRepo</code></dt>
 <dd>The cloned repository.</dd>
 </dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def get_ephemeral_kirepo(
     suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
@@ -4040,23 +2689,23 @@ def get_ephemeral_kirepo(
     KiRepo
         The cloned repository.
     &#34;&#34;&#34;
-    ref: Res[RepoRef] = M_repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+    ref: Res[RepoRef] = M.repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
     ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
     if ephem.is_err():
         return ephem
     ephem: git.Repo = ephem.unwrap()
-    ephem_ki_dir: OkErr = M_nopath(Path(ephem.working_dir) / KI)
+    ephem_ki_dir: OkErr = M.nopath(Path(ephem.working_dir) / KI)
     if ephem_ki_dir.is_err():
         return ephem_ki_dir
     ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
-    ffcopytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
-    kirepo: Res[KiRepo] = M_kirepo(working_dir(ephem))
+    F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
+    kirepo: Res[KiRepo] = M.kirepo(F.working_dir(ephem))
 
     return kirepo</code></pre>
 </details>
 </dd>
 <dt id="ki.get_ephemeral_repo"><code class="name flex">
-<span>def <span class="ident">get_ephemeral_repo</span></span>(<span>suffix: pathlib.Path, repo_ref: <a title="ki.RepoRef" href="#ki.RepoRef">RepoRef</a>, md5sum: str) ‑> Union[result.result.Ok[git.repo.base.Repo], result.result.Err[Exception]]</span>
+<span>def <span class="ident">get_ephemeral_repo</span></span>(<span>suffix: pathlib.Path, repo_ref: <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a>, md5sum: str) ‑> Union[result.result.Ok[git.repo.base.Repo], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Get a temporary copy of a git repository in /tmp/<suffix>/.</p></div>
@@ -4064,14 +2713,14 @@ def get_ephemeral_kirepo(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def get_ephemeral_repo(
     suffix: Path, repo_ref: RepoRef, md5sum: str
 ) -&gt; Result[git.Repo, Exception]:
     &#34;&#34;&#34;Get a temporary copy of a git repository in /tmp/&lt;suffix&gt;/.&#34;&#34;&#34;
-    tempdir: EmptyDir = ffmkdtemp()
-    root: EmptyDir = ffmksubdir(tempdir, suffix)
+    tempdir: EmptyDir = F.mkdtemp()
+    root: EmptyDir = F.mksubdir(tempdir, suffix)
 
     # Git clone `repo` at latest commit in `/tmp/.../&lt;suffix&gt;/&lt;md5sum&gt;`.
     repo: git.Repo = repo_ref.repo
@@ -4101,7 +2750,7 @@ def get_ephemeral_repo(
 <pre><code class="python">@beartype
 def get_field_note_id(nid: int, fieldname: str) -&gt; str:
     &#34;&#34;&#34;A str ID that uniquely identifies field-note pairs.&#34;&#34;&#34;
-    return f&#34;{nid}{slugify(fieldname, allow_unicode=True)}&#34;</code></pre>
+    return f&#34;{nid}{F.slugify(fieldname, allow_unicode=True)}&#34;</code></pre>
 </details>
 </dd>
 <dt id="ki.get_header_lines"><code class="name flex">
@@ -4133,14 +2782,14 @@ def get_header_lines(colnote) -&gt; List[str]:
 </details>
 </dd>
 <dt id="ki.get_models_recursively"><code class="name flex">
-<span>def <span class="ident">get_models_recursively</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[dict[str, <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>]], result.result.Err[Exception]]</span>
+<span>def <span class="ident">get_models_recursively</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>]], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Find and merge all <code>models.json</code> files recursively.</p>
 <p>Should we check for duplicates?</p>
 <h2 id="returns">Returns</h2>
 <dl>
-<dt><code>Result[Dict[int, <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>], Exception]</code></dt>
+<dt><code>Result[Dict[int, Notetype], Exception]</code></dt>
 <dd>A result.Result that returns a dictionary sending model names to
 Notetypes.</dd>
 </dl></div>
@@ -4148,7 +2797,7 @@ Notetypes.</dd>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def get_models_recursively(kirepo: KiRepo) -&gt; Result[Dict[str, Notetype], Exception]:
     &#34;&#34;&#34;
@@ -4165,7 +2814,7 @@ def get_models_recursively(kirepo: KiRepo) -&gt; Result[Dict[str, Notetype], Exc
     all_models: Dict[str, Notetype] = {}
 
     # Load notetypes from json files.
-    for models_file in frglob(kirepo.root, MODELS_FILE):
+    for models_file in F.rglob(kirepo.root, MODELS_FILE):
         with open(models_file, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as models_f:
             models: Dict[str, Notetype] = {}
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
@@ -4183,7 +2832,7 @@ def get_models_recursively(kirepo: KiRepo) -&gt; Result[Dict[str, Notetype], Exc
 </details>
 </dd>
 <dt id="ki.get_note_path"><code class="name flex">
-<span>def <span class="ident">get_note_path</span></span>(<span>sort_field_text: str, deck_dir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></span>
+<span>def <span class="ident">get_note_path</span></span>(<span>sort_field_text: str, deck_dir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Get note path from sort field text.</p></div>
@@ -4206,7 +2855,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; ExtantFile:
         field_text = sort_field_text
 
     name = field_text[:MAX_FIELNAME_LEN]
-    slug = slugify(name, allow_unicode=True)
+    slug = F.slugify(name, allow_unicode=True)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception.  If all
@@ -4217,33 +2866,33 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; ExtantFile:
 
     filename = Path(slug)
     filename = filename.with_suffix(MD)
-    note_path = fftest(deck_dir / filename)
+    note_path = F.test(deck_dir / filename)
 
     i = 1
     while not isinstance(note_path, NoPath):
         filename = Path(f&#34;{name}_{i}&#34;).with_suffix(MD)
-        note_path = fftest(deck_dir / filename)
+        note_path = F.test(deck_dir / filename)
         i += 1
 
-    note_path: ExtantFile = ftouch(deck_dir, str(filename))
+    note_path: ExtantFile = F.touch(deck_dir, str(filename))
 
     return note_path</code></pre>
 </details>
 </dd>
 <dt id="ki.get_note_payload"><code class="name flex">
-<span>def <span class="ident">get_note_payload</span></span>(<span>colnote: <a title="ki.ColNote" href="#ki.ColNote">ColNote</a>, paths: dict[str, <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>]) ‑> str</span>
+<span>def <span class="ident">get_note_payload</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, paths: dict[str, <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]) ‑> str</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Return the markdown-converted contents of the Anki note represented by
 <code>colnote</code> as a string.</p>
-<p>Given a <code><a title="ki.ColNote" href="#ki.ColNote">ColNote</a></code>, which is a dataclass wrapper around a <code>Note</code> object
+<p>Given a <code>ColNote</code>, which is a dataclass wrapper around a <code>Note</code> object
 which has been loaded from the DB, and a mapping from <code>fid</code>s (unique
 identifiers of field-note pairs) to paths, we check for each field of each
 note whether that field's <code>fid</code> is contained in <code>paths</code>. If so, that means
 that the caller dumped the contents of this field to a file (the file with
 this path, in fact) in order to autoformat the HTML source. If this field
 was tidied/autoformatted, we read from that path to get the tidied source,
-otherwise, we use the field content present in the <code><a title="ki.ColNote" href="#ki.ColNote">ColNote</a></code>.</p></div>
+otherwise, we use the field content present in the <code>ColNote</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -4284,7 +2933,7 @@ def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -&gt; str:
 </details>
 </dd>
 <dt id="ki.get_target"><code class="name flex">
-<span>def <span class="ident">get_target</span></span>(<span>cwd: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, col_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, directory: str) ‑> Union[result.result.Ok[<a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">get_target</span></span>(<span>cwd: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, directory: str) ‑> Union[result.result.Ok[<a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -4292,34 +2941,19 @@ def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -&gt; str:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def get_target(
     cwd: ExtantDir, col_file: ExtantFile, directory: str
 ) -&gt; Result[EmptyDir, Exception]:
     # Create default target directory.
-    path = fftest(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
+    path = F.test(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M_emptydir(path)
+        return M.emptydir(path)
     if isinstance(path, EmptyDir):
         return Ok(path)
     return Err(TargetExistsError(path))</code></pre>
-</details>
-</dd>
-<dt id="ki.git_dir"><code class="name flex">
-<span>def <span class="ident">git_dir</span></span>(<span>repo: git.repo.base.Repo) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get git directory of a repo.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def git_dir(repo: git.Repo) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get git directory of a repo.&#34;&#34;&#34;
-    return ExtantDir(repo.git_dir).resolve()</code></pre>
 </details>
 </dd>
 <dt id="ki.git_subprocess_pull"><code class="name flex">
@@ -4412,7 +3046,7 @@ def html_to_screen(html: str) -&gt; str:
 </details>
 </dd>
 <dt id="ki.init_repos"><code class="name flex">
-<span>def <span class="ident">init_repos</span></span>(<span>targetdir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, leaves: <a title="ki.Leaves" href="#ki.Leaves">Leaves</a>, msg: str) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">init_repos</span></span>(<span>targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, leaves: <a title="ki.types.Leaves" href="types.html#ki.types.Leaves">Leaves</a>, msg: str) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Initialize both git repos and commit contents of the main one.</p></div>
@@ -4420,7 +3054,7 @@ def html_to_screen(html: str) -&gt; str:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def init_repos(
     targetdir: ExtantDir, leaves: Leaves, msg: str
@@ -4440,7 +3074,7 @@ def init_repos(
 </details>
 </dd>
 <dt id="ki.is_anki_note"><code class="name flex">
-<span>def <span class="ident">is_anki_note</span></span>(<span>path: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>) ‑> bool</span>
+<span>def <span class="ident">is_anki_note</span></span>(<span>path: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> bool</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Check if file is an <code>apy</code>-style markdown anki note.</p></div>
@@ -4467,23 +3101,8 @@ def is_anki_note(path: ExtantFile) -&gt; bool:
     return True</code></pre>
 </details>
 </dd>
-<dt id="ki.is_empty"><code class="name flex">
-<span>def <span class="ident">is_empty</span></span>(<span>directory: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>) ‑> bool</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Check if directory is empty, quickly.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def is_empty(directory: ExtantDir) -&gt; bool:
-    &#34;&#34;&#34;Check if directory is empty, quickly.&#34;&#34;&#34;
-    return not next(os.scandir(directory), None)</code></pre>
-</details>
-</dd>
 <dt id="ki.lock"><code class="name flex">
-<span>def <span class="ident">lock</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>) ‑> sqlite3.Connection</span>
+<span>def <span class="ident">lock</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> sqlite3.Connection</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Acquire a lock on a SQLite3 database given a path.</p></div>
@@ -4500,27 +3119,8 @@ def lock(kirepo: KiRepo) -&gt; sqlite3.Connection:
     return con</code></pre>
 </details>
 </dd>
-<dt id="ki.md5"><code class="name flex">
-<span>def <span class="ident">md5</span></span>(<span>path: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>) ‑> str</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Compute md5sum of file at <code>path</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def md5(path: ExtantFile) -&gt; str:
-    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
-    hash_md5 = hashlib.md5()
-    with open(path, &#34;rb&#34;) as f:
-        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()</code></pre>
-</details>
-</dd>
 <dt id="ki.parse_markdown_note"><code class="name flex">
-<span>def <span class="ident">parse_markdown_note</span></span>(<span>parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, notes_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>) ‑> <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a></span>
+<span>def <span class="ident">parse_markdown_note</span></span>(<span>parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, notes_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Parse with lark.</p></div>
@@ -4541,7 +3141,7 @@ def parse_markdown_note(
 </details>
 </dd>
 <dt id="ki.parse_notetype_dict"><code class="name flex">
-<span>def <span class="ident">parse_notetype_dict</span></span>(<span>nt: dict[str, typing.Any]) ‑> Union[result.result.Ok[<a title="ki.Notetype" href="#ki.Notetype">Notetype</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">parse_notetype_dict</span></span>(<span>nt: dict[str, typing.Any]) ‑> Union[result.result.Ok[<a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Convert an Anki NotetypeDict into a Notetype dataclass.</p>
@@ -4616,7 +3216,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -&gt; Result[Notetype, Exception]:
 </details>
 </dd>
 <dt id="ki.pull_changes_from_remote_repo"><code class="name flex">
-<span>def <span class="ident">pull_changes_from_remote_repo</span></span>(<span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, anki_remote_root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, last_push_repo: git.repo.base.Repo, md5sum: str, _cloned: str) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">pull_changes_from_remote_repo</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, anki_remote_root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, last_push_repo: git.repo.base.Repo, md5sum: str, _cloned: str) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Load the git repository at <code>anki_remote_root</code>, force pull (preferring
@@ -4639,7 +3239,7 @@ merge conflict, because there is no shared history.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def pull_changes_from_remote_repo(
     kirepo: KiRepo,
@@ -4667,7 +3267,7 @@ def pull_changes_from_remote_repo(
     of the database every time would mean that everything would look like a
     merge conflict, because there is no shared history.
     &#34;&#34;&#34;
-    remote_repo: Res[git.Repo] = M_repo(anki_remote_root)
+    remote_repo: Res[git.Repo] = M.repo(anki_remote_root)
     if remote_repo.is_err():
         return remote_repo
     remote_repo: git.Repo = remote_repo.unwrap()
@@ -4676,7 +3276,7 @@ def pull_changes_from_remote_repo(
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
 
     # Pull anki remote repo into `last_push_repo`.
-    last_push_root: Res[ExtantDir] = working_dir(last_push_repo)
+    last_push_root: Res[ExtantDir] = F.working_dir(last_push_repo)
     pulled: OkErr = pull_theirs_from_remote(last_push_repo, last_push_root, anki_remote)
     if pulled.is_err():
         return pulled
@@ -4697,13 +3297,13 @@ def pull_changes_from_remote_repo(
     append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
 
     # Check that md5sum hasn&#39;t changed.
-    if md5(kirepo.col_file) != md5sum:
+    if F.md5(kirepo.col_file) != md5sum:
         return Err(CollectionChecksumError(kirepo.col_file))
     return Ok()</code></pre>
 </details>
 </dd>
 <dt id="ki.pull_theirs_from_remote"><code class="name flex">
-<span>def <span class="ident">pull_theirs_from_remote</span></span>(<span>repo: git.repo.base.Repo, root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, remote: git.remote.Remote) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">pull_theirs_from_remote</span></span>(<span>repo: git.repo.base.Repo, root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, remote: git.remote.Remote) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -4711,23 +3311,23 @@ def pull_changes_from_remote_repo(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def pull_theirs_from_remote(
     repo: git.Repo, root: ExtantDir, remote: git.Remote
 ) -&gt; Result[bool, Exception]:
-    cwd: ExtantDir = ffchdir(root)
+    cwd: ExtantDir = F.chdir(root)
     echo(f&#34;Pulling into {root}&#34;)
     repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
     # TODO: This is not yet safe. Consider rewriting with gitpython.
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
     repo.delete_remote(remote)
-    ffchdir(cwd)
+    F.chdir(cwd)
     return Ok()</code></pre>
 </details>
 </dd>
 <dt id="ki.push_deltas"><code class="name flex">
-<span>def <span class="ident">push_deltas</span></span>(<span>deltas: list[<a title="ki.Delta" href="#ki.Delta">Delta</a>], models: dict[str, <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>], kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, md5sum: str, parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, stage_kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, con: sqlite3.Connection) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">push_deltas</span></span>(<span>deltas: list[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>], models: dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>], kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, md5sum: str, parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, stage_kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, con: sqlite3.Connection) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -4735,7 +3335,7 @@ def pull_theirs_from_remote(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def push_deltas(
     deltas: List[Delta],
@@ -4758,12 +3358,12 @@ def push_deltas(
     echo(f&#34;Verified md5sum matches latest hash in &#39;{kirepo.hashes_file}&#39;&#34;)
 
     # Copy collection to a temp directory.
-    temp_col_dir: ExtantDir = ffmkdtemp()
+    temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
-    new_col_file: ExtantFile = ffcopyfile(kirepo.col_file, temp_col_dir, col_name)
+    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: Res[RepoRef] = M_head_repo_ref(kirepo.repo)
+    head: Res[RepoRef] = M.head_repo_ref(kirepo.repo)
     if head.is_err():
         echo(&#34;Failed: no commits in repository. Couldn&#39;t find HEAD ref.&#34;)
         return Ok()
@@ -4771,9 +3371,9 @@ def push_deltas(
     echo(f&#34;Generating local .anki2 file from latest commit: {head.sha}&#34;)
     echo(f&#34;Writing changes to &#39;{new_col_file}&#39;...&#34;)
 
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(new_col_file)
-    ffchdir(cwd)
+    F.chdir(cwd)
     modified = True
 
     # Add all new models.
@@ -4857,11 +3457,11 @@ def push_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    new_col_file = ffcopyfile(new_col_file, ffparent(kirepo.col_file), col_name)
+    new_col_file = F.copyfile(new_col_file, F.parent(kirepo.col_file), col_name)
     echo(f&#34;Overwrote &#39;{kirepo.col_file}&#39;&#34;)
 
     # Append to hashes file.
-    new_md5sum = md5(new_col_file)
+    new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Completely annihilate the `.ki/no_submodules_tree`
@@ -4869,8 +3469,8 @@ def push_deltas(
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = ffrmtree(working_dir(kirepo.no_modules_repo))
-    ffcopytree(stage_kirepo.root, no_modules_root)
+    no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
+    F.copytree(stage_kirepo.root, no_modules_root)
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
@@ -4882,7 +3482,7 @@ def push_deltas(
 </details>
 </dd>
 <dt id="ki.push_flatnote_to_anki"><code class="name flex">
-<span>def <span class="ident">push_flatnote_to_anki</span></span>(<span>col: anki.collection.Collection, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>) ‑> Union[result.result.Ok[<a title="ki.ColNote" href="#ki.ColNote">ColNote</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">push_flatnote_to_anki</span></span>(<span>col: anki.collection.Collection, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>) ‑> Union[result.result.Ok[<a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -4890,7 +3490,7 @@ def push_deltas(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def push_flatnote_to_anki(
     col: Collection, flatnote: FlatNote
@@ -4939,27 +3539,8 @@ def push_flatnote_to_anki(
     return Ok(colnote)</code></pre>
 </details>
 </dd>
-<dt id="ki.ref_exists"><code class="name flex">
-<span>def <span class="ident">ref_exists</span></span>(<span>repo: git.repo.base.Repo, ref: str) ‑> bool</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Check if git commit reference exists in repository.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def ref_exists(repo: git.Repo, ref: str) -&gt; bool:
-    &#34;&#34;&#34;Check if git commit reference exists in repository.&#34;&#34;&#34;
-    try:
-        repo.git.rev_parse(&#34;--verify&#34;, ref)
-    except git.GitCommandError:
-        return False
-    return True</code></pre>
-</details>
-</dd>
 <dt id="ki.regenerate_note_file"><code class="name flex">
-<span>def <span class="ident">regenerate_note_file</span></span>(<span>colnote: <a title="ki.ColNote" href="#ki.ColNote">ColNote</a>, root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, relpath: pathlib.Path) ‑> Union[result.result.Ok[list[str]], result.result.Err[Exception]]</span>
+<span>def <span class="ident">regenerate_note_file</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, relpath: pathlib.Path) ‑> Union[result.result.Ok[list[str]], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Construct the contents of a note corresponding to the arguments <code>colnote</code>,
@@ -4978,7 +3559,7 @@ latter has whatever was written in the file.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def regenerate_note_file(
     colnote: ColNote, root: ExtantDir, relpath: Path
@@ -5012,7 +3593,7 @@ def regenerate_note_file(
     if repo_note_path.is_file():
         repo_note_path.unlink()
 
-    parent: ExtantDir = ffforce_mkdir(repo_note_path.parent)
+    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
     new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
     new_note_path.write_text(get_colnote_repr(colnote), encoding=&#34;UTF-8&#34;)
 
@@ -5023,61 +3604,8 @@ def regenerate_note_file(
     return Ok([msg])</code></pre>
 </details>
 </dd>
-<dt id="ki.singleton"><code class="name flex">
-<span>def <span class="ident">singleton</span></span>(<span>name: str) ‑> <a title="ki.Singleton" href="#ki.Singleton">Singleton</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Removes all forward slashes and returns a Singleton pathlib.Path.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def singleton(name: str) -&gt; Singleton:
-    &#34;&#34;&#34;Removes all forward slashes and returns a Singleton pathlib.Path.&#34;&#34;&#34;
-    return Singleton(name.replace(&#34;/&#34;, &#34;&#34;))</code></pre>
-</details>
-</dd>
-<dt id="ki.slugify"><code class="name flex">
-<span>def <span class="ident">slugify</span></span>(<span>value: str, allow_unicode: bool = False) ‑> str</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
-spaces or repeated dashes to single dashes. Remove characters that aren't
-alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
-leading and trailing whitespace, dashes, and underscores.</p>
-<p>[1] <a href="https://github.com/django/django/blob/master/django/utils/text.py">https://github.com/django/django/blob/master/django/utils/text.py</a></p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def slugify(value: str, allow_unicode: bool = False) -&gt; str:
-    &#34;&#34;&#34;
-    Taken from [1]. Convert to ASCII if &#39;allow_unicode&#39; is False. Convert
-    spaces or repeated dashes to single dashes. Remove characters that aren&#39;t
-    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
-    leading and trailing whitespace, dashes, and underscores.
-
-    [1] https://github.com/django/django/blob/master/django/utils/text.py
-    &#34;&#34;&#34;
-    if allow_unicode:
-        value = unicodedata.normalize(&#34;NFKC&#34;, value)
-    else:
-        value = (
-            unicodedata.normalize(&#34;NFKD&#34;, value)
-            .encode(&#34;ascii&#34;, &#34;ignore&#34;)
-            .decode(&#34;ascii&#34;)
-        )
-
-    value = re.sub(SLUG_REGEX, &#34;&#34;, value.lower())
-    result: str = re.sub(r&#34;[-\s]+&#34;, &#34;-&#34;, value).strip(&#34;-_&#34;)
-
-    return result</code></pre>
-</details>
-</dd>
 <dt id="ki.tidy_html_recursively"><code class="name flex">
-<span>def <span class="ident">tidy_html_recursively</span></span>(<span>root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, silent: bool) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">tidy_html_recursively</span></span>(<span>root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, silent: bool) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Call html5-tidy on each file in <code>root</code>, editing in-place.</p></div>
@@ -5085,12 +3613,12 @@ def slugify(value: str, allow_unicode: bool = False) -&gt; str:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; Result[bool, Exception]:
     &#34;&#34;&#34;Call html5-tidy on each file in `root`, editing in-place.&#34;&#34;&#34;
     # Spin up subprocesses for tidying field HTML in-place.
-    batches: List[List[ExtantFile]] = list(get_batches(frglob(root, &#34;*&#34;), BATCH_SIZE))
+    batches: List[List[ExtantFile]] = list(F.get_batches(F.rglob(root, &#34;*&#34;), BATCH_SIZE))
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.
@@ -5169,7 +3697,7 @@ def unsubmodule_repo(repo: git.Repo) -&gt; None:
 </details>
 </dd>
 <dt id="ki.update_note"><code class="name flex">
-<span>def <span class="ident">update_note</span></span>(<span>note: anki.notes.Note, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>, old_notetype: <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>, new_notetype: <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>) ‑> Union[result.result.Ok[anki.notes.Note], result.result.Err[Exception]]</span>
+<span>def <span class="ident">update_note</span></span>(<span>note: anki.notes.Note, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>, old_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>, new_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>) ‑> Union[result.result.Ok[anki.notes.Note], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Change all the data of <code>note</code> to that given in <code>flatnote</code>.</p>
@@ -5191,7 +3719,7 @@ Overwrites all fields with <code>flatnote.fields</code>.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def update_note(
     note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
@@ -5267,7 +3795,7 @@ def update_note(
 </details>
 </dd>
 <dt id="ki.validate_flatnote_fields"><code class="name flex">
-<span>def <span class="ident">validate_flatnote_fields</span></span>(<span>notetype: <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>) ‑> Union[result.result.Ok[bool], result.result.Err[Warning]]</span>
+<span>def <span class="ident">validate_flatnote_fields</span></span>(<span>notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>, flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>) ‑> Union[result.result.Ok[bool], result.result.Err[Warning]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Validate that the fields given in the note match the notetype.</p></div>
@@ -5275,7 +3803,7 @@ def update_note(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def validate_flatnote_fields(
     notetype: Notetype, flatnote: FlatNote
@@ -5296,23 +3824,8 @@ def validate_flatnote_fields(
     return Ok()</code></pre>
 </details>
 </dd>
-<dt id="ki.working_dir"><code class="name flex">
-<span>def <span class="ident">working_dir</span></span>(<span>repo: git.repo.base.Repo) ‑> <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get working directory of a repo.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def working_dir(repo: git.Repo) -&gt; ExtantDir:
-    &#34;&#34;&#34;Get working directory of a repo.&#34;&#34;&#34;
-    return ExtantDir(repo.working_dir).resolve()</code></pre>
-</details>
-</dd>
 <dt id="ki.write_decks"><code class="name flex">
-<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, decks: dict[str, list[<a title="ki.ColNote" href="#ki.ColNote">ColNote</a>]], paths: dict[str, <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>]) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, decks: dict[str, list[<a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>]], paths: dict[str, <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>There is a bug in 'write_decks()'. The sorting of deck names is done by
@@ -5331,7 +3844,7 @@ from the deck names.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def write_decks(
     col: Collection,
@@ -5384,7 +3897,7 @@ def write_decks(
 </details>
 </dd>
 <dt id="ki.write_repository"><code class="name flex">
-<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, targetdir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, leaves: <a title="ki.Leaves" href="#ki.Leaves">Leaves</a>, silent: bool) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
+<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, leaves: <a title="ki.types.Leaves" href="types.html#ki.types.Leaves">Leaves</a>, silent: bool) ‑> Union[result.result.Ok[bool], result.result.Err[Exception]]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write notes to appropriate directories in <code>targetdir</code>.</p></div>
@@ -5392,7 +3905,7 @@ def write_decks(
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@safe
+<pre><code class="python">@monadic
 @beartype
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
@@ -5407,16 +3920,16 @@ def write_repository(
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
-    tempdir: EmptyDir = ffmkdtemp()
-    root: EmptyDir = ffmksubdir(tempdir, FIELD_HTML_SUFFIX)
+    tempdir: EmptyDir = F.mkdtemp()
+    root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
     paths: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(col_file)
-    ffchdir(cwd)
+    F.chdir(cwd)
 
     all_nids = list(col.find_notes(query=&#34;&#34;))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
@@ -5428,7 +3941,7 @@ def write_repository(
         for fieldname, fieldtext in colnote.n.items():
             if re.search(HTML_REGEX, fieldtext):
                 fid: str = get_field_note_id(nid, fieldname)
-                html_file: ExtantFile = ftouch(root, fid)
+                html_file: ExtantFile = F.touch(root, fid)
                 html_file.write_text(fieldtext, encoding=&#34;UTF-8&#34;)
                 paths[fid] = html_file
 
@@ -5450,983 +3963,6 @@ def write_repository(
 </dl>
 </section>
 <section>
-<h2 class="section-title" id="header-classes">Classes</h2>
-<dl>
-<dt id="ki.ColNote"><code class="flex name class">
-<span>class <span class="ident">ColNote</span></span>
-<span>(</span><span>n: anki.notes.Note, new: bool, deck: str, title: str, old_nid: int, markdown: bool, notetype: <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>, sortf_text: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A note that exists in the Anki DB.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class ColNote:
-    &#34;&#34;&#34;A note that exists in the Anki DB.&#34;&#34;&#34;
-
-    n: Note
-    new: bool
-    deck: str
-    title: str
-    old_nid: int
-    markdown: bool
-    notetype: Notetype
-    sortf_text: str</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.ColNote.deck"><code class="name">var <span class="ident">deck</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.n"><code class="name">var <span class="ident">n</span> : anki.notes.Note</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.new"><code class="name">var <span class="ident">new</span> : bool</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.notetype"><code class="name">var <span class="ident">notetype</span> : <a title="ki.Notetype" href="#ki.Notetype">Notetype</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.old_nid"><code class="name">var <span class="ident">old_nid</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.sortf_text"><code class="name">var <span class="ident">sortf_text</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.ColNote.title"><code class="name">var <span class="ident">title</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.CollectionChecksumError"><code class="flex name class">
-<span>class <span class="ident">CollectionChecksumError</span></span>
-<span>(</span><span>col_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class CollectionChecksumError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.Delta"><code class="flex name class">
-<span>class <span class="ident">Delta</span></span>
-<span>(</span><span>status: <a title="ki.GitChangeType" href="#ki.GitChangeType">GitChangeType</a>, path: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, relpath: pathlib.Path)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>The git delta for a single file.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class Delta:
-    &#34;&#34;&#34;The git delta for a single file.&#34;&#34;&#34;
-
-    status: GitChangeType
-    path: ExtantFile
-    relpath: Path</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.Delta.path"><code class="name">var <span class="ident">path</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Delta.relpath"><code class="name">var <span class="ident">relpath</span> : pathlib.Path</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Delta.status"><code class="name">var <span class="ident">status</span> : <a title="ki.GitChangeType" href="#ki.GitChangeType">GitChangeType</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.EmptyDir"><code class="flex name class">
-<span>class <span class="ident">EmptyDir</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that dir <em>was</em> empty (and extant) when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class EmptyDir(ExtantDir):
-    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li><a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></li>
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.ExpectedDirectoryButGotFileError"><code class="flex name class">
-<span>class <span class="ident">ExpectedDirectoryButGotFileError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExpectedDirectoryButGotFileError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A directory was expected at this location, but got a file: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.ExpectedEmptyDirectoryButGotNonEmptyDirectoryError"><code class="flex name class">
-<span>class <span class="ident">ExpectedEmptyDirectoryButGotNonEmptyDirectoryError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;An empty directory was expected at this location, but it is nonempty: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.ExpectedFileButGotDirectoryError"><code class="flex name class">
-<span>class <span class="ident">ExpectedFileButGotDirectoryError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>File not found.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExpectedFileButGotDirectoryError(FileNotFoundError):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A file was expected at this location, but got a directory: &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.FileNotFoundError</li>
-<li>builtins.OSError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.ExtantDir"><code class="flex name class">
-<span>class <span class="ident">ExtantDir</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that dir <em>was</em> extant when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantDir(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></li>
-</ul>
-</dd>
-<dt id="ki.ExtantFile"><code class="flex name class">
-<span>class <span class="ident">ExtantFile</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that file <em>was</em> extant when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantFile(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that file *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.ExtantStrangePath"><code class="flex name class">
-<span>class <span class="ident">ExtantStrangePath</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
-when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantStrangePath(type(Path())):
-    &#34;&#34;&#34;
-    UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
-    when it was resolved.
-    &#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.Field"><code class="flex name class">
-<span>class <span class="ident">Field</span></span>
-<span>(</span><span>name: str, ord: Optional[int])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A typechecked version of <code>anki.models.FieldDict</code> for use within ki.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class Field:
-    &#34;&#34;&#34;A typechecked version of `anki.models.FieldDict` for use within ki.&#34;&#34;&#34;
-
-    name: str
-    ord: Optional[int]</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.Field.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Field.ord"><code class="name">var <span class="ident">ord</span> : Optional[int]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.GitChangeType"><code class="flex name class">
-<span>class <span class="ident">GitChangeType</span></span>
-<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Enum for git file change types.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class GitChangeType(Enum):
-    &#34;&#34;&#34;Enum for git file change types.&#34;&#34;&#34;
-
-    ADDED = &#34;A&#34;
-    DELETED = &#34;D&#34;
-    RENAMED = &#34;R&#34;
-    MODIFIED = &#34;M&#34;
-    TYPECHANGED = &#34;T&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>enum.Enum</li>
-</ul>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.GitChangeType.ADDED"><code class="name">var <span class="ident">ADDED</span></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.GitChangeType.DELETED"><code class="name">var <span class="ident">DELETED</span></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.GitChangeType.MODIFIED"><code class="name">var <span class="ident">MODIFIED</span></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.GitChangeType.RENAMED"><code class="name">var <span class="ident">RENAMED</span></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.GitChangeType.TYPECHANGED"><code class="name">var <span class="ident">TYPECHANGED</span></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.GitRefNotFoundError"><code class="flex name class">
-<span>class <span class="ident">GitRefNotFoundError</span></span>
-<span>(</span><span>repo: git.repo.base.Repo, sha: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class GitRefNotFoundError(Exception):
-    @beartype
-    def __init__(self, repo: git.Repo, sha: str):
-        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.KiRepo"><code class="flex name class">
-<span>class <span class="ident">KiRepo</span></span>
-<span>(</span><span>repo: git.repo.base.Repo, root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, ki_dir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, col_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, backups_dir: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, config_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, hashes_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, models_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, last_push_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>, no_modules_repo: git.repo.base.Repo)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: A ki repository, including:
-- .ki/hashes
-- .ki/config</p>
-<p>Existence of collection path is guaranteed.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class KiRepo:
-    &#34;&#34;&#34;
-    UNSAFE: A ki repository, including:
-    - .ki/hashes
-    - .ki/config
-
-    Existence of collection path is guaranteed.
-    &#34;&#34;&#34;
-
-    repo: git.Repo
-    root: ExtantDir
-    ki_dir: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    last_push_file: ExtantFile
-    no_modules_repo: git.Repo</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.KiRepo.backups_dir"><code class="name">var <span class="ident">backups_dir</span> : <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.col_file"><code class="name">var <span class="ident">col_file</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.config_file"><code class="name">var <span class="ident">config_file</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.hashes_file"><code class="name">var <span class="ident">hashes_file</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.ki_dir"><code class="name">var <span class="ident">ki_dir</span> : <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.last_push_file"><code class="name">var <span class="ident">last_push_file</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.models_file"><code class="name">var <span class="ident">models_file</span> : <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.no_modules_repo"><code class="name">var <span class="ident">no_modules_repo</span> : git.repo.base.Repo</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.repo"><code class="name">var <span class="ident">repo</span> : git.repo.base.Repo</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepo.root"><code class="name">var <span class="ident">root</span> : <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.KiRepoRef"><code class="flex name class">
-<span>class <span class="ident">KiRepoRef</span></span>
-<span>(</span><span>kirepo: <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a>, sha: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: A repo-commit pair, where <code>sha</code> is guaranteed to be an extant
-commit hash of <code>repo</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class KiRepoRef:
-    &#34;&#34;&#34;
-    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
-    commit hash of `repo`.
-    &#34;&#34;&#34;
-
-    kirepo: KiRepo
-    sha: str</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.KiRepoRef.kirepo"><code class="name">var <span class="ident">kirepo</span> : <a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.KiRepoRef.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.Leaves"><code class="flex name class">
-<span>class <span class="ident">Leaves</span></span>
-<span>(</span><span>root: <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a>, files: dict[str, <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>], dirs: dict[str, <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Leaves(root: ki.ExtantDir, files: dict[str, ki.ExtantFile], dirs: dict[str, ki.EmptyDir])</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.Leaves.dirs"><code class="name">var <span class="ident">dirs</span> : dict[str, <a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a>]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Leaves.files"><code class="name">var <span class="ident">files</span> : dict[str, <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Leaves.root"><code class="name">var <span class="ident">root</span> : <a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.MissingDirectoryError"><code class="flex name class">
-<span>class <span class="ident">MissingDirectoryError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingDirectoryError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;Directory not found: &#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.MissingFieldOrdinalError"><code class="flex name class">
-<span>class <span class="ident">MissingFieldOrdinalError</span></span>
-<span>(</span><span>ord: int, nt: dict[str, typing.Any])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingFieldOrdinalError(Exception):
-    @beartype
-    def __init__(self, ord: int, nt: Dict[str, Any]):
-        msg = f&#34;Field with ordinal {ord} missing from notetype &#39;{pp.pformat(nt)}&#39;.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.MissingFileError"><code class="flex name class">
-<span>class <span class="ident">MissingFileError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>File not found.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingFileError(FileNotFoundError):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;File not found: &#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.FileNotFoundError</li>
-<li>builtins.OSError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.MissingNoteIdError"><code class="flex name class">
-<span>class <span class="ident">MissingNoteIdError</span></span>
-<span>(</span><span>nid: int)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingNoteIdError(Exception):
-    @beartype
-    def __init__(self, nid: int):
-        msg = f&#34;Failed to locate note with nid &#39;{nid}&#39; in Anki database.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.MissingNotetypeError"><code class="flex name class">
-<span>class <span class="ident">MissingNotetypeError</span></span>
-<span>(</span><span>model: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingNotetypeError(Exception):
-    @beartype
-    def __init__(self, model: str):
-        msg = f&#34;Notetype &#39;{model}&#39; doesn&#39;t exist. &#34;
-        msg += &#34;Create it in Anki before adding notes via ki. &#34;
-        msg += &#34;This may be caused by a corrupted &#39;{MODELS_FILE}&#39; file. &#34;
-        msg += &#34;The models file must contain definitions for all models that appear &#34;
-        msg += &#34;in all note files.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.NoPath"><code class="flex name class">
-<span>class <span class="ident">NoPath</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that path <em>was not</em> extant when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class NoPath(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that path *was not* extant when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.NotKiRepoError"><code class="flex name class">
-<span>class <span class="ident">NotKiRepoError</span></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class NotKiRepoError(Exception):
-    @beartype
-    def __init__(self):
-        msg = &#34;fatal: not a ki repository (or any parent up to mount point /)\n&#34;
-        msg += &#34;Stopping at filesystem boundary.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.NoteFieldValidationWarning"><code class="flex name class">
-<span>class <span class="ident">NoteFieldValidationWarning</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class NoteFieldValidationWarning(Warning):
-    pass</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.Notetype"><code class="flex name class">
-<span>class <span class="ident">Notetype</span></span>
-<span>(</span><span>id: int, name: str, type: int, flds: list[<a title="ki.Field" href="#ki.Field">Field</a>], tmpls: list[<a title="ki.Template" href="#ki.Template">Template</a>], sortf: <a title="ki.Field" href="#ki.Field">Field</a>, dict: dict[str, typing.Any])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A typechecked version of <code>anki.models.NotetypeDict</code> for use within ki.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class Notetype:
-    &#34;&#34;&#34;A typechecked version of `anki.models.NotetypeDict` for use within ki.&#34;&#34;&#34;
-
-    id: int
-    name: str
-    type: int
-    flds: List[Field]
-    tmpls: List[Template]
-    sortf: Field
-
-    # A copy of the `NotetypeDict` object as it was returned from the Anki
-    # database. We keep this around to preserve extra keys that may not always
-    # exist, but the ones above should be required for Anki to function.
-    dict: Dict[str, Any]</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.Notetype.dict"><code class="name">var <span class="ident">dict</span> : dict[str, typing.Any]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.flds"><code class="name">var <span class="ident">flds</span> : list[<a title="ki.Field" href="#ki.Field">Field</a>]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.id"><code class="name">var <span class="ident">id</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.sortf"><code class="name">var <span class="ident">sortf</span> : <a title="ki.Field" href="#ki.Field">Field</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.tmpls"><code class="name">var <span class="ident">tmpls</span> : list[<a title="ki.Template" href="#ki.Template">Template</a>]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Notetype.type"><code class="name">var <span class="ident">type</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.NotetypeMismatchError"><code class="flex name class">
-<span>class <span class="ident">NotetypeMismatchError</span></span>
-<span>(</span><span>flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>, new_notetype: <a title="ki.Notetype" href="#ki.Notetype">Notetype</a>)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class NotetypeMismatchError(Exception):
-    @beartype
-    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
-        msg = f&#34;Notetype &#39;{flatnote.model}&#39; &#34;
-        msg += f&#34;specified in FlatNote with nid &#39;{flatnote.nid}&#39; &#34;
-        msg += f&#34;does not match passed notetype &#39;{new_notetype}&#39;. &#34;
-        msg += f&#34;This should NEVER happen, &#34;
-        msg += f&#34;and indicates a bug in the caller to &#39;update_note()&#39;.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.RepoRef"><code class="flex name class">
-<span>class <span class="ident">RepoRef</span></span>
-<span>(</span><span>repo: git.repo.base.Repo, sha: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: A repo-commit pair, where <code>sha</code> is guaranteed to be an extant
-commit hash of <code>repo</code>.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class RepoRef:
-    &#34;&#34;&#34;
-    UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
-    commit hash of `repo`.
-    &#34;&#34;&#34;
-
-    repo: git.Repo
-    sha: str</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.RepoRef.repo"><code class="name">var <span class="ident">repo</span> : git.repo.base.Repo</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.RepoRef.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.Singleton"><code class="flex name class">
-<span>class <span class="ident">Singleton</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: A path consisting of a single component (e.g. <code>file</code>, not <code>dir/file</code>).</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class Singleton(type(Path())):
-    &#34;&#34;&#34;UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`).&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.StrangeExtantPathError"><code class="flex name class">
-<span>class <span class="ident">StrangeExtantPathError</span></span>
-<span>(</span><span>path: pathlib.Path, info: str = '')</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class StrangeExtantPathError(Exception):
-    @beartype
-    def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = &#34;A normal file or directory was expected, but got a weird pseudofile &#34;
-        msg += &#34;(e.g. a socket, or a device): &#34;
-        msg += f&#34;&#39;{path}&#39;{info}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.TargetExistsError"><code class="flex name class">
-<span>class <span class="ident">TargetExistsError</span></span>
-<span>(</span><span>target: pathlib.Path)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class TargetExistsError(Exception):
-    @beartype
-    def __init__(self, target: Path):
-        msg = f&#34;fatal: destination path &#39;{target}&#39; already exists and is &#34;
-        msg += &#34;not an empty directory.&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.Template"><code class="flex name class">
-<span>class <span class="ident">Template</span></span>
-<span>(</span><span>name: str, qfmt: str, afmt: str, ord: Optional[int])</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A typechecked version of <code>anki.models.TemplateDict</code> for use within ki.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class Template:
-    &#34;&#34;&#34;A typechecked version of `anki.models.TemplateDict` for use within ki.&#34;&#34;&#34;
-
-    name: str
-    qfmt: str
-    afmt: str
-    ord: Optional[int]</code></pre>
-</details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.Template.afmt"><code class="name">var <span class="ident">afmt</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Template.name"><code class="name">var <span class="ident">name</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Template.ord"><code class="name">var <span class="ident">ord</span> : Optional[int]</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.Template.qfmt"><code class="name">var <span class="ident">qfmt</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
-</dd>
-<dt id="ki.UnhealthyNoteWarning"><code class="flex name class">
-<span>class <span class="ident">UnhealthyNoteWarning</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class UnhealthyNoteWarning(Warning):
-    pass</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.UpdatesRejectedError"><code class="flex name class">
-<span>class <span class="ident">UpdatesRejectedError</span></span>
-<span>(</span><span>col_file: <a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a>)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class UpdatesRejectedError(Exception):
-    @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-</dl>
 </section>
 </article>
 <nav id="sidebar">
@@ -6485,45 +4021,23 @@ class Template:
 <ul id="index">
 <li><h3><a href="#header-submodules">Sub-modules</a></h3>
 <ul>
-<li><code><a title="ki.safe" href="safe.html">ki.safe</a></code></li>
+<li><code><a title="ki.functional" href="functional.html">ki.functional</a></code></li>
+<li><code><a title="ki.maybes" href="maybes.html">ki.maybes</a></code></li>
+<li><code><a title="ki.monadic" href="monadic.html">ki.monadic</a></code></li>
 <li><code><a title="ki.transformer" href="transformer.html">ki.transformer</a></code></li>
+<li><code><a title="ki.types" href="types.html">ki.types</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
-<li><code><a title="ki.M_emptydir" href="#ki.M_emptydir">M_emptydir</a></code></li>
-<li><code><a title="ki.M_head_kirepo_ref" href="#ki.M_head_kirepo_ref">M_head_kirepo_ref</a></code></li>
-<li><code><a title="ki.M_head_repo_ref" href="#ki.M_head_repo_ref">M_head_repo_ref</a></code></li>
-<li><code><a title="ki.M_kirepo" href="#ki.M_kirepo">M_kirepo</a></code></li>
-<li><code><a title="ki.M_kirepo_ref" href="#ki.M_kirepo_ref">M_kirepo_ref</a></code></li>
-<li><code><a title="ki.M_nopath" href="#ki.M_nopath">M_nopath</a></code></li>
-<li><code><a title="ki.M_repo" href="#ki.M_repo">M_repo</a></code></li>
-<li><code><a title="ki.M_repo_ref" href="#ki.M_repo_ref">M_repo_ref</a></code></li>
-<li><code><a title="ki.M_xdir" href="#ki.M_xdir">M_xdir</a></code></li>
-<li><code><a title="ki.M_xfile" href="#ki.M_xfile">M_xfile</a></code></li>
 <li><code><a title="ki.append_md5sum" href="#ki.append_md5sum">append_md5sum</a></code></li>
 <li><code><a title="ki.backup" href="#ki.backup">backup</a></code></li>
 <li><code><a title="ki.create_deck_dir" href="#ki.create_deck_dir">create_deck_dir</a></code></li>
 <li><code><a title="ki.diff_repos" href="#ki.diff_repos">diff_repos</a></code></li>
 <li><code><a title="ki.display_fields_health_warning" href="#ki.display_fields_health_warning">display_fields_health_warning</a></code></li>
 <li><code><a title="ki.echo" href="#ki.echo">echo</a></code></li>
-<li><code><a title="ki.ffchdir" href="#ki.ffchdir">ffchdir</a></code></li>
-<li><code><a title="ki.ffcopyfile" href="#ki.ffcopyfile">ffcopyfile</a></code></li>
-<li><code><a title="ki.ffcopytree" href="#ki.ffcopytree">ffcopytree</a></code></li>
-<li><code><a title="ki.ffcwd" href="#ki.ffcwd">ffcwd</a></code></li>
-<li><code><a title="ki.ffforce_mkdir" href="#ki.ffforce_mkdir">ffforce_mkdir</a></code></li>
-<li><code><a title="ki.ffmkdir" href="#ki.ffmkdir">ffmkdir</a></code></li>
-<li><code><a title="ki.ffmkdtemp" href="#ki.ffmkdtemp">ffmkdtemp</a></code></li>
-<li><code><a title="ki.ffmksubdir" href="#ki.ffmksubdir">ffmksubdir</a></code></li>
-<li><code><a title="ki.ffparent" href="#ki.ffparent">ffparent</a></code></li>
-<li><code><a title="ki.ffrmtree" href="#ki.ffrmtree">ffrmtree</a></code></li>
-<li><code><a title="ki.fftest" href="#ki.fftest">fftest</a></code></li>
 <li><code><a title="ki.filter_note_path" href="#ki.filter_note_path">filter_note_path</a></code></li>
 <li><code><a title="ki.flatten_staging_repo" href="#ki.flatten_staging_repo">flatten_staging_repo</a></code></li>
-<li><code><a title="ki.fmkleaves" href="#ki.fmkleaves">fmkleaves</a></code></li>
-<li><code><a title="ki.frglob" href="#ki.frglob">frglob</a></code></li>
-<li><code><a title="ki.ftouch" href="#ki.ftouch">ftouch</a></code></li>
-<li><code><a title="ki.get_batches" href="#ki.get_batches">get_batches</a></code></li>
 <li><code><a title="ki.get_colnote" href="#ki.get_colnote">get_colnote</a></code></li>
 <li><code><a title="ki.get_colnote_repr" href="#ki.get_colnote_repr">get_colnote_repr</a></code></li>
 <li><code><a title="ki.get_ephemeral_kirepo" href="#ki.get_ephemeral_kirepo">get_ephemeral_kirepo</a></code></li>
@@ -6534,201 +4048,25 @@ class Template:
 <li><code><a title="ki.get_note_path" href="#ki.get_note_path">get_note_path</a></code></li>
 <li><code><a title="ki.get_note_payload" href="#ki.get_note_payload">get_note_payload</a></code></li>
 <li><code><a title="ki.get_target" href="#ki.get_target">get_target</a></code></li>
-<li><code><a title="ki.git_dir" href="#ki.git_dir">git_dir</a></code></li>
 <li><code><a title="ki.git_subprocess_pull" href="#ki.git_subprocess_pull">git_subprocess_pull</a></code></li>
 <li><code><a title="ki.html_to_screen" href="#ki.html_to_screen">html_to_screen</a></code></li>
 <li><code><a title="ki.init_repos" href="#ki.init_repos">init_repos</a></code></li>
 <li><code><a title="ki.is_anki_note" href="#ki.is_anki_note">is_anki_note</a></code></li>
-<li><code><a title="ki.is_empty" href="#ki.is_empty">is_empty</a></code></li>
 <li><code><a title="ki.lock" href="#ki.lock">lock</a></code></li>
-<li><code><a title="ki.md5" href="#ki.md5">md5</a></code></li>
 <li><code><a title="ki.parse_markdown_note" href="#ki.parse_markdown_note">parse_markdown_note</a></code></li>
 <li><code><a title="ki.parse_notetype_dict" href="#ki.parse_notetype_dict">parse_notetype_dict</a></code></li>
 <li><code><a title="ki.pull_changes_from_remote_repo" href="#ki.pull_changes_from_remote_repo">pull_changes_from_remote_repo</a></code></li>
 <li><code><a title="ki.pull_theirs_from_remote" href="#ki.pull_theirs_from_remote">pull_theirs_from_remote</a></code></li>
 <li><code><a title="ki.push_deltas" href="#ki.push_deltas">push_deltas</a></code></li>
 <li><code><a title="ki.push_flatnote_to_anki" href="#ki.push_flatnote_to_anki">push_flatnote_to_anki</a></code></li>
-<li><code><a title="ki.ref_exists" href="#ki.ref_exists">ref_exists</a></code></li>
 <li><code><a title="ki.regenerate_note_file" href="#ki.regenerate_note_file">regenerate_note_file</a></code></li>
-<li><code><a title="ki.singleton" href="#ki.singleton">singleton</a></code></li>
-<li><code><a title="ki.slugify" href="#ki.slugify">slugify</a></code></li>
 <li><code><a title="ki.tidy_html_recursively" href="#ki.tidy_html_recursively">tidy_html_recursively</a></code></li>
 <li><code><a title="ki.unlock" href="#ki.unlock">unlock</a></code></li>
 <li><code><a title="ki.unsubmodule_repo" href="#ki.unsubmodule_repo">unsubmodule_repo</a></code></li>
 <li><code><a title="ki.update_note" href="#ki.update_note">update_note</a></code></li>
 <li><code><a title="ki.validate_flatnote_fields" href="#ki.validate_flatnote_fields">validate_flatnote_fields</a></code></li>
-<li><code><a title="ki.working_dir" href="#ki.working_dir">working_dir</a></code></li>
 <li><code><a title="ki.write_decks" href="#ki.write_decks">write_decks</a></code></li>
 <li><code><a title="ki.write_repository" href="#ki.write_repository">write_repository</a></code></li>
-</ul>
-</li>
-<li><h3><a href="#header-classes">Classes</a></h3>
-<ul>
-<li>
-<h4><code><a title="ki.ColNote" href="#ki.ColNote">ColNote</a></code></h4>
-<ul class="two-column">
-<li><code><a title="ki.ColNote.deck" href="#ki.ColNote.deck">deck</a></code></li>
-<li><code><a title="ki.ColNote.markdown" href="#ki.ColNote.markdown">markdown</a></code></li>
-<li><code><a title="ki.ColNote.n" href="#ki.ColNote.n">n</a></code></li>
-<li><code><a title="ki.ColNote.new" href="#ki.ColNote.new">new</a></code></li>
-<li><code><a title="ki.ColNote.notetype" href="#ki.ColNote.notetype">notetype</a></code></li>
-<li><code><a title="ki.ColNote.old_nid" href="#ki.ColNote.old_nid">old_nid</a></code></li>
-<li><code><a title="ki.ColNote.sortf_text" href="#ki.ColNote.sortf_text">sortf_text</a></code></li>
-<li><code><a title="ki.ColNote.title" href="#ki.ColNote.title">title</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.CollectionChecksumError" href="#ki.CollectionChecksumError">CollectionChecksumError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.Delta" href="#ki.Delta">Delta</a></code></h4>
-<ul class="">
-<li><code><a title="ki.Delta.path" href="#ki.Delta.path">path</a></code></li>
-<li><code><a title="ki.Delta.relpath" href="#ki.Delta.relpath">relpath</a></code></li>
-<li><code><a title="ki.Delta.status" href="#ki.Delta.status">status</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.EmptyDir" href="#ki.EmptyDir">EmptyDir</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExpectedDirectoryButGotFileError" href="#ki.ExpectedDirectoryButGotFileError">ExpectedDirectoryButGotFileError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExpectedEmptyDirectoryButGotNonEmptyDirectoryError" href="#ki.ExpectedEmptyDirectoryButGotNonEmptyDirectoryError">ExpectedEmptyDirectoryButGotNonEmptyDirectoryError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExpectedFileButGotDirectoryError" href="#ki.ExpectedFileButGotDirectoryError">ExpectedFileButGotDirectoryError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExtantDir" href="#ki.ExtantDir">ExtantDir</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExtantFile" href="#ki.ExtantFile">ExtantFile</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.ExtantStrangePath" href="#ki.ExtantStrangePath">ExtantStrangePath</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.Field" href="#ki.Field">Field</a></code></h4>
-<ul class="">
-<li><code><a title="ki.Field.name" href="#ki.Field.name">name</a></code></li>
-<li><code><a title="ki.Field.ord" href="#ki.Field.ord">ord</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.GitChangeType" href="#ki.GitChangeType">GitChangeType</a></code></h4>
-<ul class="">
-<li><code><a title="ki.GitChangeType.ADDED" href="#ki.GitChangeType.ADDED">ADDED</a></code></li>
-<li><code><a title="ki.GitChangeType.DELETED" href="#ki.GitChangeType.DELETED">DELETED</a></code></li>
-<li><code><a title="ki.GitChangeType.MODIFIED" href="#ki.GitChangeType.MODIFIED">MODIFIED</a></code></li>
-<li><code><a title="ki.GitChangeType.RENAMED" href="#ki.GitChangeType.RENAMED">RENAMED</a></code></li>
-<li><code><a title="ki.GitChangeType.TYPECHANGED" href="#ki.GitChangeType.TYPECHANGED">TYPECHANGED</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.GitRefNotFoundError" href="#ki.GitRefNotFoundError">GitRefNotFoundError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.KiRepo" href="#ki.KiRepo">KiRepo</a></code></h4>
-<ul class="two-column">
-<li><code><a title="ki.KiRepo.backups_dir" href="#ki.KiRepo.backups_dir">backups_dir</a></code></li>
-<li><code><a title="ki.KiRepo.col_file" href="#ki.KiRepo.col_file">col_file</a></code></li>
-<li><code><a title="ki.KiRepo.config_file" href="#ki.KiRepo.config_file">config_file</a></code></li>
-<li><code><a title="ki.KiRepo.hashes_file" href="#ki.KiRepo.hashes_file">hashes_file</a></code></li>
-<li><code><a title="ki.KiRepo.ki_dir" href="#ki.KiRepo.ki_dir">ki_dir</a></code></li>
-<li><code><a title="ki.KiRepo.last_push_file" href="#ki.KiRepo.last_push_file">last_push_file</a></code></li>
-<li><code><a title="ki.KiRepo.models_file" href="#ki.KiRepo.models_file">models_file</a></code></li>
-<li><code><a title="ki.KiRepo.no_modules_repo" href="#ki.KiRepo.no_modules_repo">no_modules_repo</a></code></li>
-<li><code><a title="ki.KiRepo.repo" href="#ki.KiRepo.repo">repo</a></code></li>
-<li><code><a title="ki.KiRepo.root" href="#ki.KiRepo.root">root</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.KiRepoRef" href="#ki.KiRepoRef">KiRepoRef</a></code></h4>
-<ul class="">
-<li><code><a title="ki.KiRepoRef.kirepo" href="#ki.KiRepoRef.kirepo">kirepo</a></code></li>
-<li><code><a title="ki.KiRepoRef.sha" href="#ki.KiRepoRef.sha">sha</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.Leaves" href="#ki.Leaves">Leaves</a></code></h4>
-<ul class="">
-<li><code><a title="ki.Leaves.dirs" href="#ki.Leaves.dirs">dirs</a></code></li>
-<li><code><a title="ki.Leaves.files" href="#ki.Leaves.files">files</a></code></li>
-<li><code><a title="ki.Leaves.root" href="#ki.Leaves.root">root</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.MissingDirectoryError" href="#ki.MissingDirectoryError">MissingDirectoryError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.MissingFieldOrdinalError" href="#ki.MissingFieldOrdinalError">MissingFieldOrdinalError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.MissingFileError" href="#ki.MissingFileError">MissingFileError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.MissingNoteIdError" href="#ki.MissingNoteIdError">MissingNoteIdError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.MissingNotetypeError" href="#ki.MissingNotetypeError">MissingNotetypeError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.NoPath" href="#ki.NoPath">NoPath</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.NotKiRepoError" href="#ki.NotKiRepoError">NotKiRepoError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.NoteFieldValidationWarning" href="#ki.NoteFieldValidationWarning">NoteFieldValidationWarning</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.Notetype" href="#ki.Notetype">Notetype</a></code></h4>
-<ul class="two-column">
-<li><code><a title="ki.Notetype.dict" href="#ki.Notetype.dict">dict</a></code></li>
-<li><code><a title="ki.Notetype.flds" href="#ki.Notetype.flds">flds</a></code></li>
-<li><code><a title="ki.Notetype.id" href="#ki.Notetype.id">id</a></code></li>
-<li><code><a title="ki.Notetype.name" href="#ki.Notetype.name">name</a></code></li>
-<li><code><a title="ki.Notetype.sortf" href="#ki.Notetype.sortf">sortf</a></code></li>
-<li><code><a title="ki.Notetype.tmpls" href="#ki.Notetype.tmpls">tmpls</a></code></li>
-<li><code><a title="ki.Notetype.type" href="#ki.Notetype.type">type</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.NotetypeMismatchError" href="#ki.NotetypeMismatchError">NotetypeMismatchError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.RepoRef" href="#ki.RepoRef">RepoRef</a></code></h4>
-<ul class="">
-<li><code><a title="ki.RepoRef.repo" href="#ki.RepoRef.repo">repo</a></code></li>
-<li><code><a title="ki.RepoRef.sha" href="#ki.RepoRef.sha">sha</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.Singleton" href="#ki.Singleton">Singleton</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.StrangeExtantPathError" href="#ki.StrangeExtantPathError">StrangeExtantPathError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.TargetExistsError" href="#ki.TargetExistsError">TargetExistsError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.Template" href="#ki.Template">Template</a></code></h4>
-<ul class="">
-<li><code><a title="ki.Template.afmt" href="#ki.Template.afmt">afmt</a></code></li>
-<li><code><a title="ki.Template.name" href="#ki.Template.name">name</a></code></li>
-<li><code><a title="ki.Template.ord" href="#ki.Template.ord">ord</a></code></li>
-<li><code><a title="ki.Template.qfmt" href="#ki.Template.qfmt">qfmt</a></code></li>
-</ul>
-</li>
-<li>
-<h4><code><a title="ki.UnhealthyNoteWarning" href="#ki.UnhealthyNoteWarning">UnhealthyNoteWarning</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.UpdatesRejectedError" href="#ki.UpdatesRejectedError">UpdatesRejectedError</a></code></h4>
-</li>
 </ul>
 </li>
 </ul>

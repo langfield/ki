@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.10.0" />
+<title>ki.functional API documentation</title>
+<meta name="description" content="Type-safe, non Anki-specific functions." />
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
+<link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
+<link rel="stylesheet preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/styles/github.min.css" crossorigin>
+<style>:root{--highlight-color:#fe9}.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}#sidebar > *:last-child{margin-bottom:2cm}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}h1:target,h2:target,h3:target,h4:target,h5:target,h6:target{background:var(--highlight-color);padding:.2em 0}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{margin-top:.6em;font-weight:bold}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}dt:target .name{background:var(--highlight-color)}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}td{padding:0 .5em}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%;height:100vh;overflow:auto;position:sticky;top:0}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.1.1/highlight.min.js" integrity="sha256-Uv3H6lx7dJmRfRvH8TH6kJD1TSK1aFcwgx+mdg3epi8=" crossorigin></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.initHighlighting())</script>
+<style>.homelink{display:block;font-size:2em;font-weight:bold;color:#555;padding-bottom:.5em;border-bottom:1px solid silver}.homelink:hover{color:inherit}.homelink img{max-width:20%;max-height:5em;margin:auto;margin-bottom:.3em}</style>
+<link rel="canonical" href="ki/functional.html">
+<link rel="icon" href="u1F367-shavedice.svg">
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>ki.functional</code></h1>
+</header>
+<section id="section-intro">
+<p>Type-safe, non Anki-specific functions.</p>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">#!/usr/bin/env python3
+&#34;&#34;&#34;Type-safe, non Anki-specific functions.&#34;&#34;&#34;
+
+import os
+import re
+import shutil
+import hashlib
+import tempfile
+import unicodedata
+from pathlib import Path
+
+import git
+from result import Result, Err, Ok
+
+from beartype import beartype
+from beartype.typing import (
+    Set,
+    List,
+    Dict,
+    Optional,
+    Union,
+    Generator,
+)
+
+import ki.functional as F
+from ki.monadic import monadic
+from ki.types import (
+    ExtantFile,
+    ExtantDir,
+    EmptyDir,
+    NoPath,
+    Singleton,
+    ExtantStrangePath,
+    Leaves,
+)
+
+FS_ROOT = Path(&#34;/&#34;)
+
+# Emoji regex character classes.
+EMOJIS = &#34;\U0001F600-\U0001F64F&#34;
+PICTOGRAPHS = &#34;\U0001F300-\U0001F5FF&#34;
+TRANSPORTS = &#34;\U0001F680-\U0001F6FF&#34;
+FLAGS = &#34;\U0001F1E0-\U0001F1FF&#34;
+
+# Regex to filter out bad stuff from filenames.
+SLUG_REGEX = re.compile(r&#34;[^\w\s\-&#34; + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + &#34;]&#34;)
+
+
+# DANGER
+
+
+@beartype
+def rmtree(target: ExtantDir) -&gt; NoPath:
+    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
+    shutil.rmtree(target)
+    return NoPath(target)
+
+
+@beartype
+def copytree(source: ExtantDir, target: NoPath) -&gt; ExtantDir:
+    &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
+    shutil.copytree(source, target)
+    return ExtantDir(target.resolve())
+
+
+@beartype
+def cwd() -&gt; ExtantDir:
+    &#34;&#34;&#34;Call Path.cwd().&#34;&#34;&#34;
+    return ExtantDir(Path.cwd().resolve())
+
+
+@beartype
+def test(
+    path: Path,
+) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
+    &#34;&#34;&#34;
+    Fast ftest, where the f just means function.
+
+    Test whether `path` is a file, a directory, or something else. If
+    something else, we consider that, for the sake of simplicity, a
+    NoPath.
+    &#34;&#34;&#34;
+    path = path.resolve()
+    if path.is_file():
+        return ExtantFile(path)
+    if path.is_dir():
+        if is_empty(path):
+            return EmptyDir(path)
+        return ExtantDir(path)
+    if path.exists():
+        return ExtantStrangePath(path)
+    return NoPath(path)
+
+
+@beartype
+def touch(directory: ExtantDir, name: str) -&gt; ExtantFile:
+    &#34;&#34;&#34;Touch a file.&#34;&#34;&#34;
+    path = directory / singleton(name)
+    path.touch()
+    return ExtantFile(path.resolve())
+
+
+@beartype
+def mkdir(path: NoPath) -&gt; EmptyDir:
+    &#34;&#34;&#34;Make a directory (with parents).&#34;&#34;&#34;
+    path.mkdir(parents=True)
+    return EmptyDir(path)
+
+
+@beartype
+def mksubdir(directory: EmptyDir, suffix: Path) -&gt; EmptyDir:
+    &#34;&#34;&#34;
+    Make a subdirectory of an empty directory (with parents).
+
+    Returns
+    -------
+    EmptyDir
+        The created subdirectory.
+    &#34;&#34;&#34;
+    subdir = directory / suffix
+    subdir.mkdir(parents=True)
+    directory.__class__ = ExtantDir
+    return EmptyDir(subdir.resolve())
+
+
+@beartype
+def force_mkdir(path: Path) -&gt; ExtantDir:
+    &#34;&#34;&#34;Make a directory (with parents, ok if it already exists).&#34;&#34;&#34;
+    path.mkdir(parents=True, exist_ok=True)
+    return ExtantDir(path.resolve())
+
+
+@beartype
+def chdir(directory: ExtantDir) -&gt; ExtantDir:
+    &#34;&#34;&#34;Changes working directory and returns old cwd.&#34;&#34;&#34;
+    old: ExtantDir = F.cwd()
+    os.chdir(directory)
+    return old
+
+
+@beartype
+def parent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get the parent of a path that exists.&#34;&#34;&#34;
+    if path.resolve() == FS_ROOT:
+        return ExtantDir(FS_ROOT.resolve())
+    return ExtantDir(path.parent)
+
+
+@beartype
+def mkdtemp() -&gt; EmptyDir:
+    &#34;&#34;&#34;Make a temporary directory (in /tmp).&#34;&#34;&#34;
+    return EmptyDir(tempfile.mkdtemp()).resolve()
+
+
+@beartype
+def copyfile(source: ExtantFile, target_root: ExtantDir, name: str) -&gt; ExtantFile:
+    &#34;&#34;&#34;Force copy a file (potentially overwrites the target path).&#34;&#34;&#34;
+    name = singleton(name)
+    target = target_root / name
+    shutil.copyfile(source, target)
+    return ExtantFile(target.resolve())
+
+
+@beartype
+def rglob(root: ExtantDir, pattern: str) -&gt; List[ExtantFile]:
+    &#34;&#34;&#34;Call root.rglob() and returns only files.&#34;&#34;&#34;
+    files = filter(
+        lambda p: isinstance(p, ExtantFile), map(F.test, root.rglob(pattern))
+    )
+    return list(files)
+
+
+@beartype
+def is_empty(directory: ExtantDir) -&gt; bool:
+    &#34;&#34;&#34;Check if directory is empty, quickly.&#34;&#34;&#34;
+    return not next(os.scandir(directory), None)
+
+
+@beartype
+def working_dir(repo: git.Repo) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get working directory of a repo.&#34;&#34;&#34;
+    return ExtantDir(repo.working_dir).resolve()
+
+
+@beartype
+def git_dir(repo: git.Repo) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get git directory of a repo.&#34;&#34;&#34;
+    return ExtantDir(repo.git_dir).resolve()
+
+
+@beartype
+def singleton(name: str) -&gt; Singleton:
+    &#34;&#34;&#34;Removes all forward slashes and returns a Singleton pathlib.Path.&#34;&#34;&#34;
+    return Singleton(name.replace(&#34;/&#34;, &#34;&#34;))
+
+
+@beartype
+def md5(path: ExtantFile) -&gt; str:
+    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
+    hash_md5 = hashlib.md5()
+    with open(path, &#34;rb&#34;) as f:
+        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+
+@beartype
+def ref_exists(repo: git.Repo, ref: str) -&gt; bool:
+    &#34;&#34;&#34;Check if git commit reference exists in repository.&#34;&#34;&#34;
+    try:
+        repo.git.rev_parse(&#34;--verify&#34;, ref)
+    except git.GitCommandError:
+        return False
+    return True
+
+
+@beartype
+def get_batches(lst: List[ExtantFile], n: int) -&gt; Generator[ExtantFile, None, None]:
+    &#34;&#34;&#34;Yield successive n-sized chunks from lst.&#34;&#34;&#34;
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
+
+@beartype
+def slugify(value: str, allow_unicode: bool = False) -&gt; str:
+    &#34;&#34;&#34;
+    Taken from [1]. Convert to ASCII if &#39;allow_unicode&#39; is False. Convert
+    spaces or repeated dashes to single dashes. Remove characters that aren&#39;t
+    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
+    leading and trailing whitespace, dashes, and underscores.
+
+    [1] https://github.com/django/django/blob/master/django/utils/text.py
+    &#34;&#34;&#34;
+    if allow_unicode:
+        value = unicodedata.normalize(&#34;NFKC&#34;, value)
+    else:
+        value = (
+            unicodedata.normalize(&#34;NFKD&#34;, value)
+            .encode(&#34;ascii&#34;, &#34;ignore&#34;)
+            .decode(&#34;ascii&#34;)
+        )
+
+    value = re.sub(SLUG_REGEX, &#34;&#34;, value.lower())
+    result: str = re.sub(r&#34;[-\s]+&#34;, &#34;-&#34;, value).strip(&#34;-_&#34;)
+
+    return result
+
+# Only monadic function in here.
+
+@monadic
+@beartype
+def fmkleaves(
+    root: EmptyDir,
+    *,
+    files: Optional[Dict[str, str]] = None,
+    dirs: Optional[Dict[str, str]] = None,
+) -&gt; Result[Leaves, Exception]:
+    &#34;&#34;&#34;Safely populate an empty directory with empty files and empty subdirectories.&#34;&#34;&#34;
+    leaves: Set[str] = set()
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
+            new_files[key] = F.touch(root, token)
+            leaves.add(str(token))
+    if dirs is not None:
+        for key, token in dirs.items():
+            # We lie to the `F.mksubdir` call and tell it the root is empty
+            # on every iteration.
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
+            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
+            leaves.add(str(token))
+    return Ok(Leaves(root, new_files, new_dirs))</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="ki.functional.chdir"><code class="name flex">
+<span>def <span class="ident">chdir</span></span>(<span>directory: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Changes working directory and returns old cwd.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def chdir(directory: ExtantDir) -&gt; ExtantDir:
+    &#34;&#34;&#34;Changes working directory and returns old cwd.&#34;&#34;&#34;
+    old: ExtantDir = F.cwd()
+    os.chdir(directory)
+    return old</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.copyfile"><code class="name flex">
+<span>def <span class="ident">copyfile</span></span>(<span>source: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, target_root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, name: str) ‑> <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Force copy a file (potentially overwrites the target path).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def copyfile(source: ExtantFile, target_root: ExtantDir, name: str) -&gt; ExtantFile:
+    &#34;&#34;&#34;Force copy a file (potentially overwrites the target path).&#34;&#34;&#34;
+    name = singleton(name)
+    target = target_root / name
+    shutil.copyfile(source, target)
+    return ExtantFile(target.resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.copytree"><code class="name flex">
+<span>def <span class="ident">copytree</span></span>(<span>source: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, target: <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Call shutil.copytree().</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def copytree(source: ExtantDir, target: NoPath) -&gt; ExtantDir:
+    &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
+    shutil.copytree(source, target)
+    return ExtantDir(target.resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.cwd"><code class="name flex">
+<span>def <span class="ident">cwd</span></span>(<span>) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Call Path.cwd().</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def cwd() -&gt; ExtantDir:
+    &#34;&#34;&#34;Call Path.cwd().&#34;&#34;&#34;
+    return ExtantDir(Path.cwd().resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.fmkleaves"><code class="name flex">
+<span>def <span class="ident">fmkleaves</span></span>(<span>root: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, *, files: Optional[dict[str, str]] = None, dirs: Optional[dict[str, str]] = None) ‑> Union[result.result.Ok[<a title="ki.types.Leaves" href="types.html#ki.types.Leaves">Leaves</a>], result.result.Err[Exception]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Safely populate an empty directory with empty files and empty subdirectories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@monadic
+@beartype
+def fmkleaves(
+    root: EmptyDir,
+    *,
+    files: Optional[Dict[str, str]] = None,
+    dirs: Optional[Dict[str, str]] = None,
+) -&gt; Result[Leaves, Exception]:
+    &#34;&#34;&#34;Safely populate an empty directory with empty files and empty subdirectories.&#34;&#34;&#34;
+    leaves: Set[str] = set()
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
+            new_files[key] = F.touch(root, token)
+            leaves.add(str(token))
+    if dirs is not None:
+        for key, token in dirs.items():
+            # We lie to the `F.mksubdir` call and tell it the root is empty
+            # on every iteration.
+            if str(token) in leaves:
+                return Err(FileExistsError(str(token)))
+            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
+            leaves.add(str(token))
+    return Ok(Leaves(root, new_files, new_dirs))</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.force_mkdir"><code class="name flex">
+<span>def <span class="ident">force_mkdir</span></span>(<span>path: pathlib.Path) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Make a directory (with parents, ok if it already exists).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def force_mkdir(path: Path) -&gt; ExtantDir:
+    &#34;&#34;&#34;Make a directory (with parents, ok if it already exists).&#34;&#34;&#34;
+    path.mkdir(parents=True, exist_ok=True)
+    return ExtantDir(path.resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.get_batches"><code class="name flex">
+<span>def <span class="ident">get_batches</span></span>(<span>lst: list[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>], n: int) ‑> collections.abc.Generator[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, None, None]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Yield successive n-sized chunks from lst.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_batches(lst: List[ExtantFile], n: int) -&gt; Generator[ExtantFile, None, None]:
+    &#34;&#34;&#34;Yield successive n-sized chunks from lst.&#34;&#34;&#34;
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.git_dir"><code class="name flex">
+<span>def <span class="ident">git_dir</span></span>(<span>repo: git.repo.base.Repo) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get git directory of a repo.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def git_dir(repo: git.Repo) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get git directory of a repo.&#34;&#34;&#34;
+    return ExtantDir(repo.git_dir).resolve()</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.is_empty"><code class="name flex">
+<span>def <span class="ident">is_empty</span></span>(<span>directory: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Check if directory is empty, quickly.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def is_empty(directory: ExtantDir) -&gt; bool:
+    &#34;&#34;&#34;Check if directory is empty, quickly.&#34;&#34;&#34;
+    return not next(os.scandir(directory), None)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.md5"><code class="name flex">
+<span>def <span class="ident">md5</span></span>(<span>path: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Compute md5sum of file at <code>path</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def md5(path: ExtantFile) -&gt; str:
+    &#34;&#34;&#34;Compute md5sum of file at `path`.&#34;&#34;&#34;
+    hash_md5 = hashlib.md5()
+    with open(path, &#34;rb&#34;) as f:
+        for chunk in iter(lambda: f.read(4096), b&#34;&#34;):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.mkdir"><code class="name flex">
+<span>def <span class="ident">mkdir</span></span>(<span>path: <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>) ‑> <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Make a directory (with parents).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def mkdir(path: NoPath) -&gt; EmptyDir:
+    &#34;&#34;&#34;Make a directory (with parents).&#34;&#34;&#34;
+    path.mkdir(parents=True)
+    return EmptyDir(path)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.mkdtemp"><code class="name flex">
+<span>def <span class="ident">mkdtemp</span></span>(<span>) ‑> <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Make a temporary directory (in /tmp).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def mkdtemp() -&gt; EmptyDir:
+    &#34;&#34;&#34;Make a temporary directory (in /tmp).&#34;&#34;&#34;
+    return EmptyDir(tempfile.mkdtemp()).resolve()</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.mksubdir"><code class="name flex">
+<span>def <span class="ident">mksubdir</span></span>(<span>directory: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, suffix: pathlib.Path) ‑> <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Make a subdirectory of an empty directory (with parents).</p>
+<h2 id="returns">Returns</h2>
+<dl>
+<dt><code>EmptyDir</code></dt>
+<dd>The created subdirectory.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def mksubdir(directory: EmptyDir, suffix: Path) -&gt; EmptyDir:
+    &#34;&#34;&#34;
+    Make a subdirectory of an empty directory (with parents).
+
+    Returns
+    -------
+    EmptyDir
+        The created subdirectory.
+    &#34;&#34;&#34;
+    subdir = directory / suffix
+    subdir.mkdir(parents=True)
+    directory.__class__ = ExtantDir
+    return EmptyDir(subdir.resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.parent"><code class="name flex">
+<span>def <span class="ident">parent</span></span>(<span>path: Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>]) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get the parent of a path that exists.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def parent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get the parent of a path that exists.&#34;&#34;&#34;
+    if path.resolve() == FS_ROOT:
+        return ExtantDir(FS_ROOT.resolve())
+    return ExtantDir(path.parent)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.ref_exists"><code class="name flex">
+<span>def <span class="ident">ref_exists</span></span>(<span>repo: git.repo.base.Repo, ref: str) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Check if git commit reference exists in repository.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def ref_exists(repo: git.Repo, ref: str) -&gt; bool:
+    &#34;&#34;&#34;Check if git commit reference exists in repository.&#34;&#34;&#34;
+    try:
+        repo.git.rev_parse(&#34;--verify&#34;, ref)
+    except git.GitCommandError:
+        return False
+    return True</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.rglob"><code class="name flex">
+<span>def <span class="ident">rglob</span></span>(<span>root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, pattern: str) ‑> list[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Call root.rglob() and returns only files.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def rglob(root: ExtantDir, pattern: str) -&gt; List[ExtantFile]:
+    &#34;&#34;&#34;Call root.rglob() and returns only files.&#34;&#34;&#34;
+    files = filter(
+        lambda p: isinstance(p, ExtantFile), map(F.test, root.rglob(pattern))
+    )
+    return list(files)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.rmtree"><code class="name flex">
+<span>def <span class="ident">rmtree</span></span>(<span>target: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Call shutil.rmtree().</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def rmtree(target: ExtantDir) -&gt; NoPath:
+    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
+    shutil.rmtree(target)
+    return NoPath(target)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.singleton"><code class="name flex">
+<span>def <span class="ident">singleton</span></span>(<span>name: str) ‑> <a title="ki.types.Singleton" href="types.html#ki.types.Singleton">Singleton</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Removes all forward slashes and returns a Singleton pathlib.Path.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def singleton(name: str) -&gt; Singleton:
+    &#34;&#34;&#34;Removes all forward slashes and returns a Singleton pathlib.Path.&#34;&#34;&#34;
+    return Singleton(name.replace(&#34;/&#34;, &#34;&#34;))</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.slugify"><code class="name flex">
+<span>def <span class="ident">slugify</span></span>(<span>value: str, allow_unicode: bool = False) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
+spaces or repeated dashes to single dashes. Remove characters that aren't
+alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
+leading and trailing whitespace, dashes, and underscores.</p>
+<p>[1] <a href="https://github.com/django/django/blob/master/django/utils/text.py">https://github.com/django/django/blob/master/django/utils/text.py</a></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def slugify(value: str, allow_unicode: bool = False) -&gt; str:
+    &#34;&#34;&#34;
+    Taken from [1]. Convert to ASCII if &#39;allow_unicode&#39; is False. Convert
+    spaces or repeated dashes to single dashes. Remove characters that aren&#39;t
+    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
+    leading and trailing whitespace, dashes, and underscores.
+
+    [1] https://github.com/django/django/blob/master/django/utils/text.py
+    &#34;&#34;&#34;
+    if allow_unicode:
+        value = unicodedata.normalize(&#34;NFKC&#34;, value)
+    else:
+        value = (
+            unicodedata.normalize(&#34;NFKD&#34;, value)
+            .encode(&#34;ascii&#34;, &#34;ignore&#34;)
+            .decode(&#34;ascii&#34;)
+        )
+
+    value = re.sub(SLUG_REGEX, &#34;&#34;, value.lower())
+    result: str = re.sub(r&#34;[-\s]+&#34;, &#34;-&#34;, value).strip(&#34;-_&#34;)
+
+    return result</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.test"><code class="name flex">
+<span>def <span class="ident">test</span></span>(<span>path: pathlib.Path) ‑> Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, <a title="ki.types.ExtantStrangePath" href="types.html#ki.types.ExtantStrangePath">ExtantStrangePath</a>, <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Fast ftest, where the f just means function.</p>
+<p>Test whether <code>path</code> is a file, a directory, or something else. If
+something else, we consider that, for the sake of simplicity, a
+NoPath.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def test(
+    path: Path,
+) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
+    &#34;&#34;&#34;
+    Fast ftest, where the f just means function.
+
+    Test whether `path` is a file, a directory, or something else. If
+    something else, we consider that, for the sake of simplicity, a
+    NoPath.
+    &#34;&#34;&#34;
+    path = path.resolve()
+    if path.is_file():
+        return ExtantFile(path)
+    if path.is_dir():
+        if is_empty(path):
+            return EmptyDir(path)
+        return ExtantDir(path)
+    if path.exists():
+        return ExtantStrangePath(path)
+    return NoPath(path)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.touch"><code class="name flex">
+<span>def <span class="ident">touch</span></span>(<span>directory: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, name: str) ‑> <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Touch a file.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def touch(directory: ExtantDir, name: str) -&gt; ExtantFile:
+    &#34;&#34;&#34;Touch a file.&#34;&#34;&#34;
+    path = directory / singleton(name)
+    path.touch()
+    return ExtantFile(path.resolve())</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.working_dir"><code class="name flex">
+<span>def <span class="ident">working_dir</span></span>(<span>repo: git.repo.base.Repo) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get working directory of a repo.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def working_dir(repo: git.Repo) -&gt; ExtantDir:
+    &#34;&#34;&#34;Get working directory of a repo.&#34;&#34;&#34;
+    return ExtantDir(repo.working_dir).resolve()</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+</article>
+<nav id="sidebar">
+<header>
+<a class="homelink" rel="home" title="ki Home" href="index.html">
+<img src="u1F367-shavedice.svg" alt=""> ki
+</a>
+</header>
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="ki" href="index.html">ki</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="two-column">
+<li><code><a title="ki.functional.chdir" href="#ki.functional.chdir">chdir</a></code></li>
+<li><code><a title="ki.functional.copyfile" href="#ki.functional.copyfile">copyfile</a></code></li>
+<li><code><a title="ki.functional.copytree" href="#ki.functional.copytree">copytree</a></code></li>
+<li><code><a title="ki.functional.cwd" href="#ki.functional.cwd">cwd</a></code></li>
+<li><code><a title="ki.functional.fmkleaves" href="#ki.functional.fmkleaves">fmkleaves</a></code></li>
+<li><code><a title="ki.functional.force_mkdir" href="#ki.functional.force_mkdir">force_mkdir</a></code></li>
+<li><code><a title="ki.functional.get_batches" href="#ki.functional.get_batches">get_batches</a></code></li>
+<li><code><a title="ki.functional.git_dir" href="#ki.functional.git_dir">git_dir</a></code></li>
+<li><code><a title="ki.functional.is_empty" href="#ki.functional.is_empty">is_empty</a></code></li>
+<li><code><a title="ki.functional.md5" href="#ki.functional.md5">md5</a></code></li>
+<li><code><a title="ki.functional.mkdir" href="#ki.functional.mkdir">mkdir</a></code></li>
+<li><code><a title="ki.functional.mkdtemp" href="#ki.functional.mkdtemp">mkdtemp</a></code></li>
+<li><code><a title="ki.functional.mksubdir" href="#ki.functional.mksubdir">mksubdir</a></code></li>
+<li><code><a title="ki.functional.parent" href="#ki.functional.parent">parent</a></code></li>
+<li><code><a title="ki.functional.ref_exists" href="#ki.functional.ref_exists">ref_exists</a></code></li>
+<li><code><a title="ki.functional.rglob" href="#ki.functional.rglob">rglob</a></code></li>
+<li><code><a title="ki.functional.rmtree" href="#ki.functional.rmtree">rmtree</a></code></li>
+<li><code><a title="ki.functional.singleton" href="#ki.functional.singleton">singleton</a></code></li>
+<li><code><a title="ki.functional.slugify" href="#ki.functional.slugify">slugify</a></code></li>
+<li><code><a title="ki.functional.test" href="#ki.functional.test">test</a></code></li>
+<li><code><a title="ki.functional.touch" href="#ki.functional.touch">touch</a></code></li>
+<li><code><a title="ki.functional.working_dir" href="#ki.functional.working_dir">working_dir</a></code></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
+</footer>
+</body>
+</html>
