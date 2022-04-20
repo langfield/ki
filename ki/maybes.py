@@ -12,6 +12,8 @@ from result import Result, Err, Ok, OkErr
 
 from beartype import beartype
 
+import ki.maybes as M
+import ki.functional as F
 from ki.safe import safe
 from ki.types import (
     MODELS_FILE,
@@ -31,7 +33,6 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
 )
-import ki.maybes as M
 
 FS_ROOT = Path("/")
 
@@ -169,7 +170,7 @@ def emptydir(path: Path) -> Result[ExtantDir, Exception]:
 
     # Unwrap the value otherwise.
     directory: ExtantDir = res.unwrap()
-    if is_empty(directory):
+    if F.is_empty(directory):
         return Ok(EmptyDir(Path(directory).resolve()))
     return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
 
@@ -195,10 +196,10 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     # We can make this comparison because both are instances of `Path` and
     # `Path` implements the `==` operator nicely.
     while current != FS_ROOT:
-        ki_dir = fftest(current / KI)
+        ki_dir = F.test(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
-        current = ffparent(current)
+        current = F.parent(current)
 
     if current == FS_ROOT:
         return Err(NotKiRepoError())
@@ -273,7 +274,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 @safe
 @beartype
 def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
-    if not ref_exists(kirepo.repo, sha):
+    if not F.ref_exists(kirepo.repo, sha):
         return Err(GitRefNotFoundError(kirepo.repo, sha))
     return Ok(KiRepoRef(kirepo, sha))
 
@@ -281,7 +282,7 @@ def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
 @safe
 @beartype
 def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
-    if not ref_exists(repo, sha):
+    if not F.ref_exists(repo, sha):
         return Err(GitRefNotFoundError(repo, sha))
     return Ok(RepoRef(repo, sha))
 
