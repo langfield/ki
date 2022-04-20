@@ -62,7 +62,7 @@ from beartype.typing import (
 
 import ki.maybes as M
 import ki.functional as F
-from ki.safe import safe
+from ki.monadic import monadic
 from ki.types import (
     MODELS_FILE,
     ExtantFile,
@@ -168,7 +168,7 @@ def unlock(con: sqlite3.Connection) -> bool:
     return True
 
 
-@safe
+@monadic
 @beartype
 def get_ephemeral_repo(
     suffix: Path, repo_ref: RepoRef, md5sum: str
@@ -193,7 +193,7 @@ def get_ephemeral_repo(
     return Ok(ephem)
 
 
-@safe
+@monadic
 @beartype
 def get_ephemeral_kirepo(
     suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
@@ -312,7 +312,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         _ = repo.index.commit("Remove '.gitmodules' file.")
 
 
-@safe
+@monadic
 @beartype
 def diff_repos(
     a_repo: git.Repo,
@@ -423,7 +423,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
     return Ok(notetype)
 
 
-@safe
+@monadic
 @beartype
 def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Exception]:
     """
@@ -488,7 +488,7 @@ def parse_markdown_note(
     return flatnotes[0]
 
 
-@safe
+@monadic
 @beartype
 def update_note(
     note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
@@ -563,7 +563,7 @@ def update_note(
     return Ok(note)
 
 
-@safe
+@monadic
 @beartype
 def validate_flatnote_fields(
     notetype: Notetype, flatnote: FlatNote
@@ -670,7 +670,7 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
     return f"{nid}{F.slugify(fieldname, allow_unicode=True)}"
 
 
-@safe
+@monadic
 @beartype
 def push_flatnote_to_anki(
     col: Collection, flatnote: FlatNote
@@ -771,7 +771,7 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
-@safe
+@monadic
 @beartype
 def write_repository(
     col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
@@ -826,7 +826,7 @@ def write_repository(
     return wrote
 
 
-@safe
+@monadic
 @beartype
 def write_decks(
     col: Collection,
@@ -1005,7 +1005,7 @@ def echo(string: str, silent: bool = False) -> None:
         # logger.info(string)
 
 
-@safe
+@monadic
 @beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Exception]:
     """Call html5-tidy on each file in `root`, editing in-place."""
@@ -1023,7 +1023,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def flatten_staging_repo(
     stage_kirepo: KiRepo, kirepo: KiRepo
@@ -1061,7 +1061,7 @@ def flatten_staging_repo(
     return stage_kirepo
 
 
-@safe
+@monadic
 @beartype
 def get_target(
     cwd: ExtantDir, col_file: ExtantFile, directory: str
@@ -1120,7 +1120,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     if targetdir.is_err() or head.is_err():
         echo("Failed: exiting.")
 
-        # We get an error here only in the case where the `M_xdir()` call
+        # We get an error here only in the case where the `M.xdir()` call
         # failed on `targetdir`. We cannot assume that it doesn't exist,
         # because we may have returned the exception inside `fmkdempty()`,
         # which errors-out when the target already exists and is nonempty. This
@@ -1129,14 +1129,10 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         if targetdir.is_err():
             return targetdir
 
-        # Otherwise, we must have that either we created `targetdir` and it
-        # did not exist prior, or it was an empty directory before. In either
-        # case, we can probably remove it safely. We do this bit without using
-        # our @safe-d wrappers because it is very important that these three
-        # lines do not fail.  If they do, we would have an 'exception raised
-        # while handling an exception'-type error to display to the user, which
-        # would be gross. So we assume that these statements can never raise
-        # exceptions.  TODO: Consider removing only its contents instead.
+        # Otherwise, we must have that either we created `targetdir` and it did
+        # not exist prior, or it was an empty directory before. In either case,
+        # we can probably remove it safely.
+        # TODO: Consider removing only its contents instead.
         targetdir: ExtantDir = targetdir.unwrap()
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
@@ -1177,7 +1173,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def _clone(
     col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
@@ -1248,7 +1244,7 @@ def _clone(
 
 
 # TODO: Remove this function.
-@safe
+@monadic
 @beartype
 def init_repos(
     targetdir: ExtantDir, leaves: Leaves, msg: str
@@ -1314,7 +1310,7 @@ def pull() -> Result[bool, Exception]:
 
 
 # TODO: Remove this function.
-@safe
+@monadic
 @beartype
 def pull_theirs_from_remote(
     repo: git.Repo, root: ExtantDir, remote: git.Remote
@@ -1329,7 +1325,7 @@ def pull_theirs_from_remote(
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def pull_changes_from_remote_repo(
     kirepo: KiRepo,
@@ -1469,7 +1465,7 @@ def push() -> Result[bool, Exception]:
     )
 
 
-@safe
+@monadic
 @beartype
 def push_deltas(
     deltas: List[Delta],
@@ -1615,7 +1611,7 @@ def push_deltas(
     return Ok()
 
 
-@safe
+@monadic
 @beartype
 def regenerate_note_file(
     colnote: ColNote, root: ExtantDir, relpath: Path

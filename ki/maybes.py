@@ -14,7 +14,7 @@ from beartype import beartype
 
 import ki.maybes as M
 import ki.functional as F
-from ki.safe import safe
+from ki.monadic import monadic
 from ki.types import (
     MODELS_FILE,
     ExtantFile,
@@ -102,7 +102,7 @@ deleted. The path can be manually fixed by editing the '.ki/config' file.
 # MAYBES
 
 
-@safe
+@monadic
 @beartype
 def nopath(path: Path) -> Result[NoPath, Exception]:
     """
@@ -115,7 +115,7 @@ def nopath(path: Path) -> Result[NoPath, Exception]:
     return Ok(NoPath(path))
 
 
-@safe
+@monadic
 @beartype
 def xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
     """
@@ -136,7 +136,7 @@ def xfile(path: Path, info: str = "") -> Result[ExtantFile, Exception]:
     return Ok(ExtantFile(path))
 
 
-@safe
+@monadic
 @beartype
 def xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
     """
@@ -155,7 +155,7 @@ def xdir(path: Path, info: str = "") -> Result[ExtantDir, Exception]:
     return Err(StrangeExtantPathError(path, info))
 
 
-@safe
+@monadic
 @beartype
 def emptydir(path: Path) -> Result[ExtantDir, Exception]:
     """
@@ -175,7 +175,7 @@ def emptydir(path: Path) -> Result[ExtantDir, Exception]:
     return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
 
 
-@safe
+@monadic
 @beartype
 def repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
@@ -186,7 +186,7 @@ def repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     return Ok(repo)
 
 
-@safe
+@monadic
 @beartype
 def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     """Get the containing ki repository of `path`."""
@@ -228,7 +228,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
     col_file = M.xfile(col_file, info=COL_FILE_INFO)
 
-    @safe
+    @monadic
     @beartype
     def constructor(
         repo: git.Repo,
@@ -271,7 +271,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     )
 
 
-@safe
+@monadic
 @beartype
 def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
     if not F.ref_exists(kirepo.repo, sha):
@@ -279,7 +279,7 @@ def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
     return Ok(KiRepoRef(kirepo, sha))
 
 
-@safe
+@monadic
 @beartype
 def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
     if not F.ref_exists(repo, sha):
@@ -287,7 +287,7 @@ def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
     return Ok(RepoRef(repo, sha))
 
 
-@safe
+@monadic
 @beartype
 def head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
@@ -298,7 +298,7 @@ def head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
     return Ok(ref)
 
 
-@safe
+@monadic
 @beartype
 def head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.

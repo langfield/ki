@@ -1,4 +1,4 @@
-"""A function decorator for use with functions returning ``result.Result``."""
+"""A function decorator to lift functions up to the category ``result.Result``."""
 import random
 import functools
 import itertools
@@ -33,7 +33,7 @@ def raise_if_return_type_exception(
     helper: str,
 ) -> None:
     """
-    Typecheck the return value of a function decorated with ``@safe``.
+    Typecheck the return value of a function decorated with ``@monadic``.
 
     Raise an error if ``pith_value`` doesn't match the type specified by
     ``hint``. This is a snippet copied from the internal implementation of
@@ -76,7 +76,7 @@ def raise_if_return_type_exception(
 
 
 @beartype
-def safe(func: Callable[[...], T]) -> Callable[[...], T]:
+def monadic(func: Callable[[...], T]) -> Callable[[...], T]:
     """A function decorator to chain functions that return a ``result.Result``."""
 
     @functools.wraps(func)
@@ -90,7 +90,7 @@ def safe(func: Callable[[...], T]) -> Callable[[...], T]:
         # Unpack arguments of type ``Ok`` passed to ``func()``. We pass the
         # modified versions of ``args``, ``kwargs`` to ``func()`` because if we
         # do not do this unpacking step, functions that are @beartype decorated
-        # underneath the @safe decorator will ALWAYS fail to typecheck, since
+        # underneath the @monadic decorator will ALWAYS fail to typecheck, since
         # they are expected whatever type hint the user provided, but they are
         # (possibly) receiving ``OkErr`` types.
         unpack = lambda arg: arg.value if isinstance(arg, Ok) else arg
@@ -127,7 +127,7 @@ def safe(func: Callable[[...], T]) -> Callable[[...], T]:
             )
 
         # Return the un-unpacked result, since this is what the user expects
-        # (``func()`` is decorated with @safe, and so it is intended to return
+        # (``func()`` is decorated with @monadic, and so it is intended to return
         # a value of type ``result.Result``).
         return result
 

@@ -23,7 +23,7 @@ from beartype.typing import (
 )
 
 import ki.functional as F
-from ki.safe import safe
+from ki.monadic import monadic
 from ki.types import (
     ExtantFile,
     ExtantDir,
@@ -247,7 +247,7 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
 
 # Only monadic function in here.
 
-@safe
+@monadic
 @beartype
 def fmkleaves(
     root: EmptyDir,
