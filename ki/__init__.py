@@ -60,6 +60,8 @@ from beartype.typing import (
     Callable,
 )
 
+import ki.maybes as M
+import ki.functional as F
 from ki.safe import safe
 from ki.types import (
     MODELS_FILE,
@@ -97,7 +99,6 @@ from ki.types import (
     NoteFieldValidationWarning,
     UnhealthyNoteWarning,
 )
-import ki.maybes as M
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
