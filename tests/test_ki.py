@@ -281,6 +281,7 @@ def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Rep
 # UTILS
 
 
+@pytest.mark.skip
 def test_parse_markdown_note():
     """Does ki raise an error when it fails to parse nid?"""
     # Read grammar.
@@ -300,6 +301,7 @@ def test_parse_markdown_note():
         parse_markdown_note(parser, transformer, F.test(Path(NOTE_6_PATH)))
 
 
+@pytest.mark.skip
 def test_get_batches():
     """Does it get batches from a list of strings?"""
     runner = CliRunner()
@@ -313,6 +315,7 @@ def test_get_batches():
         assert batches == [[one, two], [three, four]]
 
 
+@pytest.mark.skip
 def test_is_anki_note():
     """Do the checks in ``is_anki_note()`` actually do anything?"""
     runner = CliRunner()
@@ -354,6 +357,7 @@ def open_collection(col_file: ExtantFile) -> Collection:
     return col
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -370,6 +374,7 @@ def test_update_note_raises_error_on_too_few_fields():
     assert "Wrong number of fields for model Basic!" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -388,6 +393,7 @@ def test_update_note_raises_error_on_too_many_fields():
     assert "Wrong number of fields for model Basic!" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -408,6 +414,7 @@ def test_update_note_raises_error_wrong_field_name():
     assert "Back" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_sets_tags():
     """Do we update tags of anki note?"""
     col = open_collection(get_col_file())
@@ -423,6 +430,7 @@ def test_update_note_sets_tags():
     assert note.tags == ["tag"]
 
 
+@pytest.mark.skip
 def test_update_note_sets_deck():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -442,6 +450,7 @@ def test_update_note_sets_deck():
     assert deck == "deck"
 
 
+@pytest.mark.skip
 def test_update_note_sets_field_contents():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -459,6 +468,7 @@ def test_update_note_sets_field_contents():
     assert "</p>" in note.fields[0]
 
 
+@pytest.mark.skip
 def test_update_note_removes_field_contents():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -473,6 +483,7 @@ def test_update_note_removes_field_contents():
     assert "a" not in note.fields[0]
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_nonexistent_notetype_name():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -488,6 +499,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
     assert isinstance(error, NotetypeMismatchError)
 
 
+@pytest.mark.skip
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -508,6 +520,7 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     assert "unknown error code" in captured.err
 
 
+@pytest.mark.skip
 def test_update_note_changes_notetype(capfd):
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -525,6 +538,7 @@ def test_update_note_changes_notetype(capfd):
     res.unwrap()
 
 
+@pytest.mark.skip
 def test_display_fields_health_warning_catches_empty_notes():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -534,6 +548,7 @@ def test_display_fields_health_warning_catches_empty_notes():
     assert health == 1
 
 
+@pytest.mark.skip
 def test_slugify_filters_unicode_when_asked():
     text = "\u1234"
     result = F.slugify(text, allow_unicode=False)
@@ -542,6 +557,7 @@ def test_slugify_filters_unicode_when_asked():
     assert result == ""
 
 
+@pytest.mark.skip
 def test_slugify_handles_unicode():
     """Test that slugify handles unicode alphanumerics."""
     # Hiragana should be okay.
@@ -555,6 +571,7 @@ def test_slugify_handles_unicode():
     assert result == text
 
 
+@pytest.mark.skip
 def test_slugify_handles_html_tags():
     text = '<img src="card11front.jpg" />'
     result = F.slugify(text, allow_unicode=True)
@@ -562,6 +579,7 @@ def test_slugify_handles_html_tags():
     assert result == "img-srccard11frontjpg"
 
 
+@pytest.mark.skip
 def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
     runner = CliRunner()
@@ -577,6 +595,7 @@ def test_get_note_path_produces_nonempty_filenames():
         assert os.path.isfile(path)
 
 
+@pytest.mark.skip
 def test_update_note_converts_markdown_formatting_to_html():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -665,6 +684,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     return DiffReposArgs(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 
 
+@pytest.mark.skip
 def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
@@ -690,6 +710,7 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         assert "last_push" not in captured.err
 
 
+@pytest.mark.skip
 def test_unsubmodule_repo_removes_gitmodules():
     """
     When you have a ki repo with submodules, does calling
@@ -706,6 +727,7 @@ def test_unsubmodule_repo_removes_gitmodules():
         assert not gitmodules_path.exists()
 
 
+@pytest.mark.skip
 def test_diff_repos_handles_submodules():
     """
     Does 'diff_repos()' correctly generate deltas
@@ -755,6 +777,7 @@ def test_diff_repos_handles_submodules():
             assert delta.path.is_file()
 
 
+@pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(capfd):
     """Do we print a nice message when we backup an already-backed-up file?"""
     col_file = get_col_file()
@@ -769,6 +792,7 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         assert "Backup already exists." in captured.out
 
 
+@pytest.mark.skip
 def test_git_subprocess_pull():
     col_file = get_col_file()
     runner = CliRunner()
@@ -786,6 +810,7 @@ def test_git_subprocess_pull():
             git_subprocess_pull("anki", "main")
 
 
+@pytest.mark.skip
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     col = open_collection(get_col_file())
@@ -799,6 +824,7 @@ def test_get_note_path():
         assert str(note_path.name) == "a_1.md"
 
 
+@pytest.mark.skip
 def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
@@ -816,6 +842,7 @@ def test_tidy_html_recursively():
             os.environ["PATH"] = old_path
 
 
+@pytest.mark.skip
 def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
@@ -826,6 +853,7 @@ def test_create_deck_dir():
         assert os.path.isdir("aa/bb/cc")
 
 
+@pytest.mark.skip
 def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
@@ -836,6 +864,7 @@ def test_create_deck_dir_strips_leading_periods():
         assert os.path.isdir("aa/bb/cc")
 
 
+@pytest.mark.skip
 def test_get_note_payload():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -864,6 +893,7 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
+@pytest.mark.skip
 def test_write_repository_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
@@ -895,6 +925,7 @@ def test_write_repository_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
+@pytest.mark.skip
 def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
     col_file = get_html_col_file()
@@ -937,5 +968,33 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         shutil.rmtree(targetdir / KI / BACKUPS_DIR)
         error: Exception = M.kirepo(targetdir).unwrap_err()
-        assert "fatal: not a ki repository" in str(error)
+        assert "Directory not found" in str(error)
+        assert "'.ki/backups'" in str(error)
+        shutil.rmtree(targetdir)
+
+        # Case where `.ki/config` file is gone.
+        clone(runner, col_file)
+        targetdir: ExtantDir = F.test(Path(REPODIR))
+        os.remove(targetdir / KI / CONFIG_FILE)
+        error: Exception = M.kirepo(targetdir).unwrap_err()
+        assert "File not found" in str(error)
+        assert "'.ki/config'" in str(error)
+        shutil.rmtree(targetdir)
+
+        # Case where `.ki/hashes` file is gone.
+        clone(runner, col_file)
+        targetdir: ExtantDir = F.test(Path(REPODIR))
+        os.remove(targetdir / KI / HASHES_FILE)
+        error: Exception = M.kirepo(targetdir).unwrap_err()
+        assert "File not found" in str(error)
+        assert "'.ki/hashes'" in str(error)
+        shutil.rmtree(targetdir)
+
+        # Case where `.ki/models` file is gone.
+        clone(runner, col_file)
+        targetdir: ExtantDir = F.test(Path(REPODIR))
+        os.remove(targetdir / KI / HASHES_FILE)
+        error: Exception = M.kirepo(targetdir).unwrap_err()
+        assert "File not found" in str(error)
+        assert "'.ki/hashes'" in str(error)
         shutil.rmtree(targetdir)
