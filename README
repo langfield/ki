@@ -115,7 +115,7 @@ Remove ki qualified import from tests to make code copying easier. (DONE)
 20-April-2022
 -------------
 Move types, errors, maybes, and generic functions into separate files. (DONE)
-Fix imports in tests to reflect new repository structure.
+Fix imports in tests to reflect new repository structure. (DONE)
 Remove all duplicated constant declarations.
 Write tests for all ki functions.
 Split tests into integration/unit.

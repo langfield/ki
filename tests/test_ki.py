@@ -1738,4 +1738,10 @@ def test_write_repository_handles_html():
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
         )
         write_repository(col_file, targetdir, leaves, silent=False).unwrap()
-        raise NotImplementedError
+
+        note_file = targetdir / "Default" / "あだ名.md"
+        contents: str = note_file.read_text()
+
+        # The tidy call should add the DOCTYPE tag and indentation.
+        assert "<!DOCTYPE html>\n<title></title>" in contents
+        assert '<div class="word-card">\n  <table class="kanji-match">' in contents
