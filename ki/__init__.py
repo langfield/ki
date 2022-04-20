@@ -61,6 +61,42 @@ from beartype.typing import (
 )
 
 from ki.safe import safe
+from ki.types import (
+    MODELS_FILE,
+    ExtantFile,
+    ExtantDir,
+    EmptyDir,
+    NoPath,
+    Singleton,
+    ExtantStrangePath,
+    GitChangeType,
+    Delta,
+    KiRepo,
+    Field,
+    Template,
+    Notetype,
+    ColNote,
+    KiRepoRef,
+    RepoRef,
+    Leaves,
+    MissingFileError,
+    MissingDirectoryError,
+    ExpectedFileButGotDirectoryError,
+    ExpectedDirectoryButGotFileError,
+    ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
+    StrangeExtantPathError,
+    NotKiRepoError,
+    UpdatesRejectedError,
+    TargetExistsError,
+    GitRefNotFoundError,
+    CollectionChecksumError,
+    MissingNotetypeError,
+    MissingFieldOrdinalError,
+    MissingNoteIdError,
+    NotetypeMismatchError,
+    NoteFieldValidationWarning,
+    UnhealthyNoteWarning,
+)
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -84,8 +120,6 @@ HASHES_FILE = "hashes"
 BACKUPS_DIR = "backups"
 LAST_PUSH_FILE = "last_push"
 NO_SM_DIR = "no_submodules_tree"
-
-MODELS_FILE = "models.json"
 
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
