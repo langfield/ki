@@ -13,7 +13,6 @@ from distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import git
-import click
 import pytest
 import bitstring
 import checksumdir
@@ -21,7 +20,7 @@ import prettyprinter as pp
 from lark import Lark
 from lark.exceptions import UnexpectedToken
 from loguru import logger
-from result import Result, Err, Ok, OkErr
+from result import Err, OkErr
 from click.testing import CliRunner
 from anki.collection import Collection
 
@@ -29,9 +28,10 @@ from beartype import beartype
 from beartype.typing import List, Callable
 
 import ki
+import ki.maybes as M
+import ki.functional as F
 from ki import (
     BRANCH_NAME,
-    LOCAL_SUFFIX,
     STAGE_SUFFIX,
     DELETED_SUFFIX,
     IGNORE,
@@ -45,7 +45,6 @@ from ki import (
     Notetype,
     ColNote,
     Delta,
-    Leaves,
     ExtantDir,
     ExtantFile,
     MissingFileError,
@@ -58,17 +57,6 @@ from ki import (
     KiRepo,
     KiRepoRef,
     RepoRef,
-    M_kirepo,
-    M_head_kirepo_ref,
-    M_head_repo_ref,
-    M_repo_ref,
-    fftest,
-    ffmkdir,
-    ffcwd,
-    ffforce_mkdir,
-    ffchdir,
-    fmkleaves,
-    md5,
     write_decks,
     get_ephemeral_kirepo,
     get_note_payload,
@@ -82,11 +70,8 @@ from ki import (
     diff_repos,
     update_note,
     parse_notetype_dict,
-    slugify,
     display_fields_health_warning,
     is_anki_note,
-    ftouch,
-    get_batches,
     parse_markdown_note,
     flatten_staging_repo,
     filter_note_path,
@@ -195,7 +180,7 @@ def get_col_file() -> ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, col_file)
-    return fftest(Path(col_file))
+    return F.test(Path(col_file))
 
 
 @beartype
@@ -205,7 +190,7 @@ def get_multideck_col_file() -> ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
     shutil.copyfile(MULTIDECK_COLLECTION_PATH, col_file)
-    return fftest(Path(col_file))
+    return F.test(Path(col_file))
 
 
 @beartype
@@ -215,7 +200,7 @@ def get_html_col_file() -> ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, col_file)
-    return fftest(Path(col_file))
+    return F.test(Path(col_file))
 
 
 @beartype
@@ -263,9 +248,9 @@ def checksum_git_repository(path: str) -> str:
 @beartype
 def get_notes(collection: ExtantFile) -> List[ColNote]:
     """Get a list of notes from a path."""
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(collection)
-    ffchdir(cwd)
+    F.chdir(cwd)
 
     notes: List[ColNote] = []
     for nid in set(col.find_notes("")):
@@ -385,7 +370,7 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        logger.debug(f"CWD: {ffcwd()}")
+        logger.debug(f"CWD: {F.cwd()}")
 
         # Pull edited collection.
         os.chdir(REPODIR)
@@ -564,8 +549,8 @@ def test_clone_generates_expected_notes():
         assert os.path.isdir(os.path.join(REPODIR, "Default"))
 
         # Compute hashes.
-        cloned_md5 = md5(ExtantFile(cloned_note_path))
-        true_md5 = md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
+        true_md5 = F.md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -588,8 +573,8 @@ def test_clone_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = md5(ExtantFile(cloned_note_path))
-        true_md5 = md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
+        true_md5 = F.md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -644,14 +629,14 @@ def test_clone_commits_directory_contents():
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     col_file = get_col_file()
-    original_md5 = md5(col_file)
+    original_md5 = F.md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
         clone(runner, col_file)
 
-        updated_md5 = md5(col_file)
+        updated_md5 = F.md5(col_file)
         assert original_md5 == updated_md5
 
 
@@ -847,7 +832,7 @@ def test_push_verifies_md5sum():
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     col_file = get_col_file()
-    old_hash = md5(col_file)
+    old_hash = F.md5(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -873,7 +858,7 @@ def test_push_generates_correct_backup():
 
         backup_exists = False
         for path in paths:
-            if md5(fftest(Path(path))) == old_hash:
+            if F.md5(F.test(Path(path))) == old_hash:
                 backup_exists = True
 
         assert backup_exists
@@ -1139,21 +1124,21 @@ def test_parse_markdown_note():
     transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        parse_markdown_note(parser, transformer, fftest(Path(NOTE_5_PATH)))
+        parse_markdown_note(parser, transformer, F.test(Path(NOTE_5_PATH)))
     with pytest.raises(UnexpectedToken):
-        parse_markdown_note(parser, transformer, fftest(Path(NOTE_6_PATH)))
+        parse_markdown_note(parser, transformer, F.test(Path(NOTE_6_PATH)))
 
 
 def test_get_batches():
     """Does it get batches from a list of strings?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ffcwd()
-        one = ftouch(root, "note1.md")
-        two = ftouch(root, "note2.md")
-        three = ftouch(root, "note3.md")
-        four = ftouch(root, "note4.md")
-        batches = list(get_batches([one, two, three, four], n=2))
+        root = F.cwd()
+        one = F.touch(root, "note1.md")
+        two = F.touch(root, "note2.md")
+        three = F.touch(root, "note3.md")
+        four = F.touch(root, "note4.md")
+        batches = list(F.get_batches([one, two, three, four], n=2))
         assert batches == [[one, two], [three, four]]
 
 
@@ -1161,18 +1146,18 @@ def test_is_anki_note():
     """Do the checks in ``is_anki_note()`` actually do anything?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ffcwd()
-        mda = ftouch(root, "note.mda")
-        amd = ftouch(root, "note.amd")
-        mdtxt = ftouch(root, "note.mdtxt")
-        nd = ftouch(root, "note.nd")
+        root = F.cwd()
+        mda = F.touch(root, "note.mda")
+        amd = F.touch(root, "note.amd")
+        mdtxt = F.touch(root, "note.mdtxt")
+        nd = F.touch(root, "note.nd")
 
         assert is_anki_note(mda) is False
         assert is_anki_note(amd) is False
         assert is_anki_note(mdtxt) is False
         assert is_anki_note(nd) is False
 
-        note_file: ExtantFile = ftouch(root, "note.md")
+        note_file: ExtantFile = F.touch(root, "note.md")
 
         note_file.write_text("", encoding="UTF-8")
         assert is_anki_note(note_file) is False
@@ -1192,9 +1177,9 @@ def test_is_anki_note():
 
 @beartype
 def open_collection(col_file: ExtantFile) -> Collection:
-    cwd: ExtantDir = ffcwd()
+    cwd: ExtantDir = F.cwd()
     col = Collection(col_file)
-    ffchdir(cwd)
+    F.chdir(cwd)
     return col
 
 
@@ -1380,7 +1365,7 @@ def test_display_fields_health_warning_catches_empty_notes():
 
 def test_slugify_filters_unicode_when_asked():
     text = "\u1234"
-    result = slugify(text, allow_unicode=False)
+    result = F.slugify(text, allow_unicode=False)
 
     # Filter out Ethiopian syllable see.
     assert result == ""
@@ -1390,18 +1375,18 @@ def test_slugify_handles_unicode():
     """Test that slugify handles unicode alphanumerics."""
     # Hiragana should be okay.
     text = "ゅ"
-    result = slugify(text, allow_unicode=True)
+    result = F.slugify(text, allow_unicode=True)
     assert result == text
 
     # Emojis as well.
     text = "😶"
-    result = slugify(text, allow_unicode=True)
+    result = F.slugify(text, allow_unicode=True)
     assert result == text
 
 
 def test_slugify_handles_html_tags():
     text = '<img src="card11front.jpg" />'
-    result = slugify(text, allow_unicode=True)
+    result = F.slugify(text, allow_unicode=True)
 
     assert result == "img-srccard11frontjpg"
 
@@ -1410,7 +1395,7 @@ def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
     runner = CliRunner()
     with runner.isolated_filesystem():
-        deck_dir: ExtantDir = ffforce_mkdir(Path("a"))
+        deck_dir: ExtantDir = F.force_mkdir(Path("a"))
 
         path: ExtantFile = get_note_path(field_text, deck_dir)
         assert os.path.isfile(path)
@@ -1468,13 +1453,13 @@ def get_diff_repos_args() -> DiffReposArgs:
     """
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = ffcwd()
-    kirepo: KiRepo = M_kirepo(cwd).unwrap()
+    cwd: ExtantDir = F.cwd()
+    kirepo: KiRepo = M.kirepo(cwd).unwrap()
     con: sqlite3.Connection = lock(kirepo)
-    md5sum: str = md5(kirepo.col_file)
+    md5sum: str = F.md5(kirepo.col_file)
 
     # Get reference to HEAD of current repo.
-    head: KiRepoRef = M_head_kirepo_ref(kirepo).unwrap()
+    head: KiRepoRef = M.head_kirepo_ref(kirepo).unwrap()
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
@@ -1483,7 +1468,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit, and then after the following line, the
     # reference we got will be HEAD~1, hence the variable name.
-    head_1: RepoRef = M_head_repo_ref(stage_kirepo.repo).unwrap()
+    head_1: RepoRef = M.head_repo_ref(stage_kirepo.repo).unwrap()
 
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
@@ -1606,7 +1591,7 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
     with runner.isolated_filesystem():
         clone(runner, col_file)
         os.chdir(REPODIR)
-        kirepo: KiRepo = M_kirepo(ffcwd()).unwrap()
+        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
         backup(kirepo)
         backup(kirepo)
         captured = capfd.readouterr()
@@ -1636,7 +1621,7 @@ def test_get_note_path():
     note = col.get_note(set(col.find_notes("")).pop())
     runner = CliRunner()
     with runner.isolated_filesystem():
-        deck_dir = ffcwd()
+        deck_dir = F.cwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
         note_path = get_note_path("a", deck_dir)
@@ -1647,7 +1632,7 @@ def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ffcwd()
+        root = F.cwd()
         file = root / "a.html"
         file.write_text("ay")
         old_path = os.environ["PATH"]
@@ -1664,7 +1649,7 @@ def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ffcwd()
+        root = F.cwd()
         path = create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
@@ -1674,7 +1659,7 @@ def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
     with runner.isolated_filesystem():
-        root = ffcwd()
+        root = F.cwd()
         path = create_deck_dir(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
@@ -1716,10 +1701,10 @@ def test_write_repository_generates_deck_tree_correctly():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = fftest(Path(MULTIDECK_REPODIR))
-        targetdir = ffmkdir(targetdir)
-        ki_dir = ffmkdir(fftest(Path(MULTIDECK_REPODIR) / KI))
-        leaves: OkErr = fmkleaves(
+        targetdir = F.test(Path(MULTIDECK_REPODIR))
+        targetdir = F.mkdir(targetdir)
+        ki_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / KI))
+        leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
@@ -1733,8 +1718,8 @@ def test_write_repository_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = md5(ExtantFile(cloned_note_path))
-        true_md5 = md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
+        true_md5 = F.md5(ExtantFile(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -1745,9 +1730,9 @@ def test_write_repository_handles_html():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = ffmkdir(fftest(Path(HTML_REPODIR)))
-        ki_dir = ffmkdir(fftest(Path(HTML_REPODIR) / KI))
-        leaves: OkErr = fmkleaves(
+        targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
+        ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
+        leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
