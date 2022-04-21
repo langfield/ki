@@ -285,6 +285,7 @@ class MissingNotetypeError(Exception):
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
+# TODO: Should we also print which field ordinals *are* valid?
 class MissingFieldOrdinalError(Exception):
     @beartype
     def __init__(self, ord: int, model: str):
