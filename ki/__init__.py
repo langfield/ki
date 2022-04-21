@@ -21,16 +21,11 @@ import copy
 import shutil
 import logging
 import secrets
-import hashlib
 import sqlite3
-import tempfile
 import functools
 import subprocess
-import unicodedata
 import configparser
-from enum import Enum
 from pathlib import Path
-from dataclasses import dataclass
 
 import git
 import click
@@ -54,9 +49,6 @@ from beartype.typing import (
     Dict,
     Any,
     Optional,
-    Union,
-    Tuple,
-    Generator,
     Callable,
 )
 
@@ -68,8 +60,6 @@ from ki.types import (
     ExtantDir,
     EmptyDir,
     NoPath,
-    Singleton,
-    ExtantStrangePath,
     GitChangeType,
     Delta,
     KiRepo,
@@ -82,7 +72,6 @@ from ki.types import (
     Leaves,
     UpdatesRejectedError,
     TargetExistsError,
-    GitRefNotFoundError,
     CollectionChecksumError,
     MissingNotetypeError,
     MissingFieldOrdinalError,
@@ -103,7 +92,6 @@ from ki.maybes import (
     LAST_PUSH_FILE,
 )
 from ki.monadic import monadic
-from ki.functional import FS_ROOT
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
