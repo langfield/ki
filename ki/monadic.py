@@ -107,7 +107,7 @@ def monadic(func: Callable[[...], T]) -> Callable[[...], T]:
 
         # If the return value is unannotated, raise an exception.
         if PITH_NAME not in func.__annotations__:
-            raise _BeartypeCallHintPepRaiseException(f"{exception_prefix}unannotated.")
+            raise BeartypeCallHintReturnViolation(f"{exception_prefix}unannotated.")
 
         # Unfold the return type annotation of ``func``, extracting the ``Ok``
         # return type hint and the ``Err`` return type hint.
