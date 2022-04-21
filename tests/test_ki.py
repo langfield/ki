@@ -86,6 +86,7 @@ from ki.types import (
     CollectionChecksumError,
     MissingNotetypeError,
     MissingFieldOrdinalError,
+    MissingNoteIdError,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -1169,3 +1170,12 @@ def test_parse_notetype_dict():
     assert isinstance(error, Exception)
     assert isinstance(error, MissingFieldOrdinalError)
     assert "3" in str(error)
+
+
+def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
+    col = open_collection(get_col_file())
+    nid = 44444444444444444
+    error = get_colnote(col, nid).unwrap_err()
+    assert isinstance(error, Exception)
+    assert isinstance(error, MissingNoteIdError)
+    assert str(nid) in str(error)
