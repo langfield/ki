@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Types for ki."""
+import textwrap
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
@@ -192,14 +193,14 @@ class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"File not found: '{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class MissingDirectoryError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"Directory not found: '{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class ExpectedFileButGotDirectoryError(FileNotFoundError):
@@ -207,7 +208,7 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
     def __init__(self, path: Path, info: str = ""):
         msg = "A file was expected at this location, but got a directory: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class ExpectedDirectoryButGotFileError(Exception):
@@ -215,7 +216,7 @@ class ExpectedDirectoryButGotFileError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "A directory was expected at this location, but got a file: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
@@ -223,7 +224,7 @@ class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "An empty directory was expected at this location, but it is nonempty: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class StrangeExtantPathError(Exception):
@@ -232,7 +233,7 @@ class StrangeExtantPathError(Exception):
         msg = "A normal file or directory was expected, but got a weird pseudofile "
         msg += "(e.g. a socket, or a device): "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class NotKiRepoError(Exception):
@@ -240,14 +241,14 @@ class NotKiRepoError(Exception):
     def __init__(self):
         msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
         msg += "Stopping at filesystem boundary."
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class UpdatesRejectedError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class TargetExistsError(Exception):
@@ -255,46 +256,47 @@ class TargetExistsError(Exception):
     def __init__(self, target: Path):
         msg = f"fatal: destination path '{target}' already exists and is "
         msg += "not an empty directory."
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class GitRefNotFoundError(Exception):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class CollectionChecksumError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class MissingNotetypeError(Exception):
     @beartype
     def __init__(self, model: str):
-        msg = f"Notetype '{model}' doesn't exist. "
-        msg += "Create it in Anki before adding notes via ki. "
-        msg += "This may be caused by a corrupted '{MODELS_FILE}' file. "
-        msg += "The models file must contain definitions for all models that appear "
-        msg += "in all note files."
-        super().__init__(msg)
+        msg = f"""
+        Notetype '{model}' doesn't exist. Create it in Anki before adding notes
+        via ki. This may be caused by a corrupted '{MODELS_FILE}' file. The
+        models file must contain definitions for all models that appear in all
+        note files.
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class MissingFieldOrdinalError(Exception):
     @beartype
     def __init__(self, ord: int, nt: Dict[str, Any]):
         msg = f"Field with ordinal {ord} missing from notetype '{pp.pformat(nt)}'."
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class MissingNoteIdError(Exception):
     @beartype
     def __init__(self, nid: int):
         msg = f"Failed to locate note with nid '{nid}' in Anki database."
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 class NotetypeMismatchError(Exception):
@@ -305,7 +307,7 @@ class NotetypeMismatchError(Exception):
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
-        super().__init__(msg)
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 # WARNINGS
