@@ -85,6 +85,7 @@ from ki.types import (
     GitRefNotFoundError,
     CollectionChecksumError,
     MissingNotetypeError,
+    MissingFieldOrdinalError,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -1117,3 +1118,54 @@ def test_push_flatnote_to_anki():
     assert isinstance(error, Exception)
     assert isinstance(error, MissingNotetypeError)
     assert "NonexistentModel" in str(error)
+
+
+def test_parse_notetype_dict():
+    nt = {
+        "id": 1645010146011,
+        "name": "Basic",
+        "type": 0,
+        "mod": 0,
+        "usn": 0,
+        "sortf": 0,
+        "did": None,
+        "tmpls": [
+            {
+                "name": "Card 1",
+                "ord": 0,
+                "qfmt": "{{Front}}",
+                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": None,
+                "bfont": "",
+                "bsize": 0,
+            }
+        ],
+        "flds": [
+            {
+                "name": "Front",
+                "ord": 0,
+                "sticky": False,
+                "rtl": False,
+                "font": "Arial",
+                "size": 20,
+            },
+            {
+                "name": "Back",
+                "ord": 1,
+                "sticky": False,
+                "rtl": False,
+                "font": "Arial",
+                "size": 20,
+            },
+        ],
+        "req": [[0, "any", [0]]],
+    }
+
+    # This field ordinal doesn't exist.
+    nt["sortf"] = 3
+    error = parse_notetype_dict(nt).unwrap_err()
+    assert isinstance(error, Exception)
+    assert isinstance(error, MissingFieldOrdinalError)
+    assert "3" in str(error)

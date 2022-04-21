@@ -287,8 +287,8 @@ class MissingNotetypeError(Exception):
 
 class MissingFieldOrdinalError(Exception):
     @beartype
-    def __init__(self, ord: int, nt: Dict[str, Any]):
-        msg = f"Field with ordinal {ord} missing from notetype '{pp.pformat(nt)}'."
+    def __init__(self, ord: int, model: str):
+        msg = f"Field with ordinal {ord} missing from notetype '{model}'."
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 

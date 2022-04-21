@@ -378,7 +378,9 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
         # Guarantee that 'sortf' exists in `notetype.flds`.
         sort_ordinal: int = nt["sortf"]
         if sort_ordinal not in fields:
-            return Err(MissingFieldOrdinalError)
+            
+            # If we get a KeyError here, it will be caught.
+            return Err(MissingFieldOrdinalError(sort_ordinal, nt["name"]))
 
         notetype = Notetype(
             id=nt["id"],
