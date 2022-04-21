@@ -1275,12 +1275,14 @@ def pull() -> Result[bool, Exception]:
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     # This should return the repository as well.
-    cloned: Res[str] = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
+    cloned: OkErr = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
+    if cloned.is_err():
+        return echo(str(cloned.err()))
     pulled: OkErr = pull_changes_from_remote_repo(
-        kirepo, anki_remote_root, last_push_repo, md5sum, cloned
+        kirepo, anki_remote_root, last_push_repo, md5sum
     )
     if pulled.is_err():
-        return pulled
+        return echo(str(pulled.err()))
     return Ok(unlock(con))
 
 
@@ -1307,7 +1309,6 @@ def pull_changes_from_remote_repo(
     anki_remote_root: ExtantDir,
     last_push_repo: git.Repo,
     md5sum: str,
-    _cloned: str,
 ) -> Result[bool, Exception]:
     """
     Load the git repository at `anki_remote_root`, force pull (preferring
