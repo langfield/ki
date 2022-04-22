@@ -6,10 +6,7 @@ from result import Ok, Err
 from beartype import beartype
 from beartype.typing import Callable, TypeVar, NoReturn
 
-from beartype.roar._roarexc import (
-    BeartypeCallHintReturnViolation,
-    _BeartypeCallHintPepRaiseException,
-)
+from beartype.roar._roarexc import BeartypeCallHintReturnViolation
 from beartype._decor._error._errorsleuth import CauseSleuth
 from beartype._util.text.utiltextlabel import (
     prefix_callable_decorated_return_value,

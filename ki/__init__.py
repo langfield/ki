@@ -50,6 +50,7 @@ from beartype.typing import (
     Any,
     Optional,
     Callable,
+    Union,
 )
 
 import ki.maybes as M
@@ -79,6 +80,8 @@ from ki.types import (
     NotetypeMismatchError,
     NoteFieldValidationWarning,
     UnhealthyNoteWarning,
+    UnPushedPathWarning,
+    NotAnkiNoteWarning,
 )
 from ki.maybes import (
     GIT,
@@ -220,28 +223,37 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 
 @beartype
-def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> bool:
-    """Lambda to be used as first argument to filter(). Filters out paths-to-ignore."""
+def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> Result[bool, Warning]:
+    """
+    Filter out paths in a git repository diff that do not correspond to Anki
+    notes.
+
+    We could do this purely using calls to `is_anki_note()`, but these are
+    expensive, so we try to find matches without opening any files first.
+    """
+    # If `path` is an exact match for one of the patterns in `patterns`, we
+    # immediately return a warning. Since the contents of a git repository diff
+    # are always going to be files, this alone will not correctly ignore
+    # directory names given in `patterns`.
     for p in patterns:
         if p == path.name:
-            logger.warning(f"Ignoring {path} matching pattern {p}")
-            return False
+            return Err(UnPushedPathWarning(path, p))
 
-    # Ignore files that match a pattern in `patterns` ('*' not supported).
+    # If any of the patterns in `patterns` resolve to one of the parents of
+    # `path`, return a warning, so that we are able to filter out entire
+    # directories.
     for ignore_path in [root / p for p in patterns]:
         parents = [path.resolve()] + [p.resolve() for p in path.parents]
         if ignore_path.resolve() in parents:
-            logger.warning(f"Ignoring {path} matching pattern {ignore_path}")
-            return False
+            return Err(UnPushedPathWarning(path, str(ignore_path)))
 
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path.resolve())
         if not is_anki_note(file):
-            logger.warning(f"Not Anki note {file}")
-            return False
+            return Err(NotAnkiNoteWarning(file))
 
-    return True
+    return Ok()
 
 
 @beartype
@@ -286,10 +298,10 @@ def diff_repos(
     a_repo: git.Repo,
     b_repo: git.Repo,
     ref: RepoRef,
-    filter_fn: Callable[[Path], bool],
+    filter_fn: Callable[[Path], Result[bool, Warning]],
     parser: Lark,
     transformer: NoteTransformer,
-) -> Result[List[Delta], Exception]:
+) -> Result[List[Union[Delta, Warning]], Exception]:
     # Use a `DiffIndex` to get the changed files.
     deltas = []
     a_dir = Path(a_repo.working_dir)
@@ -299,8 +311,15 @@ def diff_repos(
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            if not filter_fn(a_dir / diff.a_path) or not filter_fn(a_dir / diff.b_path):
-                logger.warning(f"Ignoring:\n{diff.a_path}\n{diff.b_path}")
+            a_status: Result[bool, Warning] = filter_fn(a_dir / diff.a_path)
+            b_status: Result[bool, Warning] = filter_fn(a_dir / diff.b_path)
+            if a_status.is_err():
+                logger.debug(f"{a_status = }")
+                deltas.append(a_status.err())
+                continue
+            if b_status.is_err():
+                logger.debug(f"{b_status = }")
+                deltas.append(b_status.err())
                 continue
 
             a_path = F.test(a_dir / diff.a_path)
@@ -333,6 +352,7 @@ def diff_repos(
             logger.debug(f"Adding delta: {change_type} {b_path}")
             deltas.append(Delta(change_type, b_path, b_relpath))
 
+    logger.debug(f"{deltas = }")
     return Ok(deltas)
 
 
@@ -374,7 +394,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
         # Guarantee that 'sortf' exists in `notetype.flds`.
         sort_ordinal: int = nt["sortf"]
         if sort_ordinal not in fields:
-            
+
             # If we get a KeyError here, it will be caught.
             return Err(MissingFieldOrdinalError(sort_ordinal, nt["name"]))
 
@@ -1445,7 +1465,7 @@ def push() -> Result[bool, Exception]:
 @monadic
 @beartype
 def push_deltas(
-    deltas: List[Delta],
+    deltas: List[Union[Delta, Warning]],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
     md5sum: str,
@@ -1454,6 +1474,9 @@ def push_deltas(
     stage_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> Result[bool, Exception]:
+    warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
+    deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+    logger.debug(f"Warnings: {warnings}")
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -1534,6 +1557,10 @@ def push_deltas(
                 continue
             return regenerated
         log += regenerated.unwrap()
+
+    # Display all warnings returned by the filter function.
+    for warning in warnings:
+        echo(str(warning))
 
     # Commit nid reassignments.
     logger.warning(f"Reassigned {len(log)} nids.")

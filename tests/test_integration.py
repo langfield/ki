@@ -1059,3 +1059,25 @@ def test_push_displays_informative_error_when_last_push_file_is_missing(capfd):
         os.chdir(REPODIR)
         with pytest.raises(MissingFileError):
             push(runner)
+
+
+def test_push_honors_ignore_patterns():
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        with open(".gitignore", "a") as ignore_f:
+            ignore_f.write("\nelephant")
+
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        out = push(runner)
+        assert "push: Ignoring" in out
+        assert "matching pattern '.gitignore'" in out

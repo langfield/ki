@@ -331,3 +331,17 @@ class NoteFieldValidationWarning(Warning):
 
 class UnhealthyNoteWarning(Warning):
     pass
+
+
+class UnPushedPathWarning(Warning):
+    @beartype
+    def __init__(self, path: Path, pattern: str):
+        msg = f"push: Ignoring '{path}' matching pattern '{pattern}'"
+        super().__init__(msg)
+
+
+class NotAnkiNoteWarning(Warning):
+    @beartype
+    def __init__(self, file: ExtantFile):
+        msg = f"push: Not Anki note '{file}'"
+        super().__init__(msg)
