@@ -1081,3 +1081,17 @@ def test_push_honors_ignore_patterns():
         out = push(runner)
         assert "push: Ignoring" in out
         assert "matching pattern '.gitignore'" in out
+
+        # Add and commit a new file that is not a note.
+        Path("dummy_file").touch()
+
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        # Since the output is currently very verbose, we should print a warning
+        # for every such file. In the future, these warnings should only be
+        # displayed if a verbosity flag is set.
+        # TODO: Implement this verbosity flag.
+        out = push(runner)
+        assert "push: Not Anki note" in out

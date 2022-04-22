@@ -248,6 +248,9 @@ def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> Result
             return Err(UnPushedPathWarning(path, str(ignore_path)))
 
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
+    logger.debug(f"Checking if note: {path}")
+    logger.debug(f"Exists: {path.exists()}")
+    logger.debug(f"Is file: {path.is_file()}")
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path.resolve())
         if not is_anki_note(file):
@@ -306,13 +309,15 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(b_repo.working_dir)
+    logger.debug(f"{a_dir = }")
+    logger.debug(f"{b_dir = }")
     logger.debug(f"Diffing {ref.sha} against {b_repo.head.commit.hexsha}")
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
             a_status: Result[bool, Warning] = filter_fn(a_dir / diff.a_path)
-            b_status: Result[bool, Warning] = filter_fn(a_dir / diff.b_path)
+            b_status: Result[bool, Warning] = filter_fn(b_dir / diff.b_path)
             if a_status.is_err():
                 logger.debug(f"{a_status = }")
                 deltas.append(a_status.err())
@@ -466,6 +471,8 @@ def display_fields_health_warning(note: anki.notes.Note) -> int:
     return health
 
 
+# TODO: This function can definitely raise a key error. It should return a
+# `Result`.
 @beartype
 def parse_markdown_note(
     parser: Lark, transformer: NoteTransformer, notes_file: ExtantFile
