@@ -32,6 +32,8 @@ from ki.types import (
     Singleton,
     ExtantStrangePath,
     Leaves,
+    KiRepoRef,
+    RepoRef,
 )
 
 FS_ROOT = Path("/")
@@ -276,3 +278,8 @@ def fmkleaves(
             new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
             leaves.add(str(token))
     return Ok(Leaves(root, new_files, new_dirs))
+
+
+@beartype
+def kirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
+    return RepoRef(kirepo_ref.kirepo.repo, kirepo_ref.sha)

@@ -236,6 +236,15 @@ class StrangeExtantPathError(Exception):
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
+class ExpectedNonexistentPathError(FileExistsError):
+    @beartype
+    def __init__(self, path: Path, info: str = ""):
+        msg = f"""
+        Expected this path not to exist, but it does: '{path}'{info.rstrip()}
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+
+
 class NotKiRepoError(Exception):
     @beartype
     def __init__(self):

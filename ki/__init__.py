@@ -140,11 +140,10 @@ def unlock(con: sqlite3.Connection) -> bool:
     return True
 
 
-@monadic
 @beartype
 def get_ephemeral_repo(
     suffix: Path, repo_ref: RepoRef, md5sum: str
-) -> Result[git.Repo, Exception]:
+) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, suffix)
@@ -162,7 +161,7 @@ def get_ephemeral_repo(
     # Do a reset --hard to the given SHA.
     ephem.git.reset(repo_ref.sha, hard=True)
 
-    return Ok(ephem)
+    return ephem
 
 
 @monadic
@@ -189,11 +188,8 @@ def get_ephemeral_kirepo(
     KiRepo
         The cloned repository.
     """
-    ref: Res[RepoRef] = M.repo_ref(kirepo_ref.kirepo.repo, kirepo_ref.sha)
-    ephem: Res[git.Repo] = get_ephemeral_repo(suffix, ref, md5sum)
-    if ephem.is_err():
-        return ephem
-    ephem: git.Repo = ephem.unwrap()
+    ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
+    ephem: git.Repo = get_ephemeral_repo(suffix, ref, md5sum)
     ephem_ki_dir: OkErr = M.nopath(Path(ephem.working_dir) / KI)
     if ephem_ki_dir.is_err():
         return ephem_ki_dir
@@ -1270,7 +1266,10 @@ def pull() -> Result[bool, Exception]:
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
     ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
-    last_push_repo: Res[git.Repo] = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
+    if ref.is_err():
+        echo(str(ref.err()))
+    ref: RepoRef = ref.unwrap()
+    last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
     msg = f"Fetch changes from DB at '{kirepo.col_file}' with md5sum '{md5sum}'"
@@ -1431,7 +1430,7 @@ def push() -> Result[bool, Exception]:
     transformer = NoteTransformer()
 
     # Get deltas.
-    a_repo: Res[git.Repo] = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
+    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
     deltas: OkErr = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 

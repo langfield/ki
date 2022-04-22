@@ -28,6 +28,7 @@ from ki.types import (
     ExpectedFileButGotDirectoryError,
     ExpectedDirectoryButGotFileError,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
+    ExpectedNonexistentPathError,
     StrangeExtantPathError,
     NotKiRepoError,
     GitRefNotFoundError,
@@ -110,7 +111,7 @@ def nopath(path: Path) -> Result[NoPath, Exception]:
     """
     path = path.resolve()
     if path.exists():
-        return Err(FileExistsError(str(path)))
+        return Err(ExpectedNonexistentPathError(path))
     return Ok(NoPath(path))
 
 

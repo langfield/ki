@@ -48,6 +48,7 @@ from ki import (
     Delta,
     ExtantDir,
     ExtantFile,
+    EmptyDir,
     NotetypeMismatchError,
     UnhealthyNoteWarning,
     NoteFieldValidationWarning,
@@ -87,6 +88,7 @@ from ki.types import (
     MissingNotetypeError,
     MissingFieldOrdinalError,
     MissingNoteIdError,
+    ExpectedNonexistentPathError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -696,7 +698,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     transformer = NoteTransformer()
 
     # Get deltas.
-    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum).unwrap()
+    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
 
     return DiffReposArgs(a_repo, b_repo, head_1, filter_fn, parser, transformer)
@@ -1126,7 +1128,7 @@ def test_pull_changes_from_remote_repo():
         # Git clone `repo` at commit SHA of last successful `push()`.
         sha: str = kirepo.last_push_file.read_text()
         ref: RepoRef = M.repo_ref(kirepo.repo, sha).unwrap()
-        last_push_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum).unwrap()
+        last_push_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
         # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
         anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1234,9 +1236,57 @@ def unannotated():
     return Ok(0)
 
 
+@pytest.mark.skip
 def test_monadic_lift_decorator():
     """Does our `Result` lift decorator catch type errors?"""
-    with pytest.raises(roar.BeartypeCallHintReturnViolation, match="not instance of int") as error:
+    with pytest.raises(
+        roar.BeartypeCallHintReturnViolation, match="not instance of int"
+    ) as error:
         sample()
-    with pytest.raises(roar.BeartypeCallHintReturnViolation, match="return 0 unannotated") as error:
+    with pytest.raises(
+        roar.BeartypeCallHintReturnViolation, match="return 0 unannotated"
+    ) as error:
         unannotated()
+
+
+@pytest.mark.skip
+def test_nopath(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        file = Path("file")
+        file.touch()
+        error = M.nopath(file).unwrap_err()
+        assert isinstance(error, FileExistsError)
+
+
+def test_get_ephemeral_kirepo(tmp_path):
+    """
+    Do errors in `M.nopath()` call in `get_ephemeral_kirepo()` get forwarded to
+    the collar and printed nicely?
+    
+    In `get_ephemeral_kirepo()`, we construct a `NoPath` for the `.ki`
+    subdirectory, which doesn't exist yet at that point, because
+    `get_ephemeral_repo()` is just a git clone operation, and the `.ki`
+    subdirectory is in the `.gitignore` file. It is possible but
+    extraordinarily improbable that this path is created in between the
+    `Repo.clone_from()` call and the `M.nopath()` call.
+    
+    In this test function, we simulate this possibility by the deleting the
+    `.gitignore` file and committing the `.ki` subdirectory.
+    """
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        os.remove(".gitignore")
+        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
+        kirepo.repo.git.add(all=True)
+        kirepo.repo.index.commit("Add ki directory.")
+        head: KiRepoRef = M.head_kirepo_ref(kirepo).unwrap()
+        error: Exception = get_ephemeral_kirepo(
+            Path("suffix"), head, md5sum="md5"
+        ).unwrap_err()
+        assert isinstance(error, FileExistsError)
+        assert isinstance(error, ExpectedNonexistentPathError)
+        assert ".ki" in str(error)
