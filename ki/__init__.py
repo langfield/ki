@@ -82,6 +82,7 @@ from ki.types import (
     UnhealthyNoteWarning,
     UnPushedPathWarning,
     NotAnkiNoteWarning,
+    DeletedFileNotFoundWarning,
 )
 from ki.maybes import (
     GIT,
@@ -335,7 +336,7 @@ def diff_repos(
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
-                    logger.warning(f"Deleted file not found in source commit: {a_path}")
+                    deltas.append(DeletedFileNotFoundWarning(a_relpath))
                     continue
 
                 deltas.append(Delta(change_type, a_path, a_relpath))

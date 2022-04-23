@@ -90,6 +90,7 @@ from ki.types import (
     MissingNoteIdError,
     ExpectedNonexistentPathError,
     UnPushedPathWarning,
+    DeletedFileNotFoundWarning,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -709,6 +710,38 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         captured = capfd.readouterr()
         assert changed == []
         assert "last_push" not in captured.err
+
+
+def test_diff_repos_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        
+        os.remove("Default/a.md")
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit("CommitMessage")
+
+        args: DiffReposArgs = get_diff_repos_args()
+
+        # We pass in `b_repo` for both arguments in order to simulate the
+        # deleted file being missing.
+        deltas: List[Union[Delta, Warning]] = diff_repos(
+            args.b_repo,
+            args.b_repo,
+            args.head_1,
+            args.filter_fn,
+            args.parser,
+            args.transformer,
+        ).unwrap()
+        warnings = [d for d in deltas if isinstance(d, DeletedFileNotFoundWarning)]
+        assert len(warnings) == 1
+        warning = warnings.pop()
+        assert "Default/a.md" in str(warning)
 
 
 def test_unsubmodule_repo_removes_gitmodules():

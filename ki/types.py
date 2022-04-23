@@ -345,3 +345,17 @@ class NotAnkiNoteWarning(Warning):
     def __init__(self, file: ExtantFile):
         msg = f"push: Not Anki note '{file}'"
         super().__init__(msg)
+
+
+class DeletedFileNotFoundWarning(Warning):
+    @beartype
+    def __init__(self, path: Path):
+        top = f"Deleted file not found in source commit: '{path}'"
+        msg = """
+        This may indicate a bug in ki. The source commit is what we are diffing
+        against, and so we expect all files whose change type is 'DELETED' to
+        appear in a checkout of that reference. However, we return a 'Warning'
+        instead of an 'Exception' in order to avoid interrupting the execution
+        of a 'push()' call where it is not strictly necessary.
+        """
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
