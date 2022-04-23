@@ -89,6 +89,7 @@ from ki.types import (
     MissingFieldOrdinalError,
     MissingNoteIdError,
     ExpectedNonexistentPathError,
+    UnPushedPathWarning,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -1220,7 +1221,7 @@ def test_nopath(tmp_path):
 def test_get_ephemeral_kirepo(tmp_path):
     """
     Do errors in `M.nopath()` call in `get_ephemeral_kirepo()` get forwarded to
-    the collar and printed nicely?
+    the caller and printed nicely?
     
     In `get_ephemeral_kirepo()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
@@ -1248,3 +1249,18 @@ def test_get_ephemeral_kirepo(tmp_path):
         assert isinstance(error, FileExistsError)
         assert isinstance(error, ExpectedNonexistentPathError)
         assert ".ki" in str(error)
+
+
+def test_filter_note_path(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        directory = Path("directory")
+        directory.mkdir()
+        path = directory / "file"
+        path.touch()
+        patterns: List[str] = ["directory"]
+        root: ExtantDir = F.cwd()
+        warning = filter_note_path(path, patterns, root).unwrap_err()
+        assert isinstance(warning, Warning)
+        assert isinstance(warning, UnPushedPathWarning)
+        assert 'directory/file' in str(warning)
