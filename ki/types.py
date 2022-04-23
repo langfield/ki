@@ -352,10 +352,26 @@ class DeletedFileNotFoundWarning(Warning):
     def __init__(self, path: Path):
         top = f"Deleted file not found in source commit: '{path}'"
         msg = """
-        This may indicate a bug in ki. The source commit is what we are diffing
-        against, and so we expect all files whose change type is 'DELETED' to
-        appear in a checkout of that reference. However, we return a 'Warning'
-        instead of an 'Exception' in order to avoid interrupting the execution
-        of a 'push()' call where it is not strictly necessary.
+        Unexpected: this may indicate a bug in ki. The source commit is what we
+        are diffing against, and so we expect all files whose change type is
+        'DELETED' to appear in a checkout of that reference. However, we return
+        a 'Warning' instead of an 'Exception' in order to avoid interrupting
+        the execution of a 'push()' call where it is not strictly necessary.
+        """
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class DiffTargetFileNotFoundWarning(Warning):
+    @beartype
+    def __init__(self, path: Path):
+        top = f"Diff target file not found: '{path}'"
+        msg = """
+        Unexpected: this may indicate a bug in ki. The caller prevents this
+        warning from being instantiated unless the git change type is one of
+        'ADDED', 'MODIFIED', or 'RENAMED'. In all cases, the file being diffed
+        should be extant in the target commit of the repository.  However, we
+        return a 'Warning' instead of an 'Exception' in order to avoid
+        interrupting the execution of a 'push()' call where it is not strictly
+        necessary.
         """
         super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))

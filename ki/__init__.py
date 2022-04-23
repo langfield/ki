@@ -83,6 +83,7 @@ from ki.types import (
     UnPushedPathWarning,
     NotAnkiNoteWarning,
     DeletedFileNotFoundWarning,
+    DiffTargetFileNotFoundWarning,
 )
 from ki.maybes import (
     GIT,
@@ -343,7 +344,7 @@ def diff_repos(
                 continue
 
             if not isinstance(b_path, ExtantFile):
-                logger.warning(f"Diff target not found: {b_path}")
+                deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
                 continue
 
             if change_type == GitChangeType.RENAMED:
