@@ -340,7 +340,8 @@ class UnnamedNotetypeError(Exception):
         a '{MODELS_FILE}' file in the current repository (may be
         contained in a subdirectory):
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80) + pp.pformat(nt))
+        msg = textwrap.fill(textwrap.dedent(msg), width=80)
+        super().__init__(msg + "\n" + pp.pformat(nt))
 
 
 

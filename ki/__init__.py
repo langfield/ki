@@ -386,6 +386,8 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
     # nice error message in the event of a `KeyError`. So we have to print out
     # a different error message saying that the notetype doesn't have a name
     # field.
+    # TODO: Consider passing in the note id with the note type so that we
+    # always have something to refer to in error messages.
     try:
         nt["name"]
     except KeyError:

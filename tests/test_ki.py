@@ -95,6 +95,7 @@ from ki.types import (
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
+    UnnamedNotetypeError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -184,6 +185,11 @@ MODELS = {
                 ]
             ]
         ]
+    }
+}
+NAMELESS_MODELS = {
+    "1645010146011": {
+        "id": 1645010146011,
     }
 }
 
@@ -1387,3 +1393,20 @@ def test_get_models_recursively(tmp_path):
         assert "not found in notetype" in str(error)
         assert "flds" in str(error)
         assert "Basic" in str(error)
+
+
+def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        os.remove("models.json")
+        with open(Path("models.json"), "w") as models_f:
+            json.dump(NAMELESS_MODELS, models_f, ensure_ascii=False, indent=4)
+        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
+        error = get_models_recursively(kirepo).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, UnnamedNotetypeError)
+        assert "Failed to find 'name' field" in str(error)
+        assert "1645010146011" in str(error)
