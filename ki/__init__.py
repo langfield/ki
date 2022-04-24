@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Python package `ki` is a command-line interface for the version control and
 editing of `.anki2` collections as git repositories of markdown files.
@@ -84,6 +83,8 @@ from ki.types import (
     NotAnkiNoteWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
+    NotetypeKeyError,
+    UnnamedNotetypeError,
 )
 from ki.maybes import (
     GIT,
@@ -381,6 +382,14 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
     of the dataclasses, however, use abbreviations for consistency with Anki
     map keys.
     """
+    # If we can't even read the name of the notetype, then we can't print out a
+    # nice error message in the event of a `KeyError`. So we have to print out
+    # a different error message saying that the notetype doesn't have a name
+    # field.
+    try:
+        nt["name"]
+    except KeyError:
+        return Err(UnnamedNotetypeError(nt))
     try:
         fields: Dict[int, Field] = {}
         for fld in nt["flds"]:
@@ -416,7 +425,8 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
         )
 
     except KeyError as err:
-        return Err(err)
+        key = str(err)
+        return Err(NotetypeKeyError(key, str(nt["name"])))
     return Ok(notetype)
 
 
@@ -438,15 +448,17 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
 
     # Load notetypes from json files.
     for models_file in F.rglob(kirepo.root, MODELS_FILE):
+
         with open(models_file, "r", encoding="UTF-8") as models_f:
-            models: Dict[str, Notetype] = {}
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
-            for _, nt in new_nts.items():
-                parsed = parse_notetype_dict(nt)
-                if parsed.is_err():
-                    return parsed
-                notetype: Notetype = parsed.ok()
-                models[notetype.name] = notetype
+
+        models: Dict[str, Notetype] = {}
+        for _, nt in new_nts.items():
+            parsed = parse_notetype_dict(nt)
+            if parsed.is_err():
+                return parsed
+            notetype: Notetype = parsed.ok()
+            models[notetype.name] = notetype
 
         # Add mappings to dictionary.
         all_models.update(models)

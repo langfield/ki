@@ -14,6 +14,7 @@ from beartype.typing import List, Dict, Any, Optional
 
 from ki.transformer import FlatNote
 
+NotetypeDict = Dict[str, Any]
 MODELS_FILE = "models.json"
 HINT = (
     "hint: Updates were rejected because the tip of your current branch is behind\n"
@@ -318,6 +319,29 @@ class NotetypeMismatchError(Exception):
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class NotetypeKeyError(Exception):
+    @beartype
+    def __init__(self, key: str, name: str):
+        msg = f"""
+        Expected key {key} not found in notetype '{name}' parsed from a
+        '{MODELS_FILE}' file in the current repository (may be contained in a
+        subdirectory).
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class UnnamedNotetypeError(Exception):
+    @beartype
+    def __init__(self, nt: NotetypeDict):
+        msg = f"""
+        Failed to find 'name' field for a notetype while parsing
+        a '{MODELS_FILE}' file in the current repository (may be
+        contained in a subdirectory):
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80) + pp.pformat(nt))
+
 
 
 # WARNINGS

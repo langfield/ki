@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import json
 import random
 import shutil
 import sqlite3
@@ -22,7 +23,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype, roar
-from beartype.typing import List, Callable
+from beartype.typing import List, Callable, Union
 
 import ki
 import ki.maybes as M
@@ -79,6 +80,7 @@ from ki import (
     pull_changes_from_remote_repo,
     _clone,
     push_flatnote_to_anki,
+    get_models_recursively,
 )
 from ki.types import (
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
@@ -92,6 +94,7 @@ from ki.types import (
     UnPushedPathWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
+    NotetypeKeyError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -147,6 +150,42 @@ NOTE_6_PATH = os.path.join(NOTES_PATH, NOTE_6)
 
 NOTE_0_ID = 1645010162168
 NOTE_4_ID = 1645027705329
+
+# A models dictionary mapping model ids to notetype dictionaries.
+# Note that the `flds` field has been removed.
+MODELS = {
+    "1645010146011": {
+        "id": 1645010146011,
+        "name": "Basic",
+        "type": 0,
+        "mod": 0,
+        "usn": 0,
+        "sortf": 0,
+        "did": None,
+        "tmpls": [
+            {
+                "name": "Card 1",
+                "ord": 0,
+                "qfmt": "{{Front}}",
+                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": None,
+                "bfont": "",
+                "bsize": 0
+            }
+        ],
+        "req": [
+            [
+                0,
+                "any",
+                [
+                    0
+                ]
+            ]
+        ]
+    }
+}
 
 # HELPER FUNCTIONS
 
@@ -1330,3 +1369,21 @@ def test_filter_note_path(tmp_path):
         assert isinstance(warning, Warning)
         assert isinstance(warning, UnPushedPathWarning)
         assert 'directory/file' in str(warning)
+
+
+def test_get_models_recursively(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        os.remove("models.json")
+        with open(Path("models.json"), "w") as models_f:
+            json.dump(MODELS, models_f, ensure_ascii=False, indent=4)
+        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
+        error = get_models_recursively(kirepo).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, NotetypeKeyError)
+        assert "not found in notetype" in str(error)
+        assert "flds" in str(error)
+        assert "Basic" in str(error)
