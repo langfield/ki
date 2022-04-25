@@ -713,11 +713,14 @@ def push_flatnote_to_anki(
     note: Note = note.unwrap()
     new_notetype: Notetype = new_notetype.unwrap()
 
-    # Get sort field content.
-    try:
-        sortf_text: str = note[new_notetype.sortf.name]
-    except KeyError as err:
-        return Err(err)
+    # Get sort field content. It should not be possible for this to raise a
+    # KeyError here, because in `update_note()`, we check that the name fields
+    # of each field in `new_notetype.flds` exactly match the keys of
+    # `flatnote`, and are in the same order. Then we index `note` on all of
+    # these keys (without checking for a KeyError). So under the assumption
+    # that `new_notetype..sortf.name` is one of those names/keys, this should
+    # be safe.
+    sortf_text: str = note[new_notetype.sortf.name]
 
     colnote = ColNote(
         n=note,
