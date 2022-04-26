@@ -119,8 +119,14 @@ Fix bug where reassigned nid differs from old nid in commit msg. (DONE)
 Fix imports in tests to reflect new repository structure. (DONE)
 Remove all duplicated constant declarations. (DONE)
 Split tests into integration/unit. (DONE)
-Write tests for all ki functions.
+
+26-April-2022
+-------------
+Write tests for all ki functions. (DONE)
+Achieve 100% test coverage.
 Make sure all warnings and errors are actually displayed at the command line.
+Media
+Persistent note ids across pulls
 
 
 Triage
