@@ -24,6 +24,7 @@ from beartype import beartype
 from beartype.typing import List
 
 import ki
+import ki.maybes as M
 import ki.functional as F
 from ki import BRANCH_NAME, get_colnote
 from ki.types import (
@@ -442,6 +443,54 @@ def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFix
             return_value=Err(ExpectedNonexistentPathError(Path("path-that-exists"))),
         )
         with pytest.raises(ExpectedNonexistentPathError):
+            clone(runner, col_file)
+
+
+@beartype
+def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
+    """Do errors get propagated in the places we expect?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # `M.kirepo()` is called four times in `clone()`, and we only want to
+        # actually mock the last call. So we need the mocked function to behave
+        # somewhat normally for the first three calls, which means returning a
+        # valid `kirepo`. And we can't return a mock because beartype will
+        # catch it. We need to return an *actual* kirepo or mess with the
+        # `__class__` attr of a mock (seems dangerous).
+
+        # So we actually clone three times in three separate directories, and
+        # instantiate a kirepo from each. The `clone()` call will do some
+        # copying between them, but since they're distinct locations, it will
+        # think everything is working fine.
+
+        # So we pass a iterable as the `side_effect` of our mock, and return
+        # our three 'fake' kirepos, and then finally the `Err` object we
+        # actually needed on the fourth call.
+        os.mkdir("A")
+        os.chdir("A")
+        clone(runner, col_file)
+        os.chdir("..")
+        A_kirepo = M.kirepo(F.test(Path("A") / REPODIR))
+
+        os.mkdir("B")
+        os.chdir("B")
+        clone(runner, col_file)
+        os.chdir("..")
+        B_kirepo = M.kirepo(F.test(Path("B") / REPODIR))
+
+        os.mkdir("C")
+        os.chdir("C")
+        clone(runner, col_file)
+        os.chdir("..")
+        C_kirepo = M.kirepo(F.test(Path("C") / REPODIR))
+
+        mocker.patch(
+            "ki.M.kirepo",
+            side_effect=[A_kirepo, B_kirepo, C_kirepo, Err(NotKiRepoError())]
+        )
+        with pytest.raises(NotKiRepoError):
             clone(runner, col_file)
 
 
