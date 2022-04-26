@@ -1260,11 +1260,14 @@ def _clone(
     ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: Res[Leaves] = F.fmkleaves(
+    leaves: OkErr = F.fmkleaves(
         ki_dir,
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
         dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
     )
+    if leaves.is_err():
+        return leaves
+    leaves: Leaves = leaves.unwrap()
 
     md5sum = F.md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
@@ -1283,26 +1286,7 @@ def _clone(
     if wrote.is_err():
         return wrote
 
-    initialized: OkErr = init_repos(targetdir, leaves, msg)
-    if initialized.is_err():
-        return initialized
-
-    # Store the md5sum of the anki collection file in the hashes file (we
-    # always append, never overwrite).
-    append_md5sum(ki_dir, col_file.name, md5sum, silent)
-
-    return Ok(md5sum)
-
-
-# TODO: Remove this function.
-@monadic
-@beartype
-def init_repos(
-    targetdir: ExtantDir, leaves: Leaves, msg: str
-) -> Result[bool, Exception]:
-    """
-    Initialize both git repos and commit contents of the main one.
-    """
+    # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
@@ -1311,7 +1295,11 @@ def init_repos(
     # subdirectories that lives in `.ki/no_submodules_tree/`.
     _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
-    return Ok()
+    # Store the md5sum of the anki collection file in the hashes file (we
+    # always append, never overwrite).
+    append_md5sum(ki_dir, col_file.name, md5sum, silent)
+
+    return Ok(md5sum)
 
 
 @ki.command()

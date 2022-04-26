@@ -768,7 +768,7 @@ def test_diff_repos_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_pat
         # Clone collection in cwd.
         clone(runner, col_file)
         os.chdir(REPODIR)
-        
+
         os.remove("Default/a.md")
         repo = git.Repo(".")
         repo.git.add(all=True)
@@ -800,14 +800,14 @@ def test_diff_repos_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         # Clone collection in cwd.
         clone(runner, col_file)
         os.chdir(REPODIR)
-        
+
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         repo = git.Repo(".")
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
         args: DiffReposArgs = get_diff_repos_args()
-        
+
         os.remove(Path(args.b_repo.working_dir) / NOTE_2)
 
         deltas: List[Union[Delta, Warning]] = diff_repos(
@@ -1335,14 +1335,14 @@ def test_get_ephemeral_kirepo(tmp_path):
     """
     Do errors in `M.nopath()` call in `get_ephemeral_kirepo()` get forwarded to
     the caller and printed nicely?
-    
+
     In `get_ephemeral_kirepo()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
     `get_ephemeral_repo()` is just a git clone operation, and the `.ki`
     subdirectory is in the `.gitignore` file. It is possible but
     extraordinarily improbable that this path is created in between the
     `Repo.clone_from()` call and the `M.nopath()` call.
-    
+
     In this test function, we simulate this possibility by the deleting the
     `.gitignore` file and committing the `.ki` subdirectory.
     """
