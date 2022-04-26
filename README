@@ -102,6 +102,8 @@ TODO
   allowing UTF-8).
 - Add this for html detection https://stackoverflow.com/a/70585604
 - Do fieldnames have to be distinct within a model?
+- Consider writing a short vim plugin to fix syntax highlighting:
+  https://stackoverflow.com/a/34645680
 
 16-April-2022
 -------------
