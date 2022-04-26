@@ -333,6 +333,18 @@ class NotetypeKeyError(Exception):
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
+class NoteFieldKeyError(Exception):
+    @beartype
+    def __init__(self, key: str, nid: int):
+        msg = f"""
+        Expected field {key} not found in note '{nid}'. This should *never*
+        happen, and indicates a serious failure, since we only ever index
+        `anki.notes.Note` objects on names pulled from their own notetype
+        dictionary.
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+
+
 class UnnamedNotetypeError(Exception):
     @beartype
     def __init__(self, nt: NotetypeDict):

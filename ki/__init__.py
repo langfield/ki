@@ -86,6 +86,7 @@ from ki.types import (
     NotetypeKeyError,
     UnnamedNotetypeError,
     SQLiteLockError,
+    NoteFieldKeyError,
 )
 from ki.maybes import (
     GIT,
@@ -748,7 +749,6 @@ def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
         return Err(MissingNoteIdError(nid))
     notetype: OkErr = parse_notetype_dict(note.note_type())
 
-    # TODO: This error seems unlikely. See if it can be tested via mocking.
     if notetype.is_err():
         return notetype
     notetype: Notetype = notetype.unwrap()
@@ -760,7 +760,7 @@ def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
-        return Err(err)
+        return Err(NoteFieldKeyError(str(err), nid))
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.

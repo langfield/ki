@@ -99,6 +99,7 @@ from ki.types import (
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
+    NoteFieldKeyError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -1309,6 +1310,16 @@ def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFi
     error: Exception = get_colnote(col, note.id).unwrap_err()
     assert isinstance(error, UnnamedNotetypeError)
     assert "Failed to find 'name' field" in str(error)
+
+
+@beartype
+def test_get_colnote_propagates_errors_key_errors_from_sort_field(mocker: MockerFixture):
+    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError('bad_field_key'))
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    error: Exception = get_colnote(col, note.id).unwrap_err()
+    assert isinstance(error, NoteFieldKeyError)
+    assert "Expected field" in str(error)
 
 
 @monadic
