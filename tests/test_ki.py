@@ -1281,6 +1281,22 @@ def test_push_flatnote_to_anki():
     assert "NonexistentModel" in str(error)
 
 
+@beartype
+def test_push_flatnote_to_anki_handles_note_key_errors(mocker: MockerFixture):
+    """Do we print a nice error when a KeyError is raised on note[]?"""
+    col = open_collection(get_col_file())
+
+    field = "data"
+    fields = {"Front": field, "Back": field}
+    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
+    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError('bad_field_key'))
+    error: Exception = push_flatnote_to_anki(col, flatnote).unwrap_err()
+    assert isinstance(error, Exception)
+    assert isinstance(error, NoteFieldKeyError)
+    assert "Expected field" in str(error)
+    assert "'bad_field_key'" in str(error)
+
+
 def test_parse_notetype_dict():
     nt = NT
 
@@ -1320,6 +1336,7 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(mocker: Mocker
     error: Exception = get_colnote(col, note.id).unwrap_err()
     assert isinstance(error, NoteFieldKeyError)
     assert "Expected field" in str(error)
+    assert "'bad_field_key'" in str(error)
 
 
 @monadic

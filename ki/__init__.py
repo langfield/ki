@@ -726,7 +726,10 @@ def push_flatnote_to_anki(
     # that `new_notetype..sortf.name` is one of those names/keys, this should
     # be safe.
     # TODO: See if this can be tested via mocking.
-    sortf_text: str = note[new_notetype.sortf.name]
+    try:
+        sortf_text: str = note[new_notetype.sortf.name]
+    except KeyError as err:
+        return Err(NoteFieldKeyError(str(err), note.id))
 
     colnote = ColNote(
         n=note,
