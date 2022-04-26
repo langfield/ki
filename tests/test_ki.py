@@ -1095,6 +1095,28 @@ def test_write_repository_handles_html():
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents
 
 
+@beartype
+def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixture):
+    """Do errors get forwarded nicdely?"""
+    col_file = get_html_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
+        ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
+        leaves: OkErr = F.fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        )
+
+        mocker.patch("ki.get_colnote", return_value=Err(NoteFieldKeyError("'bad_field_key'", 0)))
+        error: Exception = write_repository(col_file, targetdir, leaves, silent=False).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, NoteFieldKeyError)
+        assert "'bad_field_key'" in str(error)
+
+
 def test_maybe_kirepo_displays_nice_errors(tmp_path):
     """Does a nice error get printed when kirepo metadata is missing?"""
     col_file = get_col_file()
