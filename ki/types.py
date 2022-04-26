@@ -372,6 +372,7 @@ class SQLiteLockError(Exception):
         """
         super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
 
+
 # WARNINGS
 
 

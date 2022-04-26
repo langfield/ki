@@ -177,18 +177,10 @@ MODELS = {
                 "bafmt": "",
                 "did": None,
                 "bfont": "",
-                "bsize": 0
+                "bsize": 0,
             }
         ],
-        "req": [
-            [
-                0,
-                "any",
-                [
-                    0
-                ]
-            ]
-        ]
+        "req": [[0, "any", [0]]],
     }
 }
 NAMELESS_MODELS = {
@@ -1110,8 +1102,12 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
         )
 
-        mocker.patch("ki.get_colnote", return_value=Err(NoteFieldKeyError("'bad_field_key'", 0)))
-        error: Exception = write_repository(col_file, targetdir, leaves, silent=False).unwrap_err()
+        mocker.patch(
+            "ki.get_colnote", return_value=Err(NoteFieldKeyError("'bad_field_key'", 0))
+        )
+        error: Exception = write_repository(
+            col_file, targetdir, leaves, silent=False
+        ).unwrap_err()
         assert isinstance(error, Exception)
         assert isinstance(error, NoteFieldKeyError)
         assert "'bad_field_key'" in str(error)
@@ -1311,7 +1307,7 @@ def test_push_flatnote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     field = "data"
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
-    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError('bad_field_key'))
+    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     error: Exception = push_flatnote_to_anki(col, flatnote).unwrap_err()
     assert isinstance(error, Exception)
     assert isinstance(error, NoteFieldKeyError)
@@ -1351,8 +1347,10 @@ def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFi
 
 
 @beartype
-def test_get_colnote_propagates_errors_key_errors_from_sort_field(mocker: MockerFixture):
-    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError('bad_field_key'))
+def test_get_colnote_propagates_errors_key_errors_from_sort_field(
+    mocker: MockerFixture,
+):
+    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
     error: Exception = get_colnote(col, note.id).unwrap_err()
@@ -1439,7 +1437,7 @@ def test_filter_note_path(tmp_path):
         warning = filter_note_path(path, patterns, root).unwrap_err()
         assert isinstance(warning, Warning)
         assert isinstance(warning, UnPushedPathWarning)
-        assert 'directory/file' in str(warning)
+        assert "directory/file" in str(warning)
 
 
 def test_get_models_recursively(tmp_path):
@@ -1460,7 +1458,9 @@ def test_get_models_recursively(tmp_path):
         assert "Basic" in str(error)
 
 
-def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(tmp_path):
+def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(
+    tmp_path,
+):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):

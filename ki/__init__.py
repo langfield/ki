@@ -152,9 +152,7 @@ def unlock(con: sqlite3.Connection) -> bool:
 
 
 @beartype
-def get_ephemeral_repo(
-    suffix: Path, repo_ref: RepoRef, md5sum: str
-) -> git.Repo:
+def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, suffix)
@@ -231,7 +229,9 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 
 @beartype
-def filter_note_path(path: Path, patterns: List[str], root: ExtantDir) -> Result[bool, Warning]:
+def filter_note_path(
+    path: Path, patterns: List[str], root: ExtantDir
+) -> Result[bool, Warning]:
     """
     Filter out paths in a git repository diff that do not correspond to Anki
     notes.

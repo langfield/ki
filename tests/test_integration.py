@@ -437,7 +437,10 @@ def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFix
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        mocker.patch("ki.get_ephemeral_kirepo", return_value=Err(ExpectedNonexistentPathError(Path("path-that-exists"))))
+        mocker.patch(
+            "ki.get_ephemeral_kirepo",
+            return_value=Err(ExpectedNonexistentPathError(Path("path-that-exists"))),
+        )
         with pytest.raises(ExpectedNonexistentPathError):
             clone(runner, col_file)
 
