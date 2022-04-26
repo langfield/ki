@@ -16,6 +16,7 @@ import checksumdir
 import prettyprinter as pp
 from loguru import logger
 from result import Err, OkErr
+from pytest_mock import MockerFixture
 from click.testing import CliRunner
 from anki.collection import Collection
 
@@ -34,6 +35,7 @@ from ki.types import (
     NotKiRepoError,
     UpdatesRejectedError,
     SQLiteLockError,
+    ExpectedNonexistentPathError,
 )
 
 
@@ -426,6 +428,18 @@ def test_clone_creates_directory():
         clone(runner, col_file)
 
         assert os.path.isdir(REPODIR)
+
+
+@beartype
+def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFixture):
+    """Do errors get displayed nicely?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        mocker.patch("ki.get_ephemeral_kirepo", return_value=Err(ExpectedNonexistentPathError(Path("path-that-exists"))))
+        with pytest.raises(ExpectedNonexistentPathError):
+            clone(runner, col_file)
 
 
 def test_clone_handles_html():
