@@ -19,6 +19,7 @@ from lark import Lark
 from lark.exceptions import UnexpectedToken
 from loguru import logger
 from result import Ok, Err, OkErr, Result
+from pytest_mock import MockerFixture
 from apy.convert import markdown_to_html
 from click.testing import CliRunner
 from anki.collection import Collection
@@ -193,6 +194,47 @@ NAMELESS_MODELS = {
     "1645010146011": {
         "id": 1645010146011,
     }
+}
+NT = {
+    "id": 1645010146011,
+    "name": "Basic",
+    "type": 0,
+    "mod": 0,
+    "usn": 0,
+    "sortf": 0,
+    "did": None,
+    "tmpls": [
+        {
+            "name": "Card 1",
+            "ord": 0,
+            "qfmt": "{{Front}}",
+            "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
+            "bqfmt": "",
+            "bafmt": "",
+            "did": None,
+            "bfont": "",
+            "bsize": 0,
+        }
+    ],
+    "flds": [
+        {
+            "name": "Front",
+            "ord": 0,
+            "sticky": False,
+            "rtl": False,
+            "font": "Arial",
+            "size": 20,
+        },
+        {
+            "name": "Back",
+            "ord": 1,
+            "sticky": False,
+            "rtl": False,
+            "font": "Arial",
+            "size": 20,
+        },
+    ],
+    "req": [[0, "any", [0]]],
 }
 
 # HELPER FUNCTIONS
@@ -1239,47 +1281,7 @@ def test_push_flatnote_to_anki():
 
 
 def test_parse_notetype_dict():
-    nt = {
-        "id": 1645010146011,
-        "name": "Basic",
-        "type": 0,
-        "mod": 0,
-        "usn": 0,
-        "sortf": 0,
-        "did": None,
-        "tmpls": [
-            {
-                "name": "Card 1",
-                "ord": 0,
-                "qfmt": "{{Front}}",
-                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}",
-                "bqfmt": "",
-                "bafmt": "",
-                "did": None,
-                "bfont": "",
-                "bsize": 0,
-            }
-        ],
-        "flds": [
-            {
-                "name": "Front",
-                "ord": 0,
-                "sticky": False,
-                "rtl": False,
-                "font": "Arial",
-                "size": 20,
-            },
-            {
-                "name": "Back",
-                "ord": 1,
-                "sticky": False,
-                "rtl": False,
-                "font": "Arial",
-                "size": 20,
-            },
-        ],
-        "req": [[0, "any", [0]]],
-    }
+    nt = NT
 
     # This field ordinal doesn't exist.
     nt["sortf"] = 3
@@ -1296,6 +1298,17 @@ def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
     assert isinstance(error, Exception)
     assert isinstance(error, MissingNoteIdError)
     assert str(nid) in str(error)
+
+
+@beartype
+def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFixture):
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+
+    mocker.patch("ki.parse_notetype_dict", return_value=Err(UnnamedNotetypeError(NT)))
+    error: Exception = get_colnote(col, note.id).unwrap_err()
+    assert isinstance(error, UnnamedNotetypeError)
+    assert "Failed to find 'name' field" in str(error)
 
 
 @monadic
