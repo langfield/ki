@@ -33,6 +33,7 @@ from ki.types import (
     TargetExistsError,
     NotKiRepoError,
     UpdatesRejectedError,
+    SQLiteLockError,
 )
 
 
@@ -626,6 +627,23 @@ def test_pull_fails_if_collection_no_longer_exists():
         os.remove(col_file)
         with pytest.raises(FileNotFoundError):
             os.chdir(REPODIR)
+            pull(runner)
+
+
+def test_pull_fails_if_collection_file_is_corrupted():
+    """Does `pull()` fail gracefully when the collection file is bad?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+
+        # Overwrite collection and try to pull.
+        col_file.write_text("bad_contents")
+
+        os.chdir(REPODIR)
+        with pytest.raises(SQLiteLockError):
             pull(runner)
 
 

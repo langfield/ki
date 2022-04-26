@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Types for ki."""
+import sqlite3
 import textwrap
 from enum import Enum
 from pathlib import Path
@@ -344,6 +345,20 @@ class UnnamedNotetypeError(Exception):
         super().__init__(msg + "\n" + pp.pformat(nt))
 
 
+class SQLiteLockError(Exception):
+    @beartype
+    def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+        top = "Unexpected SQLite3 error while attempting to acquire lock on file: "
+        top += f"'{col_file}':"
+        msg = f"""
+        A 'sqlite3.DatabaseError' was raised with error message: '{str(err)}'.
+        This may indicate that either the database file at the location
+        specified above is corrupted, or the config file at '.ki/config' is
+        pointing to the wrong location. (The latter may occur in the unlikely
+        event that the collection file in the Anki data directory has been
+        accidentally overwritten.)
+        """
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
 
 # WARNINGS
 

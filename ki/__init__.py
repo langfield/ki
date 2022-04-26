@@ -85,6 +85,7 @@ from ki.types import (
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
+    SQLiteLockError,
 )
 from ki.maybes import (
     GIT,
@@ -128,14 +129,17 @@ GENERATED_HTML_SENTINEL = "data-original-markdown"
 MD = ".md"
 
 
-# TODO: Should catch exception and transform into nice Err that tells user what to do.
+@monadic
 @beartype
-def lock(kirepo: KiRepo) -> sqlite3.Connection:
+def lock(kirepo: KiRepo) -> Result[sqlite3.Connection, Exception]:
     """Acquire a lock on a SQLite3 database given a path."""
-    con = sqlite3.connect(kirepo.col_file)
-    con.isolation_level = "EXCLUSIVE"
-    con.execute("BEGIN EXCLUSIVE")
-    return con
+    try:
+        con = sqlite3.connect(kirepo.col_file)
+        con.isolation_level = "EXCLUSIVE"
+        con.execute("BEGIN EXCLUSIVE")
+    except sqlite3.DatabaseError as err:
+        return Err(SQLiteLockError(kirepo.col_file, err))
+    return Ok(con)
 
 
 @beartype
@@ -1312,12 +1316,13 @@ def pull() -> Result[bool, Exception]:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
-    kirepo: Res[KiRepo] = M.kirepo(cwd)
-    if kirepo.is_err():
-        echo(str(kirepo.err()))
-        return kirepo
+    kirepo: OkErr = M.kirepo(cwd)
+    con: OkErr = lock(kirepo)
+    if con.is_err():
+        echo(str(con.err()))
+        return con
+    con: sqlite3.Connection = con.unwrap()
     kirepo: KiRepo = kirepo.unwrap()
-    con: sqlite3.Connection = lock(kirepo)
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
@@ -1443,11 +1448,13 @@ def push() -> Result[bool, Exception]:
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
-    kirepo: Res[KiRepo] = M.kirepo(cwd)
-    if kirepo.is_err():
-        return kirepo
+    kirepo: OkErr = M.kirepo(cwd)
+    con: OkErr = lock(kirepo)
+    if con.is_err():
+        echo(str(con.err()))
+        return con
+    con: sqlite3.Connection = con.unwrap()
     kirepo: KiRepo = kirepo.unwrap()
-    con: sqlite3.Connection = lock(kirepo)
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
