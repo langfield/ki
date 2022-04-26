@@ -1475,39 +1475,3 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert isinstance(error, UnnamedNotetypeError)
         assert "Failed to find 'name' field" in str(error)
         assert "1645010146011" in str(error)
-
-
-HTML_FIELD = """
-<!DOCTYPE html>
-<title></title>
-<div class="word-card">
-  <table class="kanji-match">
-    <tbody>
-      <tr class="match-row-kanji" lang="ja">
-        <td><span class="match-text">あだ</span>
-        <td><span class="kanji-big">名</span>
-      <tr class="match-row-reading">
-        <td><span class="kanji-reading">あだ</span>
-        <td><span class="kanji-reading">な</span>
-      <tr class="match-row-type">
-        <td>
-        <td><span class="kanji-type">Kun</span>
-      <tr class="match-row-stat">
-        <td>
-        <td><span class="kanji-sample" title=
-        "25 out of 131">19.08%</span>
-  </table>
-  <h3>あだな</h3>
-  <div class="info-gloss">
-    <ol class="gloss-definitions">
-      <li><span class="pos-desc">[vs,n]</span> <span class=
-      "gloss-desc">nickname</span>
-    </ol>
-"""
-
-
-def test_html_to_screen():
-    field = HTML_FIELD.rstrip().lstrip()
-    html_field: str = markdown_to_html(field)
-    plain: str = html_to_screen(html_field)
-    assert plain == field
