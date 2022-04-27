@@ -1324,6 +1324,7 @@ def pull() -> Result[bool, Exception]:
     ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
     if ref.is_err():
         echo(str(ref.err()))
+        return ref
     ref: RepoRef = ref.unwrap()
     last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 

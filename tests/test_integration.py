@@ -38,6 +38,7 @@ from ki.types import (
     SQLiteLockError,
     ExpectedNonexistentPathError,
     PathCreationCollisionError,
+    GitRefNotFoundError,
     GitHeadRefNotFoundError,
 )
 
@@ -866,6 +867,26 @@ def test_pull_still_works_from_subdirectories():
         # Pull edited collection.
         os.chdir(os.path.join(REPODIR, "Default"))
         pull(runner)
+
+
+def test_pull_displays_errors_from_repo_ref(mocker: MockerFixture):
+    """Does 'pull()' return early when the last push commit ref is bad?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+
+        kirepo: KiRepo = M.kirepo(F.test(Path(REPODIR))).unwrap()
+        kirepo.last_push_file.write_text("gibberish")
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        os.chdir(REPODIR)
+        with pytest.raises(GitRefNotFoundError):
+            pull(runner)
 
 
 # PUSH
