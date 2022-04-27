@@ -1137,7 +1137,12 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 
     cwd: ExtantDir = F.cwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
-    md5sum: Res[str] = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    md5sum: OkErr = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    if md5sum.is_err():
+        echo("Failed: exiting.")
+        echo(str(md5sum))
+        return md5sum
+    md5sum: str = md5sum.unwrap()
 
     # Check that we are inside a ki repository, and get the associated collection.
     targetdir: Res[ExtantDir] = M.xdir(targetdir)

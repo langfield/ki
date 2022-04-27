@@ -37,6 +37,7 @@ from ki.types import (
     UpdatesRejectedError,
     SQLiteLockError,
     ExpectedNonexistentPathError,
+    PathCreationCollisionError,
 )
 
 
@@ -443,6 +444,22 @@ def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFix
             return_value=Err(ExpectedNonexistentPathError(Path("path-that-exists"))),
         )
         with pytest.raises(ExpectedNonexistentPathError):
+            clone(runner, col_file)
+
+
+@beartype
+def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
+    """Do errors get displayed nicely?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        mocker.patch(
+            "ki.F.fmkleaves",
+            return_value=Err(PathCreationCollisionError(ExtantDir(Path("directory")), "token")),
+        )
+
+        with pytest.raises(PathCreationCollisionError):
             clone(runner, col_file)
 
 

@@ -360,8 +360,8 @@ class UnnamedNotetypeError(Exception):
 class SQLiteLockError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
-        top = "Unexpected SQLite3 error while attempting to acquire lock on file: "
-        top += f"'{col_file}':"
+        header = "Unexpected SQLite3 error while attempting to acquire lock on file: "
+        header += f"'{col_file}':"
         msg = f"""
         A 'sqlite3.DatabaseError' was raised with error message: '{str(err)}'.
         This may indicate that either the database file at the location
@@ -370,7 +370,22 @@ class SQLiteLockError(Exception):
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class PathCreationCollisionError(Exception):
+    @beartype
+    def __init__(self, root: ExtantDir, token: str):
+        header = "Collision in children names for population of empty directory "
+        header +=f"'{root}':"
+        msg = f"""
+        Attempted to create two children (files or directories) of the empty
+        directory specified above with the same name ('{token}'). This should
+        *never* happen, as population of empty directories only happens in
+        calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
+        directory, whose contents all ought to be distinct.
+        """
+        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 # WARNINGS

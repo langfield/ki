@@ -34,6 +34,7 @@ from ki.types import (
     Leaves,
     KiRepoRef,
     RepoRef,
+    PathCreationCollisionError,
 )
 
 FS_ROOT = Path("/")
@@ -266,7 +267,7 @@ def fmkleaves(
     if files is not None:
         for key, token in files.items():
             if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
+                return Err(PathCreationCollisionError(root, str(token)))
             new_files[key] = F.touch(root, token)
             leaves.add(str(token))
     if dirs is not None:
@@ -274,7 +275,7 @@ def fmkleaves(
             # We lie to the `F.mksubdir` call and tell it the root is empty
             # on every iteration.
             if str(token) in leaves:
-                return Err(FileExistsError(str(token)))
+                return Err(PathCreationCollisionError(root, str(token)))
             new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
             leaves.add(str(token))
     return Ok(Leaves(root, new_files, new_dirs))
