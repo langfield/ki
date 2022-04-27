@@ -1361,3 +1361,23 @@ def test_push_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
         )
         with pytest.raises(GitHeadRefNotFoundError):
             push(runner)
+
+def test_push_displays_errors_from_stage_kirepo_instantiation(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone, edit, and commit.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        mocker.patch(
+            "ki.flatten_staging_repo",
+            return_value=Err(NotKiRepoError()),
+        )
+        with pytest.raises(NotKiRepoError):
+            push(runner)

@@ -128,6 +128,7 @@ FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 
 MD = ".md"
+FAILED = "Failed: exiting."
 
 
 @monadic
@@ -1088,9 +1089,7 @@ def flatten_staging_repo(
     stage_root: ExtantDir = F.parent(stage_git_dir)
 
     # Reload stage kirepo.
-    stage_kirepo: Res[KiRepo] = M.kirepo(stage_root)
-
-    return stage_kirepo
+    return M.kirepo(stage_root)
 
 
 @monadic
@@ -1150,7 +1149,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
 
     if targetdir.is_err() or md5sum.is_err() or head.is_err():
-        echo("Failed: exiting.")
+        echo(FAILED)
 
         # We get an error here only in the case where the `M.xdir()` call
         # failed on `targetdir`. We cannot assume that it doesn't exist,
@@ -1159,6 +1158,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         # means we definitely do not want to remove `targetdir` or its
         # contents in this case, because we would be deleting the user's data.
         if targetdir.is_err():
+            echo(str(targetdir.err()))
             return targetdir
 
         # Otherwise, we must have that either we created `targetdir` and it did
@@ -1185,7 +1185,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
     if stage_kirepo.is_err():
-        echo("Failed: exiting.")
+        echo(FAILED)
+        echo(str(stage_kirepo))
         return stage_kirepo
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
@@ -1202,7 +1203,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 
     kirepo: Res[KiRepo] = M.kirepo(targetdir)
     if kirepo.is_err():
-        echo("Failed: exiting.")
+        echo(FAILED)
+        echo(str(kirepo.err()))
         return kirepo
     kirepo: KiRepo = kirepo.unwrap()
 
@@ -1440,6 +1442,7 @@ def push() -> Result[bool, Exception]:
     stage_kirepo: OkErr = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
     if stage_kirepo.is_err():
+        echo(str(stage_kirepo.err()))
         return stage_kirepo
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
