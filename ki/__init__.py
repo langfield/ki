@@ -1581,6 +1581,7 @@ def push_deltas(
             regen_err: Exception = regenerated.unwrap_err()
             if isinstance(regen_err, Warning):
                 continue
+            echo(str(regenerated))
             return regenerated
         log += regenerated.unwrap()
 

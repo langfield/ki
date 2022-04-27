@@ -1420,7 +1420,7 @@ def test_push_displays_errors_from_head_repo_ref_in_push_deltas(mocker: MockerFi
             logger.debug(out)
 
 
-def test_push_displays_errors_from_notetype_parsing_in_push_deltas(
+def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
     mocker: MockerFixture,
 ):
     col_file = get_col_file()
@@ -1444,28 +1444,46 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas(
         notetype: Notetype = ki.parse_notetype_dict(note.note_type()).unwrap()
         col.close()
 
-        mocker.patch(
-            "ki.parse_notetype_dict",
-            side_effect=[
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Ok(notetype),
-                Err(MissingFieldOrdinalError(3, "<notetype>")),
-            ],
-        )
+        PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING = 14
+        effects = [Ok(notetype)] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING
+        effects += [Err(MissingFieldOrdinalError(3, "<notetype>"))]
+
+        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+
+        with pytest.raises(MissingFieldOrdinalError):
+            push(runner)
+
+
+def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_flatnote_to_anki(
+    mocker: MockerFixture,
+):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone, edit, and commit.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+
+        repo = git.Repo(".")
+        head_1_sha = repo.head.commit.hexsha
+
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        col = open_collection(col_file)
+        note = col.get_note(set(col.find_notes("")).pop())
+        notetype: Notetype = ki.parse_notetype_dict(note.note_type()).unwrap()
+        col.close()
+
+        PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 16
+        effects = [Ok(notetype)] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH
+        effects += [Err(MissingFieldOrdinalError(3, "<notetype>"))]
+
+        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+
         with pytest.raises(MissingFieldOrdinalError):
             out = push(runner)
             logger.debug(out)
