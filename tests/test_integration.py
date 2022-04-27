@@ -456,12 +456,9 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        mocker.patch(
-            "ki.F.fmkleaves",
-            return_value=Err(
-                PathCreationCollisionError(ExtantDir(Path("directory")), "token")
-            ),
-        )
+        directory = ExtantDir(Path("directory"))
+        collision = PathCreationCollisionError(directory, "token")
+        mocker.patch("ki.F.fmkleaves", return_value=Err(collision))
 
         with pytest.raises(PathCreationCollisionError):
             clone(runner, col_file)
@@ -869,7 +866,7 @@ def test_pull_still_works_from_subdirectories():
         pull(runner)
 
 
-def test_pull_displays_errors_from_repo_ref(mocker: MockerFixture):
+def test_pull_displays_errors_from_repo_ref():
     """Does 'pull()' return early when the last push commit ref is bad?"""
     col_file = get_col_file()
     runner = CliRunner()
@@ -886,6 +883,26 @@ def test_pull_displays_errors_from_repo_ref(mocker: MockerFixture):
 
         os.chdir(REPODIR)
         with pytest.raises(GitRefNotFoundError):
+            pull(runner)
+
+
+def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        directory = ExtantDir(Path("directory"))
+        collision = PathCreationCollisionError(directory, "token")
+        mocker.patch("ki.F.fmkleaves", return_value=Err(collision))
+
+        os.chdir(REPODIR)
+        with pytest.raises(PathCreationCollisionError):
             pull(runner)
 
 

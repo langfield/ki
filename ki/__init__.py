@@ -1335,7 +1335,8 @@ def pull() -> Result[bool, Exception]:
     # This should return the repository as well.
     cloned: OkErr = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
     if cloned.is_err():
-        return echo(str(cloned.err()))
+        echo(str(cloned.err()))
+        return cloned
     pulled: OkErr = pull_changes_from_remote_repo(
         kirepo, anki_remote_root, last_push_repo, md5sum
     )
