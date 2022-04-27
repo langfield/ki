@@ -553,10 +553,45 @@ def test_clone_cleans_up_on_error():
         shutil.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
         try:
-            with pytest.raises(git.InvalidGitRepositoryError):
+            with pytest.raises(FileNotFoundError):
                 os.environ["PATH"] = ""
                 out = clone(runner, col_file)
             assert not os.path.isdir(HTML_REPODIR)
+        finally:
+            os.environ["PATH"] = old_path
+
+
+def test_clone_displays_nice_errors_for_missing_dependencies():
+    """Does it tell the user what to install?"""
+    col_file = get_html_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        clone(runner, col_file)
+        assert os.path.isdir(HTML_REPODIR)
+        shutil.rmtree(HTML_REPODIR)
+        old_path = os.environ["PATH"]
+
+        # In case where nothing is installed, we expect to fail on `tidy`
+        # first.
+        try:
+            with pytest.raises(FileNotFoundError) as raised:
+                os.environ["PATH"] = ""
+                out = clone(runner, col_file)
+            error = raised.exconly()
+            assert "tidy" in str(error)
+        finally:
+            os.environ["PATH"] = old_path
+
+        # If `tidy` is on the PATH, but nothing else, then we expect a
+        # `GitCommandNotFound` error.
+        try:
+            with pytest.raises(git.GitCommandNotFound) as raised:
+                tmp = F.mkdtemp()
+                os.symlink("/usr/bin/tidy", tmp / "tidy")
+                os.environ["PATH"] = str(tmp)
+                out = clone(runner, col_file)
+            error = raised.exconly()
         finally:
             os.environ["PATH"] = old_path
 

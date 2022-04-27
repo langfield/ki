@@ -837,6 +837,7 @@ def write_repository(
         # TODO: Consider testing via mocking, since almost all the errors
         # within the above call seem impossible, assuming the Anki DB is sound.
         if colnote.is_err():
+            col.close()
             return colnote
         colnote: ColNote = colnote.unwrap()
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
@@ -853,11 +854,13 @@ def write_repository(
     # `kwargs` and calls the function as it normally would.
     tidied: OkErr = tidy_html_recursively(root, silent)
     if tidied.is_err():
+        col.close()
         return tidied
     wrote: OkErr = write_decks(col, targetdir, decks, paths)
 
-    # Replace with frmtree.
+    # TODO: Replace with frmtree.
     shutil.rmtree(root)
+    col.close()
 
     return wrote
 
@@ -1138,11 +1141,6 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     cwd: ExtantDir = F.cwd()
     targetdir: Res[EmptyDir] = get_target(cwd, col_file, directory)
     md5sum: OkErr = _clone(col_file, targetdir, msg="Initial commit", silent=False)
-    if md5sum.is_err():
-        echo("Failed: exiting.")
-        echo(str(md5sum))
-        return md5sum
-    md5sum: str = md5sum.unwrap()
 
     # Check that we are inside a ki repository, and get the associated collection.
     targetdir: Res[ExtantDir] = M.xdir(targetdir)
@@ -1151,7 +1149,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
 
-    if targetdir.is_err() or head.is_err():
+    if targetdir.is_err() or md5sum.is_err() or head.is_err():
         echo("Failed: exiting.")
 
         # We get an error here only in the case where the `M.xdir()` call
@@ -1168,11 +1166,18 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         # we can probably remove it safely.
         # TODO: Consider removing only its contents instead.
         targetdir: ExtantDir = targetdir.unwrap()
+        logger.debug(f"{targetdir = }")
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
+
+        if md5sum.is_err():
+            echo(str(md5sum))
+            return md5sum
+        echo(str(head))
         return head
 
     head: KiRepoRef = head.unwrap()
+    md5sum: str = md5sum.unwrap()
 
     # Get staging repository in temp directory, and copy to `no_submodules_tree`.
 
