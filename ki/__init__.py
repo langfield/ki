@@ -1544,6 +1544,7 @@ def push_deltas(
             nt: NotetypeDict = col.models.get(changes.id)
             model: OkErr = parse_notetype_dict(nt)
             if model.is_err():
+                echo(str(model.err()))
                 return model
 
     # Gather logging statements to display.

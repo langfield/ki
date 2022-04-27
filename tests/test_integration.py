@@ -31,6 +31,7 @@ from ki.types import (
     KiRepo,
     ColNote,
     RepoRef,
+    Notetype,
     KiRepoRef,
     ExtantDir,
     ExtantFile,
@@ -44,7 +45,9 @@ from ki.types import (
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     CollectionChecksumError,
+    MissingFieldOrdinalError,
 )
+from tests.test_ki import open_collection
 
 
 # pylint:disable=unnecessary-pass, too-many-lines
@@ -1364,6 +1367,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
         with pytest.raises(GitHeadRefNotFoundError):
             push(runner)
 
+
 def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
     col_file = get_col_file()
     runner = CliRunner()
@@ -1415,6 +1419,56 @@ def test_push_displays_errors_from_head_repo_ref_in_push_deltas(mocker: MockerFi
             out = push(runner)
             logger.debug(out)
 
+
+def test_push_displays_errors_from_notetype_parsing_in_push_deltas(
+    mocker: MockerFixture,
+):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone, edit, and commit.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+
+        repo = git.Repo(".")
+        head_1_sha = repo.head.commit.hexsha
+
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        col = open_collection(col_file)
+        note = col.get_note(set(col.find_notes("")).pop())
+        notetype: Notetype = ki.parse_notetype_dict(note.note_type()).unwrap()
+        col.close()
+
+        mocker.patch(
+            "ki.parse_notetype_dict",
+            side_effect=[
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Ok(notetype),
+                Err(MissingFieldOrdinalError(3, "<notetype>")),
+            ],
+        )
+        with pytest.raises(MissingFieldOrdinalError):
+            out = push(runner)
+            logger.debug(out)
 
 
 def test_push_displays_errors_from_stage_kirepo_instantiation(mocker: MockerFixture):
