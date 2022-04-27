@@ -1337,61 +1337,27 @@ def pull() -> Result[bool, Exception]:
     if cloned.is_err():
         echo(str(cloned.err()))
         return cloned
-    pulled: OkErr = pull_changes_from_remote_repo(
-        kirepo, anki_remote_root, last_push_repo, md5sum
-    )
-    if pulled.is_err():
-        echo(str(pulled.err()))
-        return pulled
-    return Ok(unlock(con))
 
+    # Load the git repository at `anki_remote_root`, force pull (preferring
+    # 'theirs', i.e. the new stuff from the sqlite3 database) changes from that
+    # repository (which is cloned straight from the collection, which in general
+    # may have new changes) into `last_push_repo`, and then pull
+    # `last_push_repo` into the main repository.
 
-# TODO: Remove this function.
-@monadic
-@beartype
-def pull_theirs_from_remote(
-    repo: git.Repo, root: ExtantDir, remote: git.Remote
-) -> Result[bool, Exception]:
-    cwd: ExtantDir = F.chdir(root)
-    echo(f"Pulling into {root}")
-    repo.git.config("pull.rebase", "false")
-    # TODO: This is not yet safe. Consider rewriting with gitpython.
-    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
-    repo.delete_remote(remote)
-    F.chdir(cwd)
-    return Ok()
-
-
-# TODO: Consider removing this function.
-@monadic
-@beartype
-def pull_changes_from_remote_repo(
-    kirepo: KiRepo,
-    anki_remote_root: ExtantDir,
-    last_push_repo: git.Repo,
-    md5sum: str,
-) -> Result[bool, Exception]:
-    """
-    Load the git repository at `anki_remote_root`, force pull (preferring
-    'theirs', i.e. the new stuff from the sqlite3 database) changes from that
-    repository (which is cloned straight from the collection, which in general
-    may have new changes) into `last_push_repo`, and then pull
-    `last_push_repo` into the main repository.
-
-    We pull in this sequence in order to avoid merge conflicts. Since we first
-    pull into a snapshot of the repository as it looked when we last pushed to
-    the database, we know that there cannot be any merge conflicts, because to
-    git, it just looks like we haven't made any changes since then. Then we
-    pull the result of that merge into our actual repository. So there could
-    still be merge conflicts at that point, but they will only be 'genuine'
-    merge conflicts in some sense, because as a result of using this snapshot
-    strategy, we give the anki collection the appearance of being a persistent
-    remote git repo. If we didn't do this, the fact that we did a fresh clone
-    of the database every time would mean that everything would look like a
-    merge conflict, because there is no shared history.
-    """
-    remote_repo: Res[git.Repo] = M.repo(anki_remote_root)
+    # We pull in this sequence in order to avoid merge conflicts. Since we first
+    # pull into a snapshot of the repository as it looked when we last pushed to
+    # the database, we know that there cannot be any merge conflicts, because to
+    # git, it just looks like we haven't made any changes since then. Then we
+    # pull the result of that merge into our actual repository. So there could
+    # still be merge conflicts at that point, but they will only be 'genuine'
+    # merge conflicts in some sense, because as a result of using this snapshot
+    # strategy, we give the anki collection the appearance of being a persistent
+    # remote git repo. If we didn't do this, the fact that we did a fresh clone
+    # of the database every time would mean that everything would look like a
+    # merge conflict, because there is no shared history.
+    remote_repo: OkErr = M.repo(anki_remote_root)
     if remote_repo.is_err():
+        echo(str(remote_repo.err()))
         return remote_repo
     remote_repo: git.Repo = remote_repo.unwrap()
 
@@ -1399,10 +1365,17 @@ def pull_changes_from_remote_repo(
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
 
     # Pull anki remote repo into `last_push_repo`.
-    last_push_root: Res[ExtantDir] = F.working_dir(last_push_repo)
-    pulled: OkErr = pull_theirs_from_remote(last_push_repo, last_push_root, anki_remote)
-    if pulled.is_err():
-        return pulled
+    last_push_root: ExtantDir = F.working_dir(last_push_repo)
+
+    # Pull 'theirs' from `anki_remote`.
+    cwd: ExtantDir = F.chdir(last_push_root)
+    echo(f"Pulling into {last_push_root}")
+    last_push_repo.git.config("pull.rebase", "false")
+
+    # TODO: This is not yet safe. Consider rewriting with gitpython.
+    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
+    last_push_repo.delete_remote(anki_remote)
+    F.chdir(cwd)
 
     # Create remote pointing to `last_push` repo and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
@@ -1421,8 +1394,11 @@ def pull_changes_from_remote_repo(
 
     # Check that md5sum hasn't changed.
     if F.md5(kirepo.col_file) != md5sum:
-        return Err(CollectionChecksumError(kirepo.col_file))
-    return Ok()
+        checksum_error: Exception = CollectionChecksumError(kirepo.col_file)
+        echo(str(checksum_error))
+        return Err(checksum_error)
+
+    return Ok(unlock(con))
 
 
 # PUSH

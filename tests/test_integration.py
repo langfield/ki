@@ -28,6 +28,7 @@ import ki.maybes as M
 import ki.functional as F
 from ki import BRANCH_NAME, get_colnote
 from ki.types import (
+    KiRepo,
     ColNote,
     ExtantDir,
     ExtantFile,
@@ -907,7 +908,7 @@ def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
             pull(runner)
 
 
-def test_pull_displays_errors_from_pull_changes_from_remote_repo(mocker: MockerFixture):
+def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -920,7 +921,7 @@ def test_pull_displays_errors_from_pull_changes_from_remote_repo(mocker: MockerF
 
         directory = F.force_mkdir(Path("directory"))
         checksum = CollectionChecksumError(F.touch(directory, "file"))
-        mocker.patch("ki.pull_changes_from_remote_repo", return_value=Err(checksum))
+        mocker.patch("ki.F.md5", side_effect=["good", "good", "bad"])
 
         os.chdir(REPODIR)
         with pytest.raises(CollectionChecksumError):

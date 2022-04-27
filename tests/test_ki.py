@@ -79,7 +79,6 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    pull_changes_from_remote_repo,
     _clone,
     push_flatnote_to_anki,
     get_models_recursively,
@@ -1251,39 +1250,6 @@ def test_maybe_kirepo_ref():
         assert isinstance(error, Exception)
         assert isinstance(error, GitRefNotFoundError)
         assert "doesn't contain ref 'badsha'" in str(error)
-
-
-def test_pull_changes_from_remote_repo():
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        clone(runner, col_file)
-        os.chdir(REPODIR)
-        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
-
-        md5sum: str = F.md5(kirepo.col_file)
-
-        # Git clone `repo` at commit SHA of last successful `push()`.
-        sha: str = kirepo.last_push_file.read_text()
-        ref: RepoRef = M.repo_ref(kirepo.repo, sha).unwrap()
-        last_push_repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
-
-        # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
-        anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
-
-        # This should return the repository as well.
-        _clone(kirepo.col_file, anki_remote_root, "msg", silent=True).unwrap()
-
-        # Use an artificially "old" md5sum. In normal usage, this would match
-        # `md5sum`, but we're pretending that somehow the collection was
-        # modified in between our call to `F.md5()` above, and the end of
-        # `pull_changes_from_remote_repo()`.
-        error: Exception = pull_changes_from_remote_repo(
-            kirepo, anki_remote_root, last_push_repo, "old_md5sum"
-        ).unwrap_err()
-        assert isinstance(error, Exception)
-        assert isinstance(error, CollectionChecksumError)
-        assert "Checksum mismatch" in str(error)
 
 
 def test_push_flatnote_to_anki():
