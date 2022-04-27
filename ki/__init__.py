@@ -1520,8 +1520,8 @@ def push_deltas(
 
     head: Res[RepoRef] = M.head_repo_ref(kirepo.repo)
     if head.is_err():
-        echo("Failed: no commits in repository. Couldn't find HEAD ref.")
-        return Ok()
+        echo(str(head.err()))
+        return head
     head = head.unwrap()
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")

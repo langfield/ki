@@ -282,7 +282,10 @@ class GitHeadRefNotFoundError(Exception):
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f"""
         ValueError raised while trying to get ref 'HEAD' from repo at
-        '{repo.working_dir}': {error}
+        '{repo.working_dir}': '{error}'. This may have occurred because there
+        are no commits in the current repository. However, this should never be
+        the case, because ki repositories must be instantiated with a 'ki clone
+        <collection>' command, and this command creates an initial commit.
         """
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
