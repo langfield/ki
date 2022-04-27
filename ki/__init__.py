@@ -1451,6 +1451,7 @@ def push() -> Result[bool, Exception]:
     # reference we got will be HEAD~1, hence the variable name.
     head_1: Res[RepoRef] = M.head_repo_ref(stage_kirepo.repo)
     if head_1.is_err():
+        echo(str(head_1.err()))
         return head_1
     head_1: RepoRef = head_1.unwrap()
 
@@ -1482,7 +1483,7 @@ def push() -> Result[bool, Exception]:
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
 
     return push_deltas(
-        deltas, models, kirepo, md5sum, parser, transformer, stage_kirepo, con
+        deltas, models, kirepo, md5sum, parser, transformer, stage_kirepo, con,
     )
 
 

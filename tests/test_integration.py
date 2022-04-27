@@ -30,6 +30,7 @@ from ki import BRANCH_NAME, get_colnote
 from ki.types import (
     KiRepo,
     ColNote,
+    KiRepoRef,
     ExtantDir,
     ExtantFile,
     MissingFileError,
@@ -1342,7 +1343,7 @@ def test_push_honors_ignore_patterns():
         assert "push: Not Anki note" in out
 
 
-def test_push_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
+def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1361,6 +1362,29 @@ def test_push_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
         )
         with pytest.raises(GitHeadRefNotFoundError):
             push(runner)
+
+def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone, edit, and commit.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        mocker.patch(
+            "ki.M.head_repo_ref",
+            side_effect=[
+                Err(GitHeadRefNotFoundError(repo, Exception("<exc>"))),
+            ],
+        )
+        with pytest.raises(GitHeadRefNotFoundError):
+            push(runner)
+
 
 def test_push_displays_errors_from_stage_kirepo_instantiation(mocker: MockerFixture):
     col_file = get_col_file()
