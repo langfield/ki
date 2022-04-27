@@ -32,6 +32,7 @@ from ki.types import (
     StrangeExtantPathError,
     NotKiRepoError,
     GitRefNotFoundError,
+    GitHeadRefNotFoundError,
 )
 from ki.monadic import monadic
 from ki.functional import FS_ROOT
@@ -294,7 +295,7 @@ def head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
     try:
         ref = RepoRef(repo, repo.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
+        return Err(GitHeadRefNotFoundError(repo, err))
     return Ok(ref)
 
 
@@ -305,5 +306,5 @@ def head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
     try:
         ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
+        return Err(GitHeadRefNotFoundError(kirepo.repo, err))
     return Ok(ref)

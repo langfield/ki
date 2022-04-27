@@ -38,6 +38,7 @@ from ki.types import (
     SQLiteLockError,
     ExpectedNonexistentPathError,
     PathCreationCollisionError,
+    GitHeadRefNotFoundError,
 )
 
 
@@ -456,10 +457,34 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
 
         mocker.patch(
             "ki.F.fmkleaves",
-            return_value=Err(PathCreationCollisionError(ExtantDir(Path("directory")), "token")),
+            return_value=Err(
+                PathCreationCollisionError(ExtantDir(Path("directory")), "token")
+            ),
         )
 
         with pytest.raises(PathCreationCollisionError):
+            clone(runner, col_file)
+
+
+@beartype
+def test_clone_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
+    """Do errors get displayed nicely?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        directory = F.force_mkdir(Path("repo"))
+        repo = git.Repo.init(directory)
+
+        mocker.patch(
+            "ki.M.head_kirepo_ref",
+            return_value=Err(
+                GitHeadRefNotFoundError(
+                    repo, ValueError("<failed_to_find_HEAD_exception>")
+                )
+            ),
+        )
+
+        with pytest.raises(GitHeadRefNotFoundError):
             clone(runner, col_file)
 
 
@@ -505,7 +530,7 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
 
         mocker.patch(
             "ki.M.kirepo",
-            side_effect=[A_kirepo, B_kirepo, C_kirepo, Err(NotKiRepoError())]
+            side_effect=[A_kirepo, B_kirepo, C_kirepo, Err(NotKiRepoError())],
         )
         with pytest.raises(NotKiRepoError):
             clone(runner, col_file)

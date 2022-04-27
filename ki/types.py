@@ -277,6 +277,16 @@ class GitRefNotFoundError(Exception):
         super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
 
 
+class GitHeadRefNotFoundError(Exception):
+    @beartype
+    def __init__(self, repo: git.Repo, error: Exception):
+        msg = f"""
+        ValueError raised while trying to get ref 'HEAD' from repo at
+        '{repo.working_dir}': {error}
+        """
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+
+
 class CollectionChecksumError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
