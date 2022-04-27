@@ -1341,7 +1341,8 @@ def pull() -> Result[bool, Exception]:
         kirepo, anki_remote_root, last_push_repo, md5sum
     )
     if pulled.is_err():
-        return echo(str(pulled.err()))
+        echo(str(pulled.err()))
+        return pulled
     return Ok(unlock(con))
 
 
@@ -1361,6 +1362,7 @@ def pull_theirs_from_remote(
     return Ok()
 
 
+# TODO: Consider removing this function.
 @monadic
 @beartype
 def pull_changes_from_remote_repo(

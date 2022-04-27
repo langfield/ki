@@ -40,6 +40,7 @@ from ki.types import (
     PathCreationCollisionError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
+    CollectionChecksumError,
 )
 
 
@@ -897,12 +898,32 @@ def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        directory = ExtantDir(Path("directory"))
+        directory = F.force_mkdir(Path("directory"))
         collision = PathCreationCollisionError(directory, "token")
         mocker.patch("ki.F.fmkleaves", return_value=Err(collision))
 
         os.chdir(REPODIR)
         with pytest.raises(PathCreationCollisionError):
+            pull(runner)
+
+
+def test_pull_displays_errors_from_pull_changes_from_remote_repo(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        directory = F.force_mkdir(Path("directory"))
+        checksum = CollectionChecksumError(F.touch(directory, "file"))
+        mocker.patch("ki.pull_changes_from_remote_repo", return_value=Err(checksum))
+
+        os.chdir(REPODIR)
+        with pytest.raises(CollectionChecksumError):
             pull(runner)
 
 
