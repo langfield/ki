@@ -561,6 +561,9 @@ def test_clone_cleans_up_on_error():
             os.environ["PATH"] = old_path
 
 
+# TODO: Consider writing new `Exception` subclasses that print a slightly
+# prettier message, informing the user of how to install the relevant missing
+# dependency.
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
     col_file = get_html_col_file()
