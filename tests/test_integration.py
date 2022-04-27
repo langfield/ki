@@ -1340,3 +1340,24 @@ def test_push_honors_ignore_patterns():
         # TODO: Implement this verbosity flag.
         out = push(runner)
         assert "push: Not Anki note" in out
+
+
+def test_push_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone, edit, and commit.
+        clone(runner, col_file)
+        os.chdir(REPODIR)
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        mocker.patch(
+            "ki.M.head_kirepo_ref",
+            return_value=Err(GitHeadRefNotFoundError(repo, Exception("<exc>"))),
+        )
+        with pytest.raises(GitHeadRefNotFoundError):
+            push(runner)

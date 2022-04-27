@@ -1425,11 +1425,14 @@ def push() -> Result[bool, Exception]:
     hashes = list(filter(lambda l: l != "", hashes))
     logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum not in hashes[-1]:
-        return Err(UpdatesRejectedError(kirepo.col_file))
+        rejected: Exception = UpdatesRejectedError(kirepo.col_file)
+        echo(str(rejected))
+        return Err(rejected)
 
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
     if head.is_err():
+        echo(str(head))
         return head
     head: KiRepoRef = head.unwrap()
 
