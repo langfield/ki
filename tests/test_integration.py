@@ -15,7 +15,7 @@ import bitstring
 import checksumdir
 import prettyprinter as pp
 from loguru import logger
-from result import Err, OkErr
+from result import Ok, Err, OkErr
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
 from anki.collection import Collection
@@ -925,6 +925,27 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
 
         os.chdir(REPODIR)
         with pytest.raises(CollectionChecksumError):
+            pull(runner)
+
+
+def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+
+        # Edit collection.
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        directory = F.force_mkdir(Path("repo"))
+        repo = git.Repo.init(Path(REPODIR))
+        returns = [Ok(repo), Ok(repo), Err(git.InvalidGitRepositoryError())]
+        mocker.patch("ki.M.repo", side_effect=returns)
+
+        os.chdir(REPODIR)
+        with pytest.raises(git.InvalidGitRepositoryError):
             pull(runner)
 
 
