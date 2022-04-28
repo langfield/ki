@@ -1239,6 +1239,18 @@ def test_maybe_xdir(tmp_path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkfifo("pipe")
+        error: Exception = M.xdir(Path("pipe")).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, StrangeExtantPathError)
+        assert "pseudofile" in str(error)
+        assert "pipe" in str(error)
+
+
+def test_maybe_xfile(tmp_path):
+    """Do we print a nice error when there is a non-file non-directory thing?"""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        os.mkfifo("pipe")
         error: Exception = M.xfile(Path("pipe")).unwrap_err()
         assert isinstance(error, Exception)
         assert isinstance(error, StrangeExtantPathError)
