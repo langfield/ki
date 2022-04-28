@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import tempfile
 import functools
+import configparser
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -42,6 +43,7 @@ from ki import (
     MODELS_FILE,
     CONFIG_FILE,
     LAST_PUSH_FILE,
+    GITIGNORE_FILE,
     BACKUPS_DIR,
     NO_SM_DIR,
     NotetypeDict,
@@ -83,6 +85,7 @@ from ki import (
     push_flatnote_to_anki,
     get_models_recursively,
     html_to_screen,
+    append_md5sum,
 )
 from ki.types import (
     ExtantStrangePath,
@@ -102,6 +105,7 @@ from ki.types import (
     NoteFieldKeyError,
     PathCreationCollisionError,
     ExpectedDirectoryButGotFileError,
+    GitHeadRefNotFoundError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -1282,6 +1286,51 @@ def test_push_flatnote_to_anki():
     assert isinstance(error, Exception)
     assert isinstance(error, MissingNotetypeError)
     assert "NonexistentModel" in str(error)
+
+
+
+def test_maybe_head_repo_ref():
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        repo = git.Repo.init("repo")
+        error = M.head_repo_ref(repo).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, GitHeadRefNotFoundError)
+        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(error)
+
+
+def test_maybe_head_kirepo_ref():
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Initialize the kirepo *without* committing.
+        os.mkdir("collection")
+        targetdir = F.test(Path("collection"))
+        msg = "Initial"
+        silent = False
+        ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
+        leaves: Leaves = F.fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        ).unwrap()
+        md5sum = F.md5(col_file)
+        ignore_path = targetdir / GITIGNORE_FILE
+        ignore_path.write_text(".ki/\n")
+        write_repository(col_file, targetdir, leaves, silent).unwrap()
+        repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+        _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
+        append_md5sum(ki_dir, col_file.name, md5sum, silent)
+
+        # Since we didn't commit, there will be no HEAD.
+        kirepo = M.kirepo(F.test(Path(repo.working_dir)))
+        error = M.head_kirepo_ref(kirepo).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, GitHeadRefNotFoundError)
+        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(error)
+
 
 
 @beartype

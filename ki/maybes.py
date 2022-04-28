@@ -183,6 +183,7 @@ def repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     try:
         repo = git.Repo(root)
     except git.InvalidGitRepositoryError as err:
+        # TODO: Make this error more descriptive. It currently sucks.
         return Err(err)
     return Ok(repo)
 
