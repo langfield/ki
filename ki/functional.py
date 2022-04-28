@@ -258,14 +258,13 @@ def fmkleaves(
     dirs: Optional[Dict[str, str]] = None,
 ) -> Result[Leaves, Exception]:
     """Safely populate an empty directory with empty files and empty subdirectories."""
+    # Check that there are no collisions, returning an appropriate error if one
+    # is found.
     leaves: Set[str] = set()
-    new_files: Dict[str, ExtantFile] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
     if files is not None:
         for key, token in files.items():
             if str(token) in leaves:
                 return Err(PathCreationCollisionError(root, str(token)))
-            new_files[key] = F.touch(root, token)
             leaves.add(str(token))
     if dirs is not None:
         for key, token in dirs.items():
@@ -273,8 +272,18 @@ def fmkleaves(
             # on every iteration.
             if str(token) in leaves:
                 return Err(PathCreationCollisionError(root, str(token)))
-            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
             leaves.add(str(token))
+
+    # Actually populate the directory.
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            new_files[key] = F.touch(root, token)
+    if dirs is not None:
+        for key, token in dirs.items():
+            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
+
     return Ok(Leaves(root, new_files, new_dirs))
 
 

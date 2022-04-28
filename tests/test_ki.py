@@ -100,6 +100,7 @@ from ki.types import (
     NotetypeKeyError,
     UnnamedNotetypeError,
     NoteFieldKeyError,
+    PathCreationCollisionError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -1490,3 +1491,26 @@ def test_fparent_handles_fs_root():
     parent = F.parent(F.test(Path("/")))
     assert isinstance(parent, ExtantDir)
     assert str(parent) == "/"
+
+
+def test_fmkleaves_handles_collisions(tmp_path):
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        root = F.test(F.cwd())
+        error = F.fmkleaves(root, files={"a": "a", "b": "a"}).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, PathCreationCollisionError)
+        assert "'a'" in str(error)
+        assert len(os.listdir(".")) == 0
+
+        error = F.fmkleaves(root, files={"a": "a"}, dirs={"b": "a"}).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, PathCreationCollisionError)
+        assert "'a'" in str(error)
+        assert len(os.listdir(".")) == 0
+
+        error = F.fmkleaves(root, dirs={"a": "a", "b": "a"}).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, PathCreationCollisionError)
+        assert "'a'" in str(error)
+        assert len(os.listdir(".")) == 0
