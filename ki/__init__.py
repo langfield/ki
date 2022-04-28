@@ -833,7 +833,7 @@ def write_repository(
         # TODO: Consider testing via mocking, since almost all the errors
         # within the above call seem impossible, assuming the Anki DB is sound.
         if colnote.is_err():
-            col.close()
+            col.close(save=False)
             return colnote
         colnote: ColNote = colnote.unwrap()
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
@@ -850,13 +850,13 @@ def write_repository(
     # `kwargs` and calls the function as it normally would.
     tidied: OkErr = tidy_html_recursively(root, silent)
     if tidied.is_err():
-        col.close()
+        col.close(save=False)
         return tidied
     wrote: OkErr = write_decks(col, targetdir, decks, paths)
 
     # TODO: Replace with frmtree.
     shutil.rmtree(root)
-    col.close()
+    col.close(save=False)
 
     return wrote
 
@@ -1521,7 +1521,6 @@ def push_deltas(
     cwd: ExtantDir = F.cwd()
     col = Collection(new_col_file)
     F.chdir(cwd)
-    modified = True
 
     # Add all new models.
     for model in models.values():
@@ -1537,6 +1536,10 @@ def push_deltas(
             model: OkErr = parse_notetype_dict(nt)
             if model.is_err():
                 echo(str(model.err()))
+
+                # It is always safe to save changes to the DB, since the DB is
+                # a copy.
+                col.close(save=True)
                 return model
 
     # Gather logging statements to display.
@@ -1575,6 +1578,10 @@ def push_deltas(
                 logger.warning("Got warning: {regen_err}")
                 continue
             echo(str(regenerated))
+
+            # It is always safe to save changes to the DB, since the DB is a
+            # copy.
+            col.close(save=True)
             return regenerated
         log += regenerated.unwrap()
 
@@ -1588,8 +1595,6 @@ def push_deltas(
     logger.warning(f"Reassigned {len(log)} nids.")
     if len(log) > 0:
         msg = "Generated new nid(s).\n\n" + "\n".join(log)
-
-        logger.debug(f"Number of submodules in {kirepo.repo.working_dir}: {len(list(kirepo.repo.submodules))}")
 
         # Commit in all submodules (doesn't support recursing yet).
         for sm in kirepo.repo.submodules:
@@ -1607,11 +1612,8 @@ def push_deltas(
         kirepo.repo.git.add(all=True)
         _ = kirepo.repo.index.commit(msg)
 
-    if modified:
-        echo("Database was modified.")
-        col.close()
-    elif col.db:
-        col.close(False)
+    # It is always safe to save changes to the DB, since the DB is a copy.
+    col.close(save=True)
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
