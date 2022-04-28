@@ -166,6 +166,9 @@ def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo
     # UNSAFE: But only called here, and it should be guaranteed to work because
     # `repo` is actually a git repository, presumably there is always an
     # active branch, and `target` does not exist.
+    # TODO: In reality this is not safe at all, and exceptions should be
+    # caught. Cloning with submodules is fraught with danger. This may raise a
+    # `git.GitCommandError`.
     ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
 
     # Do a reset --hard to the given SHA.
@@ -257,9 +260,6 @@ def filter_note_path(
             return Err(UnPushedPathWarning(path, str(ignore_path)))
 
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
-    logger.debug(f"Checking if note: {path}")
-    logger.debug(f"Exists: {path.exists()}")
-    logger.debug(f"Is file: {path.is_file()}")
     if path.exists() and path.resolve().is_file():
         file = ExtantFile(path.resolve())
         if not is_anki_note(file):
@@ -291,9 +291,11 @@ def unsubmodule_repo(repo: git.Repo) -> None:
         # May not exist.
         repo.git.rm(gitmodules_path)
 
-        # Guaranteed to exist by gitpython, and safe because we pass
-        # `missing_ok=True`, which means no error is raised.
-        (sm_path / GIT).unlink(missing_ok=True)
+        sm_git_path = F.test(sm_path / GIT)
+        if isinstance(sm_git_path, ExtantDir):
+            F.rmtree(sm_git_path)
+        else:
+            (sm_path / GIT).unlink(missing_ok=True)
 
         # Should still exist after git.rm().
         repo.git.add(sm_path)
@@ -318,9 +320,6 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(b_repo.working_dir)
-    logger.debug(f"{a_dir = }")
-    logger.debug(f"{b_dir = }")
-    logger.debug(f"Diffing {ref.sha} against {b_repo.head.commit.hexsha}")
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -328,11 +327,9 @@ def diff_repos(
             a_status: Result[bool, Warning] = filter_fn(a_dir / diff.a_path)
             b_status: Result[bool, Warning] = filter_fn(b_dir / diff.b_path)
             if a_status.is_err():
-                logger.debug(f"{a_status = }")
                 deltas.append(a_status.err())
                 continue
             if b_status.is_err():
-                logger.debug(f"{b_status = }")
                 deltas.append(b_status.err())
                 continue
 
@@ -358,15 +355,12 @@ def diff_repos(
                 a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
                 b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
                 if a_flatnote.nid != b_flatnote.nid:
-                    logger.debug(f"Adding delta: {change_type} {a_path} {b_path}")
                     deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
                     deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
                     continue
 
-            logger.debug(f"Adding delta: {change_type} {b_path}")
             deltas.append(Delta(change_type, b_path, b_relpath))
 
-    logger.debug(f"{deltas = }")
     return Ok(deltas)
 
 
@@ -702,6 +696,7 @@ def push_flatnote_to_anki(
     note: Note
     try:
         note = col.get_note(flatnote.nid)
+        logger.debug(f"Found existing note with given id: '{flatnote.nid}'")
     except anki.errors.NotFoundError:
         logger.debug(f"Failed to find '{flatnote.nid}'")
         note = col.new_note(model_id)
@@ -1166,7 +1161,6 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         # we can probably remove it safely.
         # TODO: Consider removing only its contents instead.
         targetdir: ExtantDir = targetdir.unwrap()
-        logger.debug(f"{targetdir = }")
         if targetdir.is_dir():
             shutil.rmtree(targetdir)
 
@@ -1313,7 +1307,6 @@ def pull() -> Result[bool, Exception]:
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
-    logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
         return Ok(unlock(con))
@@ -1425,7 +1418,6 @@ def push() -> Result[bool, Exception]:
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
-    logger.debug(f"Hashes:\n{pp.pformat(hashes)}")
     if md5sum not in hashes[-1]:
         rejected: Exception = UpdatesRejectedError(kirepo.col_file)
         echo(str(rejected))
@@ -1501,7 +1493,7 @@ def push_deltas(
 ) -> Result[bool, Exception]:
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
-    logger.debug(f"Warnings: {warnings}")
+    logger.debug(f"Delta warnings: {warnings}")
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -1580,6 +1572,7 @@ def push_deltas(
         if regenerated.is_err():
             regen_err: Exception = regenerated.unwrap_err()
             if isinstance(regen_err, Warning):
+                logger.warning("Got warning: {regen_err}")
                 continue
             echo(str(regenerated))
             return regenerated
@@ -1589,10 +1582,14 @@ def push_deltas(
     for warning in warnings:
         echo(str(warning))
 
+    logger.debug(f"Log: {log}")
+
     # Commit nid reassignments.
     logger.warning(f"Reassigned {len(log)} nids.")
     if len(log) > 0:
         msg = "Generated new nid(s).\n\n" + "\n".join(log)
+
+        logger.debug(f"Number of submodules in {kirepo.repo.working_dir}: {len(list(kirepo.repo.submodules))}")
 
         # Commit in all submodules (doesn't support recursing yet).
         for sm in kirepo.repo.submodules:

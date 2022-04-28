@@ -18,7 +18,7 @@ from loguru import logger
 from result import Ok, Err, OkErr
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
-from anki.collection import Collection
+from anki.collection import Collection, Note
 
 from beartype import beartype
 from beartype.typing import List
@@ -47,211 +47,58 @@ from ki.types import (
     CollectionChecksumError,
     MissingFieldOrdinalError,
 )
-from tests.test_ki import open_collection
-
+from tests.test_ki import (
+    open_collection,
+    TEST_DATA_PATH,
+    COLLECTIONS_PATH,
+    COLLECTION_FILENAME,
+    ORIG_COLLECTION_FILENAME,
+    EDITED_COLLECTION_FILENAME,
+    MULTIDECK_COLLECTION_FILENAME,
+    HTML_COLLECTION_FILENAME,
+    COLLECTION_PATH,
+    EDITED_COLLECTION_PATH,
+    MULTIDECK_COLLECTION_PATH,
+    HTML_COLLECTION_PATH,
+    GITREPO_PATH,
+    MULTI_GITREPO_PATH,
+    REPODIR,
+    MULTIDECK_REPODIR,
+    HTML_REPODIR,
+    MULTI_NOTE_PATH,
+    NOTES_PATH,
+    SUBMODULE_DIRNAME,
+    NOTE_0,
+    NOTE_1,
+    NOTE_2,
+    NOTE_3,
+    NOTE_4,
+    NOTE_5,
+    NOTE_6,
+    NOTE_0_PATH,
+    NOTE_1_PATH,
+    NOTE_2_PATH,
+    NOTE_3_PATH,
+    NOTE_4_PATH,
+    NOTE_5_PATH,
+    NOTE_6_PATH,
+    NOTE_0_ID,
+    NOTE_4_ID,
+    invoke,
+    clone,
+    pull,
+    push,
+    get_col_file,
+    get_multideck_col_file,
+    get_html_col_file,
+    is_git_repo,
+    randomly_swap_1_bit,
+    checksum_git_repository,
+    get_notes,
+    get_repo_with_submodules,
+)
 
 # pylint:disable=unnecessary-pass, too-many-lines
-
-
-TEST_DATA_PATH = "tests/data/"
-COLLECTIONS_PATH = os.path.join(TEST_DATA_PATH, "collections/")
-COLLECTION_FILENAME = "collection.anki2"
-ORIG_COLLECTION_FILENAME = "original.anki2"
-EDITED_COLLECTION_FILENAME = "edited.anki2"
-MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
-HTML_COLLECTION_FILENAME = "html.anki2"
-COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
-)
-EDITED_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, EDITED_COLLECTION_FILENAME)
-)
-MULTIDECK_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, MULTIDECK_COLLECTION_FILENAME)
-)
-HTML_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, HTML_COLLECTION_FILENAME)
-)
-GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
-MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
-REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
-MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
-HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
-MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
-
-NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
-SUBMODULE_DIRNAME = "submodule"
-
-NOTE_0 = "Default/a.md"
-NOTE_1 = "Default/f.md"
-NOTE_2 = "note123412341234.md"
-NOTE_3 = "note 3.md"
-NOTE_4 = "Default/c.md"
-NOTE_5 = "alpha_nid.md"
-NOTE_6 = "no_nid.md"
-
-NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
-NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
-NOTE_2_PATH = os.path.join(NOTES_PATH, NOTE_2)
-NOTE_3_PATH = os.path.join(NOTES_PATH, NOTE_3)
-NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
-NOTE_5_PATH = os.path.join(NOTES_PATH, NOTE_5)
-NOTE_6_PATH = os.path.join(NOTES_PATH, NOTE_6)
-
-NOTE_0_ID = 1645010162168
-NOTE_4_ID = 1645027705329
-
-# HELPER FUNCTIONS
-
-
-def invoke(*args, **kwargs):
-    """Wrap click CliRunner invoke()."""
-    return CliRunner().invoke(*args, **kwargs)
-
-
-@beartype
-def clone(runner: CliRunner, collection: ExtantFile, directory: str = "") -> str:
-    """Make a test `ki clone` call."""
-    res = runner.invoke(
-        ki.ki,
-        ["clone", str(collection), str(directory)],
-        standalone_mode=False,
-        catch_exceptions=False,
-    )
-    if isinstance(res.return_value, Err):
-        raise res.return_value.unwrap_err()
-    return res.output
-
-
-@beartype
-def pull(runner: CliRunner) -> str:
-    """Make a test `ki pull` call."""
-    res = runner.invoke(ki.ki, ["pull"], standalone_mode=False, catch_exceptions=False)
-    if isinstance(res.return_value, Err):
-        raise res.return_value.unwrap_err()
-    return res.output
-
-
-@beartype
-def push(runner: CliRunner) -> str:
-    """Make a test `ki push` call."""
-    res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
-    if isinstance(res.return_value, Err):
-        raise res.return_value.unwrap_err()
-    return res.output
-
-
-@beartype
-def get_col_file() -> ExtantFile:
-    """Put `collection.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
-    shutil.copyfile(COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_multideck_col_file() -> ExtantFile:
-    """Put `multideck.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
-    shutil.copyfile(MULTIDECK_COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_html_col_file() -> ExtantFile:
-    """Put `html.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
-    shutil.copyfile(HTML_COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def is_git_repo(path: str) -> bool:
-    """Check if path is git repository."""
-    if not os.path.isdir(path):
-        return False
-    try:
-        _ = git.Repo(path).git_dir
-        return True
-    except git.InvalidGitRepositoryError:
-        return False
-
-
-@beartype
-def randomly_swap_1_bit(path: ExtantFile) -> None:
-    """Randomly swap a bit in a file."""
-    # Read in bytes.
-    with open(path, "rb") as file:
-        data: bytes = file.read()
-
-    # Construct BitArray and swap bit.
-    bits = bitstring.BitArray(bytes=data)
-    i = random.randrange(len(bits))
-    bits.invert(i)
-
-    # Write out bytes.
-    with open(path, "wb") as file:
-        file.write(bits.bytes)
-
-
-@beartype
-def checksum_git_repository(path: str) -> str:
-    """Compute a checksum of git repository without .git folder."""
-    assert is_git_repo(path)
-    tempdir = tempfile.mkdtemp()
-    repodir = os.path.join(tempdir, "REPO")
-    shutil.copytree(path, repodir)
-    shutil.rmtree(os.path.join(repodir, ".git/"))
-    checksum = checksumdir.dirhash(repodir)
-    shutil.rmtree(tempdir)
-    return checksum
-
-
-@beartype
-def get_notes(collection: ExtantFile) -> List[ColNote]:
-    """Get a list of notes from a path."""
-    cwd: ExtantDir = F.cwd()
-    col = Collection(collection)
-    F.chdir(cwd)
-
-    notes: List[ColNote] = []
-    for nid in set(col.find_notes("")):
-        colnote: OkErr = get_colnote(col, nid)
-        if colnote.is_err():
-            raise colnote
-        colnote: ColNote = colnote.unwrap()
-        notes.append(colnote)
-
-    return notes
-
-
-@beartype
-def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Repo:
-    """Return repo with committed submodule."""
-    # Clone collection in cwd.
-    clone(runner, col_file)
-    repo = git.Repo(REPODIR)
-
-    # Create submodule out of GITREPO_PATH.
-    submodule_name = SUBMODULE_DIRNAME
-    shutil.copytree(GITREPO_PATH, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
-    sm = git.Repo(submodule_name)
-    sm.git.add(all=True)
-    _ = sm.index.commit("Initial commit.")
-
-    # Add as a submodule.
-    repo.git.submodule("add", Path(submodule_name).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-
-    return repo
 
 
 # CLI
@@ -1508,3 +1355,36 @@ def test_push_displays_errors_from_stage_kirepo_instantiation(mocker: MockerFixt
         )
         with pytest.raises(NotKiRepoError):
             push(runner)
+
+
+def test_push_handles_submodules(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        repo: git.Repo = get_repo_with_submodules(runner, col_file)
+        os.chdir(repo.working_dir)
+
+        # Edit a file within the submodule.
+        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
+        logger.debug(f"Adding 'z' to file '{file}'")
+        with open(file, "a", encoding="UTF-8") as note_f:
+            note_f.write("\nz\n")
+
+        # Copy a new note into the submodule.
+        shutil.copyfile(
+            NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        )
+
+        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+        subrepo.git.add(all=True)
+        subrepo.index.commit(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        out = push(runner)
+        logger.debug(out)
+
+        colnotes = get_notes(col_file)
+        notes: List[Note] = [colnote.n for colnote in colnotes]
+        assert len(notes) == 3
+        assert "<br />z<br />" in notes[0]["Back"]

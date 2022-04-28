@@ -365,6 +365,8 @@ def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Rep
     # Clone collection in cwd.
     clone(runner, col_file)
     repo = git.Repo(REPODIR)
+    cwd = F.cwd()
+    os.chdir(REPODIR)
 
     # Create submodule out of GITREPO_PATH.
     submodule_name = SUBMODULE_DIRNAME
@@ -378,6 +380,9 @@ def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Rep
     repo.git.submodule("add", Path(submodule_name).resolve())
     repo.git.add(all=True)
     _ = repo.index.commit("Add submodule.")
+
+    # Go back to the original current working directory.
+    os.chdir(cwd)
 
     return repo
 
@@ -858,7 +863,7 @@ def test_diff_repos_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         assert "note123412341234.md" in str(warning)
 
 
-def test_unsubmodule_repo_removes_gitmodules():
+def test_unsubmodule_repo_removes_gitmodules(tmp_path):
     """
     When you have a ki repo with submodules, does calling
     `unsubmodule_repo()`on it remove them? We test this by checking if the
@@ -866,7 +871,7 @@ def test_unsubmodule_repo_removes_gitmodules():
     """
     col_file = get_col_file()
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         repo = get_repo_with_submodules(runner, col_file)
         gitmodules_path = Path(repo.working_dir) / ".gitmodules"
         assert gitmodules_path.exists()
@@ -1441,3 +1446,31 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert isinstance(error, UnnamedNotetypeError)
         assert "Failed to find 'name' field" in str(error)
         assert "1645010146011" in str(error)
+
+
+def test_get_ephemeral_repo_handles_submodules(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        repo: git.Repo = get_repo_with_submodules(runner, col_file)
+
+        os.chdir(repo.working_dir)
+
+        # Edit a file within the submodule.
+        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
+        logger.debug(f"Adding 'z' to file '{file}'")
+        with open(file, "a", encoding="UTF-8") as note_f:
+            note_f.write("\nz\n")
+
+        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+        subrepo.git.add(all=True)
+        subrepo.index.commit(".")
+        repo.git.add(all=True)
+        repo.index.commit(".")
+
+        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
+        head: KiRepoRef = M.head_kirepo_ref(kirepo).unwrap()
+
+        # Just want to check that this doesn't return an exception, so we
+        # unwrap, but don't assert anything.
+        kirepo = get_ephemeral_kirepo(Path("suffix"), head, md5sum="md5").unwrap()
