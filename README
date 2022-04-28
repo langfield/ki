@@ -147,11 +147,15 @@ Media
 Won't fix
 ---------
 pdoc3 doesn't generate docstrings for click commands
-clone doesn't work on ankiweb deck URLs
-comments aren't supported in notes
-implicitly adding new notetypes is not allowed, currently they cannot be added
-from ki at all, and in the future it should probably require explicitly
-creating a template/model file
+Clone doesn't work on ankiweb deck URLs
+Comments aren't supported in notes
+Implicitly adding new notetypes is not allowed, currently they cannot be added
+  from ki at all, and in the future it should probably require explicitly
+  creating a template/model file
+Can't map back from HTML to plaintext/markdown while preserving changes made in
+  Anki. Editing the files directly is not the main use case. Nice serialization
+  and ability to put notes on github is. Mapping back from HTML is impossible
+  in the general case, and it adds needless complexity.
 
 
 On the deleted notes repo
