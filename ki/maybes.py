@@ -274,14 +274,6 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 
 @monadic
 @beartype
-def kirepo_ref(kirepo: KiRepo, sha: str) -> Result[KiRepoRef, Exception]:
-    if not F.ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))
-
-
-@monadic
-@beartype
 def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
     if not F.ref_exists(repo, sha):
         return Err(GitRefNotFoundError(repo, sha))

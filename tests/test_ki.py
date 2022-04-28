@@ -1271,19 +1271,6 @@ def test_maybe_xfile(tmp_path):
         assert "pipe" in str(error)
 
 
-def test_maybe_kirepo_ref():
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        clone(runner, col_file)
-        os.chdir(REPODIR)
-        kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
-        error = M.kirepo_ref(kirepo, "badsha").unwrap_err()
-        assert isinstance(error, Exception)
-        assert isinstance(error, GitRefNotFoundError)
-        assert "doesn't contain ref 'badsha'" in str(error)
-
-
 def test_push_flatnote_to_anki():
     """Do we print a nice error when a notetype is missing?"""
     col = open_collection(get_col_file())
