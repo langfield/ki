@@ -4,10 +4,8 @@ import os
 import json
 import random
 import shutil
-import sqlite3
 import tempfile
 import functools
-import configparser
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -21,7 +19,6 @@ from lark.exceptions import UnexpectedToken
 from loguru import logger
 from result import Ok, Err, OkErr, Result
 from pytest_mock import MockerFixture
-from apy.convert import markdown_to_html
 from click.testing import CliRunner
 from anki.collection import Collection
 
@@ -33,9 +30,7 @@ import ki.maybes as M
 import ki.functional as F
 from ki import (
     BRANCH_NAME,
-    LOCAL_SUFFIX,
     STAGE_SUFFIX,
-    REMOTE_SUFFIX,
     DELETED_SUFFIX,
     IGNORE,
     KI,
@@ -81,18 +76,15 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    _clone,
     push_flatnote_to_anki,
     get_models_recursively,
-    html_to_screen,
     append_md5sum,
 )
 from ki.types import (
+    Leaves,
     ExtantStrangePath,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
-    GitRefNotFoundError,
-    CollectionChecksumError,
     MissingNotetypeError,
     MissingFieldOrdinalError,
     MissingNoteIdError,
@@ -535,7 +527,7 @@ def test_update_note_sets_tags():
 
     assert note.tags == []
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    update_note(note, flatnote, notetype, notetype).unwrap()
     assert note.tags == ["tag"]
 
 
@@ -552,8 +544,7 @@ def test_update_note_sets_deck():
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "Default"
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
-    res.unwrap()
+    update_note(note, flatnote, notetype, notetype).unwrap()
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
 
@@ -569,7 +560,7 @@ def test_update_note_sets_field_contents():
     assert "TITLE" not in note.fields[0]
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    update_note(note, flatnote, notetype, notetype).unwrap()
 
     assert "TITLE" in note.fields[0]
     assert "</p>" in note.fields[0]
@@ -579,13 +570,13 @@ def test_update_note_removes_field_contents():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
-    field = "c"
+    field = "y"
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    update_note(note, flatnote, notetype, notetype).unwrap()
     assert "a" not in note.fields[0]
 
 
@@ -624,7 +615,7 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     assert "unknown error code" in captured.err
 
 
-def test_update_note_changes_notetype(capfd):
+def test_update_note_changes_notetype():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -705,7 +696,7 @@ def test_update_note_converts_markdown_formatting_to_html():
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    update_note(note, flatnote, notetype, notetype).unwrap()
     assert "<em>hello</em>" in note.fields[0]
 
 
@@ -742,7 +733,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd).unwrap()
-    con: sqlite3.Connection = lock(kirepo)
+    lock(kirepo)
     md5sum: str = F.md5(kirepo.col_file)
 
     # Get reference to HEAD of current repo.
@@ -968,8 +959,6 @@ def test_git_subprocess_pull():
 
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
-    col = open_collection(get_col_file())
-    note = col.get_note(set(col.find_notes("")).pop())
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir = F.cwd()
@@ -1288,16 +1277,16 @@ def test_push_flatnote_to_anki():
     assert "NonexistentModel" in str(error)
 
 
-
 def test_maybe_head_repo_ref():
-    col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = git.Repo.init("repo")
         error = M.head_repo_ref(repo).unwrap_err()
         assert isinstance(error, Exception)
         assert isinstance(error, GitHeadRefNotFoundError)
-        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(error)
+        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(
+            error
+        )
 
 
 def test_maybe_head_kirepo_ref():
@@ -1308,7 +1297,6 @@ def test_maybe_head_kirepo_ref():
         # Initialize the kirepo *without* committing.
         os.mkdir("collection")
         targetdir = F.test(Path("collection"))
-        msg = "Initial"
         silent = False
         ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
         leaves: Leaves = F.fmkleaves(
@@ -1329,8 +1317,9 @@ def test_maybe_head_kirepo_ref():
         error = M.head_kirepo_ref(kirepo).unwrap_err()
         assert isinstance(error, Exception)
         assert isinstance(error, GitHeadRefNotFoundError)
-        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(error)
-
+        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(
+            error
+        )
 
 
 @beartype
@@ -1408,12 +1397,14 @@ def unannotated():
 def test_monadic_lift_decorator():
     """Does our `Result` lift decorator catch type errors?"""
     with pytest.raises(
-        roar.BeartypeCallHintReturnViolation, match="not instance of int"
-    ) as error:
+        roar.BeartypeCallHintReturnViolation,
+        match="not instance of int",
+    ):
         sample()
     with pytest.raises(
-        roar.BeartypeCallHintReturnViolation, match="return 0 unannotated"
-    ) as error:
+        roar.BeartypeCallHintReturnViolation,
+        match="return 0 unannotated",
+    ):
         unannotated()
 
 
@@ -1481,7 +1472,7 @@ def test_get_models_recursively(tmp_path):
         clone(runner, col_file)
         os.chdir(REPODIR)
         os.remove("models.json")
-        with open(Path("models.json"), "w") as models_f:
+        with open(Path("models.json"), "w", encoding="UTF-8") as models_f:
             json.dump(MODELS, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
         error = get_models_recursively(kirepo).unwrap_err()
@@ -1501,7 +1492,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         clone(runner, col_file)
         os.chdir(REPODIR)
         os.remove("models.json")
-        with open(Path("models.json"), "w") as models_f:
+        with open(Path("models.json"), "w", encoding="UTF-8") as models_f:
             json.dump(NAMELESS_MODELS, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
         error = get_models_recursively(kirepo).unwrap_err()

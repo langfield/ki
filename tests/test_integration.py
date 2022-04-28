@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
-import random
 import shutil
 import tempfile
 import subprocess
@@ -11,14 +10,12 @@ from importlib.metadata import version
 
 import git
 import pytest
-import bitstring
-import checksumdir
 import prettyprinter as pp
 from loguru import logger
-from result import Ok, Err, OkErr
+from result import Ok, Err
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
-from anki.collection import Collection, Note
+from anki.collection import Note
 
 from beartype import beartype
 from beartype.typing import List
@@ -26,13 +23,10 @@ from beartype.typing import List
 import ki
 import ki.maybes as M
 import ki.functional as F
-from ki import BRANCH_NAME, get_colnote
 from ki.types import (
     KiRepo,
-    ColNote,
     RepoRef,
     Notetype,
-    KiRepoRef,
     ExtantDir,
     ExtantFile,
     MissingFileError,
@@ -49,39 +43,21 @@ from ki.types import (
 )
 from tests.test_ki import (
     open_collection,
-    TEST_DATA_PATH,
-    COLLECTIONS_PATH,
-    COLLECTION_FILENAME,
-    ORIG_COLLECTION_FILENAME,
-    EDITED_COLLECTION_FILENAME,
-    MULTIDECK_COLLECTION_FILENAME,
-    HTML_COLLECTION_FILENAME,
-    COLLECTION_PATH,
     EDITED_COLLECTION_PATH,
-    MULTIDECK_COLLECTION_PATH,
-    HTML_COLLECTION_PATH,
     GITREPO_PATH,
     MULTI_GITREPO_PATH,
     REPODIR,
     MULTIDECK_REPODIR,
     HTML_REPODIR,
     MULTI_NOTE_PATH,
-    NOTES_PATH,
     SUBMODULE_DIRNAME,
     NOTE_0,
     NOTE_1,
     NOTE_2,
     NOTE_3,
     NOTE_4,
-    NOTE_5,
-    NOTE_6,
-    NOTE_0_PATH,
-    NOTE_1_PATH,
     NOTE_2_PATH,
     NOTE_3_PATH,
-    NOTE_4_PATH,
-    NOTE_5_PATH,
-    NOTE_6_PATH,
     NOTE_0_ID,
     NOTE_4_ID,
     invoke,
@@ -97,6 +73,9 @@ from tests.test_ki import (
     get_notes,
     get_repo_with_submodules,
 )
+
+PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING = 14
+PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 16
 
 # pylint:disable=unnecessary-pass, too-many-lines
 
@@ -416,7 +395,7 @@ def test_clone_errors_when_directory_is_populated():
 
         # Should error out because directory already exists.
         with pytest.raises(TargetExistsError):
-            out = clone(runner, col_file)
+            clone(runner, col_file)
 
 
 def test_clone_cleans_up_on_error():
@@ -432,7 +411,7 @@ def test_clone_cleans_up_on_error():
         try:
             with pytest.raises(FileNotFoundError):
                 os.environ["PATH"] = ""
-                out = clone(runner, col_file)
+                clone(runner, col_file)
             assert not os.path.isdir(HTML_REPODIR)
         finally:
             os.environ["PATH"] = old_path
@@ -457,7 +436,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         try:
             with pytest.raises(FileNotFoundError) as raised:
                 os.environ["PATH"] = ""
-                out = clone(runner, col_file)
+                clone(runner, col_file)
             error = raised.exconly()
             assert "tidy" in str(error)
         finally:
@@ -470,7 +449,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                 tmp = F.mkdtemp()
                 os.symlink("/usr/bin/tidy", tmp / "tidy")
                 os.environ["PATH"] = str(tmp)
-                out = clone(runner, col_file)
+                clone(runner, col_file)
             error = raised.exconly()
         finally:
             os.environ["PATH"] = old_path
@@ -771,8 +750,6 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        directory = F.force_mkdir(Path("directory"))
-        checksum = CollectionChecksumError(F.touch(directory, "file"))
         mocker.patch("ki.F.md5", side_effect=["good", "good", "bad"])
 
         os.chdir(REPODIR)
@@ -791,7 +768,6 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        directory = F.force_mkdir(Path("repo"))
         repo = git.Repo.init(Path(REPODIR))
         returns = [Ok(repo), Ok(repo), Err(git.InvalidGitRepositoryError())]
         mocker.patch("ki.M.repo", side_effect=returns)
@@ -1140,7 +1116,7 @@ def test_push_generates_correct_title_for_notes():
         assert "r.md" in notes
 
 
-def test_push_displays_informative_error_when_last_push_file_is_missing(capfd):
+def test_push_displays_informative_error_when_last_push_file_is_missing():
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1168,7 +1144,7 @@ def test_push_honors_ignore_patterns():
         os.chdir(REPODIR)
 
         shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-        with open(".gitignore", "a") as ignore_f:
+        with open(".gitignore", "a", encoding="UTF-8") as ignore_f:
             ignore_f.write("\nelephant")
 
         repo = git.Repo(".")
@@ -1279,7 +1255,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
         os.chdir(REPODIR)
 
         repo = git.Repo(".")
-        head_1_sha = repo.head.commit.hexsha
 
         shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
         repo = git.Repo(".")
@@ -1291,7 +1266,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
         notetype: Notetype = ki.parse_notetype_dict(note.note_type()).unwrap()
         col.close()
 
-        PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING = 14
         effects = [Ok(notetype)] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING
         effects += [Err(MissingFieldOrdinalError(3, "<notetype>"))]
 
@@ -1313,7 +1287,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
         os.chdir(REPODIR)
 
         repo = git.Repo(".")
-        head_1_sha = repo.head.commit.hexsha
 
         shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
         repo = git.Repo(".")
@@ -1325,7 +1298,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
         notetype: Notetype = ki.parse_notetype_dict(note.note_type()).unwrap()
         col.close()
 
-        PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 16
         effects = [Ok(notetype)] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH
         effects += [Err(MissingFieldOrdinalError(3, "<notetype>"))]
 

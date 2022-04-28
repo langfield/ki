@@ -2,7 +2,7 @@
 """Monadic factory functions for safely handling errors in type construction."""
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
-# pylint: disable=too-many-return-statements, too-many-lines
+# pylint: disable=too-many-return-statements, too-many-lines, import-self
 
 import configparser
 from pathlib import Path
@@ -181,11 +181,12 @@ def emptydir(path: Path) -> Result[ExtantDir, Exception]:
 def repo(root: ExtantDir) -> Result[git.Repo, Exception]:
     """Read a git repo safely."""
     try:
-        repo = git.Repo(root)
+        repository = git.Repo(root)
     except git.InvalidGitRepositoryError as err:
-        # TODO: Make this error more descriptive. It currently sucks.
+        # TODO: Make this error more descriptive. It currently sucks. A test
+        # should be written for 'M.kirepo()' in which we return this error.
         return Err(err)
-    return Ok(repo)
+    return Ok(repository)
 
 
 @monadic
@@ -208,7 +209,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 
     # Root directory and ki directory of repo now guaranteed to exist.
     root = current
-    repo: OkErr = M.repo(root)
+    repository: OkErr = M.repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
     backups_dir = M.xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
@@ -233,7 +234,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     @monadic
     @beartype
     def constructor(
-        repo: git.Repo,
+        repository: git.Repo,
         root: ExtantDir,
         ki_dir: ExtantDir,
         col_file: ExtantFile,
@@ -246,7 +247,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
     ) -> Result[KiRepo, Exception]:
         return Ok(
             KiRepo(
-                repo,
+                repository,
                 root,
                 ki_dir,
                 col_file,
@@ -260,7 +261,7 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
         )
 
     return constructor(
-        repo,
+        repository,
         root,
         ki_dir,
         col_file,
@@ -275,29 +276,29 @@ def kirepo(cwd: ExtantDir) -> Result[KiRepo, Exception]:
 
 @monadic
 @beartype
-def repo_ref(repo: git.Repo, sha: str) -> Result[RepoRef, Exception]:
-    if not F.ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))
+def repo_ref(repository: git.Repo, sha: str) -> Result[RepoRef, Exception]:
+    if not F.ref_exists(repository, sha):
+        return Err(GitRefNotFoundError(repository, sha))
+    return Ok(RepoRef(repository, sha))
 
 
 @monadic
 @beartype
-def head_repo_ref(repo: git.Repo) -> Result[RepoRef, Exception]:
+def head_repo_ref(repository: git.Repo) -> Result[RepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
     try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
+        ref = RepoRef(repository, repository.head.commit.hexsha)
     except ValueError as err:
-        return Err(GitHeadRefNotFoundError(repo, err))
+        return Err(GitHeadRefNotFoundError(repository, err))
     return Ok(ref)
 
 
 @monadic
 @beartype
-def head_kirepo_ref(kirepo: KiRepo) -> Result[KiRepoRef, Exception]:
+def head_kirepo_ref(kirepository: KiRepo) -> Result[KiRepoRef, Exception]:
     # GitPython raises a ValueError when references don't exist.
     try:
-        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
+        ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
     except ValueError as err:
-        return Err(GitHeadRefNotFoundError(kirepo.repo, err))
+        return Err(GitHeadRefNotFoundError(kirepository.repo, err))
     return Ok(ref)
