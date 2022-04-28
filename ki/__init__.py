@@ -468,6 +468,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
     return Ok(all_models)
 
 
+# TODO: Consider making this function return warnings instead of logging them.
 @beartype
 def display_fields_health_warning(note: anki.notes.Note) -> int:
     """Display warnings when Anki's fields health check fails."""
@@ -696,12 +697,9 @@ def push_flatnote_to_anki(
     note: Note
     try:
         note = col.get_note(flatnote.nid)
-        logger.debug(f"Found existing note with given id: '{flatnote.nid}'")
     except anki.errors.NotFoundError:
-        logger.debug(f"Failed to find '{flatnote.nid}'")
         note = col.new_note(model_id)
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
-        logger.debug(f"Got new nid '{note.id}'")
         new = True
 
     old_notetype: Res[Notetype] = parse_notetype_dict(note.note_type())
@@ -1028,7 +1026,6 @@ def echo(string: str, silent: bool = False) -> None:
     """Call `click.secho()` with formatting."""
     if not silent:
         click.secho(string, bold=True)
-        # logger.info(string)
 
 
 @monadic
@@ -1493,7 +1490,6 @@ def push_deltas(
 ) -> Result[bool, Exception]:
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
-    logger.debug(f"Delta warnings: {warnings}")
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -1551,17 +1547,15 @@ def push_deltas(
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
     deletes: List[Delta] = list(filter(is_delete, deltas))
-    logger.debug(f"Deleting {len(deletes)} notes.")
+    echo(f"Deleting {len(deletes)} notes.")
 
     for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
 
         # Parse the file at `delta.path` into a `FlatNote`, and
         # add/edit/delete in collection.
         flatnote = parse_markdown_note(parser, transformer, delta.path)
-        logger.debug(f"Resolving delta:\n{pp.pformat(delta)}\n{pp.pformat(flatnote)}")
 
         if is_delete(delta):
-            logger.debug(f"Deleting note {flatnote.nid}")
             col.remove_notes([flatnote.nid])
             continue
 
@@ -1573,9 +1567,9 @@ def push_deltas(
         colnote: OkErr = push_flatnote_to_anki(col, flatnote)
         regenerated: OkErr = regenerate_note_file(colnote, kirepo.root, delta.relpath)
         if regenerated.is_err():
-            regen_err: Exception = regenerated.unwrap_err()
-            if isinstance(regen_err, Warning):
-                logger.warning("Got warning: {regen_err}")
+            error: Exception = regenerated.unwrap_err()
+            if isinstance(error, Warning):
+                echo(str(error))
                 continue
             echo(str(regenerated))
 
@@ -1589,10 +1583,8 @@ def push_deltas(
     for warning in warnings:
         echo(str(warning))
 
-    logger.debug(f"Log: {log}")
-
     # Commit nid reassignments.
-    logger.warning(f"Reassigned {len(log)} nids.")
+    echo(f"Reassigned {len(log)} nids.")
     if len(log) > 0:
         msg = "Generated new nid(s).\n\n" + "\n".join(log)
 
