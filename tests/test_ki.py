@@ -101,6 +101,7 @@ from ki.types import (
     UnnamedNotetypeError,
     NoteFieldKeyError,
     PathCreationCollisionError,
+    ExpectedDirectoryButGotFileError,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -1232,6 +1233,18 @@ def test_maybe_emptydir(tmp_path):
         assert isinstance(error, ExpectedEmptyDirectoryButGotNonEmptyDirectoryError)
         assert "but it is nonempty" in str(error)
         assert str(Path.cwd()) in str(error)
+
+
+def test_maybe_emptydir_handles_non_directories(tmp_path):
+    """Do we print a nice error when the path is not a directory?"""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        file = Path("file")
+        file.touch()
+        error: Exception = M.emptydir(file).unwrap_err()
+        assert isinstance(error, Exception)
+        assert isinstance(error, ExpectedDirectoryButGotFileError)
+        assert str(file) in str(error)
 
 
 def test_maybe_xdir(tmp_path):
