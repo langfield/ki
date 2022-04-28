@@ -386,8 +386,6 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Result[Notetype, Exception]:
     # nice error message in the event of a `KeyError`. So we have to print out
     # a different error message saying that the notetype doesn't have a name
     # field.
-    # TODO: Consider passing in the note id with the note type so that we
-    # always have something to refer to in error messages.
     try:
         nt["name"]
     except KeyError:
@@ -533,7 +531,8 @@ def update_note(
     note.flush()
 
     # Set the deck of the given note, and create a deck with this name if it
-    # doesn't already exist. See the comments/docstrings in the implementation.
+    # doesn't already exist. See the comments/docstrings in the implementation
+    # of the `anki.decks.DeckManager.id()` method.
     newdid: int = note.col.decks.id(flatnote.deck, create=True)
     cids = [c.id for c in note.cards()]
 
@@ -586,7 +585,10 @@ def validate_flatnote_fields(
     # Set current notetype for collection to `model_name`.
     field_names: List[str] = [field.name for field in notetype.flds]
 
-    # TODO: Use a more descriptive error message.
+    # TODO: Use a more descriptive error message. It is probably sufficient to
+    # just add the `nid` from the flatnote, so we know which note we failed to
+    # validate. It might also be nice to print the path of the note in the
+    # repository. This would have to be added to the `FlatNote` spec.
     if len(flatnote.fields.keys()) != len(field_names):
         msg = f"Wrong number of fields for model {flatnote.model}!"
         return Err(NoteFieldValidationWarning(msg))
@@ -719,7 +721,6 @@ def push_flatnote_to_anki(
     # these keys (without checking for a KeyError). So under the assumption
     # that `new_notetype..sortf.name` is one of those names/keys, this should
     # be safe.
-    # TODO: See if this can be tested via mocking.
     try:
         sortf_text: str = note[new_notetype.sortf.name]
     except KeyError as err:
@@ -750,10 +751,8 @@ def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
         return notetype
     notetype: Notetype = notetype.unwrap()
 
-    # Get sort field content.
-    # TODO: See comment where we subscript in the same way in
-    # `push_flatnote_to_anki()`. Consider adding back the error handling there,
-    # and consider mocking here to test it.
+    # Get sort field content. See comment where we subscript in the same way in
+    # `push_flatnote_to_anki()`.
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
@@ -816,7 +815,7 @@ def write_repository(
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
-    paths: Dict[str, ExtantFile] = {}
+    tidy_field_files: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[ColNote]] = {}
 
     # Open deck with `apy`, and dump notes and markdown files.
@@ -827,9 +826,6 @@ def write_repository(
     all_nids = list(col.find_notes(query=""))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
         colnote: OkErr = get_colnote(col, nid)
-
-        # TODO: Consider testing via mocking, since almost all the errors
-        # within the above call seem impossible, assuming the Anki DB is sound.
         if colnote.is_err():
             col.close(save=False)
             return colnote
@@ -840,17 +836,13 @@ def write_repository(
                 fid: str = get_field_note_id(nid, fieldname)
                 html_file: ExtantFile = F.touch(root, fid)
                 html_file.write_text(fieldtext, encoding="UTF-8")
-                paths[fid] = html_file
+                tidy_field_files[fid] = html_file
 
-    # TODO: Consider adding a block in `safe()` that looks for a token
-    # keyword argument, like `_err`, and bypasses the function call if it
-    # is an Err. If it is an Ok, it simply removes that key-value pair from
-    # `kwargs` and calls the function as it normally would.
     tidied: OkErr = tidy_html_recursively(root, silent)
     if tidied.is_err():
         col.close(save=False)
         return tidied
-    wrote: OkErr = write_decks(col, targetdir, decks, paths)
+    wrote: OkErr = write_decks(col, targetdir, decks, tidy_field_files)
 
     # TODO: Replace with frmtree.
     shutil.rmtree(root)
@@ -865,7 +857,7 @@ def write_decks(
     col: Collection,
     targetdir: ExtantDir,
     decks: Dict[str, List[ColNote]],
-    paths: Dict[str, ExtantFile],
+    tidy_field_files: Dict[str, ExtantFile],
 ) -> Result[bool, Exception]:
     """
     There is a bug in 'write_decks()'. The sorting of deck names is done by
@@ -900,7 +892,7 @@ def write_decks(
         for colnote in deck:
             model_ids.add(colnote.notetype.id)
             notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
-            payload: str = get_note_payload(colnote, paths)
+            payload: str = get_note_payload(colnote, tidy_field_files)
             notepath.write_text(payload, encoding="UTF-8")
 
         # Write `models.json` for current deck.
@@ -959,9 +951,8 @@ def get_colnote_repr(colnote: ColNote) -> str:
     return "\n".join(lines)
 
 
-# TODO: Come up with a better name than `paths`.
 @beartype
-def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
+def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) -> str:
     """
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
@@ -969,25 +960,26 @@ def get_note_payload(colnote: ColNote, paths: Dict[str, ExtantFile]) -> str:
     Given a `ColNote`, which is a dataclass wrapper around a `Note` object
     which has been loaded from the DB, and a mapping from `fid`s (unique
     identifiers of field-note pairs) to paths, we check for each field of each
-    note whether that field's `fid` is contained in `paths`. If so, that means
-    that the caller dumped the contents of this field to a file (the file with
-    this path, in fact) in order to autoformat the HTML source. If this field
-    was tidied/autoformatted, we read from that path to get the tidied source,
-    otherwise, we use the field content present in the `ColNote`.
+    note whether that field's `fid` is contained in `tidy_field_files`. If so,
+    that means that the caller dumped the contents of this field to a file (the
+    file with this path, in fact) in order to autoformat the HTML source. If
+    this field was tidied/autoformatted, we read from that path to get the
+    tidied source, otherwise, we use the field content present in the
+    `ColNote`.
     """
     # Get tidied html if it exists.
-    tidyfields = {}
+    tidy_fields = {}
     for field_name, field_text in colnote.n.items():
         fid = get_field_note_id(colnote.n.id, field_name)
-        if fid in paths:
-            tidyfields[field_name] = paths[fid].read_text()
+        if fid in tidy_field_files:
+            tidy_fields[field_name] = tidy_field_files[fid].read_text()
         else:
-            tidyfields[field_name] = field_text
+            tidy_fields[field_name] = field_text
 
     # TODO: Make this use `get_colnote_repr()`.
-    # Construct note repr from tidyfields map.
+    # Construct note repr from `tidy_fields` map.
     lines = get_header_lines(colnote)
-    for field_name, field_text in tidyfields.items():
+    for field_name, field_text in tidy_fields.items():
         lines.append("### " + field_name)
         lines.append(html_to_screen(field_text))
         lines.append("")
@@ -1364,7 +1356,6 @@ def pull() -> Result[bool, Exception]:
     echo(f"Pulling into {last_push_root}")
     last_push_repo.git.config("pull.rebase", "false")
 
-    # TODO: This is not yet safe. Consider rewriting with gitpython.
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(cwd)
@@ -1671,8 +1662,7 @@ def regenerate_note_file(
     new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
     new_note_path.write_text(get_colnote_repr(colnote), encoding="UTF-8")
 
-    # TODO: Figure out if this still works if we use pathlib instead.
-    new_note_relpath = os.path.relpath(new_note_path, root)
-
-    msg = f"Reassigned nid: '{colnote.old_nid}' -> '{colnote.n.id}' in '{new_note_relpath}'"
+    # Construct a nice commit message line.
+    msg = f"Reassigned nid: '{colnote.old_nid}' -> "
+    msg += f"'{colnote.n.id}' in '{os.path.relpath(new_note_path, root)}'"
     return Ok([msg])
