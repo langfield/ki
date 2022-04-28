@@ -85,6 +85,7 @@ from ki import (
     html_to_screen,
 )
 from ki.types import (
+    ExtantStrangePath,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
     GitRefNotFoundError,
@@ -1474,3 +1475,12 @@ def test_get_ephemeral_repo_handles_submodules(tmp_path):
         # Just want to check that this doesn't return an exception, so we
         # unwrap, but don't assert anything.
         kirepo = get_ephemeral_kirepo(Path("suffix"), head, md5sum="md5").unwrap()
+
+
+def test_ftest_handles_strange_paths(tmp_path):
+    """Do we print a nice error when there is a non-file non-directory thing?"""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        os.mkfifo("pipe")
+        pipe = F.test(Path("pipe"))
+        assert isinstance(pipe, ExtantStrangePath)

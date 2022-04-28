@@ -76,13 +76,7 @@ def cwd() -> ExtantDir:
 def test(
     path: Path,
 ) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
-    """
-    Fast ftest, where the f just means function.
-
-    Test whether `path` is a file, a directory, or something else. If
-    something else, we consider that, for the sake of simplicity, a
-    NoPath.
-    """
+    """Test whether `path` is a file, a directory, or something else."""
     path = path.resolve()
     if path.is_file():
         return ExtantFile(path)
