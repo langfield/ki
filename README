@@ -35,7 +35,7 @@ TODO
 - Remove commit call that deletes .ki/initial (DONE)
 - Test that the sequence PULL -> EDIT -> PUSH -> PULL yields a no-op on the
   last PULL.
-- Test ``get_fetch_head_sha``.
+- Test ``get_fetch_head_sha``. (NO)
 - Test that .ki/ is in gitignore, and doesn't get committed.
 - Test that CLONE -> EDIT -> COMMIT -> PULL -> PUSH results in a nontrivial
   PUSH.
@@ -60,9 +60,9 @@ TODO
     8.  changed the note type of a card
     9.  add an image
     10. all the above operations, but with subdecks
-- Separate tests into quick and slow.
+- Separate tests into quick and slow. (NO)
 - Try working with a Japanese language deck. (DONE)
-- Test that the media folder isn't created outside the repository.
+- Test that the media folder isn't created outside the repository. (NO)
 - Test that actual merge conflicts are handled nicely.
 - Test that ki cleans up its tempdirs unless a debug flag is set. There is no
   need to backup the ephemeral repos because those commits can be checked-out.
@@ -72,7 +72,7 @@ TODO
   best). (DONE)
 - Test warnings are displayed for duplicate notes.
 - Test pure note deletion doesn't raise deprecation warning.
-- Test that push does not work if there are uncommitted changes.
+- Test that push does not work if there are uncommitted changes. (NO)
 - Test that notes get renamed and their nids modified when being added.
 - Test that pull squashes initial commit and merge if and only if there were no
   merge conflicts.
@@ -93,15 +93,16 @@ TODO
 - Test branches work as expected.
 - Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
 - Remove all beautiful soup usage. (DONE)
-- Test decknames with leadings dots and resulting collisons from stripping dots.
+- Test decknames with leadings dots and resulting collisions from stripping
+  dots.
 - Handle problem of notes with cards in distinct decks by symlinking notes,
   making the choice of where the ground-truth note lives arbitrarily (perhaps
   by choosing the deck with shortest name).
 - Test that bug is squashed: slugify filters all characters from filename
   causes files to not be put in appropriate directory. (More likely without
-  allowing UTF-8).
-- Add this for html detection https://stackoverflow.com/a/70585604
-- Do fieldnames have to be distinct within a model?
+  allowing UTF-8). (DONE)
+- Add this for html detection https://stackoverflow.com/a/70585604 (DONE)
+- Do fieldnames have to be distinct within a model? (DONE)
 - Consider writing a short vim plugin to fix syntax highlighting:
   https://stackoverflow.com/a/34645680
 
