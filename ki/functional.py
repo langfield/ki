@@ -137,7 +137,10 @@ def chdir(directory: ExtantDir) -> ExtantDir:
 
 @beartype
 def parent(path: Union[ExtantFile, ExtantDir]) -> ExtantDir:
-    """Get the parent of a path that exists."""
+    """
+    Get the parent of a path that exists.  If the path points to the filesystem
+    root, we return itself.
+    """
     if path.resolve() == FS_ROOT:
         return ExtantDir(FS_ROOT.resolve())
     return ExtantDir(path.parent)

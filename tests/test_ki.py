@@ -1484,3 +1484,9 @@ def test_ftest_handles_strange_paths(tmp_path):
         os.mkfifo("pipe")
         pipe = F.test(Path("pipe"))
         assert isinstance(pipe, ExtantStrangePath)
+
+
+def test_fparent_handles_fs_root():
+    parent = F.parent(F.test(Path("/")))
+    assert isinstance(parent, ExtantDir)
+    assert str(parent) == "/"
