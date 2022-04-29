@@ -35,8 +35,12 @@ from lark import Lark
 from loguru import logger
 from result import Result, Err, Ok, OkErr
 
-import anki
+# Required to avoid circular imports because the Anki pylib codebase is gross.
+import anki.collection
 from anki import notetypes_pb2
+from anki.utils import ids2str
+from anki.errors import NotFoundError
+from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
 
 from apy.convert import markdown_to_html, plain_to_html, html_to_markdown
@@ -87,6 +91,8 @@ from ki.types import (
     UnnamedNotetypeError,
     SQLiteLockError,
     NoteFieldKeyError,
+    MissingMediaDirectoryError,
+    MissingMediaFileWarning,
 )
 from ki.maybes import (
     GIT,
@@ -111,6 +117,7 @@ NotetypeDict = Dict[str, Any]
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
 
+MEDIA = ".media"
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -468,7 +475,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
 
 # TODO: Consider making this function return warnings instead of logging them.
 @beartype
-def display_fields_health_warning(note: anki.notes.Note) -> int:
+def display_fields_health_warning(note: Note) -> int:
     """Display warnings when Anki's fields health check fails."""
     health = note.fields_check()
     if health == 1:
@@ -699,7 +706,7 @@ def push_flatnote_to_anki(
     note: Note
     try:
         note = col.get_note(flatnote.nid)
-    except anki.errors.NotFoundError:
+    except NotFoundError:
         note = col.new_note(model_id)
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
         new = True
@@ -743,7 +750,7 @@ def push_flatnote_to_anki(
 def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
     try:
         note = col.get_note(nid)
-    except anki.errors.NotFoundError:
+    except NotFoundError:
         return Err(MissingNoteIdError(nid))
     notetype: OkErr = parse_notetype_dict(note.note_type())
 
@@ -797,10 +804,111 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
+@beartype
+def get_media_files(
+    col: Collection,
+) -> Result[Set[Union[ExtantFile, Warning]], Exception]:
+    """
+    Get a list of extant media files used in notes and notetypes.
+
+    Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
+    `AnkiExporter.exportInto()` function.
+    """
+
+    # Find cards.
+    exporter = AnkiExporter(col)
+    cids = exporter.cardIds()
+
+    # Copy cards, noting used nids.
+    nids = {}
+    for row in col.db.execute("select * from cards where id in " + ids2str(cids)):
+
+        # Clear flags.
+        row = list(row)
+        row[-2] = 0
+        nids[row[1]] = True
+
+    # All note ids as a string for the SQL query.
+    strnids = ids2str(list(nids.keys()))
+
+    # This is the path to the media directory. In the original implementation
+    # of `AnkiExporter.exportInto()`, there is check made of the form `if
+    # self.mediaDir:` before doing path manipulation with this string.
+    # Examining the `__init__()` function of `MediaManager`, we can see that
+    # `col.media.dir()` will only be `None` in the case where `server=True` is
+    # passed to the `Collection` constructor. But since we do the construction
+    # within ki, we have a guarantee that this will never be true, and thus we
+    # can assume it is a nonempty string, which is all we need for the
+    # following code to be safe.
+    media_dir = F.test(Path(col.media.dir()))
+    if not isinstance(media_dir, ExtantDir):
+        return Err(MissingMediaDirectoryError(col.col_path, media_dir))
+
+    # Find only used media files, collecting warnings for bad paths.
+    media: Set[Union[ExtantFile, Warning]] = set()
+
+    for row in col.db.all("select * from notes where id in " + strnids):
+        flds = row[6]
+        mid = row[2]
+        for file in col.media.files_in_str(mid, flds):
+
+            # Skip files in subdirs.
+            if file != os.path.basename(file):
+                continue
+            media_file = F.test(media_dir / file)
+            if isinstance(media_file, ExtantFile):
+                media.add(media_file)
+            else:
+                media.add(MissingMediaFileWarning(col.col_path, media_file))
+
+    mids = col.db.list("select distinct mid from notes where id in " + strnids)
+
+    # Get all media files used in notetype templates.
+    for fname in os.listdir(media_dir):
+        path = os.path.join(media_dir, fname)
+        if os.path.isdir(path):
+            continue
+
+        # Notetype template media files are *always* prefixed by underscores.
+        if fname.startswith("_"):
+
+            # Scan all models in mids for reference to fname.
+            for m in col.models.all():
+                if int(m["id"]) in mids:
+                    if _modelHasMedia(m, fname):
+                        media_file = F.test(media_dir / fname)
+                        if isinstance(media_file, ExtantFile):
+                            media.add(media_file)
+                        else:
+                            media.add(MissingMediaFileWarning(col.col_path, media_file))
+                        break
+
+    return Ok(media)
+
+
+@beartype
+def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
+    """
+    Check if a notetype has media.
+
+    Adapted from `anki.exporting.AnkiExporter._modelHasMedia()`, which is an
+    instance method, but does not make any use of `self`, and so could be a
+    staticmethod. It is a pure function.
+    """
+    # First check the styling
+    if fname in model["css"]:
+        return True
+    # If no reference to fname then check the templates as well
+    for t in model["tmpls"]:
+        if fname in t["qfmt"] or fname in t["afmt"]:
+            return True
+    return False
+
+
 @monadic
 @beartype
 def write_repository(
-    col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, silent: bool
+    col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, media_dir: EmptyDir, silent: bool
 ) -> Result[bool, Exception]:
     """Write notes to appropriate directories in `targetdir`."""
 
@@ -843,6 +951,21 @@ def write_repository(
         col.close(save=False)
         return tidied
     wrote: OkErr = write_decks(col, targetdir, decks, tidy_field_files)
+    if wrote.is_err():
+        return wrote
+
+    medias: OkErr = get_media_files(col)
+    if medias.is_err():
+        return medias
+    medias: Set[Union[ExtantFile, Warning]] = medias.unwrap()
+    warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
+    media_files = {f for f in medias if isinstance(f, ExtantFile)}
+
+    for warning in warnings:
+        echo(str(warning))
+
+    for media_file in media_files:
+        F.copyfile(media_file, media_dir, media_file.name)
 
     # TODO: Replace with frmtree.
     shutil.rmtree(root)
@@ -1230,7 +1353,12 @@ def _clone(
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
+    root_leaves: OkErr = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
+    if root_leaves.is_err():
+        return root_leaves
+    root_leaves: Leaves = root_leaves.unwrap()
+    ki_dir = root_leaves.dirs[KI]
+    media_dir = root_leaves.dirs[MEDIA]
 
     # Populate the .ki subdirectory with empty metadata files.
     leaves: OkErr = F.fmkleaves(
@@ -1255,7 +1383,7 @@ def _clone(
     # This would be very bad for speed, because gitpython calls have quite a
     # bit of overhead sometimes (although maybe not for `Repo.init()` calls,
     # since they aren't networked).
-    wrote: OkErr = write_repository(col_file, targetdir, leaves, silent)
+    wrote: OkErr = write_repository(col_file, targetdir, leaves, media_dir, silent)
     if wrote.is_err():
         return wrote
 
@@ -1463,7 +1591,14 @@ def push() -> Result[bool, Exception]:
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
 
     return push_deltas(
-        deltas, models, kirepo, md5sum, parser, transformer, stage_kirepo, con,
+        deltas,
+        models,
+        kirepo,
+        md5sum,
+        parser,
+        transformer,
+        stage_kirepo,
+        con,
     )
 
 

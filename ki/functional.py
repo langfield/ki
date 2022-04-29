@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Type-safe, non Anki-specific functions."""
 
+# pylint: disable=import-self
+
 import os
 import re
 import shutil
@@ -289,4 +291,5 @@ def fmkleaves(
 
 @beartype
 def kirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
+    """Convert a ki repository commit ref to a git repository commit ref."""
     return RepoRef(kirepo_ref.kirepo.repo, kirepo_ref.sha)

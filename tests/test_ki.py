@@ -34,6 +34,7 @@ from ki import (
     DELETED_SUFFIX,
     IGNORE,
     KI,
+    MEDIA,
     HASHES_FILE,
     MODELS_FILE,
     CONFIG_FILE,
@@ -113,6 +114,12 @@ ORIG_COLLECTION_FILENAME = "original.anki2"
 EDITED_COLLECTION_FILENAME = "edited.anki2"
 MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
 HTML_COLLECTION_FILENAME = "html.anki2"
+MEDIA_COLLECTION_FILENAME = "media.anki2"
+MEDIA_MEDIA_DIRNAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media"
+MEDIA_MEDIA_DB_FILENAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
+
+
+
 COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
 )
@@ -125,6 +132,12 @@ MULTIDECK_COLLECTION_PATH = os.path.abspath(
 HTML_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, HTML_COLLECTION_FILENAME)
 )
+MEDIA_COLLECTION_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, MEDIA_COLLECTION_FILENAME)
+)
+MEDIA_MEDIA_DIRECTORY_PATH = os.path.abspath(os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DIRNAME))
+MEDIA_MEDIA_DB_PATH = os.path.abspath(os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DB_FILENAME))
+
 GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
@@ -295,6 +308,20 @@ def get_html_col_file() -> ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
     shutil.copyfile(HTML_COLLECTION_PATH, col_file)
+    return F.test(Path(col_file))
+
+
+@beartype
+def get_media_col_file() -> ExtantFile:
+    """Put `media.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    col_file = os.path.abspath(os.path.join(tempdir, MEDIA_COLLECTION_FILENAME))
+    media_dir = os.path.abspath(os.path.join(tempdir, MEDIA_MEDIA_DIRNAME))
+    media_db = os.path.abspath(os.path.join(tempdir, MEDIA_MEDIA_DB_FILENAME))
+    shutil.copyfile(MEDIA_COLLECTION_PATH, col_file)
+    shutil.copytree(MEDIA_MEDIA_DIRECTORY_PATH, media_dir)
+    shutil.copyfile(MEDIA_MEDIA_DB_PATH, media_db)
     return F.test(Path(col_file))
 
 
@@ -1044,13 +1071,14 @@ def test_write_repository_generates_deck_tree_correctly():
         targetdir = F.test(Path(MULTIDECK_REPODIR))
         targetdir = F.mkdir(targetdir)
         ki_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
         )
 
-        write_repository(col_file, targetdir, leaves, silent=False)
+        write_repository(col_file, targetdir, leaves, media_dir, silent=False)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
@@ -1072,12 +1100,13 @@ def test_write_repository_handles_html():
 
         targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
         ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
         )
-        write_repository(col_file, targetdir, leaves, silent=False).unwrap()
+        write_repository(col_file, targetdir, leaves, media_dir, silent=False).unwrap()
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text()
@@ -1096,6 +1125,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
 
         targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
         ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1106,7 +1136,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
             "ki.get_colnote", return_value=Err(NoteFieldKeyError("'bad_field_key'", 0))
         )
         error: Exception = write_repository(
-            col_file, targetdir, leaves, silent=False
+            col_file, targetdir, leaves, media_dir, silent=False
         ).unwrap_err()
         assert isinstance(error, Exception)
         assert isinstance(error, NoteFieldKeyError)
@@ -1299,6 +1329,7 @@ def test_maybe_head_kirepo_ref():
         targetdir = F.test(Path("collection"))
         silent = False
         ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
+        media_dir = F.mkdir(F.test(targetdir / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1307,7 +1338,7 @@ def test_maybe_head_kirepo_ref():
         md5sum = F.md5(col_file)
         ignore_path = targetdir / GITIGNORE_FILE
         ignore_path.write_text(".ki/\n")
-        write_repository(col_file, targetdir, leaves, silent).unwrap()
+        write_repository(col_file, targetdir, leaves, media_dir, silent).unwrap()
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
         _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
         append_md5sum(ki_dir, col_file.name, md5sum, silent)

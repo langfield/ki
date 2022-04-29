@@ -390,7 +390,7 @@ class PathCreationCollisionError(Exception):
     @beartype
     def __init__(self, root: ExtantDir, token: str):
         header = "Collision in children names for population of empty directory "
-        header +=f"'{root}':"
+        header += f"'{root}':"
         msg = f"""
         Attempted to create two children (files or directories) of the empty
         directory specified above with the same name ('{token}'). This should
@@ -399,6 +399,21 @@ class PathCreationCollisionError(Exception):
         directory, whose contents all ought to be distinct.
         """
         super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class MissingMediaDirectoryError(Warning):
+    @beartype
+    def __init__(self, col_path: str, media_dir: Path):
+        top = f"Missing or bad Anki collection media directory '{media_dir}' "
+        top += f"while processing collection '{col_path}':"
+        msg = """
+        This should *never* happen, as Anki generates a media directory at the
+        relevant location whenever a `Collection` object is instantiated.  It
+        is possible that the collection's containing directory was manually
+        tampered with, or an old version of Anki incompatible with ki is
+        installed.
+        """
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
 
 
 # WARNINGS
@@ -454,5 +469,20 @@ class DiffTargetFileNotFoundWarning(Warning):
         return a 'Warning' instead of an 'Exception' in order to avoid
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
+        """
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+
+
+class MissingMediaFileWarning(Warning):
+    @beartype
+    def __init__(self, col_path: str, media_file: Path):
+        top = f"Missing or bad media file '{media_file}' "
+        top += f"while processing collection '{col_path}':"
+        msg = """
+        Expected an extant file at the location specified above, but got a
+        '{type(media_file)}'. This may indicate a corrupted Anki collection, as
+        all media filenames present in note fields should correspond to extant
+        files within the media directory (usually called 'collection.media/'
+        within the relevant Anki user profile directory).
         """
         super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))

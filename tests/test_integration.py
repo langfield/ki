@@ -67,6 +67,7 @@ from tests.test_ki import (
     get_col_file,
     get_multideck_col_file,
     get_html_col_file,
+    get_media_col_file,
     is_git_repo,
     randomly_swap_1_bit,
     checksum_git_repository,
@@ -586,6 +587,18 @@ def test_clone_directory_argument_works():
         # Clone collection in cwd.
         clone(runner, col_file, target)
         assert os.path.isdir(target)
+
+
+def test_clone_writes_media_files():
+    """Does clone copy media files from the media directory into '.media/'?"""
+    col_file = get_media_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        clone(runner, col_file)
+        dot_media_path = Path("media") / ".media"
+        audio_path = dot_media_path / "1sec.mp3"
+        assert dot_media_path.is_dir()
+        assert audio_path.is_file()
 
 
 # PULL
