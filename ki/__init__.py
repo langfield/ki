@@ -807,6 +807,7 @@ def get_header_lines(colnote) -> List[str]:
 @beartype
 def get_media_files(
     col: Collection,
+    nids: Set[int],
 ) -> Result[Set[Union[ExtantFile, Warning]], Exception]:
     """
     Get a list of extant media files used in notes and notetypes.
@@ -815,21 +816,8 @@ def get_media_files(
     `AnkiExporter.exportInto()` function.
     """
 
-    # Find cards.
-    exporter = AnkiExporter(col)
-    cids = exporter.cardIds()
-
-    # Copy cards, noting used nids.
-    nids = {}
-    for row in col.db.execute("select * from cards where id in " + ids2str(cids)):
-
-        # Clear flags.
-        row = list(row)
-        row[-2] = 0
-        nids[row[1]] = True
-
     # All note ids as a string for the SQL query.
-    strnids = ids2str(list(nids.keys()))
+    strnids = ids2str(list(nids))
 
     # This is the path to the media directory. In the original implementation
     # of `AnkiExporter.exportInto()`, there is check made of the form `if
@@ -938,6 +926,8 @@ def write_repository(
     col = Collection(col_file)
     F.chdir(cwd)
 
+    # Query all note ids, get the deck from each note, and construct a map
+    # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
     for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
         colnote: OkErr = get_colnote(col, nid)
@@ -961,7 +951,7 @@ def write_repository(
     if wrote.is_err():
         return wrote
 
-    medias: OkErr = get_media_files(col)
+    medias: OkErr = get_media_files(col, set(all_nids))
     if medias.is_err():
         return medias
     medias: Set[Union[ExtantFile, Warning]] = medias.unwrap()
@@ -981,7 +971,6 @@ def write_repository(
     return Ok()
 
 
-# TODO: Add a test for bug described in docstring.
 @monadic
 @beartype
 def write_decks(
@@ -991,14 +980,6 @@ def write_decks(
     tidy_field_files: Dict[str, ExtantFile],
 ) -> Result[bool, Exception]:
     """
-    There is a bug in 'write_decks()'. The sorting of deck names is done by
-    length, in reverse, which means we start from the deepest, most specific
-    decks, and end up at the root. I.e. We are traversing up a tree from the
-    leaves to the root. Previously (see earlier commits), we simply accumulated
-    all model ids and wrote the entire list (so far) to each deck's model.json
-    file. But this is actually wrong, because if we have two subtrees, the one
-    with larger height may have its model ids end up in the other. Since we're
-    sorting by string length, it's a very imprecise, wrong way to do things.
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
     model ids of the children in each node. For this, we must construct a tree
@@ -1016,11 +997,16 @@ def write_decks(
     with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
         json.dump(models_map, f, ensure_ascii=False, indent=4)
 
+    # Note that this is reasonably efficient, since each nid appears in exactly
+    # one deck. So if there is an nid in a deck `Deck::Subdeck`, then it will
+    # appear in `Deck::Subdeck`, but not `Deck` in the `decks` map.
     for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
         deck_dir: ExtantDir = create_deck_dir(deck_name, targetdir)
         model_ids: Set[int] = set()
         deck: List[ColNote] = decks[deck_name]
+        nids: Set[int] = set()
         for colnote in deck:
+            nids.add(colnote.n.id)
             model_ids.add(colnote.notetype.id)
             notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
             payload: str = get_note_payload(colnote, tidy_field_files)
@@ -1030,6 +1016,18 @@ def write_decks(
         deck_models_map = {mid: models_map[mid] for mid in model_ids}
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+
+        # Write media files for this deck.
+        medias: Set[Union[ExtantFile, Warning]] = get_media_files(col, nids).unwrap()
+        warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
+        media_files = {f for f in medias if isinstance(f, ExtantFile)}
+
+        for warning in warnings:
+            echo(str(warning))
+
+        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        for media_file in media_files:
+            F.copyfile(media_file, deck_media_dir, media_file.name)
 
     return Ok()
 

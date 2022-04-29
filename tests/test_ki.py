@@ -1617,7 +1617,8 @@ def test_get_media_files_returns_nice_errors():
         media_dir = col_file.parent / (str(col_file.stem) + ".media")
         shutil.rmtree(media_dir)
 
-        error = get_media_files(col).unwrap_err()
+        nids = set(col.find_notes(query=""))
+        error = get_media_files(col, nids).unwrap_err()
         assert isinstance(error, MissingMediaDirectoryError)
         assert "media.media" in str(error)
         assert "bad Anki collection media directory" in str(error)
@@ -1658,7 +1659,8 @@ def test_get_media_files_finds_notetype_media():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        medias = get_media_files(col).unwrap()
+        nids = set(col.find_notes(query=""))
+        medias = get_media_files(col, nids).unwrap()
         media_files = {f for f in medias if isinstance(f, ExtantFile)}
         assert len(media_files) == 2
         media_files = sorted(list(media_files))
