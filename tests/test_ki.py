@@ -153,7 +153,11 @@ MEDIA_REPODIR = os.path.splitext(MEDIA_COLLECTION_FILENAME)[0]
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
+MEDIA_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "media/"))
 SUBMODULE_DIRNAME = "submodule"
+
+MEDIA_FILENAME = "bullhorn-lg.png"
+MEDIA_FILE_PATH = os.path.join(MEDIA_PATH, MEDIA_FILENAME)
 
 NOTE_0 = "Default/a.md"
 NOTE_1 = "Default/f.md"
@@ -162,6 +166,7 @@ NOTE_3 = "note 3.md"
 NOTE_4 = "Default/c.md"
 NOTE_5 = "alpha_nid.md"
 NOTE_6 = "no_nid.md"
+MEDIA_NOTE = "air.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
 NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
@@ -170,6 +175,7 @@ NOTE_3_PATH = os.path.join(NOTES_PATH, NOTE_3)
 NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
 NOTE_5_PATH = os.path.join(NOTES_PATH, NOTE_5)
 NOTE_6_PATH = os.path.join(NOTES_PATH, NOTE_6)
+MEDIA_NOTE_PATH = os.path.join(NOTES_PATH, MEDIA_NOTE)
 
 NOTE_0_ID = 1645010162168
 NOTE_4_ID = 1645027705329

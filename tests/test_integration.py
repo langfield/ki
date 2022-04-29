@@ -23,6 +23,7 @@ from beartype.typing import List
 import ki
 import ki.maybes as M
 import ki.functional as F
+from ki import MEDIA
 from ki.types import (
     KiRepo,
     RepoRef,
@@ -60,6 +61,11 @@ from tests.test_ki import (
     NOTE_3_PATH,
     NOTE_0_ID,
     NOTE_4_ID,
+    MEDIA_NOTE,
+    MEDIA_NOTE_PATH,
+    MEDIA_REPODIR,
+    MEDIA_FILE_PATH,
+    MEDIA_FILENAME,
     invoke,
     clone,
     pull,
@@ -74,6 +80,7 @@ from tests.test_ki import (
     get_notes,
     get_repo_with_submodules,
 )
+
 
 PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING = 14
 PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 16
@@ -1373,3 +1380,33 @@ def test_push_handles_submodules(tmp_path):
         notes: List[Note] = [colnote.n for colnote in colnotes]
         assert len(notes) == 3
         assert "<br />z<br />" in notes[0]["Back"]
+
+
+def test_push_writes_media(tmp_path):
+    col_file = get_media_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, col_file)
+        root = F.cwd()
+        media_note_path = root / MEDIA_REPODIR / "Default" / MEDIA_NOTE
+        media_file_path = root / MEDIA_REPODIR / "Default" / MEDIA / MEDIA_FILENAME
+        shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
+        shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
+        os.chdir(MEDIA_REPODIR)
+        repo = git.Repo(F.cwd())
+        repo.git.add(all=True)
+        repo.index.commit("Add air.md")
+        out = push(runner)
+        logger.debug(out)
+        os.chdir("../")
+        shutil.rmtree(MEDIA_REPODIR)
+        out = clone(runner, col_file)
+        logger.debug(out)
+
+        col = open_collection(col_file)
+        check = col.media.check()
+        logger.debug(os.listdir(Path(MEDIA_REPODIR) / "Default"))
+        assert os.path.isfile(Path(MEDIA_REPODIR) / "Default" / MEDIA_NOTE)
+        assert col.media.have(MEDIA_FILENAME)
+        assert len(check.missing) == 0
+        assert len(check.unused) == 0

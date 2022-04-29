@@ -138,11 +138,13 @@ Media writes. (DONE)
 Create a `.media` directory recursively in each deck directory. (DONE)
 Fix logic in `write_repository()` so that we use the deck tree to construct a
   list of relevant colnotes instead of using a global list of all nids to
-  construct a mapping from deck names to lists of colnotes.
+  construct a mapping from deck names to lists of colnotes. (DONE)
 Add test for above that checks that a `models.json` file and a `.media`
   directory are created for every deck, even if all its cards are contained in
   subdecks.
-Add media files back to collection in during `push()` calls.
+Add media files back to collection in during `push()` calls. (DONE)
+Add test to make sure that pushing new media files that have the same filenames
+  as existing media files in the collection doesn't break paths in note fields.
 Persistent note ids across pulls
 
 

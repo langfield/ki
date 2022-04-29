@@ -131,6 +131,7 @@ DELETED_SUFFIX = Path("ki/deleted")
 FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
+MEDIA_FILE_RECURSIVE_PATTERN = "**/.media/*"
 
 MD = ".md"
 FAILED = "Failed: exiting."
@@ -1686,6 +1687,7 @@ def push() -> Result[bool, Exception]:
         md5sum,
         parser,
         transformer,
+        head_kirepo,
         stage_kirepo,
         con,
     )
@@ -1700,6 +1702,7 @@ def push_deltas(
     md5sum: str,
     parser: Lark,
     transformer: NoteTransformer,
+    head_kirepo: KiRepo,
     stage_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> Result[bool, Exception]:
@@ -1826,6 +1829,20 @@ def push_deltas(
     backup(kirepo)
     new_col_file = F.copyfile(new_col_file, F.parent(kirepo.col_file), col_name)
     echo(f"Overwrote '{kirepo.col_file}'")
+
+    # Add media files to collection.
+    col = Collection(kirepo.col_file)
+    for media_file in F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN):
+
+        # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
+        # deduplication, and fixes fields for notes that reference that media.
+
+        # Possibly renamed media path.
+        media_path: str = col.media.add_file(media_file)
+        logger.debug(f"{media_file}")
+        logger.debug(f"{media_path}")
+
+    col.close(save=True)
 
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
