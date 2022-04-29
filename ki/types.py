@@ -478,7 +478,7 @@ class MissingMediaFileWarning(Warning):
     def __init__(self, col_path: str, media_file: Path):
         top = f"Missing or bad media file '{media_file}' "
         top += f"while processing collection '{col_path}':"
-        msg = """
+        msg = f"""
         Expected an extant file at the location specified above, but got a
         '{type(media_file)}'. This may indicate a corrupted Anki collection, as
         all media filenames present in note fields should correspond to extant

@@ -80,6 +80,7 @@ from ki import (
     push_flatnote_to_anki,
     get_models_recursively,
     append_md5sum,
+    get_media_files,
 )
 from ki.types import (
     Leaves,
@@ -99,6 +100,8 @@ from ki.types import (
     PathCreationCollisionError,
     ExpectedDirectoryButGotFileError,
     GitHeadRefNotFoundError,
+    MissingMediaDirectoryError,
+    MissingMediaFileWarning,
 )
 from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
@@ -146,6 +149,7 @@ MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
 HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
+MEDIA_REPODIR = os.path.splitext(MEDIA_COLLECTION_FILENAME)[0]
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
@@ -1600,3 +1604,63 @@ def test_fmkleaves_handles_collisions(tmp_path):
         assert isinstance(error, PathCreationCollisionError)
         assert "'a'" in str(error)
         assert len(os.listdir(".")) == 0
+
+
+def test_get_media_files_returns_nice_errors():
+    """Does `get_media_files()` handle case where media directory doesn't exist?"""
+    col_file: ExtantFile = get_media_col_file()
+    col: Collection = open_collection(col_file)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Remove the media directory.
+        media_dir = col_file.parent / (str(col_file.stem) + ".media")
+        shutil.rmtree(media_dir)
+
+        error = get_media_files(col).unwrap_err()
+        assert isinstance(error, MissingMediaDirectoryError)
+        assert "media.media" in str(error)
+        assert "bad Anki collection media directory" in str(error)
+
+
+def test_write_repository_displays_missing_media_warnings(capfd):
+    col_file: ExtantFile = get_media_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        targetdir = F.test(Path(MEDIA_REPODIR))
+        targetdir = F.mkdir(targetdir)
+        ki_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / KI))
+        media_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / MEDIA))
+        leaves: OkErr = F.fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        )
+
+        # Remove the contents of the media directory.
+        col_media_dir = F.test(col_file.parent / (str(col_file.stem) + ".media"))
+        for path in col_media_dir.iterdir():
+            if path.is_file():
+                os.remove(path)
+
+        write_repository(col_file, targetdir, leaves, media_dir, silent=False).unwrap()
+
+        captured = capfd.readouterr()
+        assert "Missing or bad media file" in captured.out
+        assert "media.media/1sec.mp3" in captured.out
+
+
+def test_get_media_files_finds_notetype_media():
+    """Does `get_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
+    col_file: ExtantFile = get_media_col_file()
+    col: Collection = open_collection(col_file)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        medias = get_media_files(col).unwrap()
+        media_files = {f for f in medias if isinstance(f, ExtantFile)}
+        assert len(media_files) == 2
+        media_files = sorted(list(media_files))
+        von_neumann: ExtantFile = media_files[1]
+        assert "_vonNeumann" in str(von_neumann)

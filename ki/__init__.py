@@ -842,7 +842,7 @@ def get_media_files(
     # following code to be safe.
     media_dir = F.test(Path(col.media.dir()))
     if not isinstance(media_dir, ExtantDir):
-        return Err(MissingMediaDirectoryError(col.col_path, media_dir))
+        return Err(MissingMediaDirectoryError(col.path, media_dir))
 
     # Find only used media files, collecting warnings for bad paths.
     media: Set[Union[ExtantFile, Warning]] = set()
@@ -859,7 +859,7 @@ def get_media_files(
             if isinstance(media_file, ExtantFile):
                 media.add(media_file)
             else:
-                media.add(MissingMediaFileWarning(col.col_path, media_file))
+                media.add(MissingMediaFileWarning(col.path, media_file))
 
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
@@ -876,11 +876,14 @@ def get_media_files(
             for m in col.models.all():
                 if int(m["id"]) in mids:
                     if _modelHasMedia(m, fname):
+
+                        # If the path referenced by `fname` doesn't exist or is
+                        # not a file, we do not display a warning or return an
+                        # error. This path certainly ought to exist, since
+                        # `fname` was obtained from an `os.listdir()` call.
                         media_file = F.test(media_dir / fname)
                         if isinstance(media_file, ExtantFile):
                             media.add(media_file)
-                        else:
-                            media.add(MissingMediaFileWarning(col.col_path, media_file))
                         break
 
     return Ok(media)
@@ -975,9 +978,10 @@ def write_repository(
     shutil.rmtree(root)
     col.close(save=False)
 
-    return wrote
+    return Ok()
 
 
+# TODO: Add a test for bug described in docstring.
 @monadic
 @beartype
 def write_decks(
