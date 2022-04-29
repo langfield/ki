@@ -66,6 +66,7 @@ from tests.test_ki import (
     MEDIA_REPODIR,
     MEDIA_FILE_PATH,
     MEDIA_FILENAME,
+    SPLIT_REPODIR,
     invoke,
     clone,
     pull,
@@ -74,6 +75,7 @@ from tests.test_ki import (
     get_multideck_col_file,
     get_html_col_file,
     get_media_col_file,
+    get_split_col_file,
     is_git_repo,
     randomly_swap_1_bit,
     checksum_git_repository,
@@ -606,6 +608,15 @@ def test_clone_writes_media_files():
         audio_path = dot_media_path / "1sec.mp3"
         assert dot_media_path.is_dir()
         assert audio_path.is_file()
+
+
+def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
+    col_file = get_split_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        clone(runner, col_file)
+        assert os.path.islink(Path(SPLIT_REPODIR) / "top" / "b" / "a.md")
+        assert os.path.isfile(Path(SPLIT_REPODIR) / "top" / "a" / "a.md")
 
 
 # PULL

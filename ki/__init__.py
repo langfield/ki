@@ -76,6 +76,7 @@ from ki.types import (
     KiRepoRef,
     RepoRef,
     Leaves,
+    WrittenNoteFile,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -286,9 +287,6 @@ def unsubmodule_repo(repo: git.Repo) -> None:
     """
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
-
-        # Untrack, remove gitmodules file, remove .git file, and add directory back.
-        sm.update()
 
         # Guaranteed to exist by gitpython.
         sm_path = Path(sm.module().working_tree_dir)
@@ -956,7 +954,7 @@ def write_repository(
     if tidied.is_err():
         col.close(save=False)
         return tidied
-    wrote: OkErr = write_decks(col, targetdir, colnotes, tidy_field_files)
+    wrote: OkErr = write_decks(col, targetdir, colnotes, tidy_field_files, silent)
     if wrote.is_err():
         return wrote
 
@@ -987,6 +985,7 @@ def write_decks(
     targetdir: ExtantDir,
     colnotes: Dict[int, ColNote],
     tidy_field_files: Dict[str, ExtantFile],
+    silent: bool, 
 ) -> Result[bool, Exception]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -1043,12 +1042,19 @@ def write_decks(
         traversal += [node]
         return traversal
 
-    # A map sending nids for which we have already written content to disk to
-    # the associated extant files.
-    written: Dict[int, ExtantFile] = {}
+    # All card ids we've already processed.
+    written_cids: Set[int] = set()
+
+    # Map nids we've already written files for to a dataclass containing:
+    # - the corresponding `ExtantFile`
+    # - the deck id of the card for which we wrote it
+    #
+    # This deck id identifies the deck corresponding to the location where all
+    # the symlinks should point.
+    written_notes: Dict[int, WrittenNoteFile] = {}
 
     # TODO: This block is littered with unsafe code. Fix.
-    for node in postorder(root):
+    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent):
 
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
@@ -1083,18 +1089,45 @@ def write_decks(
             if cid not in children:
                 continue
 
+            # We only even consider writing *anything* (file or symlink) to
+            # disk after checking that we haven't already processed this
+            # particular card id. If we have, then we only need to bother with
+            # the cumulative stuff above (nids and mids, which we keep track of
+            # in order to write out models and media).
+            #
+            # TODO: This fixes a very serious bug. Write a test to capture the
+            # issue. Use the Japanese Core 2000 deck as a template if needed.
+            if cid in written_cids:
+                continue
+            written_cids.add(cid)
+
             # We only write the payload if we haven't seen this note before.
             # Otherwise, this must be a different card generated from the same
             # note, so we symlink to the location where we've already written
             # it to disk.
             colnote: ColNote = colnotes[card.nid]
-            notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
-            if card.nid not in written:
+
+            # TODO: See if this indentation can be restructured.
+            if card.nid not in written_notes:
+                note_path: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
                 payload: str = get_note_payload(colnote, tidy_field_files)
-                notepath.write_text(payload, encoding="UTF-8")
-                written[card.nid] = notepath
+                note_path.write_text(payload, encoding="UTF-8")
+                written_notes[card.nid] = WrittenNoteFile(did, note_path)
             else:
-                notepath.symlink_to(written[card.nid])
+                # If `card` is in the same deck as the card we wrote `written`
+                # for, then there is no need to create a symlink, because the
+                # note file is already there, in the correct deck directory.
+                #
+                # TODO: This fixes a very serious bug. Write a test to capture the
+                # issue. Use the Japanese Core 2000 deck as a template if needed.
+                written: WrittenNoteFile = written_notes[card.nid]
+                if card.did == written.did:
+                    continue
+
+                # TODO: Mildly unsafe, consider writing an `F.symlink()` function.
+                note_path: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
+                note_path: NoPath = F.unlink(note_path)
+                note_path.symlink_to(written_notes[card.nid].file)
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
@@ -1814,7 +1847,7 @@ def push_deltas(
             # calls make a remote fetch which takes an extremely long time,
             # and the user should have run `git submodule update`
             # themselves anyway.
-            subrepo: git.Repo = sm.update().module()
+            subrepo: git.Repo = sm.module()
             subrepo.git.add(all=True)
             subrepo.index.commit(msg)
 

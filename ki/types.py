@@ -187,6 +187,13 @@ class Leaves:
     files: Dict[str, ExtantFile]
     dirs: Dict[str, EmptyDir]
 
+@beartype
+@dataclass(frozen=True)
+class WrittenNoteFile:
+    """Store a written file and its primary deck id."""
+    did: int
+    file: ExtantFile
+
 
 # EXCEPTIONS
 

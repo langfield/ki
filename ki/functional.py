@@ -100,6 +100,13 @@ def touch(directory: ExtantDir, name: str) -> ExtantFile:
 
 
 @beartype
+def unlink(file: ExtantFile) -> NoPath:
+    """Unlink a file."""
+    file.unlink()
+    return NoPath(file.resolve())
+
+
+@beartype
 def mkdir(path: NoPath) -> EmptyDir:
     """Make a directory (with parents)."""
     path.mkdir(parents=True)

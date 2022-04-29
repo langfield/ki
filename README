@@ -105,6 +105,14 @@ TODO
 - Do fieldnames have to be distinct within a model? (DONE)
 - Consider writing a short vim plugin to fix syntax highlighting:
   https://stackoverflow.com/a/34645680
+- Fix the following issue: since the location of card files within a ki
+  repository has semantic significance, i.e. determines which deck they are in,
+  it is important that we preserve the information of where symlinks live.
+  However, when we are pushing, it is possible that because of the
+  `Path.resolve()` calls littered everywhere, we are instead seeing that all
+  cards are in a single deck, because they all resolve to the location of the
+  note file corresponding to the first cid processed in the clone operation. A
+  test should be written for this.
 
 16-April-2022
 -------------
@@ -143,6 +151,7 @@ Add test for above that checks that a `models.json` file and a `.media`
   directory are created for every deck, even if all its cards are contained in
   subdecks.
 Add media files back to collection in during `push()` calls. (DONE)
+Remove submodule update calls.
 Add test to make sure that pushing new media files that have the same filenames
   as existing media files in the collection doesn't break paths in note fields.
 Persistent note ids across pulls

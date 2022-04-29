@@ -120,6 +120,9 @@ HTML_COLLECTION_FILENAME = "html.anki2"
 MEDIA_COLLECTION_FILENAME = "media.anki2"
 MEDIA_MEDIA_DIRNAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media"
 MEDIA_MEDIA_DB_FILENAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
+SPLIT_COLLECTION_FILENAME = "split.anki2"
+SPLIT_MEDIA_DIRNAME = SPLIT_COLLECTION_FILENAME.split(".")[0] + ".media"
+SPLIT_MEDIA_DB_FILENAME = SPLIT_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
 
 
 COLLECTION_PATH = os.path.abspath(
@@ -143,6 +146,15 @@ MEDIA_MEDIA_DIRECTORY_PATH = os.path.abspath(
 MEDIA_MEDIA_DB_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DB_FILENAME)
 )
+SPLIT_COLLECTION_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, SPLIT_COLLECTION_FILENAME)
+)
+SPLIT_MEDIA_DIRECTORY_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, SPLIT_MEDIA_DIRNAME)
+)
+SPLIT_MEDIA_DB_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, SPLIT_MEDIA_DB_FILENAME)
+)
 
 GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
@@ -150,6 +162,7 @@ REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
 HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
 MEDIA_REPODIR = os.path.splitext(MEDIA_COLLECTION_FILENAME)[0]
+SPLIT_REPODIR = os.path.splitext(SPLIT_COLLECTION_FILENAME)[0]
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
@@ -337,6 +350,18 @@ def get_media_col_file() -> ExtantFile:
     shutil.copyfile(MEDIA_MEDIA_DB_PATH, media_db)
     return F.test(Path(col_file))
 
+@beartype
+def get_split_col_file() -> ExtantFile:
+    """Put `split.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    col_file = os.path.abspath(os.path.join(tempdir, SPLIT_COLLECTION_FILENAME))
+    media_dir = os.path.abspath(os.path.join(tempdir, SPLIT_MEDIA_DIRNAME))
+    media_db = os.path.abspath(os.path.join(tempdir, SPLIT_MEDIA_DB_FILENAME))
+    shutil.copyfile(SPLIT_COLLECTION_PATH, col_file)
+    shutil.copytree(SPLIT_MEDIA_DIRECTORY_PATH, media_dir)
+    shutil.copyfile(SPLIT_MEDIA_DB_PATH, media_db)
+    return F.test(Path(col_file))
 
 @beartype
 def is_git_repo(path: str) -> bool:
