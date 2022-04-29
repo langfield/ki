@@ -119,7 +119,6 @@ MEDIA_MEDIA_DIRNAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media"
 MEDIA_MEDIA_DB_FILENAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
 
 
-
 COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
 )
@@ -135,8 +134,12 @@ HTML_COLLECTION_PATH = os.path.abspath(
 MEDIA_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, MEDIA_COLLECTION_FILENAME)
 )
-MEDIA_MEDIA_DIRECTORY_PATH = os.path.abspath(os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DIRNAME))
-MEDIA_MEDIA_DB_PATH = os.path.abspath(os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DB_FILENAME))
+MEDIA_MEDIA_DIRECTORY_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DIRNAME)
+)
+MEDIA_MEDIA_DB_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DB_FILENAME)
+)
 
 GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")

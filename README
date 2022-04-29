@@ -130,8 +130,13 @@ Write tests for all ki functions. (DONE)
 28-April-2022
 -------------
 Achieve 100% test coverage. (DONE)
-Make sure all warnings and errors are actually displayed at the command line.
-Media
+Make sure all warnings and errors are actually displayed at the command line. (DONE)
+Media writes. (DONE)
+
+29-April-2022
+-------------
+Create a `.media` directory recursively in each deck directory.
+Add media files back to collection in during `push()` calls.
 Persistent note ids across pulls
 
 

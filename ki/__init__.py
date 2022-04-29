@@ -908,7 +908,11 @@ def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
 @monadic
 @beartype
 def write_repository(
-    col_file: ExtantFile, targetdir: ExtantDir, leaves: Leaves, media_dir: EmptyDir, silent: bool
+    col_file: ExtantFile,
+    targetdir: ExtantDir,
+    leaves: Leaves,
+    media_dir: EmptyDir,
+    silent: bool,
 ) -> Result[bool, Exception]:
     """Write notes to appropriate directories in `targetdir`."""
 
