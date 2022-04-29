@@ -37,8 +37,10 @@ from result import Result, Err, Ok, OkErr
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki import notetypes_pb2
+from anki.cards import Card, CardId
+from anki.decks import DeckTreeNode
 from anki.utils import ids2str
+from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
 from anki.errors import NotFoundError
 from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
@@ -109,10 +111,6 @@ from ki.monadic import monadic
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
-
-ChangeNotetypeInfo = notetypes_pb2.ChangeNotetypeInfo
-ChangeNotetypeRequest = notetypes_pb2.ChangeNotetypeRequest
-NotetypeDict = Dict[str, Any]
 
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
@@ -679,7 +677,11 @@ def append_md5sum(
 
 @beartype
 def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
-    """Construct path to deck directory and create it."""
+    """
+    Construct path to deck directory and create it, allowing the case in which
+    the directory already exists because we already created one of its
+    children, in which case this function is a no-op.
+    """
     # Strip leading periods so we don't get hidden folders.
     components = deck_name.split("::")
     components = [re.sub(r"^\.", r"", comp) for comp in components]
@@ -926,6 +928,11 @@ def write_repository(
     col = Collection(col_file)
     F.chdir(cwd)
 
+    # NOTE: New colnote-containing data structure, to be passed to
+    # `write_decks()` as an argument in replacement of `decks`, which we will
+    # eventually remove.
+    colnotes: Dict[int, ColNote] = {}
+
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
@@ -935,6 +942,7 @@ def write_repository(
             col.close(save=False)
             return colnote
         colnote: ColNote = colnote.unwrap()
+        colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
         for fieldname, fieldtext in colnote.n.items():
             if re.search(HTML_REGEX, fieldtext):
@@ -947,7 +955,7 @@ def write_repository(
     if tidied.is_err():
         col.close(save=False)
         return tidied
-    wrote: OkErr = write_decks(col, targetdir, decks, tidy_field_files)
+    wrote: OkErr = write_decks(col, targetdir, colnotes, tidy_field_files)
     if wrote.is_err():
         return wrote
 
@@ -976,7 +984,7 @@ def write_repository(
 def write_decks(
     col: Collection,
     targetdir: ExtantDir,
-    decks: Dict[str, List[ColNote]],
+    colnotes: Dict[int, ColNote],
     tidy_field_files: Dict[str, ExtantFile],
 ) -> Result[bool, Exception]:
     """
@@ -997,30 +1005,105 @@ def write_decks(
     with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
         json.dump(models_map, f, ensure_ascii=False, indent=4)
 
-    # Note that this is reasonably efficient, since each nid appears in exactly
-    # one deck. So if there is an nid in a deck `Deck::Subdeck`, then it will
-    # appear in `Deck::Subdeck`, but not `Deck` in the `decks` map.
-    for deck_name in sorted(set(decks.keys()), key=len, reverse=True):
-        deck_dir: ExtantDir = create_deck_dir(deck_name, targetdir)
-        model_ids: Set[int] = set()
-        deck: List[ColNote] = decks[deck_name]
-        nids: Set[int] = set()
-        for colnote in deck:
-            nids.add(colnote.n.id)
-            model_ids.add(colnote.notetype.id)
+    # TODO: Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
+    #
+    # This replaces the block below. It must do the following for each deck:
+    # - create the deck directory
+    # - write the models.json file
+    # - create and populate the media directory
+    # - write the note payload for each note in the correct deck, exactly once
+    #
+    # In other words, for each deck, we need to write all of its:
+    # - models
+    # - media
+    # - notes
+    #
+    # The first two are cumulative: we want the models and media of subdecks to
+    # be included in their ancestors. The notes, however, should not be
+    # cumulative. Indeed, we want each note to appear exactly once in the
+    # entire repository, making allowances for the case where a single note's
+    # cards are spread across multiple decks, in which case we must create a
+    # symlink.
+    #
+    # And actually, both of these cases are nicely taken care of for us by the
+    # `DeckManager.cids()` function, which has a `children: bool` parameter
+    # which toggles whether or not to get the card ids of subdecks or not.
+    root: DeckTreeNode = col.decks.deck_tree()
+
+    @beartype
+    def postorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+        """
+        Post-order traversal. Guarantees that we won't process a node until
+        we've processed all its children.
+        """
+        traversal: List[DeckTreeNode] = []
+        for child in node.children:
+            traversal += postorder(child)
+        traversal += [node]
+        return traversal
+
+    # A map sending nids for which we have already written content to disk to
+    # the associated extant files.
+    written: Dict[int, ExtantFile] = {}
+
+    # TODO: This block is littered with unsafe code. Fix.
+    for node in postorder(root):
+
+        # The name stored in a `DeckTreeNode` object is not the full name of
+        # the deck, it is just the 'basename'. The `postorder()` function
+        # returns a deck with `did == 0` at the end of each call, probably
+        # because this is the implicit parent deck of all top-level decks. This
+        # deck empirically always has the empty string as its name. This is
+        # likely an Anki implementation detail. As a result, we ignore any deck
+        # with empty basename. We do this as opposed to ignoring decks with
+        # `did == 0` because it seems less likely to change if the Anki devs
+        # decide to mess with the implementation. Empty deck names will always
+        # be reserved, but they might e.g. decide ``did == -1`` makes more
+        # sense.
+        did: int = node.deck_id
+        basename: str = node.name
+        if basename == "":
+            continue
+        name = col.decks.name(did)
+
+        deck_dir: ExtantDir = create_deck_dir(name, targetdir)
+        children: Set[CardId] = set(col.decks.cids(did=did, children=False))
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        descendant_nids: Set[int] = set()
+        descendant_mids: Set[int] = set()
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
+            descendant_mids.add(card.note().mid)
+
+            # Card writes should not be cumulative, so we only perform them if
+            # `cid` is the card id of a card that is in the deck corresponding
+            # to `node`, but not in any of its children.
+            if cid not in children:
+                continue
+
+            # We only write the payload if we haven't seen this note before.
+            # Otherwise, this must be a different card generated from the same
+            # note, so we symlink to the location where we've already written
+            # it to disk.
+            colnote: ColNote = colnotes[card.nid]
             notepath: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
-            payload: str = get_note_payload(colnote, tidy_field_files)
-            notepath.write_text(payload, encoding="UTF-8")
+            if card.nid not in written:
+                payload: str = get_note_payload(colnote, tidy_field_files)
+                notepath.write_text(payload, encoding="UTF-8")
+                written[card.nid] = notepath
+            else:
+                notepath.symlink_to(written[card.nid])
 
         # Write `models.json` for current deck.
-        deck_models_map = {mid: models_map[mid] for mid in model_ids}
+        deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
         # Write media files for this deck.
-        medias: Set[Union[ExtantFile, Warning]] = get_media_files(col, nids).unwrap()
+        medias: Set = get_media_files(col, descendant_nids).unwrap()
         warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
-        media_files = {f for f in medias if isinstance(f, ExtantFile)}
+        media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
 
         for warning in warnings:
             echo(str(warning))
