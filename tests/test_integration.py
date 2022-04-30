@@ -67,6 +67,7 @@ from tests.test_ki import (
     MEDIA_FILE_PATH,
     MEDIA_FILENAME,
     SPLIT_REPODIR,
+    TEST_DATA_PATH,
     invoke,
     clone,
     pull,
@@ -1183,8 +1184,8 @@ def test_push_honors_ignore_patterns():
         repo.index.commit(".")
 
         out = push(runner)
-        assert "push: Ignoring" in out
-        assert "matching pattern '.gitignore'" in out
+        assert "Warning: ignoring" in out
+        assert "matching ignore pattern '.gitignore'" in out
 
         # Add and commit a new file that is not a note.
         Path("dummy_file").touch()
@@ -1198,7 +1199,7 @@ def test_push_honors_ignore_patterns():
         # displayed if a verbosity flag is set.
         # TODO: Implement this verbosity flag.
         out = push(runner)
-        assert "push: Not Anki note" in out
+        assert "Warning: not Anki note" in out
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
@@ -1421,3 +1422,19 @@ def test_push_writes_media(tmp_path):
         assert col.media.have(MEDIA_FILENAME)
         assert len(check.missing) == 0
         assert len(check.unused) == 0
+
+
+def test_push_handles_foreign_models(tmp_path):
+    col_file = get_col_file()
+    runner = CliRunner()
+    japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, col_file)
+        shutil.copytree(japan_path, Path(REPODIR) / "Default" / "japan")
+        logger.debug(Path(REPODIR).resolve())
+        os.chdir(REPODIR)
+        repo = git.Repo(F.cwd())
+        repo.git.add(all=True)
+        repo.index.commit("japan")
+        out = push(runner)
+        logger.debug(out)

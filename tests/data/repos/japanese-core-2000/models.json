@@ -1,0 +1,148 @@
+{
+    "1342695926185": {
+        "id": 1342695926185,
+        "name": "iKnow! Vocabulary",
+        "type": 0,
+        "mod": 1385971412,
+        "usn": -1,
+        "sortf": 0,
+        "did": 1342695926336,
+        "tmpls": [
+            {
+                "name": "Listening",
+                "ord": 0,
+                "qfmt": "<span style=\"font-family: Liberation Sans; font-size: 40px;  \">Listen.{{Audio}}</span>",
+                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n<span style=\"font-family: Liberation Sans; font-size: 40px;  \">{{Expression}}<br>{{Reading}}<br>{{Meaning}}<br>{{Image_URI}}</span>",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": null,
+                "bfont": "",
+                "bsize": 0
+            },
+            {
+                "name": "Production",
+                "ord": 1,
+                "qfmt": "<span style=\"font-family: Liberation Sans; font-size: 40px;  \">{{Meaning}}<br>{{Image_URI}}</span>",
+                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n<span style=\"font-family: Liberation Sans; font-size: 40px;  \">{{Reading}}<br>{{Expression}}<br>{{Audio}}</span>",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": null,
+                "bfont": "",
+                "bsize": 0
+            },
+            {
+                "name": "Reading",
+                "ord": 2,
+                "qfmt": "<span style=\"font-family: Liberation Sans; font-size: 40px;  \">{{Expression}}</span>",
+                "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n<span style=\"font-family: Liberation Sans; font-size: 40px;  \">{{Reading}}<br>{{Meaning}}<br>{{Image_URI}}<br>{{Audio}}</span>",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": null,
+                "bfont": "",
+                "bsize": 0
+            }
+        ],
+        "flds": [
+            {
+                "name": "Expression",
+                "ord": 0,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "Meaning",
+                "ord": 1,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "Reading",
+                "ord": 2,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "Audio",
+                "ord": 3,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "Image_URI",
+                "ord": 4,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "iKnowID",
+                "ord": 5,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            },
+            {
+                "name": "iKnowType",
+                "ord": 6,
+                "sticky": false,
+                "rtl": false,
+                "font": "Arial",
+                "size": 12,
+                "description": "",
+                "media": []
+            }
+        ],
+        "css": ".card {\n font-family: arial;\n font-size: 20px;\n text-align: center;\n color: black;\n background-color: white;\n}\n\n.card1 { background-color: #ffffff; }\n.card2 { background-color: #ffffff; }\n.card3 { background-color: #ffffff; }",
+        "latexPre": "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n",
+        "latexPost": "\\end{document}",
+        "latexsvg": false,
+        "req": [
+            [
+                0,
+                "any",
+                [
+                    3
+                ]
+            ],
+            [
+                1,
+                "any",
+                [
+                    1,
+                    4
+                ]
+            ],
+            [
+                2,
+                "any",
+                [
+                    0
+                ]
+            ]
+        ],
+        "vers": [],
+        "tags": []
+    }
+}

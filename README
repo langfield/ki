@@ -115,6 +115,13 @@ TODO
   test should be written for this.
 - There is a long time before any output when adding japanese-core-2000 as a
   submodule, committing, and then pushing.
+- Test that the stuff that checks out HEAD to avoid pushing working changes
+  does so for the submodules as well. What if submodules have working changes?
+  Does this push them?
+- Investigate faster way to create ephemeral directories:
+  https://stackoverflow.com/questions/28157815/make-local-duplicate-of-local-git-repo
+- Add a full suite of submodule tests.
+- Test that adding completely foreign models works as expected.
 
 16-April-2022
 -------------

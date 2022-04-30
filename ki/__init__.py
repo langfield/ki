@@ -166,18 +166,15 @@ def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, suffix)
 
-    # Git clone `repo` at latest commit in `/tmp/.../<suffix>/<md5sum>`.
+    # Copy the entire repo into `root/`.
     repo: git.Repo = repo_ref.repo
-    branch = repo.active_branch
-    target: Path = root / md5sum
+    target: NoPath = F.test(root / md5sum)
+    ephem = git.Repo(F.copytree(F.working_dir(repo), target))
 
-    # UNSAFE: But only called here, and it should be guaranteed to work because
-    # `repo` is actually a git repository, presumably there is always an
-    # active branch, and `target` does not exist.
-    # TODO: In reality this is not safe at all, and exceptions should be
-    # caught. Cloning with submodules is fraught with danger. This may raise a
-    # `git.GitCommandError`.
-    ephem = git.Repo.clone_from(repo.working_dir, target, branch=branch, recursive=True)
+    # Annihilate the .ki subdirectory.
+    ki_dir = F.test(F.working_dir(ephem) / KI)
+    if isinstance(ki_dir, ExtantDir):
+        F.rmtree(ki_dir)
 
     # Do a reset --hard to the given SHA.
     ephem.git.reset(repo_ref.sha, hard=True)
@@ -1779,6 +1776,7 @@ def push_deltas(
 
     # Add all new models.
     for model in models.values():
+        logger.debug(f"Attempting to add model '{model.name}'")
 
         # TODO: Consider waiting to parse `models` until after the
         # `add_dict()` call.

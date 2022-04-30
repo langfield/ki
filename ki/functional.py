@@ -61,6 +61,7 @@ def rmtree(target: ExtantDir) -> NoPath:
     return NoPath(target)
 
 
+# TODO: This is unsafe, because `target` may not have an extant parent.
 @beartype
 def copytree(source: ExtantDir, target: NoPath) -> ExtantDir:
     """Call shutil.copytree()."""
