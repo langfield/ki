@@ -122,6 +122,18 @@ TODO
   https://stackoverflow.com/questions/28157815/make-local-duplicate-of-local-git-repo
 - Add a full suite of submodule tests.
 - Test that adding completely foreign models works as expected.
+- Add tests for handling of Anki's `Default` deck. Anki does some weird magic
+  with the `Default` deck. If it has subdecks, but no cards directly belong to
+  `Default`, then it appears to be removed from the tree. Ki should remove it
+  as well during pushes if necessary, so that after a `pull()` or `push()` the
+  directory tree structure *always* matches the deck tree structure. See e.g.
+  `fn hide_default_deck` and `fn remove_single_deck` in
+  `rslib/src/decks/tree.rs`.
+- Test that the directory within which a card resides is meaningful. So moving
+  a card should change its deck. This will require removing the `deck` field
+  from the grammar, which is good. We can just replace spaces with hyphens in
+  any decks we upload to github, and it will still look reasonably nice.
+- Make DB error shorter. Should just say 'database is locked'.
 
 16-April-2022
 -------------
@@ -160,7 +172,7 @@ Add test for above that checks that a `models.json` file and a `.media`
   directory are created for every deck, even if all its cards are contained in
   subdecks.
 Add media files back to collection in during `push()` calls. (DONE)
-Remove submodule update calls.
+Remove submodule update calls. (DONE)
 Add test to make sure that pushing new media files that have the same filenames
   as existing media files in the collection doesn't break paths in note fields.
 Persistent note ids across pulls
@@ -776,6 +788,19 @@ Bugs
     E           KeyError: Text
 
     ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:152: KeyError
+
+
+
+This should indicate that Anki might just have been left open.
+
+Unexpected SQLite3 error while attempting to acquire lock on file: '/home/user/.local/share/Anki2/User 2/collection.anki2':
+ A 'sqlite3.DatabaseError' was raised with error message: 'database
+ is locked'. This may indicate that either the database file at the
+ location specified above is corrupted, or the config file at
+ '.ki/config' is pointing to the wrong location. (The latter may occur
+ in the unlikely event that the collection file in the Anki data
+ directory has been accidentally overwritten.)
+
 
 
 On making push faster
