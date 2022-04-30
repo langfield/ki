@@ -1425,13 +1425,13 @@ def test_push_writes_media(tmp_path):
 
 
 def test_push_handles_foreign_models(tmp_path):
+    """Just check that we don't return an exception from `push()`."""
     col_file = get_col_file()
     runner = CliRunner()
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
         shutil.copytree(japan_path, Path(REPODIR) / "Default" / "japan")
-        logger.debug(Path(REPODIR).resolve())
         os.chdir(REPODIR)
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)

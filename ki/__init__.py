@@ -1257,8 +1257,8 @@ def git_subprocess_pull(remote: str, branch: str) -> int:
         capture_output=True,
     )
     pull_stderr = p.stderr.decode()
-    logger.debug(f"\n{pull_stderr}")
-    logger.debug(f"Return code: {p.returncode}")
+    echo(f"\n{pull_stderr}")
+    echo(f"Return code: {p.returncode}")
     if p.returncode != 0:
         raise ValueError(pull_stderr)
     return p.returncode
@@ -1776,24 +1776,27 @@ def push_deltas(
 
     # Add all new models.
     for model in models.values():
-        logger.debug(f"Attempting to add model '{model.name}'")
+        echo(f"Adding model '{model.name}'")
 
         # TODO: Consider waiting to parse `models` until after the
         # `add_dict()` call.
-        if col.models.id_for_name(model.name) is not None:
+        #
+        # Set the model id to `0`, and then add.
+        # TODO: What happens if we try to add a model with the same name as
+        # an existing model, but the two models are not the same,
+        # content-wise?
+        nt_copy: NotetypeDict = copy.deepcopy(model.dict)
+        nt_copy["id"] = 0
+        changes: OpChangesWithId = col.models.add_dict(nt_copy)
+        nt: NotetypeDict = col.models.get(changes.id)
+        model: OkErr = parse_notetype_dict(nt)
+        if model.is_err():
+            echo(str(model.err()))
 
-            nt_copy: NotetypeDict = copy.deepcopy(model.dict)
-            nt_copy["id"] = 0
-            changes: OpChangesWithId = col.models.add_dict(nt_copy)
-            nt: NotetypeDict = col.models.get(changes.id)
-            model: OkErr = parse_notetype_dict(nt)
-            if model.is_err():
-                echo(str(model.err()))
-
-                # It is always safe to save changes to the DB, since the DB is
-                # a copy.
-                col.close(save=True)
-                return model
+            # We pass `save=True` because it is always safe to save changes
+            # to the DB, since the DB is a copy.
+            col.close(save=True)
+            return model
 
     # Gather logging statements to display.
     log: List[str] = []
