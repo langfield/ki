@@ -1536,6 +1536,7 @@ def test_push_fails_if_database_is_locked():
             out = push(runner)
 
 
+@pytest.mark.skip
 def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     """
     Does push refrain from adding a new notetype if the requested notetype
@@ -1592,7 +1593,7 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
         raise NotImplementedError
 
 
-def test_push_is_nontrivial_when_pulled_changes_are_reverted():
+def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path):
     """
     If you push, make changes in Anki, then pull those changes, then undo them
     within the ki repo, then push again, the push should *not* be a no-op. The
@@ -1601,7 +1602,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     col_file = get_col_file()
     col_copy_file = get_col_file()
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
         clone(runner, col_file)
@@ -1642,6 +1643,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
 
         # Push changes.
         out = push(runner)
+        logger.debug(f"\nPUSH2:\n{out}")
         notes = get_notes(col_file)
         notes = [colnote.n["Front"] for colnote in notes]
         logger.debug(pp.pformat(notes))

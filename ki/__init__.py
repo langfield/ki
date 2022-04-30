@@ -190,7 +190,8 @@ def get_ephemeral_kirepo(
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
-    hash.
+    hash. Copies the .ki/ directory from `kirepo_ref.kirepo` without making any
+    changes.
 
     Parameters
     ----------
@@ -283,6 +284,8 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
     UNSAFE: git.rm() calls.
     """
+    # TODO: Is there any point in making commits within this function, if we
+    # are just going to annihilate the .git/ directory immediately afterwards?
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
 
@@ -322,6 +325,7 @@ def diff_repos(
     parser: Lark,
     transformer: NoteTransformer,
 ) -> Result[List[Union[Delta, Warning]], Exception]:
+    """Diff `b_repo` at `ref` ~ `b_repo` at `HEAD`."""
     # Use a `DiffIndex` to get the changed files.
     deltas = []
     a_dir = Path(a_repo.working_dir)
@@ -1308,12 +1312,15 @@ def flatten_staging_repo(
     which, as its name suggests, is a copy of the main repository with all its
     submodules converted into directories.
 
-    This is done in order to preserve the history of
-    `.ki/no_submodules_tree/`. The staging repository can be thought of as
-    the next commit to this repo.
+    This is done in order to preserve the history of `.ki/no_submodules_tree/`.
+    The staging repository can be thought of as the next commit to this repo.
+    The repository at `no_submodules_tree/` is simply a copy of the staging
+    repository from the last time we pushed, or from the intial clone, in the
+    case where there have been no pushes yet.
 
     We return a reloaded version of the staging repository, re-read from disk.
     """
+    # Commit submodules as ordinary directories.
     unsubmodule_repo(stage_kirepo.repo)
 
     # Shutil rmtree the stage repo .git directory.
@@ -1321,7 +1328,7 @@ def flatten_staging_repo(
     stage_root: ExtantDir = stage_kirepo.root
     del stage_kirepo
 
-    # Copy the .git folder from `no_submodules_tree` into the stage repo.
+    # Copy the .git/ folder from `no_submodules_tree` into the stage repo.
     stage_git_dir = F.copytree(F.git_dir(kirepo.no_modules_repo), stage_git_dir)
     stage_root: ExtantDir = F.parent(stage_git_dir)
 
@@ -1424,6 +1431,12 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         return stage_kirepo
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
+    # Commit the changes made since the last time we pushed, since the git
+    # history of the staging repo is actually the git history of the
+    # `no_submodules_tree` (we copy the .git/ folder). This will include the
+    # unified diff of all commits to the main repo since the last push, as well
+    # as the changes we made within the `unsubmodule_repo()` call within
+    # `flatten_staging_repo()`.
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
@@ -1557,8 +1570,18 @@ def pull() -> Result[bool, Exception]:
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
-        return Ok(unlock(con))
+        return Ok()
 
+    result: OkErr = _pull(kirepo)
+    unlock(con)
+    return result
+
+
+@monadic
+@beartype
+def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
+    """Pull into `kirepo` without checking if we are already up-to-date."""
+    md5sum: str = F.md5(kirepo.col_file)
     echo(f"Pulling from '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
 
@@ -1640,7 +1663,7 @@ def pull() -> Result[bool, Exception]:
         echo(str(checksum_error))
         return Err(checksum_error)
 
-    return Ok(unlock(con))
+    return Ok()
 
 
 # PUSH
@@ -1680,23 +1703,46 @@ def push() -> Result[bool, Exception]:
         return head
     head: KiRepoRef = head.unwrap()
 
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    # Copy current kirepo into a temp directory (the STAGE), hard reset to
+    # HEAD, and flatten all submodules.
     stage_kirepo: OkErr = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
-    if stage_kirepo.is_err():
-        echo(str(stage_kirepo.err()))
-        return stage_kirepo
+
+    # Pull changes from Anki into the staging repository. At this point, we
+    # expect the state of `stage_kirepo` to *exactly* match the state of the
+    # remote collection.
+    #
+    # TODO: We have written `_pull()` so that it does *not* check whether or
+    # not the repository is already up-to-date, i.e. it doesn't check whether
+    # the md5sum has changed, and abort if it hasn't. We do this because we
+    # wish to ignore the hashes file of `stage_kirepo`, which has the md5sums
+    # corresponding to all pulls since the last push, and we want those changes
+    # now. However, this may be inefficient, because we might not have made any
+    # pulls. Removing the hashes since the last push is better, but this is
+    # complicated, and all it does is make things a bit faster, so it should be
+    # low-priority.
+    pulled: OkErr = _pull(stage_kirepo)
+    if pulled.is_err():
+        echo(str(pulled.err()))
+        return pulled
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
     # This statement cannot be any farther down because we must get a reference
-    # to HEAD *before* we commit, and then after the following line, the
-    # reference we got will be HEAD~1, hence the variable name.
+    # to HEAD *before* we commit the changes made since the last PUSH. After
+    # the following line, the reference we got will be HEAD~1, hence the
+    # variable name.
     head_1: Res[RepoRef] = M.head_repo_ref(stage_kirepo.repo)
     if head_1.is_err():
         echo(str(head_1.err()))
         return head_1
     head_1: RepoRef = head_1.unwrap()
 
+    # Commit the changes made since the last time we pushed, since the git
+    # history of the staging repo is actually the git history of the
+    # `no_submodules_tree` (we copy the .git/ folder). This will include the
+    # unified diff of all commits to the main repo since the last push, as well
+    # as the changes we made within the `unsubmodule_repo()` call within
+    # `flatten_staging_repo()`.
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
 
@@ -1716,7 +1762,13 @@ def push() -> Result[bool, Exception]:
     parser = Lark(grammar, start="file", parser="lalr")
     transformer = NoteTransformer()
 
-    # Get deltas.
+    # Get deltas from `HEAD~1` -> `HEAD` within `b_repo`. Note that `a_repo` is
+    # only used to construct paths to return within the `Delta` dataclasses. It
+    # is not used to compute diffs against. And `b_repo` is really just
+    # `stage_kirepo.repo`.
+    #
+    # TODO: Consider changing what we call `b_repo` in accordance with the
+    # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
     deltas: OkErr = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer)
@@ -1902,7 +1954,7 @@ def push_deltas(
         # deduplication, and fixes fields for notes that reference that media.
 
         # Possibly renamed media path.
-        media_path: str = col.media.add_file(media_file)
+        _: str = col.media.add_file(media_file)
 
     col.close(save=True)
 

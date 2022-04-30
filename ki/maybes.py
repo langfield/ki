@@ -12,7 +12,7 @@ from result import Result, Err, Ok, OkErr
 from beartype import beartype
 
 import anki
-from anki.collection import Collection, Note, OpChangesWithId
+from anki.collection import Collection
 
 import ki.maybes as M
 import ki.functional as F

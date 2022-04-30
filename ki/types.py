@@ -15,6 +15,8 @@ from beartype.typing import List, Dict, Any, Optional
 
 from ki.transformer import FlatNote
 
+# pylint: disable=too-many-lines
+
 NotetypeDict = Dict[str, Any]
 MODELS_FILE = "models.json"
 HINT = (
@@ -129,6 +131,8 @@ class Template:
 @dataclass(frozen=True)
 class Notetype:
     """A typechecked version of `anki.models.NotetypeDict` for use within ki."""
+
+    # pylint: disable=invalid-name
 
     id: int
     name: str
@@ -330,6 +334,9 @@ class MissingNotetypeError(Exception):
 
 # TODO: Should we also print which field ordinals *are* valid?
 class MissingFieldOrdinalError(Exception):
+
+    # pylint: disable=redefined-builtin
+
     @beartype
     def __init__(self, ord: int, model: str):
         msg = f"Field with ordinal {ord} missing from notetype '{model}'."
