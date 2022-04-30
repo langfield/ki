@@ -137,6 +137,30 @@ TODO
 - Refactor error message display logic.
 - Test that models are not duplicated unnecessarily (see bug #14).
 - Start using GitHub issues.
+- Serious bug: push logic is broken. The following sequence is an MWE:
+  CLONE
+  delete a note
+  PUSH
+  add note back inside anki
+  PULL
+  delete note again
+  PUSH
+
+  Before this last PUSH, the note exists inside anki. We've deleted it in our
+  repo, and committed the deletion, so when we push, the note should be gone
+  inside anki. But this is not what happens. Instead, it says `up to date`.
+  This is because `diff_repos()` takes the diff between the commit of our last
+  PUSH, at which point the note had been deleted, and the current HEAD, at
+  which point the note is *also* deleted. This is WRONG. What is the actual
+  diff we want? We want the diff between the REMOTE and the HEAD, and the
+  REMOTE is just the Anki collection as it sits on disk. Updates may have been
+  made to it since the last PUSH, and if we pull those changes, and then revert
+  them, these reversions will not "take", because there is no change between
+  the state at last PUSH and the state at current HEAD. And updates aren't
+  rejected because we just PULLed. So in order for the diff to be correct, we
+  must get a temp repo reset to LAST PUSH COMMIT REF, and then pull the remote
+  into that. Then our temp repo will have exactly the same state as the remote,
+  and we can diff that against the current HEAD.
 
 16-April-2022
 -------------
