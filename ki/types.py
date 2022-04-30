@@ -22,6 +22,7 @@ HINT = (
     + "hint: the Anki remote collection. Integrate the remote changes (e.g.\n"
     + "hint: 'ki pull ...') before pushing again."
 )
+ERROR_MESSAGE_WIDTH = 69
 
 
 # TYPES
@@ -195,6 +196,15 @@ class WrittenNoteFile:
     file: ExtantFile
 
 
+@beartype
+def errwrap(msg: str) -> str:
+    out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+    out = out.lstrip()
+    out = out.rstrip()
+    return out
+
+
+
 # EXCEPTIONS
 
 
@@ -202,14 +212,14 @@ class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"File not found: '{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class MissingDirectoryError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"Directory not found: '{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class ExpectedFileButGotDirectoryError(FileNotFoundError):
@@ -217,7 +227,7 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
     def __init__(self, path: Path, info: str = ""):
         msg = "A file was expected at this location, but got a directory: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class ExpectedDirectoryButGotFileError(Exception):
@@ -225,7 +235,7 @@ class ExpectedDirectoryButGotFileError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "A directory was expected at this location, but got a file: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
@@ -233,7 +243,7 @@ class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "An empty directory was expected at this location, but it is nonempty: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class StrangeExtantPathError(Exception):
@@ -242,7 +252,7 @@ class StrangeExtantPathError(Exception):
         msg = "A normal file or directory was expected, but got a weird pseudofile "
         msg += "(e.g. a socket, or a device): "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class ExpectedNonexistentPathError(FileExistsError):
@@ -251,7 +261,7 @@ class ExpectedNonexistentPathError(FileExistsError):
         msg = f"""
         Expected this path not to exist, but it does: '{path}'{info.rstrip()}
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class NotKiRepoError(Exception):
@@ -259,14 +269,14 @@ class NotKiRepoError(Exception):
     def __init__(self):
         msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
         msg += "Stopping at filesystem boundary."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class UpdatesRejectedError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class TargetExistsError(Exception):
@@ -274,14 +284,14 @@ class TargetExistsError(Exception):
     def __init__(self, target: Path):
         msg = f"fatal: destination path '{target}' already exists and is "
         msg += "not an empty directory."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class GitRefNotFoundError(Exception):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class GitHeadRefNotFoundError(Exception):
@@ -294,14 +304,14 @@ class GitHeadRefNotFoundError(Exception):
         the case, because ki repositories must be instantiated with a 'ki clone
         <collection>' command, and this command creates an initial commit.
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class CollectionChecksumError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class MissingNotetypeError(Exception):
@@ -313,7 +323,7 @@ class MissingNotetypeError(Exception):
         models file must contain definitions for all models that appear in all
         note files.
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(errwrap(msg))
 
 
 # TODO: Should we also print which field ordinals *are* valid?
@@ -321,14 +331,14 @@ class MissingFieldOrdinalError(Exception):
     @beartype
     def __init__(self, ord: int, model: str):
         msg = f"Field with ordinal {ord} missing from notetype '{model}'."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class MissingNoteIdError(Exception):
     @beartype
     def __init__(self, nid: int):
         msg = f"Failed to locate note with nid '{nid}' in Anki database."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class NotetypeMismatchError(Exception):
@@ -339,7 +349,7 @@ class NotetypeMismatchError(Exception):
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class NotetypeKeyError(Exception):
@@ -350,7 +360,7 @@ class NotetypeKeyError(Exception):
         '{MODELS_FILE}' file in the current repository (may be contained in a
         subdirectory).
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class NoteFieldKeyError(Exception):
@@ -362,7 +372,7 @@ class NoteFieldKeyError(Exception):
         `anki.notes.Note` objects on names pulled from their own notetype
         dictionary.
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class UnnamedNotetypeError(Exception):
@@ -373,7 +383,7 @@ class UnnamedNotetypeError(Exception):
         a '{MODELS_FILE}' file in the current repository (may be
         contained in a subdirectory):
         """
-        msg = textwrap.fill(textwrap.dedent(msg), width=80)
+        msg = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
         super().__init__(msg + "\n" + pp.pformat(nt))
 
 
@@ -390,7 +400,7 @@ class SQLiteLockError(Exception):
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         """
-        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class PathCreationCollisionError(Exception):
@@ -405,7 +415,7 @@ class PathCreationCollisionError(Exception):
         calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
         directory, whose contents all ought to be distinct.
         """
-        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class MissingMediaDirectoryError(Warning):
@@ -420,7 +430,7 @@ class MissingMediaDirectoryError(Warning):
         tampered with, or an old version of Anki incompatible with ki is
         installed.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 # WARNINGS
@@ -439,14 +449,14 @@ class UnhealthyNoteWarning(Warning):
 class UnPushedPathWarning(Warning):
     @beartype
     def __init__(self, path: Path, pattern: str):
-        msg = f"push: Ignoring '{path}' matching pattern '{pattern}'"
+        msg = f"Warning: ignoring '{path}' matching ignore pattern '{pattern}'"
         super().__init__(msg)
 
 
 class NotAnkiNoteWarning(Warning):
     @beartype
     def __init__(self, file: ExtantFile):
-        msg = f"push: Not Anki note '{file}'"
+        msg = f"Warning: not Anki note '{file}'"
         super().__init__(msg)
 
 
@@ -461,7 +471,7 @@ class DeletedFileNotFoundWarning(Warning):
         a 'Warning' instead of an 'Exception' in order to avoid interrupting
         the execution of a 'push()' call where it is not strictly necessary.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class DiffTargetFileNotFoundWarning(Warning):
@@ -477,7 +487,7 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
 
 
 class MissingMediaFileWarning(Warning):
@@ -492,4 +502,4 @@ class MissingMediaFileWarning(Warning):
         files within the media directory (usually called 'collection.media/'
         within the relevant Anki user profile directory).
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=80))
+        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))

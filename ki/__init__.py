@@ -125,7 +125,7 @@ BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 70
 MAX_FIELNAME_LEN = 30
-IGNORE = [GIT, KI, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
+IGNORE = [GIT, KI, MEDIA, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
 LOCAL_SUFFIX = Path("ki/local")
 STAGE_SUFFIX = Path("ki/stage")
 REMOTE_SUFFIX = Path("ki/remote")
@@ -929,6 +929,9 @@ def write_repository(
 
     # Open deck with `apy`, and dump notes and markdown files.
     cwd: ExtantDir = F.cwd()
+
+    # TODO: Catch runtime exception when Anki DB is already open. Add a test
+    # for this.
     col = Collection(col_file)
     F.chdir(cwd)
 
@@ -1805,7 +1808,8 @@ def push_deltas(
     deletes: List[Delta] = list(filter(is_delete, deltas))
     echo(f"Deleting {len(deletes)} notes.")
 
-    for delta in tqdm(deltas, ncols=TQDM_NUM_COLS):
+    iterator = tqdm(deltas, ncols=TQDM_NUM_COLS)
+    for delta in iterator:
 
         # Parse the file at `delta.path` into a `FlatNote`, and
         # add/edit/delete in collection.
@@ -1827,7 +1831,14 @@ def push_deltas(
             if isinstance(error, Warning):
                 echo(str(error))
                 continue
-            echo(str(regenerated))
+
+            # TODO: There was a bug here where we echoed the repr of an `Err`
+            # instead of an `Exception`, which caused the output to look
+            # extremely gross. The fix is to write a separate `echo()` function
+            # that is only for warnings/exceptions, and let beartype handle the
+            # rest.
+            iterator.close()
+            echo(str(regenerated.err()))
 
             # It is always safe to save changes to the DB, since the DB is a
             # copy.
@@ -1877,8 +1888,6 @@ def push_deltas(
 
         # Possibly renamed media path.
         media_path: str = col.media.add_file(media_file)
-        logger.debug(f"{media_file}")
-        logger.debug(f"{media_path}")
 
     col.close(save=True)
 

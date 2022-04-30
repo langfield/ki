@@ -113,6 +113,8 @@ TODO
   cards are in a single deck, because they all resolve to the location of the
   note file corresponding to the first cid processed in the clone operation. A
   test should be written for this.
+- There is a long time before any output when adding japanese-core-2000 as a
+  submodule, committing, and then pushing.
 
 16-April-2022
 -------------
