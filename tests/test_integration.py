@@ -2,6 +2,7 @@
 """Tests for ki command line interface (CLI)."""
 import os
 import shutil
+import sqlite3
 import tempfile
 import subprocess
 from pathlib import Path
@@ -41,6 +42,7 @@ from ki.types import (
     GitHeadRefNotFoundError,
     CollectionChecksumError,
     MissingFieldOrdinalError,
+    AnkiAlreadyOpenError,
 )
 from tests.test_ki import (
     open_collection,
@@ -264,6 +266,17 @@ def test_clone_fails_if_collection_doesnt_exist():
         with pytest.raises(FileNotFoundError):
             clone(runner, col_file)
         assert not os.path.isdir(REPODIR)
+
+
+def test_clone_fails_if_collection_is_already_open():
+    """Does ki print a nice error message when Anki is accidentally left open?"""
+    col_file = get_col_file()
+    os.remove(col_file)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        col = open_collection(col_file)
+        with pytest.raises(AnkiAlreadyOpenError):
+            clone(runner, col_file)
 
 
 def test_clone_creates_directory():
@@ -1432,9 +1445,29 @@ def test_push_handles_foreign_models(tmp_path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
         shutil.copytree(japan_path, Path(REPODIR) / "Default" / "japan")
+        logger.debug(F.cwd())
         os.chdir(REPODIR)
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)
         repo.index.commit("japan")
         out = push(runner)
         logger.debug(out)
+
+
+def test_push_fails_if_database_is_locked():
+    """Does ki print a nice error message when Anki is accidentally left open?"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
+    with runner.isolated_filesystem():
+        clone(runner, col_file)
+        shutil.copytree(japan_path, Path(REPODIR) / "Default" / "japan")
+        os.chdir(REPODIR)
+        repo = git.Repo(F.cwd())
+        repo.git.add(all=True)
+        repo.index.commit("japan")
+        con = sqlite3.connect(col_file)
+        con.isolation_level = "EXCLUSIVE"
+        con.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(SQLiteLockError):
+            out = push(runner)

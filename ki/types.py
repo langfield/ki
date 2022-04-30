@@ -23,6 +23,7 @@ HINT = (
     + "hint: 'ki pull ...') before pushing again."
 )
 ERROR_MESSAGE_WIDTH = 69
+DATABASE_LOCKED_MSG = "database is locked"
 
 
 # TYPES
@@ -188,10 +189,12 @@ class Leaves:
     files: Dict[str, ExtantFile]
     dirs: Dict[str, EmptyDir]
 
+
 @beartype
 @dataclass(frozen=True)
 class WrittenNoteFile:
     """Store a written file and its primary deck id."""
+
     did: int
     file: ExtantFile
 
@@ -202,7 +205,6 @@ def errwrap(msg: str) -> str:
     out = out.lstrip()
     out = out.rstrip()
     return out
-
 
 
 # EXCEPTIONS
@@ -390,6 +392,10 @@ class UnnamedNotetypeError(Exception):
 class SQLiteLockError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+        if str(err) == DATABASE_LOCKED_MSG:
+            header = f"fatal: {DATABASE_LOCKED_MSG} (Anki must not be running)."
+            super().__init__(header)
+            return
         header = "Unexpected SQLite3 error while attempting to acquire lock on file: "
         header += f"'{col_file}':"
         msg = f"""
@@ -400,7 +406,11 @@ class SQLiteLockError(Exception):
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         """
-        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            header
+            + "\n"
+            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )
 
 
 class PathCreationCollisionError(Exception):
@@ -415,10 +425,14 @@ class PathCreationCollisionError(Exception):
         calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
         directory, whose contents all ought to be distinct.
         """
-        super().__init__(header + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            header
+            + "\n"
+            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )
 
 
-class MissingMediaDirectoryError(Warning):
+class MissingMediaDirectoryError(Exception):
     @beartype
     def __init__(self, col_path: str, media_dir: Path):
         top = f"Missing or bad Anki collection media directory '{media_dir}' "
@@ -430,7 +444,15 @@ class MissingMediaDirectoryError(Warning):
         tampered with, or an old version of Anki incompatible with ki is
         installed.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )
+
+
+class AnkiAlreadyOpenError(Exception):
+    @beartype
+    def __init__(self, msg: str):
+        super().__init__(f"fatal: {msg}")
 
 
 # WARNINGS
@@ -471,7 +493,9 @@ class DeletedFileNotFoundWarning(Warning):
         a 'Warning' instead of an 'Exception' in order to avoid interrupting
         the execution of a 'push()' call where it is not strictly necessary.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )
 
 
 class DiffTargetFileNotFoundWarning(Warning):
@@ -487,7 +511,9 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )
 
 
 class MissingMediaFileWarning(Warning):
@@ -502,4 +528,6 @@ class MissingMediaFileWarning(Warning):
         files within the media directory (usually called 'collection.media/'
         within the relevant Anki user profile directory).
         """
-        super().__init__(top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(
+            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+        )

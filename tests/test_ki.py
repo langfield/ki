@@ -195,7 +195,7 @@ NOTE_4_ID = 1645027705329
 
 # A models dictionary mapping model ids to notetype dictionaries.
 # Note that the `flds` field has been removed.
-MODELS = {
+MODELS_DICT = {
     "1645010146011": {
         "id": 1645010146011,
         "name": "Basic",
@@ -220,7 +220,7 @@ MODELS = {
         "req": [[0, "any", [0]]],
     }
 }
-NAMELESS_MODELS = {
+NAMELESS_MODELS_DICT = {
     "1645010146011": {
         "id": 1645010146011,
     }
@@ -798,7 +798,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd).unwrap()
-    lock(kirepo)
+    lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
 
     # Get reference to HEAD of current repo.
@@ -1257,7 +1257,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         os.remove(targetdir / MODELS_FILE)
         error: Exception = M.kirepo(targetdir).unwrap_err()
         assert "File not found" in str(error)
-        assert "'models.json'" in str(error)
+        assert f"'{MODELS_FILE}'" in str(error)
         shutil.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
@@ -1540,9 +1540,9 @@ def test_get_models_recursively(tmp_path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
         os.chdir(REPODIR)
-        os.remove("models.json")
-        with open(Path("models.json"), "w", encoding="UTF-8") as models_f:
-            json.dump(MODELS, models_f, ensure_ascii=False, indent=4)
+        os.remove(MODELS_FILE)
+        with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
+            json.dump(MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
         error = get_models_recursively(kirepo).unwrap_err()
         assert isinstance(error, Exception)
@@ -1560,9 +1560,9 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
         os.chdir(REPODIR)
-        os.remove("models.json")
-        with open(Path("models.json"), "w", encoding="UTF-8") as models_f:
-            json.dump(NAMELESS_MODELS, models_f, ensure_ascii=False, indent=4)
+        os.remove(MODELS_FILE)
+        with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
+            json.dump(NAMELESS_MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd()).unwrap()
         error = get_models_recursively(kirepo).unwrap_err()
         assert isinstance(error, Exception)

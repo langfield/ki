@@ -134,6 +134,9 @@ TODO
   from the grammar, which is good. We can just replace spaces with hyphens in
   any decks we upload to github, and it will still look reasonably nice.
 - Make DB error shorter. Should just say 'database is locked'.
+- Refactor error message display logic.
+- Test that models are not duplicated unnecessarily (see bug #14).
+- Start using GitHub issues.
 
 16-April-2022
 -------------
@@ -791,15 +794,75 @@ Bugs
 
 
 
-This should indicate that Anki might just have been left open.
+14. This should indicate that Anki might just have been left open.
 
-Unexpected SQLite3 error while attempting to acquire lock on file: '/home/user/.local/share/Anki2/User 2/collection.anki2':
- A 'sqlite3.DatabaseError' was raised with error message: 'database
- is locked'. This may indicate that either the database file at the
- location specified above is corrupted, or the config file at
- '.ki/config' is pointing to the wrong location. (The latter may occur
- in the unlikely event that the collection file in the Anki data
- directory has been accidentally overwritten.)
+  Unexpected SQLite3 error while attempting to acquire lock on file:
+  '/home/user/.local/share/Anki2/User 2/collection.anki2':
+
+   A 'sqlite3.DatabaseError' was raised with error message: 'database
+   is locked'. This may indicate that either the database file at the
+   location specified above is corrupted, or the config file at
+   '.ki/config' is pointing to the wrong location. (The latter may occur
+   in the unlikely event that the collection file in the Anki data
+   directory has been accidentally overwritten.)
+
+
+15. Models are duplicated when they shouldn't be:
+    (Try hashing).
+
+  (anki) user@computer:~/collection/Default$ ki push
+  Pushing to '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 742bf0303a945bd41bf3f2fa40ff0e20
+  Verified md5sum matches latest hash in '/home/user/collection/.ki/hashes'
+  Generating local .anki2 file from latest commit: 8ee98bcac67a05a354b5fcc8285ea5635b1da750
+  Writing changes to '/tmp/tmpllvv3_x_/collection.anki2'...
+  Adding model 'Basic'
+  Adding model 'Basic (and reversed card)'
+  Adding model 'Basic (and reversed card)-5957f'
+  Adding model 'Basic (and reversed card)-696ec'
+  Adding model 'Basic (and reversed card)-6e007'
+  Adding model 'Basic (and reversed card)-6e007-211ab'
+  Adding model 'Basic (and reversed card)-6e007-5c63d'
+  Adding model 'Basic (optional reversed card)'
+  Adding model 'Basic (optional reversed card)-0a5c8'
+  Adding model 'Basic (optional reversed card)-a02f0'
+  Adding model 'Basic (optional reversed card)-a02f0-e20ab'
+  Adding model 'Basic (optional reversed card)-a02f0-ebe19'
+  Adding model 'Basic (optional reversed card)-e98ee'
+  Adding model 'Basic (type in the answer)'
+  Adding model 'Basic (type in the answer)-841b0'
+  Adding model 'Basic (type in the answer)-95d76'
+  Adding model 'Basic (type in the answer)-95db0'
+  Adding model 'Basic (type in the answer)-95db0-327b8'
+  Adding model 'Basic (type in the answer)-95db0-c6d7b'
+  Adding model 'Basic-80a9f'
+  Adding model 'Basic-8c842'
+  Adding model 'Basic-96249'
+  Adding model 'Basic-96249-57f78'
+  Adding model 'Basic-96249-7a344'
+  Adding model 'Cloze'
+  Adding model 'Cloze (overlapping)'
+  Adding model 'Cloze (overlapping)-2abb6'
+  Adding model 'Cloze (overlapping)-2abb6-9cef8'
+  Adding model 'Cloze (overlapping)-2abb6-e76ce'
+  Adding model 'Cloze (overlapping)-52c69'
+  Adding model 'Cloze (overlapping)-77214'
+  Adding model 'Cloze-65eb1'
+  Adding model 'Cloze-793e9'
+  Adding model 'Cloze-793e9-01988'
+  Adding model 'Cloze-793e9-f8b7a'
+  Adding model 'Cloze-f1441'
+  Adding model 'iKnow! Vocabulary'
+  Adding model 'iKnow! Vocabulary-4da59'
+  Adding model 'iKnow! Vocabulary-969e7'
+  Deleting 0 notes.
+  100%|███████████████████████████████████| 2/2 [00:00<00:00, 72.82it/s]
+  Warning: ignoring '/tmp/tmp2sbt7haa/ki/deleted/742bf0303a945bd41bf3f2fa40ff0e20/models.json' matching ignore pattern 'models.json'
+  Reassigned 0 nids.
+  Writing backup of .anki2 file to '/home/user/collection/.ki/backups/742bf0303a945bd41bf3f2fa40ff0e20.anki2'
+  Overwrote '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Wrote md5sum to '/home/user/collection/.ki/hashes'
+
 
 
 

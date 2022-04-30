@@ -117,7 +117,7 @@ logging.basicConfig(level=logging.INFO)
 Res = List
 
 # TODO: What if there is a deck called `media`?
-MEDIA = "media"
+MEDIA = "_media"
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -141,14 +141,14 @@ FAILED = "Failed: exiting."
 
 @monadic
 @beartype
-def lock(kirepo: KiRepo) -> Result[sqlite3.Connection, Exception]:
+def lock(col_file: ExtantFile) -> Result[sqlite3.Connection, Exception]:
     """Acquire a lock on a SQLite3 database given a path."""
     try:
-        con = sqlite3.connect(kirepo.col_file)
+        con = sqlite3.connect(col_file, timeout=0.1)
         con.isolation_level = "EXCLUSIVE"
         con.execute("BEGIN EXCLUSIVE")
     except sqlite3.DatabaseError as err:
-        return Err(SQLiteLockError(kirepo.col_file, err))
+        return Err(SQLiteLockError(col_file, err))
     return Ok(con)
 
 
@@ -926,10 +926,10 @@ def write_repository(
 
     # Open deck with `apy`, and dump notes and markdown files.
     cwd: ExtantDir = F.cwd()
-
-    # TODO: Catch runtime exception when Anki DB is already open. Add a test
-    # for this.
-    col = Collection(col_file)
+    col = M.collection(col_file)
+    if col.is_err():
+        return col
+    col = col.unwrap()
     F.chdir(cwd)
 
     # NOTE: New colnote-containing data structure, to be passed to
@@ -940,10 +940,12 @@ def write_repository(
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
-    for nid in tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent):
+    iterator = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent, leave=False)
+    for nid in iterator:
         colnote: OkErr = get_colnote(col, nid)
         if colnote.is_err():
             col.close(save=False)
+            iterator.close()
             return colnote
         colnote: ColNote = colnote.unwrap()
         colnotes[nid] = colnote
@@ -990,7 +992,7 @@ def write_decks(
     targetdir: ExtantDir,
     colnotes: Dict[int, ColNote],
     tidy_field_files: Dict[str, ExtantFile],
-    silent: bool, 
+    silent: bool,
 ) -> Result[bool, Exception]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -1279,7 +1281,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
     batches: List[List[ExtantFile]] = list(
         F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
     )
-    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent, leave=False):
 
         # Fail silently here, so as to not bother user with tidy warnings.
         command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
@@ -1384,8 +1386,6 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
 
     if targetdir.is_err() or md5sum.is_err() or head.is_err():
-        echo(FAILED)
-
         # We get an error here only in the case where the `M.xdir()` call
         # failed on `targetdir`. We cannot assume that it doesn't exist,
         # because we may have returned the exception inside `fmkdempty()`,
@@ -1405,7 +1405,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
             shutil.rmtree(targetdir)
 
         if md5sum.is_err():
-            echo(str(md5sum))
+            echo(str(md5sum.err()))
             return md5sum
         echo(str(head))
         return head
@@ -1542,12 +1542,15 @@ def pull() -> Result[bool, Exception]:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
     kirepo: OkErr = M.kirepo(cwd)
-    con: OkErr = lock(kirepo)
+    if kirepo.is_err():
+        echo(str(kirepo.err()))
+        return kirepo
+    kirepo: KiRepo = kirepo.unwrap()
+    con: OkErr = lock(kirepo.col_file)
     if con.is_err():
         echo(str(con.err()))
         return con
     con: sqlite3.Connection = con.unwrap()
-    kirepo: KiRepo = kirepo.unwrap()
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
@@ -1652,12 +1655,15 @@ def push() -> Result[bool, Exception]:
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
     kirepo: OkErr = M.kirepo(cwd)
-    con: OkErr = lock(kirepo)
+    if kirepo.is_err():
+        echo(str(kirepo.err()))
+        return kirepo
+    kirepo: KiRepo = kirepo.unwrap()
+    con: OkErr = lock(kirepo.col_file)
     if con.is_err():
         echo(str(con.err()))
         return con
     con: sqlite3.Connection = con.unwrap()
-    kirepo: KiRepo = kirepo.unwrap()
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
@@ -1771,7 +1777,11 @@ def push_deltas(
     echo(f"Writing changes to '{new_col_file}'...")
 
     cwd: ExtantDir = F.cwd()
-    col = Collection(new_col_file)
+    col = M.collection(new_col_file)
+    if col.is_err():
+        echo(str(col.err()))
+        return col
+    col = col.unwrap()
     F.chdir(cwd)
 
     # Add all new models.
@@ -1881,7 +1891,11 @@ def push_deltas(
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Add media files to collection.
-    col = Collection(kirepo.col_file)
+    col = M.collection(kirepo.col_file)
+    if col.is_err():
+        echo(str(col.err()))
+        return col
+    col = col.unwrap()
     for media_file in F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN):
 
         # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does

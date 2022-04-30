@@ -9,8 +9,10 @@ from pathlib import Path
 
 import git
 from result import Result, Err, Ok, OkErr
-
 from beartype import beartype
+
+import anki
+from anki.collection import Collection, Note, OpChangesWithId
 
 import ki.maybes as M
 import ki.functional as F
@@ -33,6 +35,7 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
+    AnkiAlreadyOpenError,
 )
 from ki.monadic import monadic
 from ki.functional import FS_ROOT
@@ -72,8 +75,8 @@ local ones. It may be missing because the current ki repository has become
 corrupted.
 """
 
-MODELS_FILE_INFO = """
-This is the top-level 'models.json' file, which contains serialized notetypes
+MODELS_FILE_INFO = f"""
+This is the top-level '{MODELS_FILE}' file, which contains serialized notetypes
 for all notes in the current repository. Ki should always create this during
 cloning. If it has been manually deleted, try reverting to an earlier commit.
 Otherwise, it may indicate that the repository has become corrupted.
@@ -302,3 +305,12 @@ def head_kirepo_ref(kirepository: KiRepo) -> Result[KiRepoRef, Exception]:
     except ValueError as err:
         return Err(GitHeadRefNotFoundError(kirepository.repo, err))
     return Ok(ref)
+
+
+@beartype
+def collection(col_file: ExtantFile) -> Result[Collection, Exception]:
+    try:
+        col = Collection(col_file)
+    except anki.errors.DBError as err:
+        return Err(AnkiAlreadyOpenError(str(err)))
+    return Ok(col)
