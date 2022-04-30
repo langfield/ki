@@ -116,7 +116,8 @@ logging.basicConfig(level=logging.INFO)
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
 
-MEDIA = ".media"
+# TODO: What if there is a deck called `media`?
+MEDIA = "media"
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -132,7 +133,7 @@ DELETED_SUFFIX = Path("ki/deleted")
 FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
-MEDIA_FILE_RECURSIVE_PATTERN = "**/.media/*"
+MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 
 MD = ".md"
 FAILED = "Failed: exiting."
@@ -288,7 +289,11 @@ def unsubmodule_repo(repo: git.Repo) -> None:
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
 
-        # Guaranteed to exist by gitpython.
+        # Path guaranteed to exist by gitpython.
+        #
+        # TODO: Catch runtime exceptions likely caused by removing the
+        # `sm.update()` call that used to be here. May have to check for
+        # existence of submodule via gitpython, or something else.
         sm_path = Path(sm.module().working_tree_dir)
         repo.git.rm(sm_path, cached=True)
 

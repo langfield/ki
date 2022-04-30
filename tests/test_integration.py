@@ -599,12 +599,12 @@ def test_clone_directory_argument_works():
 
 
 def test_clone_writes_media_files():
-    """Does clone copy media files from the media directory into '.media/'?"""
+    """Does clone copy media files from the media directory into 'MEDIA'?"""
     col_file = get_media_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, col_file)
-        dot_media_path = Path("media") / ".media"
+        dot_media_path = Path("media") / MEDIA
         audio_path = dot_media_path / "1sec.mp3"
         assert dot_media_path.is_dir()
         assert audio_path.is_file()
