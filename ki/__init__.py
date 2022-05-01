@@ -1722,6 +1722,7 @@ def push() -> Result[bool, Exception]:
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum).unwrap()
+    unsubmodule_repo(head_kirepo.repo)
     head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
     F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
     flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo)).unwrap()
