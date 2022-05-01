@@ -1845,7 +1845,6 @@ def push_deltas(
 
     # Add all new models.
     for model in models.values():
-        echo(f"Adding model '{model.name}'")
 
         # TODO: Consider waiting to parse `models` until after the
         # `add_dict()` call.
@@ -1866,6 +1865,8 @@ def push_deltas(
             # to the DB, since the DB is a copy.
             col.close(save=True)
             return model
+        model: Notetype = model.unwrap()
+        echo(f"Added model '{model.name}'")
 
     # Gather logging statements to display.
     log: List[str] = []

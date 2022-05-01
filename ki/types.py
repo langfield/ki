@@ -214,11 +214,15 @@ def errwrap(msg: str) -> str:
 # EXCEPTIONS
 
 
+# TODO: Refactor the rest of the error messages so that they look like this,
+# with the empty line between the header and the body, and making use of
+# `errwrap()`.
 class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
-        msg = f"File not found: '{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        header = f"File not found: '{path}'"
+        msg = f"{info.rstrip()}"
+        super().__init__(f"{header}\n\n{errwrap(msg)}")
 
 
 class MissingDirectoryError(Exception):
