@@ -1645,8 +1645,15 @@ def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
     # Create remote pointing to `last_push` repo and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
+
+    # TODO: There was a bug here, where we didn't set `cwd`, and it caused git
+    # not to be able to find the remote. Can also be done via the command
+    # below:
+    #
+    # result: str = kirepo.repo.git.pull(REMOTE_NAME, BRANCH_NAME)
     p = subprocess.run(
         ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
+        cwd=kirepo.repo.working_dir,
         check=False,
         capture_output=True,
     )
@@ -1699,7 +1706,7 @@ def push() -> Result[bool, Exception]:
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
     if head.is_err():
-        echo(str(head))
+        echo(str(head.err()))
         return head
     head: KiRepoRef = head.unwrap()
 
@@ -1744,7 +1751,7 @@ def push() -> Result[bool, Exception]:
     # as the changes we made within the `unsubmodule_repo()` call within
     # `flatten_staging_repo()`.
     stage_kirepo.repo.git.add(all=True)
-    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+    stage_kirepo.repo.index.commit(f"Add changes up to and including ref {head.sha}")
 
     # Get filter function.
     filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
