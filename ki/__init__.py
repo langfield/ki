@@ -1572,24 +1572,24 @@ def pull() -> Result[bool, Exception]:
         echo("ki pull: up to date.")
         return Ok()
 
-    result: OkErr = _pull(kirepo)
+    result: OkErr = _pull(kirepo, silent=False)
     unlock(con)
     return result
 
 
 @monadic
 @beartype
-def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
+def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     """Pull into `kirepo` without checking if we are already up-to-date."""
     md5sum: str = F.md5(kirepo.col_file)
-    echo(f"Pulling from '{kirepo.col_file}'")
-    echo(f"Computed md5sum: {md5sum}")
+    echo(f"Pulling from '{kirepo.col_file}'", silent)
+    echo(f"Computed md5sum: {md5sum}", silent)
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
     ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
     if ref.is_err():
-        echo(str(ref.err()))
+        echo(str(ref.err()), silent)
         return ref
     ref: RepoRef = ref.unwrap()
     last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
@@ -1601,7 +1601,7 @@ def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
     # This should return the repository as well.
     cloned: OkErr = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
     if cloned.is_err():
-        echo(str(cloned.err()))
+        echo(str(cloned.err()), silent)
         return cloned
 
     # Load the git repository at `anki_remote_root`, force pull (preferring
@@ -1623,7 +1623,7 @@ def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
     # merge conflict, because there is no shared history.
     remote_repo: OkErr = M.repo(anki_remote_root)
     if remote_repo.is_err():
-        echo(str(remote_repo.err()))
+        echo(str(remote_repo.err()), silent)
         return remote_repo
     remote_repo: git.Repo = remote_repo.unwrap()
 
@@ -1635,7 +1635,7 @@ def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
 
     # Pull 'theirs' from `anki_remote`.
     cwd: ExtantDir = F.chdir(last_push_root)
-    echo(f"Pulling into {last_push_root}")
+    echo(f"Pulling into {last_push_root}", silent)
     last_push_repo.git.config("pull.rebase", "false")
 
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
@@ -1667,7 +1667,7 @@ def _pull(kirepo: KiRepo) -> Result[bool, Exception]:
     # Check that md5sum hasn't changed.
     if F.md5(kirepo.col_file) != md5sum:
         checksum_error: Exception = CollectionChecksumError(kirepo.col_file)
-        echo(str(checksum_error))
+        echo(str(checksum_error), silent)
         return Err(checksum_error)
 
     return Ok()
@@ -1718,7 +1718,7 @@ def push() -> Result[bool, Exception]:
     F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
     flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo)).unwrap()
     flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
-    _pull(flat_kirepo).unwrap()
+    _pull(flat_kirepo, silent=True).unwrap()
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum).unwrap()

@@ -1529,6 +1529,7 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
         raise NotImplementedError
 
 
+@pytest.mark.xfail
 def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path):
     """
     If you push, make changes in Anki, then pull those changes, then undo them
