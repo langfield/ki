@@ -1717,6 +1717,16 @@ def push() -> Result[bool, Exception]:
     # After this point, we are working with a *completely* different git
     # history, namely that contained in `.ki/no_submodules_tree/.git`.
     flat_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
+    if flat_kirepo.is_err():
+        echo(str(flat_kirepo.err()))
+        return flat_kirepo
+    flat_kirepo: KiRepo = flat_kirepo.unwrap()
+
+    # Patch the last push commit of `flat_kirepo`, setting it to the current
+    # HEAD of the flat repository. This is absolutely necessary, because prior
+    # to this, the commit SHA that lives in `flat_kirepo.last_push_file`
+    # belongs to a *different* git history (the git history of the main repo).
+    flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
 
     # Pull changes from Anki into the staging repository. At this point, we
     # expect the state of `flat_kirepo` to *exactly* match the state of the
@@ -1735,7 +1745,6 @@ def push() -> Result[bool, Exception]:
     if pulled.is_err():
         echo(str(pulled.err()))
         return pulled
-    flat_kirepo: KiRepo = flat_kirepo.unwrap()
 
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit the changes made since the last PUSH. After
