@@ -1976,7 +1976,10 @@ def push_deltas(
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
     no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
-    F.copytree(flat_kirepo.root, no_modules_root)
+    no_modules_root: ExtantDir = F.copytree(flat_kirepo.root, no_modules_root)
+    no_modules_ki_dir = F.test(no_modules_root / KI)
+    if isinstance(no_modules_ki_dir, ExtantDir):
+        F.rmtree(no_modules_ki_dir)
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
