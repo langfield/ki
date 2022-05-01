@@ -1853,6 +1853,35 @@ def push_deltas(
         # TODO: What happens if we try to add a model with the same name as
         # an existing model, but the two models are not the same,
         # content-wise?
+        mid: Optional[int] = col.models.id_for_name(model.name)
+
+        # TODO: This block is unfinished. We need to add new notetypes (and
+        # rename them) only if they are 'new', where new means they are
+        # different from anything else already in the DB, in the
+        # content-addressed sense. If they are new, then we must indicate that
+        # the notes we are adding actually have these new notetypes. For this,
+        # it may make sense to use the hash of the notetype everywhere (i.e. in
+        # the note file) rather than the name or mid.
+        if mid is not None:
+            nt: NotetypeDict = col.models.get(mid)
+            remote_model: OkErr = parse_notetype_dict(nt)
+            if remote_model.is_err():
+                echo(str(remote_model.err()))
+
+                # We pass `save=True` because it is always safe to save changes
+                # to the DB, since the DB is a copy.
+                col.close(save=True)
+                return remote_model
+            remote_model: Notetype = remote_model.unwrap()
+            if hash(model) == hash(remote_model):
+                continue
+
+            # If the hashes don't match, then we somehow need to update
+            # `flatnote.model` for the relevant notes.
+
+            # TODO: Consider using the hash of the notetype instead of its
+            # name.
+
         nt_copy: NotetypeDict = copy.deepcopy(model.dict)
         nt_copy["id"] = 0
         changes: OpChangesWithId = col.models.add_dict(nt_copy)
