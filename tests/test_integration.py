@@ -795,7 +795,7 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        mocker.patch("ki.F.md5", side_effect=["good", "good", "bad"])
+        mocker.patch("ki.F.md5", side_effect=["good", "good", "good", "bad"])
 
         os.chdir(REPODIR)
         with pytest.raises(CollectionChecksumError):
@@ -1351,27 +1351,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
         with pytest.raises(MissingFieldOrdinalError):
             out = push(runner)
             logger.debug(out)
-
-
-def test_push_displays_errors_from_stage_kirepo_instantiation(mocker: MockerFixture):
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone, edit, and commit.
-        clone(runner, col_file)
-        os.chdir(REPODIR)
-        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-        repo = git.Repo(".")
-        repo.git.add(all=True)
-        repo.index.commit(".")
-
-        mocker.patch(
-            "ki.flatten_staging_repo",
-            return_value=Err(NotKiRepoError()),
-        )
-        with pytest.raises(NotKiRepoError):
-            push(runner)
 
 
 def test_push_handles_submodules(tmp_path):

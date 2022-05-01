@@ -126,6 +126,8 @@ CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 70
 MAX_FIELNAME_LEN = 30
 IGNORE = [GIT, KI, MEDIA, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
+FLAT_SUFFIX = Path("ki/flat/")
+HEAD_SUFFIX = Path("ki/head/")
 LOCAL_SUFFIX = Path("ki/local")
 STAGE_SUFFIX = Path("ki/stage")
 REMOTE_SUFFIX = Path("ki/remote")
@@ -1709,15 +1711,22 @@ def push() -> Result[bool, Exception]:
         echo(str(head.err()))
         return head
     head: KiRepoRef = head.unwrap()
-    logger.debug(f"Main repo contents: \n{os.listdir(F.working_dir(kirepo.repo) / 'Default')}")
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
-    FLAT_SUFFIX = Path("ki/flat/")
-    HEAD_SUFFIX = Path("ki/head/")
-    flat_repo: git.Repo = get_ephemeral_repo(FLAT_SUFFIX, M.head_repo_ref(kirepo.no_modules_repo).unwrap(), md5sum)
+    flat_head: OkErr = M.head_repo_ref(kirepo.no_modules_repo)
+    if flat_head.is_err():
+        echo(str(flat_head.err()))
+        return flat_head
+    flat_head: RepoRef = flat_head.unwrap()
+    flat_repo: git.Repo = get_ephemeral_repo(FLAT_SUFFIX, flat_head, md5sum)
     F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
     flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo)).unwrap()
     flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
+
+    # TODO: Figure out how to check if we are already up-to-date, in order to
+    # avoid this pull if it is unnecessary. This will involve some fancy
+    # manipulation of the hashes file. Perhaps it must be put under version
+    # control, i.e. removed from the gitignore.
     _pull(flat_kirepo, silent=True).unwrap()
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
@@ -1726,11 +1735,6 @@ def push() -> Result[bool, Exception]:
     head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
     F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
     flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo)).unwrap()
-
-    # At this point, we should have changes in the working tree.
-    diff = flat_head_kirepo.repo.head.commit.diff(None)
-    logger.debug(f"Diff: {diff}")
-    logger.debug(f"Untracked files: {flat_head_kirepo.repo.untracked_files}")
 
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit the changes made since the last PUSH. After
@@ -1743,11 +1747,10 @@ def push() -> Result[bool, Exception]:
     head_1: RepoRef = head_1.unwrap()
 
     # Commit the changes made since the last time we pushed, since the git
-    # history of the staging repo is actually the git history of the
+    # history of the flat repo is actually the git history of the
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
     # unified diff of all commits to the main repo since the last push, as well
-    # as the changes we made within the `unsubmodule_repo()` call within
-    # `flatten_staging_repo()`.
+    # as the changes we made within the `unsubmodule_repo()` call above.
     flat_head_kirepo.repo.git.add(all=True)
     flat_head_kirepo.repo.index.commit(f"Add changes up to and including ref {head.sha}")
 
@@ -1776,7 +1779,6 @@ def push() -> Result[bool, Exception]:
     # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
-    logger.debug(f"B repo contents: \n{os.listdir(F.working_dir(b_repo) / 'Default')}")
     deltas: OkErr = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 
     # Map model names to models.
