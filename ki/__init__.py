@@ -1709,48 +1709,33 @@ def push() -> Result[bool, Exception]:
         echo(str(head.err()))
         return head
     head: KiRepoRef = head.unwrap()
+    logger.debug(f"Main repo contents: \n{os.listdir(F.working_dir(kirepo.repo) / 'Default')}")
 
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to
-    # HEAD, and flatten all submodules.
-    stage_kirepo: OkErr = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
-
-    # After this point, we are working with a *completely* different git
-    # history, namely that contained in `.ki/no_submodules_tree/.git`.
-    flat_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
-    if flat_kirepo.is_err():
-        echo(str(flat_kirepo.err()))
-        return flat_kirepo
-    flat_kirepo: KiRepo = flat_kirepo.unwrap()
-
-    # Patch the last push commit of `flat_kirepo`, setting it to the current
-    # HEAD of the flat repository. This is absolutely necessary, because prior
-    # to this, the commit SHA that lives in `flat_kirepo.last_push_file`
-    # belongs to a *different* git history (the git history of the main repo).
+    # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
+    FLAT_SUFFIX = Path("ki/flat/")
+    HEAD_SUFFIX = Path("ki/head/")
+    flat_repo: git.Repo = get_ephemeral_repo(FLAT_SUFFIX, M.head_repo_ref(kirepo.no_modules_repo).unwrap(), md5sum)
+    F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
+    flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo)).unwrap()
     flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
+    _pull(flat_kirepo).unwrap()
 
-    # Pull changes from Anki into the staging repository. At this point, we
-    # expect the state of `flat_kirepo` to *exactly* match the state of the
-    # remote collection.
-    #
-    # TODO: We have written `_pull()` so that it does *not* check whether or
-    # not the repository is already up-to-date, i.e. it doesn't check whether
-    # the md5sum has changed, and abort if it hasn't. We do this because we
-    # wish to ignore the hashes file of `flat_kirepo`, which has the md5sums
-    # corresponding to all pulls since the last push, and we want those changes
-    # now. However, this may be inefficient, because we might not have made any
-    # pulls. Removing the hashes since the last push is better, but this is
-    # complicated, and all it does is make things a bit faster, so it should be
-    # low-priority.
-    pulled: OkErr = _pull(flat_kirepo)
-    if pulled.is_err():
-        echo(str(pulled.err()))
-        return pulled
+    # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
+    head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum).unwrap()
+    head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
+    F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
+    flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo)).unwrap()
+
+    # At this point, we should have changes in the working tree.
+    diff = flat_head_kirepo.repo.head.commit.diff(None)
+    logger.debug(f"Diff: {diff}")
+    logger.debug(f"Untracked files: {flat_head_kirepo.repo.untracked_files}")
 
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit the changes made since the last PUSH. After
     # the following line, the reference we got will be HEAD~1, hence the
     # variable name.
-    head_1: Res[RepoRef] = M.head_repo_ref(flat_kirepo.repo)
+    head_1: Res[RepoRef] = M.head_repo_ref(flat_head_kirepo.repo)
     if head_1.is_err():
         echo(str(head_1.err()))
         return head_1
@@ -1762,8 +1747,8 @@ def push() -> Result[bool, Exception]:
     # unified diff of all commits to the main repo since the last push, as well
     # as the changes we made within the `unsubmodule_repo()` call within
     # `flatten_staging_repo()`.
-    flat_kirepo.repo.git.add(all=True)
-    flat_kirepo.repo.index.commit(f"Add changes up to and including ref {head.sha}")
+    flat_head_kirepo.repo.git.add(all=True)
+    flat_head_kirepo.repo.index.commit(f"Add changes up to and including ref {head.sha}")
 
     # Get filter function.
     filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
@@ -1790,6 +1775,7 @@ def push() -> Result[bool, Exception]:
     # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
+    logger.debug(f"B repo contents: \n{os.listdir(F.working_dir(b_repo) / 'Default')}")
     deltas: OkErr = diff_repos(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 
     # Map model names to models.
