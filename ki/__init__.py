@@ -1248,7 +1248,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
 
 # TODO: Refactor into a safe function.
 @beartype
-def git_subprocess_pull(remote: str, branch: str) -> int:
+def git_subprocess_pull(remote: str, branch: str, silent: bool) -> int:
     """Pull remote into branch using a subprocess call."""
     p = subprocess.run(
         [
@@ -1265,8 +1265,7 @@ def git_subprocess_pull(remote: str, branch: str) -> int:
         capture_output=True,
     )
     pull_stderr = p.stderr.decode()
-    echo(f"\n{pull_stderr}")
-    echo(f"Return code: {p.returncode}")
+    echo(f"\n{pull_stderr}", silent)
     if p.returncode != 0:
         raise ValueError(pull_stderr)
     return p.returncode
@@ -1640,7 +1639,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     echo(f"Pulling into {last_push_root}", silent)
     last_push_repo.git.config("pull.rebase", "false")
 
-    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME)
+    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(cwd)
 
@@ -1659,8 +1658,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
         check=False,
         capture_output=True,
     )
-    click.secho(f"{p.stdout.decode()}", bold=True)
-    click.secho(f"{p.stderr.decode()}", bold=True)
+    echo(f"{p.stdout.decode()}", silent)
+    echo(f"{p.stderr.decode()}", silent)
     kirepo.repo.delete_remote(last_push_remote)
 
     # Append to hashes file.

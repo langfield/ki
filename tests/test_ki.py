@@ -1019,7 +1019,7 @@ def test_git_subprocess_pull():
 
         # Pull, poorly.
         with pytest.raises(ValueError):
-            git_subprocess_pull("anki", "main")
+            git_subprocess_pull("anki", "main", silent=False)
 
 
 def test_get_note_path():
