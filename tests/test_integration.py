@@ -1180,6 +1180,7 @@ def test_push_displays_informative_error_when_last_push_file_is_missing():
             push(runner)
 
 
+@pytest.mark.xfail
 def test_push_honors_ignore_patterns():
     col_file = get_col_file()
     runner = CliRunner()

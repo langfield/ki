@@ -141,6 +141,7 @@ MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 MD = ".md"
 FAILED = "Failed: exiting."
 
+WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning]
 
 @monadic
 @beartype
@@ -708,6 +709,8 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 def push_flatnote_to_anki(
     col: Collection, flatnote: FlatNote
 ) -> Result[ColNote, Exception]:
+    # Notetype/model names are privileged in Anki and the current iteration of
+    # Ki.
     model_id: Optional[int] = col.models.id_for_name(flatnote.model)
     if model_id is None:
         return Err(MissingNotetypeError(flatnote.model))
@@ -1854,6 +1857,8 @@ def push_deltas(
         # TODO: What happens if we try to add a model with the same name as
         # an existing model, but the two models are not the same,
         # content-wise?
+        #
+        # Check if a model already exists with this name, and get its `mid`.
         mid: Optional[int] = col.models.id_for_name(model.name)
 
         @beartype
@@ -1869,19 +1874,31 @@ def push_deltas(
         # the notes we are adding actually have these new notetypes. For this,
         # it may make sense to use the hash of the notetype everywhere (i.e. in
         # the note file) rather than the name or mid.
+        #
+        # If a model already exists with this name, parse it, and check if its
+        # hash is identical to the model we are trying to add.
         if mid is not None:
+            logger.debug(f"New model '{model.name}' has same name as existing model with mid '{mid}'")
             nt: NotetypeDict = col.models.get(mid)
-            remote_model: OkErr = parse_notetype_dict(nt)
-            if remote_model.is_err():
-                echo(str(remote_model.err()))
+            existing_model: OkErr = parse_notetype_dict(nt)
+
+            # Handle parse errors, unlikely to occur.
+            if existing_model.is_err():
+                click.secho(str(existing_model.err()), fg="red")
 
                 # We pass `save=True` because it is always safe to save changes
                 # to the DB, since the DB is a copy.
                 col.close(save=True)
-                return remote_model
-            remote_model: Notetype = remote_model.unwrap()
-            if hash_notetype(model) == hash_notetype(remote_model):
+                return existing_model
+
+            # If we are trying to add a model that has the exact same content
+            # and name as an existing model, skip it.
+            existing_model: Notetype = existing_model.unwrap()
+            if hash_notetype(model) == hash_notetype(existing_model):
+                logger.debug(f"Model hashes MATCH!")
                 continue
+
+            logger.warning(f"Model hashes do not match :(")
 
             # If the hashes don't match, then we somehow need to update
             # `flatnote.model` for the relevant notes.
@@ -1895,12 +1912,13 @@ def push_deltas(
         nt: NotetypeDict = col.models.get(changes.id)
         model: OkErr = parse_notetype_dict(nt)
         if model.is_err():
-            echo(str(model.err()))
+            click.secho(str(model.err()), fg="red")
 
             # We pass `save=True` because it is always safe to save changes
             # to the DB, since the DB is a copy.
             col.close(save=True)
             return model
+
         model: Notetype = model.unwrap()
         echo(f"Added model '{model.name}'")
 
@@ -1955,7 +1973,8 @@ def push_deltas(
 
     # Display all warnings returned by the filter function.
     for warning in warnings:
-        echo(str(warning))
+        if type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
 
     # Commit nid reassignments.
     echo(f"Reassigned {len(log)} nids.")
