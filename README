@@ -889,35 +889,37 @@ Bugs
   Wrote md5sum to '/home/user/collection/.ki/hashes'
 
 
-(anki) user@computer:~/collection$ ki push
-Pushing to '/home/user/.local/share/Anki2/User 2/collection.anki2'
-Computed md5sum: 8088fdf10af084b9671c5ae1ee286373
-Verified md5sum matches latest hash in '/home/user/collection/.ki/hashes'
-Generating local .anki2 file from latest commit: b60bae990527d0598fcab7d6aa9a859d4d0b762f
-Writing changes to '/tmp/tmp2saf8zp_/collection.anki2'...
-Traceback (most recent call last):
-  File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
-    sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
-  File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
-    return self.main(*args, **kwargs)
-  File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
-    rv = self.invoke(ctx)
-  File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
-    return _process_result(sub_ctx.command.invoke(sub_ctx))
-  File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
-    return ctx.invoke(self.callback, **ctx.params)
-  File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
-    return __callback(*args, **kwargs)
-  File "<@beartype(ki.push) at 0x7f45922e3c10>", line 11, in push
-  File "/home/user/pkgs/ki/ki/__init__.py", line 1786, in push
-    return push_deltas(
-  File "/home/user/pkgs/ki/ki/monadic.py", line 98, in decorated
-    result = func(*args, **kwargs)
-  File "<@beartype(ki.push_deltas) at 0x7f45922e3b80>", line 197, in push_deltas
-  File "/home/user/pkgs/ki/ki/__init__.py", line 1876, in push_deltas
-    if hash(model) == hash(remote_model):
-  File "<string>", line 3, in __hash__
-TypeError: unhashable type: 'list'
+16.
+
+  (anki) user@computer:~/collection$ ki push
+  Pushing to '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 8088fdf10af084b9671c5ae1ee286373
+  Verified md5sum matches latest hash in '/home/user/collection/.ki/hashes'
+  Generating local .anki2 file from latest commit: b60bae990527d0598fcab7d6aa9a859d4d0b762f
+  Writing changes to '/tmp/tmp2saf8zp_/collection.anki2'...
+  Traceback (most recent call last):
+    File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
+      sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
+      return self.main(*args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
+      rv = self.invoke(ctx)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
+      return _process_result(sub_ctx.command.invoke(sub_ctx))
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
+      return ctx.invoke(self.callback, **ctx.params)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
+      return __callback(*args, **kwargs)
+    File "<@beartype(ki.push) at 0x7f45922e3c10>", line 11, in push
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1786, in push
+      return push_deltas(
+    File "/home/user/pkgs/ki/ki/monadic.py", line 98, in decorated
+      result = func(*args, **kwargs)
+    File "<@beartype(ki.push_deltas) at 0x7f45922e3b80>", line 197, in push_deltas
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1876, in push_deltas
+      if hash(model) == hash(remote_model):
+    File "<string>", line 3, in __hash__
+  TypeError: unhashable type: 'list'
 
 
 

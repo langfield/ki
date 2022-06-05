@@ -23,6 +23,7 @@ import secrets
 import sqlite3
 import functools
 import subprocess
+import dataclasses
 import configparser
 from pathlib import Path
 
@@ -1855,6 +1856,12 @@ def push_deltas(
         # content-wise?
         mid: Optional[int] = col.models.id_for_name(model.name)
 
+        @beartype
+        def hash_notetype(notetype: Notetype) -> int:
+            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+            s: str = json.dumps(dictionary)
+            return hash(s)
+
         # TODO: This block is unfinished. We need to add new notetypes (and
         # rename them) only if they are 'new', where new means they are
         # different from anything else already in the DB, in the
@@ -1873,7 +1880,7 @@ def push_deltas(
                 col.close(save=True)
                 return remote_model
             remote_model: Notetype = remote_model.unwrap()
-            if hash(model) == hash(remote_model):
+            if hash_notetype(model) == hash_notetype(remote_model):
                 continue
 
             # If the hashes don't match, then we somehow need to update
