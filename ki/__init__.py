@@ -141,7 +141,7 @@ MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 MD = ".md"
 FAILED = "Failed: exiting."
 
-WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning]
+WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
 @monadic
 @beartype
@@ -950,7 +950,7 @@ def write_repository(
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
-    iterator = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent, leave=False)
+    iterator = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)
     for nid in iterator:
         colnote: OkErr = get_colnote(col, nid)
         if colnote.is_err():
@@ -982,8 +982,10 @@ def write_repository(
     warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
     media_files = {f for f in medias if isinstance(f, ExtantFile)}
 
+    # TODO: Maybe print how many warnings are ignored of each type.
     for warning in warnings:
-        echo(str(warning))
+        if type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
 
     for media_file in media_files:
         F.copyfile(media_file, media_dir, media_file.name)
@@ -1156,8 +1158,10 @@ def write_decks(
         warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
         media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
 
+        # TODO: Maybe print how many warnings are ignored of each type.
         for warning in warnings:
-            echo(str(warning))
+            if type(warning) not in WARNING_IGNORE_LIST:
+                click.secho(str(warning), fg="yellow")
 
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
         for media_file in media_files:
@@ -1290,7 +1294,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
     batches: List[List[ExtantFile]] = list(
         F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
     )
-    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent, leave=False):
+    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.
         command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
