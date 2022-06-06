@@ -2,7 +2,7 @@
 import random
 import functools
 import itertools
-from result import Ok, Err
+from result import Ok, Err, UnwrapError
 from beartype import beartype
 from beartype.typing import Callable, TypeVar, NoReturn
 
@@ -95,7 +95,10 @@ def monadic(func: Callable[[...], T]) -> Callable[[...], T]:
         kwargs = {key: unpack(arg) for key, arg in kwargs.items()}
 
         # Call function with the OkErr-unpacked ``args`` and ``kwargs``.
-        result = func(*args, **kwargs)
+        try:
+            result = func(*args, **kwargs)
+        except UnwrapError as error:
+            result = error.result
 
         # Human-readable label describing the unpacked return value.
         exception_prefix: str = prefix_callable_decorated_return_value(

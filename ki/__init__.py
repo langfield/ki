@@ -214,10 +214,7 @@ def get_ephemeral_kirepo(
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = get_ephemeral_repo(suffix, ref, md5sum)
-    ephem_ki_dir: OkErr = M.nopath(Path(ephem.working_dir) / KI)
-    if ephem_ki_dir.is_err():
-        return ephem_ki_dir
-    ephem_ki_dir: NoPath = ephem_ki_dir.unwrap()
+    ephem_ki_dir: NoPath = M.nopath(Path(ephem.working_dir) / KI).unwrap()
     F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
     kirepo: Res[KiRepo] = M.kirepo(F.working_dir(ephem))
 
@@ -469,10 +466,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
 
         models: Dict[str, Notetype] = {}
         for _, nt in new_nts.items():
-            parsed = parse_notetype_dict(nt)
-            if parsed.is_err():
-                return parsed
-            notetype: Notetype = parsed.ok()
+            notetype: Notetype = parse_notetype_dict(nt).unwrap()
             models[notetype.name] = notetype
 
         # Add mappings to dictionary.
@@ -725,15 +719,9 @@ def push_flatnote_to_anki(
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
         new = True
 
-    old_notetype: Res[Notetype] = parse_notetype_dict(note.note_type())
-    new_notetype: Res[Notetype] = parse_notetype_dict(col.models.get(model_id))
-
-    note: OkErr = update_note(note, flatnote, old_notetype, new_notetype)
-    if note.is_err():
-        return note
-
-    note: Note = note.unwrap()
-    new_notetype: Notetype = new_notetype.unwrap()
+    old_notetype: Notetype = parse_notetype_dict(note.note_type()).unwrap()
+    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id)).unwrap()
+    note: Note = update_note(note, flatnote, old_notetype, new_notetype).unwrap()
 
     # Get sort field content. It should not be possible for this to raise a
     # KeyError here, because in `update_note()`, we check that the name fields
@@ -957,10 +945,7 @@ def write_repository(
 
     # Open collection using a `Maybe`.
     cwd: ExtantDir = F.cwd()
-    col = M.collection(col_file)
-    if col.is_err():
-        return col
-    col = col.unwrap()
+    col: Collection = M.collection(col_file).unwrap()
     F.chdir(cwd)
 
     # ColNote-containing data structure, to be passed to `write_decks()`.
@@ -990,14 +975,11 @@ def write_repository(
     if tidied.is_err():
         col.close(save=False)
         return tidied
-    wrote: OkErr = write_decks(col, targetdir, colnotes, tidy_field_files, silent)
-    if wrote.is_err():
-        return wrote
 
-    medias: OkErr = get_media_files(col, set(all_nids), silent=silent, leave=True)
-    if medias.is_err():
-        return medias
-    medias: Set[Union[ExtantFile, Warning]] = medias.unwrap()
+    write_decks(col, targetdir, colnotes, tidy_field_files, silent).unwrap()
+
+    medias: Set[Union[ExtantFile, Warning]]
+    medias = get_media_files(col, set(all_nids), silent=silent, leave=True).unwrap()
     warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
     media_files = {f for f in medias if isinstance(f, ExtantFile)}
 
@@ -1539,22 +1521,16 @@ def _clone(
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    root_leaves: OkErr = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
-    if root_leaves.is_err():
-        return root_leaves
-    root_leaves: Leaves = root_leaves.unwrap()
+    root_leaves: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA}).unwrap()
     ki_dir = root_leaves.dirs[KI]
     media_dir = root_leaves.dirs[MEDIA]
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: OkErr = F.fmkleaves(
+    leaves: Leaves = F.fmkleaves(
         ki_dir,
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
         dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
-    )
-    if leaves.is_err():
-        return leaves
-    leaves: Leaves = leaves.unwrap()
+    ).unwrap()
 
     md5sum = F.md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
@@ -1569,9 +1545,7 @@ def _clone(
     # This would be very bad for speed, because gitpython calls have quite a
     # bit of overhead sometimes (although maybe not for `Repo.init()` calls,
     # since they aren't networked).
-    wrote: OkErr = write_repository(col_file, targetdir, leaves, media_dir, silent)
-    if wrote.is_err():
-        return wrote
+    write_repository(col_file, targetdir, leaves, media_dir, silent).unwrap()
 
     # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
@@ -1618,6 +1592,8 @@ def pull() -> Result[bool, Exception]:
         return Ok()
 
     result: OkErr = _pull(kirepo, silent=False)
+    if result.is_err():
+        echo(str(result.err()))
     unlock(con)
     return result
 
@@ -1632,11 +1608,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    ref: Res[RepoRef] = M.repo_ref(kirepo.repo, sha)
-    if ref.is_err():
-        echo(str(ref.err()), silent)
-        return ref
-    ref: RepoRef = ref.unwrap()
+    ref: RepoRef = M.repo_ref(kirepo.repo, sha).unwrap()
     last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
@@ -1644,10 +1616,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     # This should return the repository as well.
-    cloned: OkErr = _clone(kirepo.col_file, anki_remote_root, msg, silent=True)
-    if cloned.is_err():
-        echo(str(cloned.err()), silent)
-        return cloned
+    _clone(kirepo.col_file, anki_remote_root, msg, silent=True).unwrap()
 
     # Load the git repository at `anki_remote_root`, force pull (preferring
     # 'theirs', i.e. the new stuff from the sqlite3 database) changes from that
@@ -1666,11 +1635,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     # remote git repo. If we didn't do this, the fact that we did a fresh clone
     # of the database every time would mean that everything would look like a
     # merge conflict, because there is no shared history.
-    remote_repo: OkErr = M.repo(anki_remote_root)
-    if remote_repo.is_err():
-        echo(str(remote_repo.err()), silent)
-        return remote_repo
-    remote_repo: git.Repo = remote_repo.unwrap()
+    remote_repo: git.Repo = M.repo(anki_remote_root).unwrap()
 
     # Create git remote pointing to anki remote repo.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
@@ -1770,7 +1735,10 @@ def push() -> Result[bool, Exception]:
     # avoid this pull if it is unnecessary. This will involve some fancy
     # manipulation of the hashes file. Perhaps it must be put under version
     # control, i.e. removed from the gitignore.
-    _pull(flat_kirepo, silent=True).unwrap()
+    pulled: OkErr = _pull(flat_kirepo, silent=True)
+    if pulled.is_err():
+        echo(str(pulled.err()), silent=True)
+        return pulled
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum).unwrap()
@@ -1829,7 +1797,7 @@ def push() -> Result[bool, Exception]:
     # Map model names to models.
     models: Res[Dict[str, Notetype]] = get_models_recursively(head_kirepo)
 
-    return push_deltas(
+    pushed: OkErr = push_deltas(
         deltas,
         models,
         kirepo,
@@ -1840,6 +1808,9 @@ def push() -> Result[bool, Exception]:
         flat_kirepo,
         con,
     )
+    if pushed.is_err():
+        echo(str(pushed.err()))
+    return pushed
 
 
 @monadic
@@ -1873,20 +1844,12 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: Res[RepoRef] = M.head_repo_ref(kirepo.repo)
-    if head.is_err():
-        echo(str(head.err()))
-        return head
-    head = head.unwrap()
+    head: RepoRef = M.head_repo_ref(kirepo.repo).unwrap()
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
     cwd: ExtantDir = F.cwd()
-    col = M.collection(new_col_file)
-    if col.is_err():
-        echo(str(col.err()))
-        return col
-    col = col.unwrap()
+    col: Collection = M.collection(new_col_file).unwrap()
     F.chdir(cwd)
 
     # Add all new models.
@@ -1928,6 +1891,8 @@ def push_deltas(
 
             # Handle parse errors, unlikely to occur.
             if existing_model.is_err():
+
+                # TODO: Is this really the best place to echo this?
                 click.secho(str(existing_model.err()), fg="red")
 
                 # We pass `save=True` because it is always safe to save changes
@@ -1956,6 +1921,8 @@ def push_deltas(
         nt: NotetypeDict = col.models.get(changes.id)
         model: OkErr = parse_notetype_dict(nt)
         if model.is_err():
+
+            # TODO: Is this really the best place to echo this?
             click.secho(str(model.err()), fg="red")
 
             # We pass `save=True` because it is always safe to save changes
@@ -2050,11 +2017,7 @@ def push_deltas(
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Add media files to collection.
-    col = M.collection(kirepo.col_file)
-    if col.is_err():
-        echo(str(col.err()))
-        return col
-    col = col.unwrap()
+    col: Collection = M.collection(kirepo.col_file).unwrap()
     for media_file in F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN):
 
         # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
