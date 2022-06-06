@@ -57,6 +57,7 @@ from beartype.typing import (
     Optional,
     Callable,
     Union,
+    TypeVar,
 )
 
 import ki.maybes as M
@@ -114,6 +115,8 @@ from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
 
+T = TypeVar("T")
+
 # Type alias for OkErr types. Subscript indicates the Ok type.
 Res = List
 
@@ -142,6 +145,18 @@ MD = ".md"
 FAILED = "Failed: exiting."
 
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
+
+
+@beartype
+def E(result: Result[T, Exception]) -> T:
+    """
+    Force callers decorated with `@monadic` to return `Result`s of type `Err`,
+    and otherwise, unwrap ok results. The `UnwrapError`s will be caught by the
+    decorated caller.
+
+    Essentially syntax sugar for `<OkErr>.unwrap()`.
+    """
+    return result.unwrap()
 
 
 @monadic
@@ -214,7 +229,7 @@ def get_ephemeral_kirepo(
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = get_ephemeral_repo(suffix, ref, md5sum)
-    ephem_ki_dir: NoPath = M.nopath(Path(ephem.working_dir) / KI).unwrap()
+    ephem_ki_dir: NoPath = E(M.nopath(Path(ephem.working_dir) / KI))
     F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
     kirepo: Res[KiRepo] = M.kirepo(F.working_dir(ephem))
 
@@ -466,7 +481,7 @@ def get_models_recursively(kirepo: KiRepo) -> Result[Dict[str, Notetype], Except
 
         models: Dict[str, Notetype] = {}
         for _, nt in new_nts.items():
-            notetype: Notetype = parse_notetype_dict(nt).unwrap()
+            notetype: Notetype = E(parse_notetype_dict(nt))
             models[notetype.name] = notetype
 
         # Add mappings to dictionary.
@@ -719,9 +734,9 @@ def push_flatnote_to_anki(
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
         new = True
 
-    old_notetype: Notetype = parse_notetype_dict(note.note_type()).unwrap()
-    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id)).unwrap()
-    note: Note = update_note(note, flatnote, old_notetype, new_notetype).unwrap()
+    old_notetype: Notetype = E(parse_notetype_dict(note.note_type()))
+    new_notetype: Notetype = E(parse_notetype_dict(col.models.get(model_id)))
+    note: Note = E(update_note(note, flatnote, old_notetype, new_notetype))
 
     # Get sort field content. It should not be possible for this to raise a
     # KeyError here, because in `update_note()`, we check that the name fields
@@ -748,17 +763,14 @@ def push_flatnote_to_anki(
     return Ok(colnote)
 
 
+@monadic
 @beartype
 def get_colnote(col: Collection, nid: int) -> Result[ColNote, Exception]:
     try:
         note = col.get_note(nid)
     except NotFoundError:
         return Err(MissingNoteIdError(nid))
-    notetype: OkErr = parse_notetype_dict(note.note_type())
-
-    if notetype.is_err():
-        return notetype
-    notetype: Notetype = notetype.unwrap()
+    notetype: Notetype = E(parse_notetype_dict(note.note_type()))
 
     # Get sort field content. See comment where we subscript in the same way in
     # `push_flatnote_to_anki()`.
@@ -945,7 +957,7 @@ def write_repository(
 
     # Open collection using a `Maybe`.
     cwd: ExtantDir = F.cwd()
-    col: Collection = M.collection(col_file).unwrap()
+    col: Collection = E(M.collection(col_file))
     F.chdir(cwd)
 
     # ColNote-containing data structure, to be passed to `write_decks()`.
@@ -976,10 +988,10 @@ def write_repository(
         col.close(save=False)
         return tidied
 
-    write_decks(col, targetdir, colnotes, tidy_field_files, silent).unwrap()
+    E(write_decks(col, targetdir, colnotes, tidy_field_files, silent))
 
     medias: Set[Union[ExtantFile, Warning]]
-    medias = get_media_files(col, set(all_nids), silent=silent, leave=True).unwrap()
+    medias = E(get_media_files(col, set(all_nids), silent=silent, leave=True))
     warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
     media_files = {f for f in medias if isinstance(f, ExtantFile)}
 
@@ -1161,9 +1173,8 @@ def write_decks(
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
         # Write media files for this deck.
-        medias: Set = get_media_files(
-            col, descendant_nids, silent=silent, leave=leave
-        ).unwrap()
+        medias: Set[Union[ExtantFile, Warning]]
+        medias = E(get_media_files(col, descendant_nids, silent=silent, leave=leave))
         warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
         media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
 
@@ -1521,16 +1532,16 @@ def _clone(
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create .ki subdirectory.
-    root_leaves: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA}).unwrap()
+    root_leaves: Leaves = E(F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA}))
     ki_dir = root_leaves.dirs[KI]
     media_dir = root_leaves.dirs[MEDIA]
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: Leaves = F.fmkleaves(
+    leaves: Leaves = E(F.fmkleaves(
         ki_dir,
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
         dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
-    ).unwrap()
+    ))
 
     md5sum = F.md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
@@ -1545,7 +1556,7 @@ def _clone(
     # This would be very bad for speed, because gitpython calls have quite a
     # bit of overhead sometimes (although maybe not for `Repo.init()` calls,
     # since they aren't networked).
-    write_repository(col_file, targetdir, leaves, media_dir, silent).unwrap()
+    E(write_repository(col_file, targetdir, leaves, media_dir, silent))
 
     # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
@@ -1608,7 +1619,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    ref: RepoRef = M.repo_ref(kirepo.repo, sha).unwrap()
+    ref: RepoRef = E(M.repo_ref(kirepo.repo, sha))
     last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
     # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
@@ -1616,7 +1627,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     # This should return the repository as well.
-    _clone(kirepo.col_file, anki_remote_root, msg, silent=True).unwrap()
+    E(_clone(kirepo.col_file, anki_remote_root, msg, silent=True))
 
     # Load the git repository at `anki_remote_root`, force pull (preferring
     # 'theirs', i.e. the new stuff from the sqlite3 database) changes from that
@@ -1635,7 +1646,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     # remote git repo. If we didn't do this, the fact that we did a fresh clone
     # of the database every time would mean that everything would look like a
     # merge conflict, because there is no shared history.
-    remote_repo: git.Repo = M.repo(anki_remote_root).unwrap()
+    remote_repo: git.Repo = E(M.repo(anki_remote_root))
 
     # Create git remote pointing to anki remote repo.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
@@ -1844,12 +1855,12 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: RepoRef = M.head_repo_ref(kirepo.repo).unwrap()
+    head: RepoRef = E(M.head_repo_ref(kirepo.repo))
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
     cwd: ExtantDir = F.cwd()
-    col: Collection = M.collection(new_col_file).unwrap()
+    col: Collection = E(M.collection(new_col_file))
     F.chdir(cwd)
 
     # Add all new models.
@@ -2017,7 +2028,7 @@ def push_deltas(
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Add media files to collection.
-    col: Collection = M.collection(kirepo.col_file).unwrap()
+    col: Collection = E(M.collection(kirepo.col_file))
     for media_file in F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN):
 
         # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
