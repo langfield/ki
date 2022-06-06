@@ -1306,6 +1306,14 @@ def echo(string: str, silent: bool = False) -> None:
         click.secho(string, bold=True)
 
 
+@beartype
+def echoerr(err: Err, silent: bool = False) -> Err:
+    """Call `click.secho()` on string repr of an `Err`, and return the `Err`."""
+    if not silent:
+        click.secho(str(err.err()))
+    return err
+
+
 @monadic
 @beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Exception]:
@@ -1429,8 +1437,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         # means we definitely do not want to remove `targetdir` or its
         # contents in this case, because we would be deleting the user's data.
         if targetdir.is_err():
-            echo(str(targetdir.err()))
-            return targetdir
+            return echoerr(targetdir)
 
         # Otherwise, we must have that either we created `targetdir` and it did
         # not exist prior, or it was an empty directory before. In either case,
@@ -1441,10 +1448,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
             shutil.rmtree(targetdir)
 
         if md5sum.is_err():
-            echo(str(md5sum.err()))
-            return md5sum
-        echo(str(head))
-        return head
+            return echoerr(md5sum)
+        return echoerr(head)
 
     head: KiRepoRef = head.unwrap()
     md5sum: str = md5sum.unwrap()
@@ -1460,8 +1465,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     click.secho("done.", bold=True, nl=True)
     if stage_kirepo.is_err():
         echo(FAILED)
-        echo(str(stage_kirepo))
-        return stage_kirepo
+        return echoerr(stage_kirepo)
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
     click.secho("Committing changes... ", bold=True, nl=False)
@@ -1487,8 +1491,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     kirepo: Res[KiRepo] = M.kirepo(targetdir)
     if kirepo.is_err():
         echo(FAILED)
-        echo(str(kirepo.err()))
-        return kirepo
+        return echoerr(kirepo)
     kirepo: KiRepo = kirepo.unwrap()
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
@@ -1586,13 +1589,11 @@ def pull() -> Result[bool, Exception]:
     cwd: ExtantDir = F.cwd()
     kirepo: OkErr = M.kirepo(cwd)
     if kirepo.is_err():
-        echo(str(kirepo.err()))
-        return kirepo
+        return echoerr(kirepo)
     kirepo: KiRepo = kirepo.unwrap()
     con: OkErr = lock(kirepo.col_file)
     if con.is_err():
-        echo(str(con.err()))
-        return con
+        return echoerr(con)
     con: sqlite3.Connection = con.unwrap()
 
     md5sum: str = F.md5(kirepo.col_file)
@@ -1604,7 +1605,7 @@ def pull() -> Result[bool, Exception]:
 
     result: OkErr = _pull(kirepo, silent=False)
     if result.is_err():
-        echo(str(result.err()))
+        echoerr(result)
     unlock(con)
     return result
 
@@ -1687,9 +1688,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 
     # Check that md5sum hasn't changed.
     if F.md5(kirepo.col_file) != md5sum:
-        checksum_error: Exception = CollectionChecksumError(kirepo.col_file)
-        echo(str(checksum_error), silent)
-        return Err(checksum_error)
+        checksum_error = Err(CollectionChecksumError(kirepo.col_file))
+        return echoerr(checksum_error, silent)
 
     return Ok()
 
@@ -1707,35 +1707,31 @@ def push() -> Result[bool, Exception]:
     cwd: ExtantDir = F.cwd()
     kirepo: OkErr = M.kirepo(cwd)
     if kirepo.is_err():
-        echo(str(kirepo.err()))
-        return kirepo
+        return echoerr(kirepo)
     kirepo: KiRepo = kirepo.unwrap()
     con: OkErr = lock(kirepo.col_file)
     if con.is_err():
-        echo(str(con.err()))
-        return con
+        return echoerr(con)
     con: sqlite3.Connection = con.unwrap()
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum not in hashes[-1]:
-        rejected: Exception = UpdatesRejectedError(kirepo.col_file)
-        echo(str(rejected))
-        return Err(rejected)
+        rejected = Err(UpdatesRejectedError(kirepo.col_file))
+        return echoerr(rejected)
 
     # Get reference to HEAD of current repo.
     head: Res[KiRepoRef] = M.head_kirepo_ref(kirepo)
     if head.is_err():
-        echo(str(head.err()))
-        return head
+        return echoerr(head)
     head: KiRepoRef = head.unwrap()
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     flat_head: OkErr = M.head_repo_ref(kirepo.no_modules_repo)
     if flat_head.is_err():
-        echo(str(flat_head.err()))
-        return flat_head
+        return echoerr(flat_head)
+
     flat_head: RepoRef = flat_head.unwrap()
     flat_repo: git.Repo = get_ephemeral_repo(FLAT_SUFFIX, flat_head, md5sum)
     F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
@@ -1748,8 +1744,7 @@ def push() -> Result[bool, Exception]:
     # control, i.e. removed from the gitignore.
     pulled: OkErr = _pull(flat_kirepo, silent=True)
     if pulled.is_err():
-        echo(str(pulled.err()), silent=True)
-        return pulled
+        return echoerr(pulled)
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum).unwrap()
@@ -1764,8 +1759,7 @@ def push() -> Result[bool, Exception]:
     # variable name.
     head_1: Res[RepoRef] = M.head_repo_ref(flat_head_kirepo.repo)
     if head_1.is_err():
-        echo(str(head_1.err()))
-        return head_1
+        return echoerr(head_1)
     head_1: RepoRef = head_1.unwrap()
 
     # Commit the changes made since the last time we pushed, since the git
@@ -1820,7 +1814,7 @@ def push() -> Result[bool, Exception]:
         con,
     )
     if pushed.is_err():
-        echo(str(pushed.err()))
+        echoerr(pushed)
     return pushed
 
 
