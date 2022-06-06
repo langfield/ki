@@ -955,7 +955,7 @@ def write_repository(
     tidy_field_files: Dict[str, ExtantFile] = {}
     decks: Dict[str, List[ColNote]] = {}
 
-    # Open deck with `apy`, and dump notes and markdown files.
+    # Open collection using a `Maybe`.
     cwd: ExtantDir = F.cwd()
     col = M.collection(col_file)
     if col.is_err():
@@ -963,9 +963,7 @@ def write_repository(
     col = col.unwrap()
     F.chdir(cwd)
 
-    # NOTE: New colnote-containing data structure, to be passed to
-    # `write_decks()` as an argument in replacement of `decks`, which we will
-    # eventually remove.
+    # ColNote-containing data structure, to be passed to `write_decks()`.
     colnotes: Dict[int, ColNote] = {}
 
     # Query all note ids, get the deck from each note, and construct a map
@@ -1045,9 +1043,9 @@ def write_decks(
     with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
         json.dump(models_map, f, ensure_ascii=False, indent=4)
 
-    # TODO: Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
+    # Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
     #
-    # This replaces the block below. It must do the following for each deck:
+    # It must do the following for each deck:
     # - create the deck directory
     # - write the models.json file
     # - create and populate the media directory
