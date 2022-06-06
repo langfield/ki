@@ -35,6 +35,7 @@ from tqdm import tqdm
 from lark import Lark
 from loguru import logger
 from result import Result, Err, Ok, OkErr
+from pyinstrument import Profiler
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
@@ -821,6 +822,7 @@ def get_header_lines(colnote) -> List[str]:
 def get_media_files(
     col: Collection,
     nids: Set[int],
+    silent: bool,
 ) -> Result[Set[Union[ExtantFile, Warning]], Exception]:
     """
     Get a list of extant media files used in notes and notetypes.
@@ -848,7 +850,7 @@ def get_media_files(
     # Find only used media files, collecting warnings for bad paths.
     media: Set[Union[ExtantFile, Warning]] = set()
 
-    for row in col.db.all("select * from notes where id in " + strnids):
+    for row in tqdm(col.db.all("select * from notes where id in " + strnids), ncols=TQDM_NUM_COLS, disable=silent, position=1, leave=False):
         flds = row[6]
         mid = row[2]
         for file in col.media.files_in_str(mid, flds):
@@ -975,7 +977,7 @@ def write_repository(
     if wrote.is_err():
         return wrote
 
-    medias: OkErr = get_media_files(col, set(all_nids))
+    medias: OkErr = get_media_files(col, set(all_nids), silent=silent)
     if medias.is_err():
         return medias
     medias: Set[Union[ExtantFile, Warning]] = medias.unwrap()
@@ -1073,7 +1075,7 @@ def write_decks(
     written_notes: Dict[int, WrittenNoteFile] = {}
 
     # TODO: This block is littered with unsafe code. Fix.
-    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent):
+    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent, position=0):
 
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
@@ -1154,7 +1156,7 @@ def write_decks(
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
         # Write media files for this deck.
-        medias: Set = get_media_files(col, descendant_nids).unwrap()
+        medias: Set = get_media_files(col, descendant_nids, silent=silent).unwrap()
         warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
         media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
 
@@ -1387,6 +1389,8 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
+    profiler = Profiler()
+    profiler.start()
     echo("Cloning.")
     col_file: Res[ExtantFile] = M.xfile(Path(collection))
 
@@ -1466,6 +1470,11 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
+
+    profiler.stop()
+    s = profiler.output_html()
+    with open("ki.profile.html", "w") as file:
+        file.write(s)
 
     return Ok()
 
