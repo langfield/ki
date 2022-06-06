@@ -1649,7 +1649,7 @@ def test_get_media_files_returns_nice_errors():
         shutil.rmtree(media_dir)
 
         nids = set(col.find_notes(query=""))
-        error = get_media_files(col, nids).unwrap_err()
+        error = get_media_files(col, nids, silent=True, leave=True).unwrap_err()
         assert isinstance(error, MissingMediaDirectoryError)
         assert "media.media" in str(error)
         assert "bad Anki collection media directory" in str(error)
@@ -1692,7 +1692,7 @@ def test_get_media_files_finds_notetype_media():
     with runner.isolated_filesystem():
 
         nids = set(col.find_notes(query=""))
-        medias = get_media_files(col, nids).unwrap()
+        medias = get_media_files(col, nids, silent=True, leave=True).unwrap()
         media_files = {f for f in medias if isinstance(f, ExtantFile)}
         assert len(media_files) == 2
         media_files = sorted(list(media_files))

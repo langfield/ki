@@ -35,7 +35,6 @@ from tqdm import tqdm
 from lark import Lark
 from loguru import logger
 from result import Result, Err, Ok, OkErr
-from pyinstrument import Profiler
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
@@ -143,6 +142,7 @@ MD = ".md"
 FAILED = "Failed: exiting."
 
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
+
 
 @monadic
 @beartype
@@ -823,12 +823,24 @@ def get_media_files(
     col: Collection,
     nids: Set[int],
     silent: bool,
+    leave: bool,
 ) -> Result[Set[Union[ExtantFile, Warning]], Exception]:
     """
     Get a list of extant media files used in notes and notetypes.
 
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
+
+    Parameters
+    ----------
+    col
+        Anki collection.
+    nids
+        Set of note ids.
+    silent
+        Whether to display stdout.
+    leave
+        Whether to leave the tqdm progress bar on the screen.
     """
 
     # All note ids as a string for the SQL query.
@@ -850,7 +862,14 @@ def get_media_files(
     # Find only used media files, collecting warnings for bad paths.
     media: Set[Union[ExtantFile, Warning]] = set()
 
-    for row in tqdm(col.db.all("select * from notes where id in " + strnids), ncols=TQDM_NUM_COLS, disable=silent, position=0, leave=False):
+    rows: List[Sequence[Any]] = col.db.all("select * from notes where id in " + strnids)
+    for row in tqdm(
+        rows,
+        ncols=TQDM_NUM_COLS,
+        disable=silent,
+        position=0,
+        leave=leave,
+    ):
         flds = row[6]
         mid = row[2]
         for file in col.media.files_in_str(mid, flds):
@@ -977,7 +996,7 @@ def write_repository(
     if wrote.is_err():
         return wrote
 
-    medias: OkErr = get_media_files(col, set(all_nids), silent=silent)
+    medias: OkErr = get_media_files(col, set(all_nids), silent=silent, leave=True)
     if medias.is_err():
         return medias
     medias: Set[Union[ExtantFile, Warning]] = medias.unwrap()
@@ -1075,7 +1094,13 @@ def write_decks(
     written_notes: Dict[int, WrittenNoteFile] = {}
 
     # TODO: This block is littered with unsafe code. Fix.
-    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent, position=1):
+    nodes: List[DeckTreeNode] = postorder(root)
+    for i, node in tqdm(
+        list(enumerate(nodes)), ncols=TQDM_NUM_COLS, disable=silent, position=1
+    ):
+
+        # Leave the progress bar on the screen if this is the last iteration.
+        leave: bool = i == len(nodes) - 1
 
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
@@ -1156,7 +1181,9 @@ def write_decks(
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
 
         # Write media files for this deck.
-        medias: Set = get_media_files(col, descendant_nids, silent=silent).unwrap()
+        medias: Set = get_media_files(
+            col, descendant_nids, silent=silent, leave=leave
+        ).unwrap()
         warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
         media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
 
@@ -1389,8 +1416,6 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    profiler = Profiler()
-    profiler.start()
     echo("Cloning.")
     col_file: Res[ExtantFile] = M.xfile(Path(collection))
 
@@ -1436,14 +1461,19 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # Get staging repository in temp directory, and copy to `no_submodules_tree`.
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
+    click.secho("Constructing stage repository... ", bold=True, nl=False)
     stage_kirepo: Res[KiRepo] = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+    click.secho("done.", bold=True, nl=True)
+    click.secho("Flattening stage repository... ", bold=True, nl=False)
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
+    click.secho("done.", bold=True, nl=True)
     if stage_kirepo.is_err():
         echo(FAILED)
         echo(str(stage_kirepo))
         return stage_kirepo
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
+    click.secho("Committing changes... ", bold=True, nl=False)
     # Commit the changes made since the last time we pushed, since the git
     # history of the staging repo is actually the git history of the
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
@@ -1452,12 +1482,14 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # `flatten_staging_repo()`.
     stage_kirepo.repo.git.add(all=True)
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
+    click.secho("done.", bold=True, nl=True)
 
     # Completely annihilate the `.ki/no_submodules_tree`
     # directory/repository, and replace it with `stage_kirepo`. This is a
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
+    click.secho("Copying stage to '.ki/'... ", bold=True, nl=False)
     no_modules_root: NoPath = F.rmtree(F.working_dir(head.kirepo.no_modules_repo))
     F.copytree(stage_kirepo.root, no_modules_root)
 
@@ -1471,10 +1503,7 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
 
-    profiler.stop()
-    s = profiler.output_html()
-    with open("ki.profile.html", "w") as file:
-        file.write(s)
+    click.secho("done.", bold=True, nl=True)
 
     return Ok()
 
@@ -1768,7 +1797,9 @@ def push() -> Result[bool, Exception]:
     # unified diff of all commits to the main repo since the last push, as well
     # as the changes we made within the `unsubmodule_repo()` call above.
     flat_head_kirepo.repo.git.add(all=True)
-    flat_head_kirepo.repo.index.commit(f"Add changes up to and including ref {head.sha}")
+    flat_head_kirepo.repo.index.commit(
+        f"Add changes up to and including ref {head.sha}"
+    )
 
     # Get filter function.
     filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
@@ -1891,7 +1922,9 @@ def push_deltas(
         # If a model already exists with this name, parse it, and check if its
         # hash is identical to the model we are trying to add.
         if mid is not None:
-            logger.debug(f"New model '{model.name}' has same name as existing model with mid '{mid}'")
+            logger.debug(
+                f"New model '{model.name}' has same name as existing model with mid '{mid}'"
+            )
             nt: NotetypeDict = col.models.get(mid)
             existing_model: OkErr = parse_notetype_dict(nt)
 
@@ -1908,10 +1941,10 @@ def push_deltas(
             # and name as an existing model, skip it.
             existing_model: Notetype = existing_model.unwrap()
             if hash_notetype(model) == hash_notetype(existing_model):
-                logger.debug(f"Model hashes MATCH!")
+                logger.debug("Model hashes MATCH!")
                 continue
 
-            logger.warning(f"Model hashes do not match :(")
+            logger.warning("Model hashes do not match :(")
 
             # If the hashes don't match, then we somehow need to update
             # `flatnote.model` for the relevant notes.
