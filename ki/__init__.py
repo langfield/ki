@@ -850,7 +850,7 @@ def get_media_files(
     # Find only used media files, collecting warnings for bad paths.
     media: Set[Union[ExtantFile, Warning]] = set()
 
-    for row in tqdm(col.db.all("select * from notes where id in " + strnids), ncols=TQDM_NUM_COLS, disable=silent, position=1, leave=False):
+    for row in tqdm(col.db.all("select * from notes where id in " + strnids), ncols=TQDM_NUM_COLS, disable=silent, position=0, leave=False):
         flds = row[6]
         mid = row[2]
         for file in col.media.files_in_str(mid, flds):
@@ -1075,7 +1075,7 @@ def write_decks(
     written_notes: Dict[int, WrittenNoteFile] = {}
 
     # TODO: This block is littered with unsafe code. Fix.
-    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent, position=0):
+    for node in tqdm(postorder(root), ncols=TQDM_NUM_COLS, disable=silent, position=1):
 
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function

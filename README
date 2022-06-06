@@ -203,7 +203,7 @@ Add media files back to collection in during `push()` calls. (DONE)
 Remove submodule update calls. (DONE)
 Add test to make sure that pushing new media files that have the same filenames
   as existing media files in the collection doesn't break paths in note fields.
-Persistent note ids across pulls
+Persistent note ids across pulls.
 
 
 Triage
