@@ -162,6 +162,15 @@ TODO
   into that. Then our temp repo will have exactly the same state as the remote,
   and we can diff that against the current HEAD.
 - Test that '.ki/no_submodules_tree' does not, itself, have a '.ki/' directory.
+- Test that deleting a deck directory deletes the deck, i.e. there isn't an
+  empty folder left in the Anki client after pushing.
+- Test that changing models but leaving cards untouched doesn't result in 'up
+  to date.'.
+- Test that deleting notetypes from models file actually removes them.
+- Consider making each model a file, and then making `_models` a directory.
+  Then we can safely symlink all the models in deck directories to the
+  top-level `_models/` directory, and then just resolve the symlinks when we
+  need to push a submodule to github.
 
 16-April-2022
 -------------

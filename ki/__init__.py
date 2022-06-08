@@ -113,6 +113,8 @@ from ki.maybes import (
 from ki.monadic import monadic
 from ki.transformer import NoteTransformer, FlatNote
 
+from pyinstrument import Profiler
+
 logging.basicConfig(level=logging.INFO)
 
 T = TypeVar("T")
@@ -1035,7 +1037,7 @@ def write_decks(
 
     # Dump the models file for the whole repository.
     with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
-        json.dump(models_map, f, ensure_ascii=False, indent=4)
+        json.dump(models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
     # Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
     #
@@ -1170,7 +1172,7 @@ def write_decks(
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
-            json.dump(deck_models_map, f, ensure_ascii=False, indent=4)
+            json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
         # Write media files for this deck.
         medias: Set[Union[ExtantFile, Warning]]
@@ -1584,6 +1586,8 @@ def pull() -> Result[bool, Exception]:
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
     """
+    # profiler = Profiler()
+    # profiler.start()
 
     # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
@@ -1607,6 +1611,10 @@ def pull() -> Result[bool, Exception]:
     if result.is_err():
         echoerr(result)
     unlock(con)
+
+    # profiler.stop()
+    # s = profiler.output_html()
+    # Path("ki_pull_profile.html").resolve().write_text(s)
     return result
 
 
@@ -1628,7 +1636,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     # This should return the repository as well.
-    E(_clone(kirepo.col_file, anki_remote_root, msg, silent=True))
+    E(_clone(kirepo.col_file, anki_remote_root, msg, silent=silent))
 
     # Load the git repository at `anki_remote_root`, force pull (preferring
     # 'theirs', i.e. the new stuff from the sqlite3 database) changes from that
@@ -1657,7 +1665,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 
     # Pull 'theirs' from `anki_remote`.
     cwd: ExtantDir = F.chdir(last_push_root)
-    echo(f"Pulling into {last_push_root}", silent)
+    echo(f"Pulling into {last_push_root}... ", silent=silent)
     last_push_repo.git.config("pull.rebase", "false")
 
     git_subprocess_pull(REMOTE_NAME, BRANCH_NAME, silent)
@@ -1668,11 +1676,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
 
-    # TODO: There was a bug here, where we didn't set `cwd`, and it caused git
-    # not to be able to find the remote. Can also be done via the command
-    # below:
+    # There was a bug here, where we didn't set `cwd`, and it caused git not to
+    # be able to find the remote. Can also be done via the command below:
     #
     # result: str = kirepo.repo.git.pull(REMOTE_NAME, BRANCH_NAME)
+    echo(f"Pulling into current directory... ", silent=silent)
     p = subprocess.run(
         ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
         cwd=kirepo.repo.working_dir,
@@ -1701,6 +1709,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 @beartype
 def push() -> Result[bool, Exception]:
     """Push a ki repository into a .anki2 file."""
+    # profiler = Profiler()
+    # profiler.start()
+
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
     # Check that we are inside a ki repository, and get the associated collection.
@@ -1815,6 +1826,11 @@ def push() -> Result[bool, Exception]:
     )
     if pushed.is_err():
         echoerr(pushed)
+
+    # profiler.stop()
+    # s = profiler.output_html()
+    # Path("ki_push_profile.html").resolve().write_text(s)
+
     return pushed
 
 
@@ -1838,6 +1854,7 @@ def push_deltas(
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
         return Ok()
+    logger.debug(pp.pformat(deltas))
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1874,7 +1891,7 @@ def push_deltas(
         @beartype
         def hash_notetype(notetype: Notetype) -> int:
             dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            s: str = json.dumps(dictionary)
+            s: str = json.dumps(dictionary, sort_keys=True)
             return hash(s)
 
         # TODO: This block is unfinished. We need to add new notetypes (and
@@ -1888,9 +1905,6 @@ def push_deltas(
         # If a model already exists with this name, parse it, and check if its
         # hash is identical to the model we are trying to add.
         if mid is not None:
-            logger.debug(
-                f"New model '{model.name}' has same name as existing model with mid '{mid}'"
-            )
             nt: NotetypeDict = col.models.get(mid)
             existing_model: OkErr = parse_notetype_dict(nt)
 
@@ -1909,10 +1923,12 @@ def push_deltas(
             # and name as an existing model, skip it.
             existing_model: Notetype = existing_model.unwrap()
             if hash_notetype(model) == hash_notetype(existing_model):
-                logger.debug("Model hashes MATCH!")
                 continue
 
-            logger.warning("Model hashes do not match :(")
+            logger.warning(
+                f"Collision: New model '{model.name}' has same name"
+                "as existing model with mid '{mid}', but hashes differ."
+            )
 
             # If the hashes don't match, then we somehow need to update
             # `flatnote.model` for the relevant notes.
