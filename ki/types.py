@@ -211,6 +211,13 @@ class Leaves:
     dirs: Dict[str, EmptyDir]
 
 
+@beartype
+@dataclass(frozen=True)
+class CloneResult:
+    repo: git.Repo
+    md5sum: str
+
+
 # EXCEPTIONS
 
 

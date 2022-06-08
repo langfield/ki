@@ -58,6 +58,7 @@ from beartype.typing import (
     Union,
     TypeVar,
     Sequence,
+    Tuple,
 )
 
 import ki.maybes as M
@@ -78,6 +79,7 @@ from ki.types import (
     KiRepoRef,
     RepoRef,
     Leaves,
+    CloneResult,
     WrittenNoteFile,
     UpdatesRejectedError,
     TargetExistsError,
@@ -1364,20 +1366,16 @@ def clone(collection: str, directory: str = "") -> None:
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
-    cwd: ExtantDir = F.cwd()
-    targetdir: EmptyDir = get_target(cwd, col_file, directory)
-    md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
-
-    # Check that we are inside a ki repository, and get the associated collection.
+    # Write all files to `targetdir`, and instantiate a `KiRepo` object.
+    targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
+    _, md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
     targetdir: ExtantDir = M.xdir(targetdir)
     kirepo: KiRepo = M.kirepo(targetdir)
 
     # Get reference to HEAD of current repo.
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    md5sum: str = md5sum
 
     # Get staging repository in temp directory, and copy to `no_submodules_tree`.
-
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     click.secho("Constructing stage repository... ", bold=True, nl=False)
     stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
@@ -1388,6 +1386,7 @@ def clone(collection: str, directory: str = "") -> None:
 
     click.secho("done.", bold=True, nl=True)
     click.secho("Committing changes... ", bold=True, nl=False)
+
     # Commit the changes made since the last time we pushed, since the git
     # history of the staging repo is actually the git history of the
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
@@ -1398,24 +1397,23 @@ def clone(collection: str, directory: str = "") -> None:
     stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
     click.secho("done.", bold=True, nl=True)
 
-    # Completely annihilate the `.ki/no_submodules_tree`
-    # directory/repository, and replace it with `stage_kirepo`. This is a
-    # sensible operation because earlier, we copied the `.git/` directory
-    # from `.ki/no_submodules_tree` to the staging repo. So the history is
-    # preserved.
+    # Completely annihilate the `.ki/no_submodules_tree` directory/repository,
+    # and replace it with `stage_kirepo`. This is a sensible operation because
+    # earlier, we copied the `.git/` directory from `.ki/no_submodules_tree` to
+    # the staging repo. So the history is preserved.
     click.secho("Copying stage to '.ki/'... ", bold=True, nl=False)
     no_modules_root: NoPath = F.rmtree(F.working_dir(head.kirepo.no_modules_repo))
     F.copytree(stage_kirepo.root, no_modules_root)
 
-    # Dump HEAD ref of current repo in `.ki/last_push`.
-    kirepo: KiRepo = M.kirepo(targetdir)
-    kirepo.last_push_file.write_text(head.sha)
-
+    # Dump HEAD ref of the newly cloned repo to `.ki/last_push`.
+    M.kirepo(targetdir).last_push_file.write_text(head.sha)
     click.secho("done.", bold=True, nl=True)
 
 
 @beartype
-def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) -> str:
+def _clone(
+    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
+) -> Tuple[git.Repo, str]:
     """
     Clone an Anki collection into a directory.
 
@@ -1441,17 +1439,14 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     git.Repo
         The cloned repository.
     """
-    # TODO: Try-except should close collection with save=False.
+    # TODO: On errors, we should close `col` with save=False.
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
-    # Create .ki subdirectory.
-    root_leaves: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
-    ki_dir = root_leaves.dirs[KI]
-    media_dir = root_leaves.dirs[MEDIA]
-
-    # Populate the .ki subdirectory with empty metadata files.
+    # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
+    # TODO: Consider writing a Maybe factory for all this.
+    directories: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
     leaves: Leaves = F.fmkleaves(
-        ki_dir,
+        directories.dirs[KI],
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
         dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
     )
@@ -1459,32 +1454,25 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     md5sum = F.md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
+    (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
-    # Add `.ki/` to gitignore.
-    ignore_path = targetdir / GITIGNORE_FILE
-    ignore_path.write_text(".ki/\n")
-
-    # Write notes to disk. We do explicit error checking here because if we
-    # don't the repository initialization will run even when there's a failure.
-    # This would be very bad for speed, because gitpython calls have quite a
-    # bit of overhead sometimes (although maybe not for `Repo.init()` calls,
-    # since they aren't networked).
-    write_repository(col_file, targetdir, leaves, media_dir, silent)
+    # Write notes to disk.
+    write_repository(col_file, targetdir, leaves, directories.dirs[MEDIA], silent)
 
     # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # Initialize the copy of the repository with submodules replaced with
-    # subdirectories that lives in `.ki/no_submodules_tree/`.
+    # Create a special copy of the repository in `.ki/no_submodules_tree/`,
+    # where all the submodules have been removed, but the files themselves have
+    # been preserved.
     _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
 
-    # Store the md5sum of the anki collection file in the hashes file (we
-    # always append, never overwrite).
-    append_md5sum(ki_dir, col_file.name, md5sum, silent)
+    # Store a checksum of the Anki collection file in the hashes file.
+    append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
 
-    return md5sum
+    return repo, md5sum
 
 
 @ki.command()
@@ -1498,8 +1486,7 @@ def pull() -> None:
     # profiler.start()
 
     # Check that we are inside a ki repository, and get the associated collection.
-    cwd: ExtantDir = F.cwd()
-    kirepo: KiRepo = M.kirepo(cwd)
+    kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
@@ -1518,67 +1505,59 @@ def pull() -> None:
 
 @beartype
 def _pull(kirepo: KiRepo, silent: bool) -> None:
-    """Pull into `kirepo` without checking if we are already up-to-date."""
+    """
+    Pull into `kirepo` without checking if we are already up-to-date.
+
+    Load the git repository at `anki_remote_root`, force pull (preferring
+    'theirs', i.e. the new stuff from the sqlite3 database) changes from that
+    repository (which is cloned straight from the collection, which in general
+    may have new changes) into `last_push_repo`, and then pull `last_push_repo`
+    into the main repository.
+
+    We pull in this sequence in order to avoid merge conflicts. Since we first
+    pull into a snapshot of the repository as it looked when we last pushed to
+    the database, we know that there cannot be any merge conflicts, because to
+    git, it just looks like we haven't made any changes since then. Then we
+    pull the result of that merge into our actual repository. So there could
+    still be merge conflicts at that point, but they will only be 'genuine'
+    merge conflicts in some sense, because as a result of using this snapshot
+    strategy, we give the anki collection the appearance of being a persistent
+    remote git repo. If we didn't do this, the fact that we did a fresh clone
+    of the database every time would mean that everything would look like a
+    merge conflict, because there is no shared history.
+    """
     md5sum: str = F.md5(kirepo.col_file)
     echo(f"Pulling from '{kirepo.col_file}'", silent)
     echo(f"Computed md5sum: {md5sum}", silent)
 
     # Git clone `repo` at commit SHA of last successful `push()`.
-    sha: str = kirepo.last_push_file.read_text()
-    ref: RepoRef = M.repo_ref(kirepo.repo, sha)
+    ref: RepoRef = M.repo_ref(kirepo.repo, sha=kirepo.last_push_file.read_text())
     last_push_repo: git.Repo = get_ephemeral_repo(LOCAL_SUFFIX, ref, md5sum)
 
-    # Ki clone collection into an ephemeral ki repository at `anki_remote_root`.
-    msg = f"Fetch changes from DB at '{kirepo.col_file}' with md5sum '{md5sum}'"
+    # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    msg = f"Fetch changes from DB at '{kirepo.col_file}' with md5sum '{md5sum}'"
+    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
 
-    # This should return the repository as well.
-    _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
-
-    # Load the git repository at `anki_remote_root`, force pull (preferring
-    # 'theirs', i.e. the new stuff from the sqlite3 database) changes from that
-    # repository (which is cloned straight from the collection, which in general
-    # may have new changes) into `last_push_repo`, and then pull
-    # `last_push_repo` into the main repository.
-
-    # We pull in this sequence in order to avoid merge conflicts. Since we first
-    # pull into a snapshot of the repository as it looked when we last pushed to
-    # the database, we know that there cannot be any merge conflicts, because to
-    # git, it just looks like we haven't made any changes since then. Then we
-    # pull the result of that merge into our actual repository. So there could
-    # still be merge conflicts at that point, but they will only be 'genuine'
-    # merge conflicts in some sense, because as a result of using this snapshot
-    # strategy, we give the anki collection the appearance of being a persistent
-    # remote git repo. If we didn't do this, the fact that we did a fresh clone
-    # of the database every time would mean that everything would look like a
-    # merge conflict, because there is no shared history.
-    remote_repo: git.Repo = M.repo(anki_remote_root)
-
-    # Create git remote pointing to anki remote repo.
+    # Create git remote pointing to `remote_repo`, which represents the current
+    # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-
-    # Pull anki remote repo into `last_push_repo`.
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
-
-    # Pull 'theirs' from `anki_remote`.
-    cwd: ExtantDir = F.chdir(last_push_root)
+    old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
-
     git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
     last_push_repo.delete_remote(anki_remote)
-    F.chdir(cwd)
+    F.chdir(old_cwd)
 
     # Create remote pointing to `last_push` repo and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
 
-    # Append to hashes file.
+    # Append the hash of the collection to the hashes file, and raise an error
+    # if the collection was modified while we were pulling changes.
     append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
-
-    # Check that md5sum hasn't changed.
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
 
