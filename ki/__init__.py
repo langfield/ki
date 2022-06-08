@@ -326,9 +326,6 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(ref.repo.working_dir)
-    logger.debug(
-        f"Diffing {ref.sha} against {ref.repo.head.commit.hexsha} at {ref.repo.working_dir}"
-    )
     diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -1230,29 +1227,27 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     return "\n".join(lines)
 
 
-# TODO: Refactor into a safe function.
 @beartype
-def git_subprocess_pull(remote: str, branch: str, silent: bool) -> int:
+def git_pull(
+    remote: str,
+    branch: str,
+    cwd: ExtantDir,
+    unrelated: bool,
+    theirs: bool,
+    check: bool,
+    silent: bool,
+) -> None:
     """Pull remote into branch using a subprocess call."""
-    p = subprocess.run(
-        [
-            "git",
-            "pull",
-            "-v",
-            "--allow-unrelated-histories",
-            "--strategy-option",
-            "theirs",
-            remote,
-            branch,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    pull_stderr = p.stderr.decode()
-    echo(f"\n{pull_stderr}", silent)
-    if p.returncode != 0:
-        raise ValueError(pull_stderr)
-    return p.returncode
+    echo(f"Pulling into {cwd}... ", silent=silent)
+    args = ["git", "pull", "-v"]
+    if unrelated:
+        args += ["--allow-unrelated-histories"]
+    if theirs:
+        args += ["--strategy-option", "theirs"]
+    args += [remote, branch]
+    p = subprocess.run(args, check=check, cwd=cwd, capture_output=True)
+    echo(f"{p.stdout.decode()}", silent=silent)
+    echo(f"{p.stderr.decode()}", silent=silent)
 
 
 @beartype
@@ -1567,10 +1562,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Pull 'theirs' from `anki_remote`.
     cwd: ExtantDir = F.chdir(last_push_root)
-    echo(f"Pulling into {last_push_root}... ", silent=silent)
     last_push_repo.git.config("pull.rebase", "false")
 
-    git_subprocess_pull(REMOTE_NAME, BRANCH_NAME, silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(cwd)
 
@@ -1578,19 +1572,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
 
-    # There was a bug here, where we didn't set `cwd`, and it caused git not to
-    # be able to find the remote. Can also be done via the command below:
-    #
-    # result: str = kirepo.repo.git.pull(REMOTE_NAME, BRANCH_NAME)
-    echo("Pulling into current directory... ", silent=silent)
-    p = subprocess.run(
-        ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
-        cwd=kirepo.repo.working_dir,
-        check=False,
-        capture_output=True,
-    )
-    echo(f"{p.stdout.decode()}", silent)
-    echo(f"{p.stderr.decode()}", silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
 
     # Append to hashes file.
@@ -1684,7 +1666,6 @@ def push() -> None:
 
     # Get filter function.
     filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
-
     head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Read grammar.

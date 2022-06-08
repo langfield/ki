@@ -61,7 +61,7 @@ from ki import (
     create_deck_dir,
     tidy_html_recursively,
     get_note_path,
-    git_subprocess_pull,
+    git_pull,
     get_colnote,
     backup,
     get_ephemeral_repo,
@@ -1003,7 +1003,7 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         assert "Backup already exists." in captured.out
 
 
-def test_git_subprocess_pull():
+def test_git_pull():
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1017,7 +1017,7 @@ def test_git_subprocess_pull():
 
         # Pull, poorly.
         with pytest.raises(ValueError):
-            git_subprocess_pull("anki", "main", silent=False)
+            git_pull("anki", "main", silent=False)
 
 
 def test_get_note_path():
