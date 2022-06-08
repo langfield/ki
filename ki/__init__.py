@@ -317,7 +317,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 def diff_repos(
     a_repo: git.Repo,
     ref: RepoRef,
-    filter_fn: Callable[[Path], bool],
+    filter_fn: Callable[[Path], Optional[Warning]],
     parser: Lark,
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
@@ -333,13 +333,13 @@ def diff_repos(
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            a_status: bool = filter_fn(a_dir / diff.a_path)
-            b_status: bool = filter_fn(b_dir / diff.b_path)
-            if a_status.is_err():
-                deltas.append(a_status.err())
+            a_warning: Optional[Warning] = filter_fn(a_dir / diff.a_path)
+            b_warning: Optional[Warning] = filter_fn(b_dir / diff.b_path)
+            if a_warning is not None:
+                deltas.append(a_warning)
                 continue
-            if b_status.is_err():
-                deltas.append(b_status.err())
+            if b_warning is not None:
+                deltas.append(b_warning)
                 continue
 
             a_path = F.test(a_dir / diff.a_path)
@@ -1494,7 +1494,7 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
 
 @ki.command()
 @beartype
-def pull() -> bool:
+def pull() -> None:
     """
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.

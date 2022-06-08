@@ -103,7 +103,6 @@ from ki.types import (
     MissingMediaDirectoryError,
     MissingMediaFileWarning,
 )
-from ki.monadic import monadic
 from ki.transformer import FlatNote, NoteTransformer
 
 
@@ -350,6 +349,7 @@ def get_media_col_file() -> ExtantFile:
     shutil.copyfile(MEDIA_MEDIA_DB_PATH, media_db)
     return F.test(Path(col_file))
 
+
 @beartype
 def get_split_col_file() -> ExtantFile:
     """Put `split.anki2` in a tempdir and return its abspath."""
@@ -362,6 +362,7 @@ def get_split_col_file() -> ExtantFile:
     shutil.copytree(SPLIT_MEDIA_DIRECTORY_PATH, media_dir)
     shutil.copyfile(SPLIT_MEDIA_DB_PATH, media_db)
     return F.test(Path(col_file))
+
 
 @beartype
 def is_git_repo(path: str) -> bool:
@@ -414,10 +415,7 @@ def get_notes(collection: ExtantFile) -> List[ColNote]:
 
     notes: List[ColNote] = []
     for nid in set(col.find_notes("")):
-        colnote: OkErr = get_colnote(col, nid)
-        if colnote.is_err():
-            raise colnote
-        colnote: ColNote = colnote.unwrap()
+        colnote: ColNote = get_colnote(col, nid)
         notes.append(colnote)
 
     return notes
@@ -1451,13 +1449,11 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(
     assert "'bad_field_key'" in str(error)
 
 
-@monadic
 @beartype
 def sample() -> Result[int, Exception]:
     return Ok("")
 
 
-@monadic
 @beartype
 def unannotated():
     return Ok(0)
