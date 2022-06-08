@@ -349,6 +349,7 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(b_repo.working_dir)
+    logger.debug(f"Diffing {ref.sha} against {b_repo.head.commit.hexsha} at {b_repo.working_dir}")
     diff_index = b_repo.commit(ref.sha).diff(b_repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -1312,6 +1313,7 @@ def echo(string: str, silent: bool = False) -> None:
 def echoerr(err: Err, silent: bool = False) -> Err:
     """Call `click.secho()` on string repr of an `Err`, and return the `Err`."""
     if not silent:
+        click.secho(FAILED)
         click.secho(str(err.err()))
     return err
 
@@ -1327,7 +1329,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> Result[bool, Excepti
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.
-        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no"]
+        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no", "--show-body-only", "yes"]
         command += batch
         try:
             subprocess.run(command, check=False, capture_output=True)
@@ -1466,7 +1468,6 @@ def clone(collection: str, directory: str = "") -> Result[bool, Exception]:
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
     click.secho("done.", bold=True, nl=True)
     if stage_kirepo.is_err():
-        echo(FAILED)
         return echoerr(stage_kirepo)
     stage_kirepo: KiRepo = stage_kirepo.unwrap()
 
@@ -1708,7 +1709,28 @@ def _pull(kirepo: KiRepo, silent: bool) -> Result[bool, Exception]:
 @ki.command()
 @beartype
 def push() -> Result[bool, Exception]:
-    """Push a ki repository into a .anki2 file."""
+    """
+    Push a ki repository into a .anki2 file.
+
+    Consists of the following operations:
+
+        - Check that the command was run within a ki repo
+        - Lock the collection
+        - Hash the collection and abort if there were remote changes
+        - Copy the submoduleless repo to a temp directory ("flat stage")
+        - Copy the .ki/ folder to the flat stage
+        - Open the flat stage as a KiRepo
+        - Write HEAD ref of the flat stage to its LAST_PUSH file
+        - Pull remote changes into the flat stage
+        - Copy HEAD into a temp directory ("stage")
+        - Unsubmodule stage
+        - Annihilate .git folder of stage
+        - Copy .git folder of flat stage to stage
+        - Commit changes in stage (these will be all changes from the last
+          commit of the submoduless repo to current HEAD, i.e. since the last
+          time we pushed)
+        - Copy HEAD into another temp directory ("head repo")
+    """
     # profiler = Profiler()
     # profiler.start()
 
