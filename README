@@ -171,6 +171,12 @@ TODO
   Then we can safely symlink all the models in deck directories to the
   top-level `_models/` directory, and then just resolve the symlinks when we
   need to push a submodule to github.
+- There is a bug where pushes are not no-ops when they should be as a result of
+  having submodules whose repository name is different from the deck name.
+
+  Specifically, if you have add a submodule called `a` but its top-level deck
+  is called `b`, then once pushed, every push will be nontrivial, because it
+  will look like a path rename.
 
 16-April-2022
 -------------
