@@ -65,7 +65,7 @@ from ki import (
     get_colnote,
     backup,
     get_ephemeral_repo,
-    diff_repos,
+    diff_repo,
     update_note,
     parse_notetype_dict,
     display_fields_health_warning,
@@ -775,16 +775,16 @@ class DiffReposArgs:
 
 
 @beartype
-def get_diff_repos_args() -> DiffReposArgs:
+def get_diff_repo_args() -> DiffReposArgs:
     """
     A test 'fixture' (not really a pytest fixture, but a setup function) to be
-    called when we need to test `diff_repos()`.
+    called when we need to test `diff_repo()`.
 
     Basically a section of the code from `push()`, but without any error
     handling, since we expect things to work out nicely, and for the
     repositories operated upon during tests to be valid.
 
-    Returns the values needed to pass as arguments to `diff_repos()`.
+    Returns the values needed to pass as arguments to `diff_repo()`.
 
     This makes ephemeral repositories, so we should make any changes we expect
     to see the results of in `deltas: List[Delta]` *before* calling this
@@ -835,7 +835,7 @@ def get_diff_repos_args() -> DiffReposArgs:
     return DiffReposArgs(a_repo, b_repo, head_1, filter_fn, parser, transformer)
 
 
-def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
+def test_diff_repo_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -844,8 +844,8 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         clone(runner, col_file)
         os.chdir(REPODIR)
 
-        args: DiffReposArgs = get_diff_repos_args()
-        deltas: List[Delta] = diff_repos(
+        args: DiffReposArgs = get_diff_repo_args()
+        deltas: List[Delta] = diff_repo(
             args.a_repo,
             args.b_repo,
             args.head_1,
@@ -860,7 +860,7 @@ def test_diff_repos_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_p
         assert "last_push" not in captured.err
 
 
-def test_diff_repos_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
+def test_diff_repo_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -874,11 +874,11 @@ def test_diff_repos_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_pat
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
-        args: DiffReposArgs = get_diff_repos_args()
+        args: DiffReposArgs = get_diff_repo_args()
 
         # We pass in `b_repo` for both arguments in order to simulate the
         # deleted file being missing.
-        deltas: List[Union[Delta, Warning]] = diff_repos(
+        deltas: List[Union[Delta, Warning]] = diff_repo(
             args.b_repo,
             args.b_repo,
             args.head_1,
@@ -892,7 +892,7 @@ def test_diff_repos_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_pat
         assert "Default/a.md" in str(warning)
 
 
-def test_diff_repos_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
+def test_diff_repo_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -906,11 +906,11 @@ def test_diff_repos_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
-        args: DiffReposArgs = get_diff_repos_args()
+        args: DiffReposArgs = get_diff_repo_args()
 
         os.remove(Path(args.b_repo.working_dir) / NOTE_2)
 
-        deltas: List[Union[Delta, Warning]] = diff_repos(
+        deltas: List[Union[Delta, Warning]] = diff_repo(
             args.b_repo,
             args.b_repo,
             args.head_1,
@@ -940,9 +940,9 @@ def test_unsubmodule_repo_removes_gitmodules(tmp_path):
         assert not gitmodules_path.exists()
 
 
-def test_diff_repos_handles_submodules():
+def test_diff_repo_handles_submodules():
     """
-    Does 'diff_repos()' correctly generate deltas
+    Does 'diff_repo()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
     col_file = get_col_file()
@@ -952,8 +952,8 @@ def test_diff_repos_handles_submodules():
 
         os.chdir(REPODIR)
 
-        args: DiffReposArgs = get_diff_repos_args()
-        deltas: List[Delta] = diff_repos(
+        args: DiffReposArgs = get_diff_repo_args()
+        deltas: List[Delta] = diff_repo(
             args.a_repo,
             args.b_repo,
             args.head_1,
@@ -975,8 +975,8 @@ def test_diff_repos_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        args: DiffReposArgs = get_diff_repos_args()
-        deltas: List[Delta] = diff_repos(
+        args: DiffReposArgs = get_diff_repo_args()
+        deltas: List[Delta] = diff_repo(
             args.a_repo,
             args.b_repo,
             args.head_1,

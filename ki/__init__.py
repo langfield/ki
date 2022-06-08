@@ -316,7 +316,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 
 
 @beartype
-def diff_repos(
+def diff_repo(
     a_repo: git.Repo,
     ref: RepoRef,
     warnings_fn: Callable[[Path], Optional[Warning]],
@@ -1697,7 +1697,7 @@ def push() -> None:
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
-    deltas = diff_repos(a_repo, head_1, warnings_fn, parser, transformer)
+    deltas = diff_repo(a_repo, head_1, warnings_fn, parser, transformer)
 
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
