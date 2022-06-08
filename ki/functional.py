@@ -18,6 +18,9 @@ from beartype.typing import (
     List,
     Union,
     Generator,
+    Optional,
+    Dict,
+    Set,
 )
 
 import ki.functional as F
@@ -30,6 +33,8 @@ from ki.types import (
     ExtantStrangePath,
     KiRepoRef,
     RepoRef,
+    Leaves,
+    PathCreationCollisionError,
 )
 
 FS_ROOT = Path("/")
@@ -250,3 +255,40 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
 def kirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
     """Convert a ki repository commit ref to a git repository commit ref."""
     return RepoRef(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+
+
+@beartype
+def fmkleaves(
+    root: EmptyDir,
+    *,
+    files: Optional[Dict[str, str]] = None,
+    dirs: Optional[Dict[str, str]] = None,
+) -> Leaves:
+    """Safely populate an empty directory with empty files and empty subdirectories."""
+    # Check that there are no collisions, returning an appropriate error if one
+    # is found.
+    leaves: Set[str] = set()
+    if files is not None:
+        for key, token in files.items():
+            if str(token) in leaves:
+                raise PathCreationCollisionError(root, str(token))
+            leaves.add(str(token))
+    if dirs is not None:
+        for key, token in dirs.items():
+            # We lie to the `F.mksubdir` call and tell it the root is empty
+            # on every iteration.
+            if str(token) in leaves:
+                raise PathCreationCollisionError(root, str(token))
+            leaves.add(str(token))
+
+    # Actually populate the directory.
+    new_files: Dict[str, ExtantFile] = {}
+    new_dirs: Dict[str, EmptyDir] = {}
+    if files is not None:
+        for key, token in files.items():
+            new_files[key] = F.touch(root, token)
+    if dirs is not None:
+        for key, token in dirs.items():
+            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
+
+    return Leaves(root, new_files, new_dirs)

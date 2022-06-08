@@ -203,6 +203,14 @@ def errwrap(msg: str) -> str:
     return out
 
 
+@beartype
+@dataclass(frozen=True)
+class Leaves:
+    root: ExtantDir
+    files: Dict[str, ExtantFile]
+    dirs: Dict[str, EmptyDir]
+
+
 # EXCEPTIONS
 
 

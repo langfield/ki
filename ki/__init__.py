@@ -77,6 +77,7 @@ from ki.types import (
     ColNote,
     KiRepoRef,
     RepoRef,
+    Leaves,
     WrittenNoteFile,
     UpdatesRejectedError,
     TargetExistsError,
@@ -1454,12 +1455,10 @@ def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) ->
     media_dir = root_leaves.dirs[MEDIA]
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: Leaves = E(
-        F.fmkleaves(
-            ki_dir,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
-        )
+    leaves: Leaves = F.fmkleaves(
+        ki_dir,
+        files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+        dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
     )
 
     md5sum = F.md5(col_file)
