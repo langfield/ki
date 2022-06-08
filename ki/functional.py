@@ -12,20 +12,15 @@ import unicodedata
 from pathlib import Path
 
 import git
-from result import Result, Err, Ok
 
 from beartype import beartype
 from beartype.typing import (
-    Set,
     List,
-    Dict,
-    Optional,
     Union,
     Generator,
 )
 
 import ki.functional as F
-from ki.monadic import monadic
 from ki.types import (
     ExtantFile,
     ExtantDir,
@@ -33,10 +28,8 @@ from ki.types import (
     NoPath,
     Singleton,
     ExtantStrangePath,
-    Leaves,
     KiRepoRef,
     RepoRef,
-    PathCreationCollisionError,
 )
 
 FS_ROOT = Path("/")
@@ -49,9 +42,6 @@ FLAGS = "\U0001F1E0-\U0001F1FF"
 
 # Regex to filter out bad stuff from filenames.
 SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
-
-
-# DANGER
 
 
 @beartype
@@ -254,47 +244,6 @@ def slugify(value: str, allow_unicode: bool = False) -> str:
     result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
 
     return result
-
-
-# Only monadic function in here.
-
-
-@monadic
-@beartype
-def fmkleaves(
-    root: EmptyDir,
-    *,
-    files: Optional[Dict[str, str]] = None,
-    dirs: Optional[Dict[str, str]] = None,
-) -> Result[Leaves, Exception]:
-    """Safely populate an empty directory with empty files and empty subdirectories."""
-    # Check that there are no collisions, returning an appropriate error if one
-    # is found.
-    leaves: Set[str] = set()
-    if files is not None:
-        for key, token in files.items():
-            if str(token) in leaves:
-                return Err(PathCreationCollisionError(root, str(token)))
-            leaves.add(str(token))
-    if dirs is not None:
-        for key, token in dirs.items():
-            # We lie to the `F.mksubdir` call and tell it the root is empty
-            # on every iteration.
-            if str(token) in leaves:
-                return Err(PathCreationCollisionError(root, str(token)))
-            leaves.add(str(token))
-
-    # Actually populate the directory.
-    new_files: Dict[str, ExtantFile] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
-    if files is not None:
-        for key, token in files.items():
-            new_files[key] = F.touch(root, token)
-    if dirs is not None:
-        for key, token in dirs.items():
-            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
-
-    return Ok(Leaves(root, new_files, new_dirs))
 
 
 @beartype

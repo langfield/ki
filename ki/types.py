@@ -15,7 +15,7 @@ from beartype.typing import List, Dict, Any, Optional
 
 from ki.transformer import FlatNote
 
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines, missing-class-docstring
 
 NotetypeDict = Dict[str, Any]
 MODELS_FILE = "models.json"
@@ -184,14 +184,6 @@ class RepoRef:
 
     repo: git.Repo
     sha: str
-
-
-@beartype
-@dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]
 
 
 @beartype
