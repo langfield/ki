@@ -72,7 +72,7 @@ from ki import (
     is_anki_note,
     parse_markdown_note,
     flatten_staging_repo,
-    filter_note_path,
+    get_note_warns,
     lock,
     unsubmodule_repo,
     write_repository,

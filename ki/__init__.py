@@ -239,7 +239,7 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 
 @beartype
-def filter_note_path(
+def get_note_warns(
     path: Path, patterns: List[str], root: ExtantDir
 ) -> Optional[Warning]:
     """
@@ -319,7 +319,7 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 def diff_repos(
     a_repo: git.Repo,
     ref: RepoRef,
-    filter_fn: Callable[[Path], Optional[Warning]],
+    warnings_fn: Callable[[Path], Optional[Warning]],
     parser: Lark,
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
@@ -332,8 +332,8 @@ def diff_repos(
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            a_warning: Optional[Warning] = filter_fn(a_dir / diff.a_path)
-            b_warning: Optional[Warning] = filter_fn(b_dir / diff.b_path)
+            a_warning: Optional[Warning] = warnings_fn(a_dir / diff.a_path)
+            b_warning: Optional[Warning] = warnings_fn(b_dir / diff.b_path)
             if a_warning is not None:
                 deltas.append(a_warning)
                 continue
@@ -504,7 +504,7 @@ def parse_markdown_note(
 @beartype
 def update_note(
     note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
-) -> Note:
+) -> Tuple[Note, List[Warning]]:
     """
     Change all the data of `note` to that given in `flatnote`.
 
@@ -549,6 +549,8 @@ def update_note(
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_flatnote_fields(new_notetype, flatnote)
+
+    # TODO: Don't print this here.
     for warning in warnings:
         logger.warning(warning)
 
@@ -569,9 +571,9 @@ def update_note(
     health = display_fields_health_warning(note)
     if health != 0:
         note.col.remove_notes([note.id])
-        raise UnhealthyNoteWarning(str(note.id))
+        warnings.append(UnhealthyNoteWarning(str(note.id)))
 
-    return note
+    return note, warnings
 
 
 @beartype
@@ -688,9 +690,23 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 
 
 @beartype
-def push_flatnote_to_anki(col: Collection, flatnote: FlatNote) -> ColNote:
-    # Notetype/model names are privileged in Anki and the current iteration of
-    # Ki.
+def push_flatnote_to_anki(
+    col: Collection, flatnote: FlatNote
+) -> Tuple[ColNote, List[Warning]]:
+    """
+    Update the Anki `Note` object in `col` corresponding to `flatnote`,
+    creating it if it does not already exist.
+
+    Raises
+    ------
+    MissingNotetypeError
+        If we can't find a notetype with the name provided in `flatnote`.
+    NoteFieldKeyError
+        If the parsed sort field name from the notetype specified in `flatnote`
+        does not exist.
+    """
+    # Notetype/model names are privileged in Anki, so if we don't find the
+    # right name, we raise an error.
     model_id: Optional[int] = col.models.id_for_name(flatnote.model)
     if model_id is None:
         raise MissingNotetypeError(flatnote.model)
@@ -704,17 +720,14 @@ def push_flatnote_to_anki(col: Collection, flatnote: FlatNote) -> ColNote:
         col.add_note(note, col.decks.id(flatnote.deck, create=True))
         new = True
 
+    # If we are updating an existing note, we need to know the old and new
+    # notetypes, and then update the notetype (and the rest of the note data)
+    # accordingly.
     old_notetype: Notetype = parse_notetype_dict(note.note_type())
     new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    note: Note = update_note(note, flatnote, old_notetype, new_notetype)
+    note, warnings = update_note(note, flatnote, old_notetype, new_notetype)
 
-    # Get sort field content. It should not be possible for this to raise a
-    # KeyError here, because in `update_note()`, we check that the name fields
-    # of each field in `new_notetype.flds` exactly match the keys of
-    # `flatnote`, and are in the same order. Then we index `note` on all of
-    # these keys (without checking for a KeyError). So under the assumption
-    # that `new_notetype..sortf.name` is one of those names/keys, this should
-    # be safe.
+    # Get the text of the sort field for this note.
     try:
         sortf_text: str = note[new_notetype.sortf.name]
     except KeyError as err:
@@ -730,7 +743,7 @@ def push_flatnote_to_anki(col: Collection, flatnote: FlatNote) -> ColNote:
         notetype=new_notetype,
         sortf_text=sortf_text,
     )
-    return colnote
+    return colnote, warnings
 
 
 @beartype
@@ -1358,7 +1371,7 @@ def clone(collection: str, directory: str = "") -> None:
     Parameters
     ----------
     collection : str
-        The path to a `.anki2` collection file.
+        The path to an `.anki2` collection file.
     directory : str, default=""
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
@@ -1417,27 +1430,28 @@ def _clone(
     """
     Clone an Anki collection into a directory.
 
-    The caller, realistically only `clone()`, expects that `targetdir` will
-    be the root of a valid ki repository after this function is called, so we
-    need to do our repo initialization with gitpython in here, as opposed to in
-    `clone()`.
+    The caller expects that `targetdir` will be the root of a valid ki
+    repository after this function is called, so we need to do our repo
+    initialization with gitpython in here, as opposed to in `clone()`.
 
     Parameters
     ----------
     col_file : pathlib.Path
-        The path to a `.anki2` collection file.
+        The path to an `.anki2` collection file.
     targetdir : pathlib.Path
         A path to a directory to clone the collection into.
         Note: we check that this directory is empty.
     msg : str
         Message for initial commit.
     silent : bool
-        Indicates whether we are calling `_clone()` from `pull()`.
+        Whether to suppress progress information printed to stdout.
 
     Returns
     -------
-    git.Repo
+    repo : git.Repo
         The cloned repository.
+    md5sum : str
+        The hash of the Anki collection file.
     """
     # TODO: On errors, we should close `col` with save=False.
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
@@ -1525,6 +1539,20 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     remote git repo. If we didn't do this, the fact that we did a fresh clone
     of the database every time would mean that everything would look like a
     merge conflict, because there is no shared history.
+
+    Parameters
+    ----------
+    kirepo : KiRepo
+        A dataclass representing the Ki repository in the cwd.
+    silent : bool
+        Whether to suppress progress information printed to stdout.
+
+    Raises
+    ------
+    CollectionChecksumError
+        If the Anki collection file was modified while pulling changes. This is
+        very unlikely, since the caller acquires a lock on the SQLite3
+        database.
     """
     md5sum: str = F.md5(kirepo.col_file)
     echo(f"Pulling from '{kirepo.col_file}'", silent)
@@ -1621,7 +1649,6 @@ def push() -> None:
     # control, i.e. removed from the gitignore.
     _pull(flat_kirepo, silent=True)
 
-    # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum)
     unsubmodule_repo(head_kirepo.repo)
     head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
@@ -1643,8 +1670,12 @@ def push() -> None:
     flat_head_kirepo.repo.git.add(all=True)
     flat_head_kirepo.repo.index.commit(commit_msg)
 
-    # Get filter function.
-    filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
+    # Construct note warnings function, which returns `None` if a path is a
+    # valid Anki note, and a `Warning` otherwise.
+    #
+    # TODO: This should really be a boolean function with some sort of
+    # debugging flag.
+    warnings_fn = functools.partial(get_note_warns, patterns=IGNORE, root=kirepo.root)
     head_kirepo: KiRepo = get_ephemeral_kirepo(LOCAL_SUFFIX, head, md5sum)
 
     # Read grammar.
@@ -1666,9 +1697,7 @@ def push() -> None:
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
-    deltas: List[Union[Delta, Warning]] = diff_repos(
-        a_repo, head_1, filter_fn, parser, transformer
-    )
+    deltas = diff_repos(a_repo, head_1, warnings_fn, parser, transformer)
 
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
@@ -1807,18 +1836,15 @@ def push_deltas(
             col.remove_notes([flatnote.nid])
             continue
 
-        # If a note with this nid exists in DB, update it.
         # TODO: If relevant prefix of sort field has changed, we regenerate
         # the file. Recall that the sort field is used to determine the
         # filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote: ColNote = push_flatnote_to_anki(col, flatnote)
-        regenerated: List[str] = regenerate_note_file(
-            colnote, kirepo.root, delta.relpath
-        )
-        log += regenerated
+        colnote, note_warnings = push_flatnote_to_anki(col, flatnote)
+        log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
+        warnings += note_warnings
 
-    # Display all warnings returned by the filter function.
+    # Display all warnings.
     for warning in warnings:
         if type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
