@@ -229,6 +229,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
         no_modules_repo,
     )
 
+
 @beartype
 def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
     if not F.ref_exists(repository, sha):

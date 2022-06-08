@@ -186,9 +186,7 @@ def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo
 
 
 @beartype
-def get_ephemeral_kirepo(
-    suffix: Path, kirepo_ref: KiRepoRef, md5sum: str
-) -> KiRepo:
+def get_ephemeral_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> KiRepo:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
@@ -327,7 +325,9 @@ def diff_repos(
     deltas = []
     a_dir = Path(a_repo.working_dir)
     b_dir = Path(ref.repo.working_dir)
-    logger.debug(f"Diffing {ref.sha} against {ref.repo.head.commit.hexsha} at {ref.repo.working_dir}")
+    logger.debug(
+        f"Diffing {ref.sha} against {ref.repo.head.commit.hexsha} at {ref.repo.working_dir}"
+    )
     diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
@@ -396,8 +396,8 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
     # field.
     try:
         nt["name"]
-    except KeyError:
-        raise UnnamedNotetypeError(nt)
+    except KeyError as err:
+        raise UnnamedNotetypeError(nt) from err
     try:
         fields: Dict[int, Field] = {}
         for fld in nt["flds"]:
@@ -434,7 +434,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
 
     except KeyError as err:
         key = str(err)
-        raise NotetypeKeyError(key, str(nt["name"]))
+        raise NotetypeKeyError(key, str(nt["name"])) from err
     return notetype
 
 
@@ -575,10 +575,9 @@ def update_note(
 
 
 @beartype
-def validate_flatnote_fields(
-    notetype: Notetype, flatnote: FlatNote
-) -> List[Warning]:
+def validate_flatnote_fields(notetype: Notetype, flatnote: FlatNote) -> List[Warning]:
     """Validate that the fields given in the note match the notetype."""
+    warnings: List[Warning] = []
     # Set current notetype for collection to `model_name`.
     field_names: List[str] = [field.name for field in notetype.flds]
 
@@ -588,13 +587,14 @@ def validate_flatnote_fields(
     # repository. This would have to be added to the `FlatNote` spec.
     if len(flatnote.fields.keys()) != len(field_names):
         msg = f"Wrong number of fields for model {flatnote.model}!"
-        raise NoteFieldValidationWarning(msg)
+        warnings.append(NoteFieldValidationWarning(msg))
 
     for x, y in zip(field_names, flatnote.fields.keys()):
         if x != y:
             msg = f"Inconsistent field names ({x} != {y})"
-            raise NoteFieldValidationWarning(msg)
-    return
+            warnings.append(NoteFieldValidationWarning(msg))
+
+    return warnings
 
 
 @beartype
@@ -688,9 +688,7 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 
 
 @beartype
-def push_flatnote_to_anki(
-    col: Collection, flatnote: FlatNote
-) -> ColNote:
+def push_flatnote_to_anki(col: Collection, flatnote: FlatNote) -> ColNote:
     # Notetype/model names are privileged in Anki and the current iteration of
     # Ki.
     model_id: Optional[int] = col.models.id_for_name(flatnote.model)
@@ -720,7 +718,7 @@ def push_flatnote_to_anki(
     try:
         sortf_text: str = note[new_notetype.sortf.name]
     except KeyError as err:
-        raise NoteFieldKeyError(str(err), note.id)
+        raise NoteFieldKeyError(str(err), note.id) from err
 
     colnote = ColNote(
         n=note,
@@ -739,8 +737,8 @@ def push_flatnote_to_anki(
 def get_colnote(col: Collection, nid: int) -> ColNote:
     try:
         note = col.get_note(nid)
-    except NotFoundError:
-        raise MissingNoteIdError(nid)
+    except NotFoundError as err:
+        raise MissingNoteIdError(nid) from err
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
@@ -969,8 +967,6 @@ def write_repository(
     shutil.rmtree(root)
     col.close(save=False)
 
-    return
-
 
 @beartype
 def write_decks(
@@ -1148,6 +1144,7 @@ def write_decks(
         for media_file in media_files:
             F.copyfile(media_file, deck_media_dir, media_file.name)
 
+
 @beartype
 def html_to_screen(html: str) -> str:
     """
@@ -1265,15 +1262,6 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def echoerr(err: Err, silent: bool = False) -> Err:
-    """Call `click.secho()` on string repr of an `Err`, and return the `Err`."""
-    if not silent:
-        click.secho(FAILED)
-        click.secho(str(err.err()))
-    return err
-
-
-@beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
@@ -1283,7 +1271,18 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
 
         # Fail silently here, so as to not bother user with tidy warnings.
-        command = ["tidy", "-q", "-m", "-i", "-omit", "-utf8", "--tidy-mark", "no", "--show-body-only", "yes"]
+        command = [
+            "tidy",
+            "-q",
+            "-m",
+            "-i",
+            "-omit",
+            "-utf8",
+            "--tidy-mark",
+            "no",
+            "--show-body-only",
+            "yes",
+        ]
         command += batch
         try:
             subprocess.run(command, check=False, capture_output=True)
@@ -1292,9 +1291,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 
 @beartype
-def flatten_staging_repo(
-    stage_kirepo: KiRepo, kirepo: KiRepo
-) -> KiRepo:
+def flatten_staging_repo(stage_kirepo: KiRepo, kirepo: KiRepo) -> KiRepo:
     """
     Convert the staging repository into a format that is amenable to taking
     diffs across all files in all submodules.
@@ -1330,9 +1327,7 @@ def flatten_staging_repo(
 
 
 @beartype
-def get_target(
-    cwd: ExtantDir, col_file: ExtantFile, directory: str
-) -> EmptyDir:
+def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> EmptyDir:
     # Create default target directory.
     path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
     if isinstance(path, NoPath):
@@ -1383,30 +1378,6 @@ def clone(collection: str, directory: str = "") -> None:
 
     # Get reference to HEAD of current repo.
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-
-    if targetdir.is_err() or md5sum.is_err() or head.is_err():
-        # We get an error here only in the case where the `M.xdir()` call
-        # failed on `targetdir`. We cannot assume that it doesn't exist,
-        # because we may have returned the exception inside `fmkdempty()`,
-        # which errors-out when the target already exists and is nonempty. This
-        # means we definitely do not want to remove `targetdir` or its
-        # contents in this case, because we would be deleting the user's data.
-        if targetdir.is_err():
-            return echoerr(targetdir)
-
-        # Otherwise, we must have that either we created `targetdir` and it did
-        # not exist prior, or it was an empty directory before. In either case,
-        # we can probably remove it safely.
-        # TODO: Consider removing only its contents instead.
-        targetdir: ExtantDir = targetdir
-        if targetdir.is_dir():
-            shutil.rmtree(targetdir)
-
-        if md5sum.is_err():
-            return echoerr(md5sum)
-        return echoerr(head)
-
-    head: KiRepoRef = head
     md5sum: str = md5sum
 
     # Get staging repository in temp directory, and copy to `no_submodules_tree`.
@@ -1414,14 +1385,12 @@ def clone(collection: str, directory: str = "") -> None:
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     click.secho("Constructing stage repository... ", bold=True, nl=False)
     stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum)
+
     click.secho("done.", bold=True, nl=True)
     click.secho("Flattening stage repository... ", bold=True, nl=False)
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
-    click.secho("done.", bold=True, nl=True)
-    if stage_kirepo.is_err():
-        return echoerr(stage_kirepo)
-    stage_kirepo: KiRepo = stage_kirepo
 
+    click.secho("done.", bold=True, nl=True)
     click.secho("Committing changes... ", bold=True, nl=False)
     # Commit the changes made since the last time we pushed, since the git
     # history of the staging repo is actually the git history of the
@@ -1442,24 +1411,15 @@ def clone(collection: str, directory: str = "") -> None:
     no_modules_root: NoPath = F.rmtree(F.working_dir(head.kirepo.no_modules_repo))
     F.copytree(stage_kirepo.root, no_modules_root)
 
-    kirepo: KiRepo = M.kirepo(targetdir)
-    if kirepo.is_err():
-        echo(FAILED)
-        return echoerr(kirepo)
-    kirepo: KiRepo = kirepo
-
     # Dump HEAD ref of current repo in `.ki/last_push`.
+    kirepo: KiRepo = M.kirepo(targetdir)
     kirepo.last_push_file.write_text(head.sha)
 
     click.secho("done.", bold=True, nl=True)
 
-    return
-
 
 @beartype
-def _clone(
-    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
-) -> str:
+def _clone(col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool) -> str:
     """
     Clone an Anki collection into a directory.
 
@@ -1494,11 +1454,13 @@ def _clone(
     media_dir = root_leaves.dirs[MEDIA]
 
     # Populate the .ki subdirectory with empty metadata files.
-    leaves: Leaves = E(F.fmkleaves(
-        ki_dir,
-        files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-        dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
-    ))
+    leaves: Leaves = E(
+        F.fmkleaves(
+            ki_dir,
+            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
+            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        )
+    )
 
     md5sum = F.md5(col_file)
     echo(f"Computed md5sum: {md5sum}", silent)
@@ -1546,7 +1508,7 @@ def pull() -> bool:
     kirepo: KiRepo = M.kirepo(cwd)
     con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
@@ -1621,7 +1583,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # be able to find the remote. Can also be done via the command below:
     #
     # result: str = kirepo.repo.git.pull(REMOTE_NAME, BRANCH_NAME)
-    echo(f"Pulling into current directory... ", silent=silent)
+    echo("Pulling into current directory... ", silent=silent)
     p = subprocess.run(
         ["git", "pull", "-v", REMOTE_NAME, BRANCH_NAME],
         cwd=kirepo.repo.working_dir,
@@ -1637,10 +1599,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Check that md5sum hasn't changed.
     if F.md5(kirepo.col_file) != md5sum:
-        checksum_error = Err(CollectionChecksumError(kirepo.col_file))
-        return echoerr(checksum_error, silent)
-
-    return
+        raise CollectionChecksumError(kirepo.col_file)
 
 
 # PUSH
@@ -1648,7 +1607,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
 @ki.command()
 @beartype
-def push() -> bool:
+def push() -> None:
     """
     Push a ki repository into a .anki2 file.
 
@@ -1682,7 +1641,7 @@ def push() -> bool:
     con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text().split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
@@ -1700,9 +1659,7 @@ def push() -> bool:
     # avoid this pull if it is unnecessary. This will involve some fancy
     # manipulation of the hashes file. Perhaps it must be put under version
     # control, i.e. removed from the gitignore.
-    pulled: OkErr = _pull(flat_kirepo, silent=True)
-    if pulled.is_err():
-        return echoerr(pulled)
+    _pull(flat_kirepo, silent=True)
 
     # TODO: Unsafe, quick and dirty prototyping. Add error-handling.
     head_kirepo: KiRepo = get_ephemeral_kirepo(HEAD_SUFFIX, head, md5sum)
@@ -1716,19 +1673,15 @@ def push() -> bool:
     # the following line, the reference we got will be HEAD~1, hence the
     # variable name.
     head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
-    if head_1.is_err():
-        return echoerr(head_1)
-    head_1: RepoRef = head_1
 
     # Commit the changes made since the last time we pushed, since the git
     # history of the flat repo is actually the git history of the
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
     # unified diff of all commits to the main repo since the last push, as well
     # as the changes we made within the `unsubmodule_repo()` call above.
+    commit_msg = f"Add changes up to and including ref {head.sha}"
     flat_head_kirepo.repo.git.add(all=True)
-    flat_head_kirepo.repo.index.commit(
-        f"Add changes up to and including ref {head.sha}"
-    )
+    flat_head_kirepo.repo.index.commit(commit_msg)
 
     # Get filter function.
     filter_fn = functools.partial(filter_note_path, patterns=IGNORE, root=kirepo.root)
@@ -1754,7 +1707,9 @@ def push() -> bool:
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
     a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
-    deltas: List[Union[Delta, Warning]] = diff_repos(a_repo, head_1, filter_fn, parser, transformer)
+    deltas: List[Union[Delta, Warning]] = diff_repos(
+        a_repo, head_1, filter_fn, parser, transformer
+    )
 
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
@@ -1773,6 +1728,7 @@ def push() -> bool:
     # profiler.stop()
     # s = profiler.output_html()
     # Path("ki_push_profile.html").resolve().write_text(s)
+
 
 @beartype
 def push_deltas(
@@ -1897,8 +1853,10 @@ def push_deltas(
         # the file. Recall that the sort field is used to determine the
         # filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote: OkErr = push_flatnote_to_anki(col, flatnote)
-        regenerated: List[str] = regenerate_note_file(colnote, kirepo.root, delta.relpath)
+        colnote: ColNote = push_flatnote_to_anki(col, flatnote)
+        regenerated: List[str] = regenerate_note_file(
+            colnote, kirepo.root, delta.relpath
+        )
         log += regenerated
 
     # Display all warnings returned by the filter function.
@@ -1971,9 +1929,7 @@ def push_deltas(
 
 
 @beartype
-def regenerate_note_file(
-    colnote: ColNote, root: ExtantDir, relpath: Path
-) -> List[str]:
+def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> List[str]:
     """
     Construct the contents of a note corresponding to the arguments `colnote`,
     which itself was created from `flatnote`, and then write it to disk.
