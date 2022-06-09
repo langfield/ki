@@ -169,13 +169,9 @@ def unlock(con: sqlite3.Connection) -> None:
 @beartype
 def get_ephemeral_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    tempdir: EmptyDir = F.mkdtemp()
-    root: EmptyDir = F.mksubdir(tempdir, suffix)
-
-    # Copy the entire repo into `root/`.
-    repo: git.Repo = repo_ref.repo
-    target: NoPath = F.test(root / md5sum)
-    ephem = git.Repo(F.copytree(F.working_dir(repo), target))
+    # Copy the entire repo into `<tmp_dir>/suffix/md5sum/`.
+    target: NoPath = F.test(F.mksubdir(F.mkdtemp(), suffix) / md5sum)
+    ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
 
     # Annihilate the .ki subdirectory.
     ki_dir = F.test(F.working_dir(ephem) / KI)
