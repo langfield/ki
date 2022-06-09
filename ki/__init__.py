@@ -167,10 +167,10 @@ def unlock(con: sqlite3.Connection) -> None:
 
 
 @beartype
-def copy_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
+def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    # Copy the entire repo into `<tmp_dir>/suffix/md5sum/`.
-    target: NoPath = F.test(F.mksubdir(F.mkdtemp(), suffix) / md5sum)
+    # Copy the entire repo into `<tmp_dir>/suffix/`.
+    target: NoPath = F.test(F.mkdtemp() / suffix)
     ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
 
     # Annihilate the .ki subdirectory.
@@ -185,7 +185,7 @@ def copy_repo(suffix: Path, repo_ref: RepoRef, md5sum: str) -> git.Repo:
 
 
 @beartype
-def copy_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> KiRepo:
+def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
@@ -198,8 +198,6 @@ def copy_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> KiRepo:
         /tmp/.../ path suffix, e.g. `ki/local/`.
     kirepo_ref : KiRepoRef
         The ki repository to clone, and a commit for it.
-    md5sum : str
-        The md5sum of the associated anki collection.
 
     Returns
     -------
@@ -207,7 +205,7 @@ def copy_kirepo(suffix: Path, kirepo_ref: KiRepoRef, md5sum: str) -> KiRepo:
         The cloned repository.
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
-    ephem: git.Repo = copy_repo(suffix, ref, md5sum)
+    ephem: git.Repo = copy_repo(ref, suffix)
     ephem_ki_dir: NoPath = M.nopath(Path(ephem.working_dir) / KI)
     F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
     kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
@@ -1387,7 +1385,7 @@ def clone(collection: str, directory: str = "") -> None:
     # Get staging repository in temp directory, and copy to `no_submodules_tree`.
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
     click.secho("Constructing stage repository... ", bold=True, nl=False)
-    stage_kirepo: KiRepo = copy_kirepo(STAGE_SUFFIX, head, md5sum)
+    stage_kirepo: KiRepo = copy_kirepo(head, f"{STAGE_SUFFIX}-{md5sum}")
 
     click.secho("done.", bold=True, nl=True)
     click.secho("Flattening stage repository... ", bold=True, nl=False)
@@ -1556,7 +1554,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     ref: RepoRef = M.repo_ref(kirepo.repo, sha=kirepo.last_push_file.read_text())
-    last_push_repo: git.Repo = copy_repo(LOCAL_SUFFIX, ref, md5sum)
+    last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1634,7 +1632,7 @@ def push() -> None:
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
 
     flat_head: RepoRef = M.head_repo_ref(kirepo.no_modules_repo)
-    flat_repo: git.Repo = copy_repo(FLAT_SUFFIX, flat_head, md5sum)
+    flat_repo: git.Repo = copy_repo(flat_head, f"{FLAT_SUFFIX}-{md5sum}")
     F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
     flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo))
     flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
@@ -1645,7 +1643,7 @@ def push() -> None:
     # control, i.e. removed from the gitignore.
     _pull(flat_kirepo, silent=True)
 
-    head_kirepo: KiRepo = copy_kirepo(HEAD_SUFFIX, head, md5sum)
+    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
     unsubmodule_repo(head_kirepo.repo)
     head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
     F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
@@ -1672,7 +1670,7 @@ def push() -> None:
     # TODO: This should really be a boolean function with some sort of
     # debugging flag.
     warnings_fn = functools.partial(get_note_warns, patterns=IGNORE, root=kirepo.root)
-    head_kirepo: KiRepo = copy_kirepo(LOCAL_SUFFIX, head, md5sum)
+    head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Read grammar.
     # TODO:! Should we assume this always exists? A nice error message should
@@ -1692,7 +1690,7 @@ def push() -> None:
     #
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
-    a_repo: git.Repo = copy_repo(DELETED_SUFFIX, head_1, md5sum)
+    a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
     deltas = diff_repo(a_repo, head_1, warnings_fn, parser, transformer)
 
     # Map model names to models.
