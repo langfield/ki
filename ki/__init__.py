@@ -794,6 +794,21 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
+def files_in_str(
+    col: Collection, string: str, include_remote: bool = False
+) -> list[str]:
+    """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
+    # Extract filenames.
+    files = []
+    for reg in col.media.regexps:
+        for match in re.finditer(reg, string):
+            fname = match.group("fname")
+            is_local = not re.match("(https?|ftp)://", fname.lower())
+            if is_local or include_remote:
+                files.append(fname)
+    return files
+
+
 @beartype
 def get_media_files(
     col: Collection,
@@ -847,8 +862,7 @@ def get_media_files(
         leave=leave,
     ):
         flds = row[6]
-        mid = row[2]
-        for file in col.media.files_in_str(mid, flds):
+        for file in files_in_str(col, flds):
 
             # Skip files in subdirs.
             if file != os.path.basename(file):
@@ -861,28 +875,28 @@ def get_media_files(
 
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
-    # Get all media files used in notetype templates.
-    for fname in os.listdir(media_dir):
-        path = os.path.join(media_dir, fname)
-        if os.path.isdir(path):
-            continue
+    # Faster version.
+    for root, dirs, files in os.walk(media_dir):
+        for fname in files:
 
-        # Notetype template media files are *always* prefixed by underscores.
-        if fname.startswith("_"):
+            # Notetype template media files are *always* prefixed by
+            # underscores.
+            if fname.startswith("_"):
 
-            # Scan all models in mids for reference to fname.
-            for m in col.models.all():
-                if int(m["id"]) in mids:
-                    if _modelHasMedia(m, fname):
+                # Scan all models in mids for reference to fname.
+                for m in col.models.all():
+                    if int(m["id"]) in mids:
+                        if _modelHasMedia(m, fname):
 
-                        # If the path referenced by `fname` doesn't exist or is
-                        # not a file, we do not display a warning or return an
-                        # error. This path certainly ought to exist, since
-                        # `fname` was obtained from an `os.listdir()` call.
-                        media_file = F.test(media_dir / fname)
-                        if isinstance(media_file, ExtantFile):
-                            media.add(media_file)
-                        break
+                            # If the path referenced by `fname` doesn't exist
+                            # or is not a file, we do not display a warning or
+                            # return an error. This path certainly ought to
+                            # exist, since `fname` was obtained from an
+                            # `os.listdir()` call.
+                            media_file = F.test(media_dir / fname)
+                            if isinstance(media_file, ExtantFile):
+                                media.add(media_file)
+                            break
 
     return media
 
@@ -1370,6 +1384,9 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
+    # profiler = Profiler()
+    # profiler.start()
+
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
@@ -1416,6 +1433,9 @@ def clone(collection: str, directory: str = "") -> None:
     M.kirepo(targetdir).last_push_file.write_text(head.sha)
     click.secho("done.", bold=True, nl=True)
 
+    # profiler.stop()
+    # s = profiler.output_html()
+    # Path("ki_clone_profile.html").resolve().write_text(s)
 
 @beartype
 def _clone(
