@@ -299,7 +299,7 @@ def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFix
     with runner.isolated_filesystem():
 
         mocker.patch(
-            "ki.get_ephemeral_kirepo",
+            "ki.copy_kirepo",
             side_effect=ExpectedNonexistentPathError(Path("path-that-exists")),
         )
         with pytest.raises(ExpectedNonexistentPathError):

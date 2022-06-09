@@ -56,7 +56,7 @@ from ki import (
     KiRepo,
     KiRepoRef,
     RepoRef,
-    get_ephemeral_kirepo,
+    copy_kirepo,
     get_note_payload,
     create_deck_dir,
     tidy_html_recursively,
@@ -64,7 +64,7 @@ from ki import (
     git_pull,
     get_colnote,
     backup,
-    get_ephemeral_repo,
+    copy_repo,
     diff_repo,
     update_note,
     parse_notetype_dict,
@@ -803,7 +803,7 @@ def get_diff_repo_args() -> DiffReposArgs:
     head: KiRepoRef = M.head_kirepo_ref(kirepo).unwrap()
 
     # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    stage_kirepo: KiRepo = get_ephemeral_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
+    stage_kirepo: KiRepo = copy_kirepo(STAGE_SUFFIX, head, md5sum).unwrap()
     stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo).unwrap()
 
     # This statement cannot be any farther down because we must get a reference
@@ -829,7 +829,7 @@ def get_diff_repo_args() -> DiffReposArgs:
     transformer = NoteTransformer()
 
     # Get deltas.
-    a_repo: git.Repo = get_ephemeral_repo(DELETED_SUFFIX, head_1, md5sum)
+    a_repo: git.Repo = copy_repo(DELETED_SUFFIX, head_1, md5sum)
     b_repo: git.Repo = head_1.repo
 
     return DiffReposArgs(a_repo, b_repo, head_1, filter_fn, parser, transformer)
@@ -1482,14 +1482,14 @@ def test_nopath(tmp_path):
         assert isinstance(error, FileExistsError)
 
 
-def test_get_ephemeral_kirepo(tmp_path):
+def test_copy_kirepo(tmp_path):
     """
-    Do errors in `M.nopath()` call in `get_ephemeral_kirepo()` get forwarded to
+    Do errors in `M.nopath()` call in `copy_kirepo()` get forwarded to
     the caller and printed nicely?
 
-    In `get_ephemeral_kirepo()`, we construct a `NoPath` for the `.ki`
+    In `copy_kirepo()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
-    `get_ephemeral_repo()` is just a git clone operation, and the `.ki`
+    `copy_repo()` is just a git clone operation, and the `.ki`
     subdirectory is in the `.gitignore` file. It is possible but
     extraordinarily improbable that this path is created in between the
     `Repo.clone_from()` call and the `M.nopath()` call.
@@ -1507,7 +1507,7 @@ def test_get_ephemeral_kirepo(tmp_path):
         kirepo.repo.git.add(all=True)
         kirepo.repo.index.commit("Add ki directory.")
         head: KiRepoRef = M.head_kirepo_ref(kirepo).unwrap()
-        error: Exception = get_ephemeral_kirepo(
+        error: Exception = copy_kirepo(
             Path("suffix"), head, md5sum="md5"
         ).unwrap_err()
         assert isinstance(error, FileExistsError)
@@ -1567,7 +1567,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert "1645010146011" in str(error)
 
 
-def test_get_ephemeral_repo_handles_submodules(tmp_path):
+def test_copy_repo_handles_submodules(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1592,7 +1592,7 @@ def test_get_ephemeral_repo_handles_submodules(tmp_path):
 
         # Just want to check that this doesn't return an exception, so we
         # unwrap, but don't assert anything.
-        kirepo = get_ephemeral_kirepo(Path("suffix"), head, md5sum="md5").unwrap()
+        kirepo = copy_kirepo(Path("suffix"), head, md5sum="md5").unwrap()
 
 
 def test_ftest_handles_strange_paths(tmp_path):
