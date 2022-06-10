@@ -141,6 +141,10 @@ FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 
+# This is the key for media files associated with notetypes instead of the
+# contents of a specific note.
+NOTETYPE_NID = -57
+
 MD = ".md"
 FAILED = "Failed: exiting."
 
@@ -815,22 +819,37 @@ def files_in_str(
 @beartype
 def get_media_files(
     col: Collection,
-    nids: Set[int],
     silent: bool,
     leave: bool,
-) -> Set[Union[ExtantFile, Warning]]:
+) -> Tuple[Dict[int, ExtantFile], Set[Warning]]:
     """
     Get a list of extant media files used in notes and notetypes.
 
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
 
+    SQLite3 notes table schema
+    --------------------------
+    CREATE TABLE notes (
+        id integer PRIMARY KEY,
+        guid text NOT NULL,
+        mid integer NOT NULL,
+        mod integer NOT NULL,
+        usn integer NOT NULL,
+        tags text NOT NULL,
+        flds text NOT NULL,
+        -- The use of type integer for sfld is deliberate, because it means
+        -- that integer values in this field will sort numerically.
+        sfld integer NOT NULL,
+        csum integer NOT NULL,
+        flags integer NOT NULL,
+        data text NOT NULL
+    );
+
     Parameters
     ----------
     col
         Anki collection.
-    nids
-        Set of note ids.
     silent
         Whether to display stdout.
     leave
@@ -838,11 +857,15 @@ def get_media_files(
     """
 
     # All note ids as a string for the SQL query.
-    strnids = ids2str(list(nids))
+    strnids = ids2str(list(col.find_notes(query="")))
 
     # This is the path to the media directory. In the original implementation
-    # of `AnkiExporter.exportInto()`, there is check made of the form `if
-    # self.mediaDir:` before doing path manipulation with this string.
+    # of `AnkiExporter.exportInto()`, there is check made of the form
+    #
+    #   if self.mediaDir:
+    #
+    # before doing path manipulation with this string.
+    #
     # Examining the `__init__()` function of `MediaManager`, we can see that
     # `col.media.dir()` will only be `None` in the case where `server=True` is
     # passed to the `Collection` constructor. But since we do the construction
@@ -854,7 +877,8 @@ def get_media_files(
         raise MissingMediaDirectoryError(col.path, media_dir)
 
     # Find only used media files, collecting warnings for bad paths.
-    media: Set[Union[ExtantFile, Warning]] = set()
+    media: Dict[int, Set[ExtantFile]] = {}
+    warnings: Set[Warning] = set()
 
     rows: List[Sequence[Any]] = col.db.all("select * from notes where id in " + strnids)
     for row in tqdm(
@@ -864,6 +888,7 @@ def get_media_files(
         position=0,
         leave=leave,
     ):
+        nid = int(row[0])
         flds = row[6]
         for file in files_in_str(col, flds):
 
@@ -872,9 +897,9 @@ def get_media_files(
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                media.add(media_file)
+                media[nid] = media.get(nid, set()) | set([media_file])
             else:
-                media.add(MissingMediaFileWarning(col.path, media_file))
+                warnings.add(MissingMediaFileWarning(col.path, media_file))
 
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
@@ -882,26 +907,24 @@ def get_media_files(
     _, _, files = F.shallow_walk(media_dir)
     for fname in files:
 
-        # Notetype template media files are *always* prefixed by
-        # underscores.
+        # Notetype template media files are *always* prefixed by underscores.
         if str(fname).startswith("_"):
 
             # Scan all models in mids for reference to fname.
             for m in col.models.all():
-                if int(m["id"]) in mids:
-                    if _modelHasMedia(m, str(fname)):
+                if int(m["id"]) in mids and _modelHasMedia(m, str(fname)):
 
-                        # If the path referenced by `fname` doesn't exist
-                        # or is not a file, we do not display a warning or
-                        # return an error. This path certainly ought to
-                        # exist, since `fname` was obtained from an
-                        # `os.listdir()` call.
-                        media_file = F.test(media_dir / fname)
-                        if isinstance(media_file, ExtantFile):
-                            media.add(media_file)
-                        break
+                    # If the path referenced by `fname` doesn't exist or is not
+                    # a file, we do not display a warning or return an error.
+                    # This path certainly ought to exist, since `fname` was
+                    # obtained from an `os.listdir()` call.
+                    media_file = F.test(media_dir / fname)
+                    if isinstance(media_file, ExtantFile):
+                        notetype_media = media.get(NOTETYPE_NID, set())
+                        media[NOTETYPE_NID] = notetype_media | set([media_file])
+                    break
 
-    return media
+    return media, warnings
 
 
 @beartype
@@ -972,20 +995,19 @@ def write_repository(
 
     tidy_html_recursively(root, silent)
 
-    write_decks(col, targetdir, colnotes, tidy_field_files, silent)
+    media: Dict[int, Set[ExtantFile]]
+    media, warnings = get_media_files(col, silent=silent, leave=True)
 
-    medias: Set[Union[ExtantFile, Warning]]
-    medias = get_media_files(col, set(all_nids), silent=silent, leave=True)
-    warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
-    media_files = {f for f in medias if isinstance(f, ExtantFile)}
+    write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
     # TODO: Maybe print how many warnings are ignored of each type.
     for warning in warnings:
         if type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
 
-    for media_file in media_files:
-        F.copyfile(media_file, media_dir, media_file.name)
+    for note_media in media.values():
+        for media_file in note_media:
+            F.copyfile(media_file, media_dir, media_file.name)
 
     # TODO: Replace with frmtree.
     shutil.rmtree(root)
@@ -997,6 +1019,7 @@ def write_decks(
     col: Collection,
     targetdir: ExtantDir,
     colnotes: Dict[int, ColNote],
+    media: Dict[int, Set[ExtantFile]],
     tidy_field_files: Dict[str, ExtantFile],
     silent: bool,
 ) -> None:
@@ -1095,7 +1118,7 @@ def write_decks(
         deck_dir: ExtantDir = create_deck_dir(name, targetdir)
         children: Set[CardId] = set(col.decks.cids(did=did, children=False))
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = set()
+        descendant_nids: Set[int] = set([NOTETYPE_NID])
         descendant_mids: Set[int] = set()
         for cid in descendants:
             card: Card = col.get_card(cid)
@@ -1154,19 +1177,11 @@ def write_decks(
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
         # Write media files for this deck.
-        medias: Set[Union[ExtantFile, Warning]]
-        medias = get_media_files(col, descendant_nids, silent=silent, leave=leave)
-        warnings: Set[Warning] = {x for x in medias if isinstance(x, Warning)}
-        media_files: Set[ExtantFile] = {f for f in medias if isinstance(f, ExtantFile)}
-
-        # TODO: Maybe print how many warnings are ignored of each type.
-        for warning in warnings:
-            if type(warning) not in WARNING_IGNORE_LIST:
-                click.secho(str(warning), fg="yellow")
-
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
-        for media_file in media_files:
-            F.copyfile(media_file, deck_media_dir, media_file.name)
+        for nid in descendant_nids:
+            if nid in media:
+                for media_file in media[nid]:
+                    F.copyfile(media_file, deck_media_dir, media_file.name)
 
 
 @beartype
@@ -1387,8 +1402,8 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    # profiler = Profiler()
-    # profiler.start()
+    profiler = Profiler()
+    profiler.start()
 
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
@@ -1436,9 +1451,9 @@ def clone(collection: str, directory: str = "") -> None:
     M.kirepo(targetdir).last_push_file.write_text(head.sha)
     click.secho("done.", bold=True, nl=True)
 
-    # profiler.stop()
-    # s = profiler.output_html()
-    # Path("ki_clone_profile.html").resolve().write_text(s)
+    profiler.stop()
+    s = profiler.output_html()
+    Path("ki_clone_profile.html").resolve().write_text(s)
 
 
 @beartype
