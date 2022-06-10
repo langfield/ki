@@ -1320,7 +1320,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     )
 
     bar = tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)
-    bar.set_description("HTML ")
+    bar.set_description("HTML")
     for batch in bar:
         # TODO: Should we fail silently here, so as to not bother user with
         # tidy warnings?
@@ -1713,8 +1713,7 @@ def push() -> PushResult:
     # to HEAD *before* we commit the changes made since the last PUSH. After
     # the following line, the reference we got will be HEAD~1, hence the
     # variable name.
-    with Halo(text="Getting reference to HEAD...", spinner=SPINNER, color="white"):
-        head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
+    head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
 
     # Commit the changes made since the last time we pushed, since the git
     # history of the flat repo is actually the git history of the
@@ -2006,8 +2005,7 @@ def push_deltas(
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
-    with Halo(text="Releasing database lock...", spinner=SPINNER, color="white"):
-        unlock(con)
+    unlock(con)
     return PushResult.NONTRIVIAL
 
 
