@@ -423,7 +423,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
             flds=list(fields.values()),
             tmpls=templates,
             sortf=fields[sort_ordinal],
-            dict=copy.deepcopy(nt),
+            dict=nt,
         )
 
     except KeyError as err:
@@ -623,7 +623,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
 
     i = 1
     while not isinstance(note_path, NoPath):
-        filename = Path(f"{name}_{i}").with_suffix(MD)
+        filename = Path(f"{filename}_{i}").with_suffix(MD)
         note_path = F.test(deck_dir / filename)
         i += 1
 
@@ -673,6 +673,7 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
     # Strip leading periods so we don't get hidden folders.
     components = deck_name.split("::")
     components = [re.sub(r"^\.", r"", comp) for comp in components]
+    components = [re.sub(r"/", r"-", comp) for comp in components]
     deck_path = Path(targetdir, *components)
     return F.force_mkdir(deck_path)
 
