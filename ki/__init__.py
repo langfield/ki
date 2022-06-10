@@ -32,6 +32,7 @@ import click
 import markdownify
 import prettyprinter as pp
 from tqdm import tqdm
+from halo import Halo
 from lark import Lark
 from loguru import logger
 
@@ -153,6 +154,7 @@ FAILED = "Failed: exiting."
 
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
+SPINNER = "bouncingBall"
 PROFILE = False
 
 
@@ -330,10 +332,16 @@ def diff_repo(
     deltas = []
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(ref.repo.working_dir))
-    diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
-    for change_type in GitChangeType:
-        for diff in diff_index.iter_change_type(change_type.value):
+    halotext = f"Diffing {ref.sha}~{ref.repo.head.commit}..."
+    with Halo(text=halotext, spinner=SPINNER, color="white"):
+        diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
 
+    for change_type in GitChangeType:
+
+        diffs = diff_index.iter_change_type(change_type.value)
+        bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
+        bar.set_description(f"{change_type}")
+        for diff in bar:
             a_warning: Optional[Warning] = get_note_warnings(
                 Path(diff.a_path),
                 a_dir,
@@ -466,7 +474,9 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     all_models: Dict[str, Notetype] = {}
 
     # Load notetypes from json files.
-    for models_file in F.rglob(kirepo.root, MODELS_FILE):
+    bar = tqdm(F.rglob(kirepo.root, MODELS_FILE), ncols=TQDM_NUM_COLS)
+    bar.set_description("Models")
+    for models_file in bar:
 
         with open(models_file, "r", encoding="UTF-8") as models_f:
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
@@ -1310,7 +1320,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     )
 
     bar = tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)
-    bar.set_description("HTML")
+    bar.set_description("HTML ")
     for batch in bar:
         # TODO: Should we fail silently here, so as to not bother user with
         # tidy warnings?
@@ -1593,8 +1603,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     echo(f"Computed md5sum: {md5sum}", silent)
 
     # Git clone `repo` at commit SHA of last successful `push()`.
-    ref: RepoRef = M.repo_ref(kirepo.repo, sha=kirepo.last_push_file.read_text())
-    last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
+    sha: str = kirepo.last_push_file.read_text()
+    with Halo(text=f"Checking out repo at '{sha}'...", spinner=SPINNER, color="white"):
+        ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
+        last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1658,7 +1670,7 @@ def push() -> PushResult:
 
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
-    # Check that we are inside a ki repository, and get the associated collection.
+    # Check that we are inside a ki repository, and load collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -1671,10 +1683,14 @@ def push() -> PushResult:
 
     # Get reference to HEAD of current repo.
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-
     flat_head: RepoRef = M.head_repo_ref(kirepo.no_modules_repo)
-    flat_repo: git.Repo = copy_repo(flat_head, f"{FLAT_SUFFIX}-{md5sum}")
-    F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
+
+    with Halo(text="Copying flattened repository...", spinner=SPINNER, color="white"):
+        flat_repo: git.Repo = copy_repo(flat_head, f"{FLAT_SUFFIX}-{md5sum}")
+
+    with Halo(text="Copying ki subdirectory...", spinner=SPINNER, color="white"):
+        F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
+
     flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo))
     flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
 
@@ -1684,27 +1700,38 @@ def push() -> PushResult:
     # control, i.e. removed from the gitignore.
     _pull(flat_kirepo, silent=False)
 
-    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-    unsubmodule_repo(head_kirepo.repo)
-    head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
-    F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
-    flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo))
+    with Halo(text="Copying repository...", spinner=SPINNER, color="white"):
+        head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+
+    with Halo(text="Flattening submodules...", spinner=SPINNER, color="white"):
+        unsubmodule_repo(head_kirepo.repo)
+        head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
+        F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
+        flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo))
 
     # This statement cannot be any farther down because we must get a reference
     # to HEAD *before* we commit the changes made since the last PUSH. After
     # the following line, the reference we got will be HEAD~1, hence the
     # variable name.
-    head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
+    with Halo(text="Getting reference to HEAD...", spinner=SPINNER, color="white"):
+        head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
 
     # Commit the changes made since the last time we pushed, since the git
     # history of the flat repo is actually the git history of the
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
     # unified diff of all commits to the main repo since the last push, as well
     # as the changes we made within the `unsubmodule_repo()` call above.
-    commit_msg = f"Add changes up to and including ref {head.sha}"
-    flat_head_kirepo.repo.git.add(all=True)
-    flat_head_kirepo.repo.index.commit(commit_msg)
-    head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
+    with Halo(
+        text="Committing changes to flattened repository...",
+        spinner=SPINNER,
+        color="white",
+    ):
+        commit_msg = f"Add changes up to and including ref {head.sha}"
+        flat_head_kirepo.repo.git.add(all=True)
+        flat_head_kirepo.repo.index.commit(commit_msg)
+
+    with Halo(text="Copying repository at HEAD...", spinner=SPINNER, color="white"):
+        head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Read grammar.
     # TODO:! Should we assume this always exists? A nice error message should
@@ -1724,7 +1751,8 @@ def push() -> PushResult:
     #
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
-    a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
+    with Halo(text="Copying repository at HEAD~1...", spinner=SPINNER, color="white"):
+        a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
     deltas = diff_repo(a_repo, head_1, parser, transformer)
 
     # Map model names to models.
@@ -1769,7 +1797,8 @@ def push_deltas(
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
         return PushResult.UP_TO_DATE
-    logger.debug(pp.pformat(deltas))
+
+    # logger.debug(pp.pformat(deltas))
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1854,11 +1883,43 @@ def push_deltas(
     kirepo.repo.git.reset("HEAD", hard=True)
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
-    deletes: List[Delta] = list(filter(is_delete, deltas))
-    echo(f"Deleting {len(deletes)} notes.")
+    is_change_type = lambda t: lambda d: d.status == t
 
-    iterator = tqdm(deltas, ncols=TQDM_NUM_COLS)
-    for delta in iterator:
+    deletes: List[Delta] = list(filter(is_delete, deltas))
+
+    adds = list(filter(is_change_type(GitChangeType.ADDED), deltas))
+    deletes = list(filter(is_change_type(GitChangeType.DELETED), deltas))
+    renames = list(filter(is_change_type(GitChangeType.RENAMED), deltas))
+    modifies = list(filter(is_change_type(GitChangeType.MODIFIED), deltas))
+    typechanges = list(filter(is_change_type(GitChangeType.TYPECHANGED), deltas))
+
+    WORD_PAD = 15
+    COUNT_PAD = 9
+    add_info: str = "ADD".ljust(WORD_PAD) + str(len(adds)).rjust(COUNT_PAD)
+    delete_info: str = "DELETE".ljust(WORD_PAD) + str(len(deletes)).rjust(COUNT_PAD)
+    modification_info: str = "MODIFY".ljust(WORD_PAD) + str(len(modifies)).rjust(
+        COUNT_PAD
+    )
+    rename_info: str = "RENAME".ljust(WORD_PAD) + str(len(renames)).rjust(COUNT_PAD)
+    typechange_info: str = "TYPE CHANGE".ljust(WORD_PAD) + str(len(typechanges)).rjust(
+        COUNT_PAD
+    )
+
+    # echo("")
+    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("Note change types")
+    echo("-" * (WORD_PAD + COUNT_PAD))
+    echo(add_info)
+    echo(delete_info)
+    echo(modification_info)
+    echo(rename_info)
+    echo(typechange_info)
+    echo("=" * (WORD_PAD + COUNT_PAD))
+    # echo("")
+
+    bar = tqdm(deltas, ncols=TQDM_NUM_COLS)
+    bar.set_description("Deltas")
+    for delta in bar:
 
         # Parse the file at `delta.path` into a `FlatNote`, and
         # add/edit/delete in collection.
@@ -1912,12 +1973,15 @@ def push_deltas(
 
     # Add media files to collection.
     col: Collection = M.collection(kirepo.col_file)
-    for media_file in F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN):
+    media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-        # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
-        # deduplication, and fixes fields for notes that reference that media.
+    # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
+    # deduplication, and fixes fields for notes that reference that media.
+    bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
+    bar.set_description("Media")
+    for media_file in bar:
 
-        # Possibly renamed media path.
+        # Add (and possibly rename) media paths.
         _: str = col.media.add_file(media_file)
 
     col.close(save=True)
@@ -1931,17 +1995,19 @@ def push_deltas(
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
-    no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
-    no_modules_root: ExtantDir = F.copytree(flat_kirepo.root, no_modules_root)
-    no_modules_ki_dir = F.test(no_modules_root / KI)
-    if isinstance(no_modules_ki_dir, ExtantDir):
-        F.rmtree(no_modules_ki_dir)
+    with Halo(text="Updating flattened tree...", spinner=SPINNER, color="white"):
+        no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
+        no_modules_root: ExtantDir = F.copytree(flat_kirepo.root, no_modules_root)
+        no_modules_ki_dir = F.test(no_modules_root / KI)
+        if isinstance(no_modules_ki_dir, ExtantDir):
+            F.rmtree(no_modules_ki_dir)
 
     # Dump HEAD ref of current repo in `.ki/last_push`.
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
-    unlock(con)
+    with Halo(text="Releasing database lock...", spinner=SPINNER, color="white"):
+        unlock(con)
     return PushResult.NONTRIVIAL
 
 
