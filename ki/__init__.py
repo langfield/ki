@@ -333,7 +333,7 @@ def diff_repo(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(ref.repo.working_dir))
     halotext = f"Diffing {ref.sha}~{ref.repo.head.commit}..."
-    with Halo(text=halotext, spinner=SPINNER, color="white"):
+    with F.halo(text=halotext):
         diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
 
     for change_type in GitChangeType:
@@ -1604,7 +1604,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Git clone `repo` at commit SHA of last successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
-    with Halo(text=f"Checking out repo at '{sha}'...", spinner=SPINNER, color="white"):
+    with F.halo(text=f"Checking out repo at '{sha}'..."):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
         last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
 
@@ -1685,10 +1685,10 @@ def push() -> PushResult:
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
     flat_head: RepoRef = M.head_repo_ref(kirepo.no_modules_repo)
 
-    with Halo(text="Copying flattened repository...", spinner=SPINNER, color="white"):
+    with F.halo(text="Copying flattened repository..."):
         flat_repo: git.Repo = copy_repo(flat_head, f"{FLAT_SUFFIX}-{md5sum}")
 
-    with Halo(text="Copying ki subdirectory...", spinner=SPINNER, color="white"):
+    with F.halo(text="Copying ki subdirectory..."):
         F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
 
     flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo))
@@ -1700,10 +1700,10 @@ def push() -> PushResult:
     # control, i.e. removed from the gitignore.
     _pull(flat_kirepo, silent=False)
 
-    with Halo(text="Copying repository...", spinner=SPINNER, color="white"):
+    with F.halo(text="Copying repository..."):
         head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
 
-    with Halo(text="Flattening submodules...", spinner=SPINNER, color="white"):
+    with F.halo(text="Flattening submodules..."):
         unsubmodule_repo(head_kirepo.repo)
         head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
         F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
@@ -1720,16 +1720,12 @@ def push() -> PushResult:
     # `no_submodules_tree` (we copy the .git/ folder). This will include the
     # unified diff of all commits to the main repo since the last push, as well
     # as the changes we made within the `unsubmodule_repo()` call above.
-    with Halo(
-        text="Committing changes to flattened repository...",
-        spinner=SPINNER,
-        color="white",
-    ):
+    with F.halo(text="Committing changes to flattened repository..."):
         commit_msg = f"Add changes up to and including ref {head.sha}"
         flat_head_kirepo.repo.git.add(all=True)
         flat_head_kirepo.repo.index.commit(commit_msg)
 
-    with Halo(text="Copying repository at HEAD...", spinner=SPINNER, color="white"):
+    with F.halo(text="Copying repository at HEAD..."):
         head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Read grammar.
@@ -1750,7 +1746,7 @@ def push() -> PushResult:
     #
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
-    with Halo(text="Copying repository at HEAD~1...", spinner=SPINNER, color="white"):
+    with F.halo(text="Copying repository at HEAD~1..."):
         a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
     deltas = diff_repo(a_repo, head_1, parser, transformer)
 
@@ -1994,7 +1990,7 @@ def push_deltas(
     # sensible operation because earlier, we copied the `.git/` directory
     # from `.ki/no_submodules_tree` to the staging repo. So the history is
     # preserved.
-    with Halo(text="Updating flattened tree...", spinner=SPINNER, color="white"):
+    with F.halo(text="Updating flattened tree..."):
         no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
         no_modules_root: ExtantDir = F.copytree(flat_kirepo.root, no_modules_root)
         no_modules_ki_dir = F.test(no_modules_root / KI)

@@ -13,6 +13,7 @@ import unicodedata
 from pathlib import Path
 
 import git
+from halo import Halo
 
 from beartype import beartype
 from beartype.typing import (
@@ -41,6 +42,8 @@ from ki.types import (
 )
 
 FS_ROOT = Path("/")
+SPINNER = "bouncingBall"
+HALO_ENABLED = False
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -299,3 +302,8 @@ def fmkleaves(
             new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
 
     return Leaves(root, new_files, new_dirs)
+
+
+@beartype
+def halo(text: str) -> Halo:
+    return Halo(text=text, spinner=SPINNER, color="white", enabled=HALO_ENABLED)
