@@ -87,9 +87,11 @@ def shallow_walk(
 @beartype
 def test(
     path: Path,
+    resolve: bool = True,
 ) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile]:
     """Test whether `path` is a file, a directory, or something else."""
-    path = path.resolve()
+    if resolve:
+        path = path.resolve()
     if path.is_file():
         return ExtantFile(path)
     if path.is_dir():

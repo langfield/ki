@@ -627,12 +627,12 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
         logger.warning(f"Slug for {name} is empty. Using {slug} as filename")
 
     filename: str = f"{slug}{MD}"
-    note_path = F.test(deck_dir / filename)
+    note_path = F.test(deck_dir / filename, resolve=False)
 
     i = 1
     while not isinstance(note_path, NoFile):
         filename = f"{slug}_{i}{MD}"
-        note_path = F.test(deck_dir / filename)
+        note_path = F.test(deck_dir / filename, resolve=False)
         i += 1
 
     return note_path
@@ -878,8 +878,10 @@ def get_media_files(
     warnings: Set[Warning] = set()
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-    for row in (bar := tqdm(rows, ncols=TQDM_NUM_COLS, disable=silent)):
-        bar.set_description(f"Media", refresh=True)
+
+    bar = tqdm(rows, ncols=TQDM_NUM_COLS, disable=silent)
+    bar.set_description("Media")
+    for row in bar:
         for file in files_in_str(col, row.flds):
 
             # Skip files in subdirs.
@@ -971,8 +973,10 @@ def write_repository(
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
-    for nid in (bar := tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)):
-        bar.set_description(f"Notes", refresh=True)
+
+    bar = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)
+    bar.set_description("Notes")
+    for nid in bar:
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
@@ -1081,8 +1085,10 @@ def write_decks(
 
     # TODO: This block is littered with unsafe code. Fix.
     nodes: List[DeckTreeNode] = postorder(root)
-    for node in (bar := tqdm(nodes, ncols=TQDM_NUM_COLS, disable=silent)):
-        bar.set_description(f"Decks", refresh=True)
+
+    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, disable=silent)
+    bar.set_description("Decks")
+    for node in bar:
 
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
@@ -1289,10 +1295,12 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     batches: List[List[ExtantFile]] = list(
         F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
     )
-    for batch in (bar := tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)):
-        bar.set_description(f"HTML", refresh=True)
 
-        # Fail silently here, so as to not bother user with tidy warnings.
+    bar = tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)
+    bar.set_description("HTML")
+    for batch in bar:
+        # TODO: Should we fail silently here, so as to not bother user with
+        # tidy warnings?
         command = [
             "tidy",
             "-q",
@@ -1387,8 +1395,8 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    profiler = Profiler()
-    profiler.start()
+    # profiler = Profiler()
+    # profiler.start()
 
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
@@ -1436,9 +1444,9 @@ def clone(collection: str, directory: str = "") -> None:
     M.kirepo(targetdir).last_push_file.write_text(head.sha)
     click.secho("done.", bold=True, nl=True)
 
-    profiler.stop()
-    s = profiler.output_html()
-    Path("ki_clone_profile.html").resolve().write_text(s)
+    # profiler.stop()
+    # s = profiler.output_html()
+    # Path("ki_clone_profile.html").resolve().write_text(s)
 
 
 @beartype
