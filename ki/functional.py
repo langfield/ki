@@ -8,6 +8,7 @@ import re
 import shutil
 import hashlib
 import tempfile
+import functools
 import unicodedata
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from beartype.typing import (
     Optional,
     Dict,
     Set,
+    Tuple,
 )
 
 import ki.functional as F
@@ -68,6 +70,17 @@ def copytree(source: ExtantDir, target: NoPath) -> ExtantDir:
 def cwd() -> ExtantDir:
     """Call Path.cwd()."""
     return ExtantDir(Path.cwd().resolve())
+
+
+@functools.cache
+@beartype
+def shallow_walk(
+    directory: ExtantDir,
+) -> Tuple[ExtantDir, List[ExtantDir], List[ExtantFile]]:
+    root, dirs, files = next(os.walk(directory))
+    dirs = [ExtantDir(d) for d in dirs]
+    files = [ExtantFile(f) for f in files]
+    return ExtantDir(root), dirs, files
 
 
 @beartype

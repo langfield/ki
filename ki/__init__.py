@@ -593,6 +593,9 @@ def validate_flatnote_fields(notetype: Notetype, flatnote: FlatNote) -> List[War
     return warnings
 
 
+# TODO: This should take a `colnote` as a parameter instead of the text, and it
+# should use other fields when there is not enough content in the first field
+# to get a unique filename, if they exist.
 @beartype
 def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     """Get note path from sort field text."""
@@ -617,17 +620,16 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
         slug = secrets.token_hex(10)
         logger.warning(f"Slug for {name} is empty. Using {slug} as filename")
 
-    filename = Path(slug)
-    filename = filename.with_suffix(MD)
+    filename: str = f"{slug}{MD}"
     note_path = F.test(deck_dir / filename)
 
     i = 1
     while not isinstance(note_path, NoPath):
-        filename = Path(f"{filename}_{i}").with_suffix(MD)
+        filename = f"{slug}_{i}{MD}"
         note_path = F.test(deck_dir / filename)
         i += 1
 
-    note_path: ExtantFile = F.touch(deck_dir, str(filename))
+    note_path: ExtantFile = F.touch(deck_dir, filename)
 
     return note_path
 
@@ -877,27 +879,27 @@ def get_media_files(
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
     # Faster version.
-    for root, dirs, files in os.walk(media_dir):
-        for fname in files:
+    _, _, files = F.shallow_walk(media_dir)
+    for fname in files:
 
-            # Notetype template media files are *always* prefixed by
-            # underscores.
-            if fname.startswith("_"):
+        # Notetype template media files are *always* prefixed by
+        # underscores.
+        if str(fname).startswith("_"):
 
-                # Scan all models in mids for reference to fname.
-                for m in col.models.all():
-                    if int(m["id"]) in mids:
-                        if _modelHasMedia(m, fname):
+            # Scan all models in mids for reference to fname.
+            for m in col.models.all():
+                if int(m["id"]) in mids:
+                    if _modelHasMedia(m, str(fname)):
 
-                            # If the path referenced by `fname` doesn't exist
-                            # or is not a file, we do not display a warning or
-                            # return an error. This path certainly ought to
-                            # exist, since `fname` was obtained from an
-                            # `os.listdir()` call.
-                            media_file = F.test(media_dir / fname)
-                            if isinstance(media_file, ExtantFile):
-                                media.add(media_file)
-                            break
+                        # If the path referenced by `fname` doesn't exist
+                        # or is not a file, we do not display a warning or
+                        # return an error. This path certainly ought to
+                        # exist, since `fname` was obtained from an
+                        # `os.listdir()` call.
+                        media_file = F.test(media_dir / fname)
+                        if isinstance(media_file, ExtantFile):
+                            media.add(media_file)
+                        break
 
     return media
 
@@ -1437,6 +1439,7 @@ def clone(collection: str, directory: str = "") -> None:
     # profiler.stop()
     # s = profiler.output_html()
     # Path("ki_clone_profile.html").resolve().write_text(s)
+
 
 @beartype
 def _clone(
