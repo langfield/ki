@@ -16,3 +16,4 @@ pyinstrument
 coverage
 pytest-mock
 result==0.7.0
+halo
