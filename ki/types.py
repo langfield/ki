@@ -79,6 +79,13 @@ class GitChangeType(Enum):
     TYPECHANGED = "T"
 
 
+class PushResult(Enum):
+    """Enum for `push()` return codes."""
+
+    NONTRIVIAL = "NONTRIVIAL"
+    UP_TO_DATE = "UP_TO_DATE"
+
+
 # DATACLASSES
 
 
@@ -217,13 +224,6 @@ class Leaves:
     root: ExtantDir
     files: Dict[str, ExtantFile]
     dirs: Dict[str, EmptyDir]
-
-
-@beartype
-@dataclass(frozen=True)
-class CloneResult:
-    repo: git.Repo
-    md5sum: str
 
 
 @beartype

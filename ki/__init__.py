@@ -81,7 +81,7 @@ from ki.types import (
     RepoRef,
     Leaves,
     NoteDBRow,
-    CloneResult,
+    PushResult,
     WrittenNoteFile,
     UpdatesRejectedError,
     TargetExistsError,
@@ -131,7 +131,8 @@ BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 80
 MAX_FIELNAME_LEN = 30
-IGNORE = [GIT, KI, MEDIA, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
+IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
+IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 FLAT_SUFFIX = Path("ki/flat/")
 HEAD_SUFFIX = Path("ki/head/")
 LOCAL_SUFFIX = Path("ki/local")
@@ -151,6 +152,8 @@ MD = ".md"
 FAILED = "Failed: exiting."
 
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
+
+PROFILE = False
 
 
 @beartype
@@ -239,8 +242,8 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 
 @beartype
-def get_note_warns(
-    path: Path, patterns: List[str], root: ExtantDir
+def get_note_warnings(
+    path: Path, root: ExtantDir, ignore_files: Set[str], ignore_dirs: Set[str]
 ) -> Optional[Warning]:
     """
     Filter out paths in a git repository diff that do not correspond to Anki
@@ -253,21 +256,21 @@ def get_note_warns(
     # immediately return a warning. Since the contents of a git repository diff
     # are always going to be files, this alone will not correctly ignore
     # directory names given in `patterns`.
-    for p in patterns:
-        if p == path.name:
-            return UnPushedPathWarning(path, p)
+    if path.name in ignore_files | ignore_dirs:
+        return UnPushedPathWarning(path, path.name)
 
     # If any of the patterns in `patterns` resolve to one of the parents of
     # `path`, return a warning, so that we are able to filter out entire
     # directories.
-    for ignore_path in [root / p for p in patterns]:
-        parents = [path.resolve()] + [p.resolve() for p in path.parents]
-        if ignore_path.resolve() in parents:
-            return UnPushedPathWarning(path, str(ignore_path))
+    components: Tuple[str, ...] = path.parts
+    dirnames: Set[str] = set(components) & ignore_dirs
+    for dirname in dirnames:
+        return UnPushedPathWarning(path, dirname)
 
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
-    if path.exists() and path.resolve().is_file():
-        file = ExtantFile(path.resolve())
+    abspath = (root / path).resolve()
+    if abspath.exists() and abspath.is_file():
+        file = ExtantFile(abspath)
         if not is_anki_note(file):
             return NotAnkiNoteWarning(file)
 
@@ -319,21 +322,31 @@ def unsubmodule_repo(repo: git.Repo) -> None:
 def diff_repo(
     a_repo: git.Repo,
     ref: RepoRef,
-    warnings_fn: Callable[[Path], Optional[Warning]],
     parser: Lark,
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `ref.repo` at `ref` ~ `HEAD`."""
     # Use a `DiffIndex` to get the changed files.
     deltas = []
-    a_dir = Path(a_repo.working_dir)
-    b_dir = Path(ref.repo.working_dir)
+    a_dir = F.test(Path(a_repo.working_dir))
+    b_dir = F.test(Path(ref.repo.working_dir))
     diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
     for change_type in GitChangeType:
         for diff in diff_index.iter_change_type(change_type.value):
 
-            a_warning: Optional[Warning] = warnings_fn(a_dir / diff.a_path)
-            b_warning: Optional[Warning] = warnings_fn(b_dir / diff.b_path)
+            a_warning: Optional[Warning] = get_note_warnings(
+                Path(diff.a_path),
+                a_dir,
+                ignore_files=IGNORE_FILES,
+                ignore_dirs=IGNORE_DIRECTORIES,
+            )
+            b_warning: Optional[Warning] = get_note_warnings(
+                Path(diff.b_path),
+                b_dir,
+                ignore_files=IGNORE_FILES,
+                ignore_dirs=IGNORE_DIRECTORIES,
+            )
+
             if a_warning is not None:
                 deltas.append(a_warning)
                 continue
@@ -1395,9 +1408,6 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    # profiler = Profiler()
-    # profiler.start()
-
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
@@ -1443,10 +1453,6 @@ def clone(collection: str, directory: str = "") -> None:
     # Dump HEAD ref of the newly cloned repo to `.ki/last_push`.
     M.kirepo(targetdir).last_push_file.write_text(head.sha)
     click.secho("done.", bold=True, nl=True)
-
-    # profiler.stop()
-    # s = profiler.output_html()
-    # Path("ki_clone_profile.html").resolve().write_text(s)
 
 
 @beartype
@@ -1522,8 +1528,9 @@ def pull() -> None:
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
     """
-    # profiler = Profiler()
-    # profiler.start()
+    if PROFILE:
+        profiler = Profiler()
+        profiler.start()
 
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
@@ -1538,9 +1545,10 @@ def pull() -> None:
     _pull(kirepo, silent=False)
     unlock(con)
 
-    # profiler.stop()
-    # s = profiler.output_html()
-    # Path("ki_pull_profile.html").resolve().write_text(s)
+    if PROFILE:
+        profiler.stop()
+        s = profiler.output_html()
+        Path("ki_pull_profile.html").resolve().write_text(s)
 
 
 @beartype
@@ -1621,7 +1629,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
 @ki.command()
 @beartype
-def push() -> None:
+def push() -> PushResult:
     """
     Push a ki repository into a .anki2 file.
 
@@ -1644,8 +1652,9 @@ def push() -> None:
           time we pushed)
         - Copy HEAD into another temp directory ("head repo")
     """
-    # profiler = Profiler()
-    # profiler.start()
+    if PROFILE:
+        profiler = Profiler()
+        profiler.start()
 
     pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
 
@@ -1673,7 +1682,7 @@ def push() -> None:
     # avoid this pull if it is unnecessary. This will involve some fancy
     # manipulation of the hashes file. Perhaps it must be put under version
     # control, i.e. removed from the gitignore.
-    _pull(flat_kirepo, silent=True)
+    _pull(flat_kirepo, silent=False)
 
     head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
     unsubmodule_repo(head_kirepo.repo)
@@ -1695,13 +1704,6 @@ def push() -> None:
     commit_msg = f"Add changes up to and including ref {head.sha}"
     flat_head_kirepo.repo.git.add(all=True)
     flat_head_kirepo.repo.index.commit(commit_msg)
-
-    # Construct note warnings function, which returns `None` if a path is a
-    # valid Anki note, and a `Warning` otherwise.
-    #
-    # TODO: This should really be a boolean function with some sort of
-    # debugging flag.
-    warnings_fn = functools.partial(get_note_warns, patterns=IGNORE, root=kirepo.root)
     head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
 
     # Read grammar.
@@ -1723,12 +1725,12 @@ def push() -> None:
     # TODO: Consider changing what we call `b_repo` in accordance with the
     # above comment to make this more readable.
     a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
-    deltas = diff_repo(a_repo, head_1, warnings_fn, parser, transformer)
+    deltas = diff_repo(a_repo, head_1, parser, transformer)
 
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
 
-    push_deltas(
+    result: PushResult = push_deltas(
         deltas,
         models,
         kirepo,
@@ -1739,9 +1741,13 @@ def push() -> None:
         flat_kirepo,
         con,
     )
-    # profiler.stop()
-    # s = profiler.output_html()
-    # Path("ki_push_profile.html").resolve().write_text(s)
+
+    if PROFILE:
+        profiler.stop()
+        s = profiler.output_html()
+        Path("ki_push_profile.html").resolve().write_text(s)
+
+    return result
 
 
 @beartype
@@ -1755,14 +1761,14 @@ def push_deltas(
     head_kirepo: KiRepo,
     flat_kirepo: KiRepo,
     con: sqlite3.Connection,
-) -> None:
+) -> PushResult:
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
-        return
+        return PushResult.UP_TO_DATE
     logger.debug(pp.pformat(deltas))
 
     echo(f"Pushing to '{kirepo.col_file}'")
@@ -1936,7 +1942,7 @@ def push_deltas(
 
     # Unlock Anki SQLite DB.
     unlock(con)
-    return
+    return PushResult.NONTRIVIAL
 
 
 @beartype

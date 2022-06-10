@@ -1515,7 +1515,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path):
         logger.debug(pp.pformat(notes))
         assert "a" not in notes
         assert notes == ["c"]
-        assert "up to date" not in out
+        assert "ki push: up to date." not in out
 
 
 def test_push_doesnt_leave_ki_subdir_in_no_submodules_tree(tmp_path):
