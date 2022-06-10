@@ -80,6 +80,7 @@ from ki.types import (
     KiRepoRef,
     RepoRef,
     Leaves,
+    NoteDBRow,
     CloneResult,
     WrittenNoteFile,
     UpdatesRejectedError,
@@ -128,7 +129,7 @@ HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
-TQDM_NUM_COLS = 70
+TQDM_NUM_COLS = 80
 MAX_FIELNAME_LEN = 30
 IGNORE = [GIT, KI, MEDIA, GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE]
 FLAT_SUFFIX = Path("ki/flat/")
@@ -819,7 +820,6 @@ def files_in_str(
 def get_media_files(
     col: Collection,
     silent: bool,
-    leave: bool,
 ) -> Tuple[Dict[int, ExtantFile], Set[Warning]]:
     """
     Get a list of extant media files used in notes and notetypes.
@@ -851,8 +851,6 @@ def get_media_files(
         Anki collection.
     silent
         Whether to display stdout.
-    leave
-        Whether to leave the tqdm progress bar on the screen.
     """
 
     # All note ids as a string for the SQL query.
@@ -878,25 +876,18 @@ def get_media_files(
     # Find only used media files, collecting warnings for bad paths.
     media: Dict[int, Set[ExtantFile]] = {}
     warnings: Set[Warning] = set()
-
-    rows: List[Sequence[Any]] = col.db.all("select * from notes where id in " + strnids)
-    for row in tqdm(
-        rows,
-        ncols=TQDM_NUM_COLS,
-        disable=silent,
-        position=0,
-        leave=leave,
-    ):
-        nid = int(row[0])
-        flds = row[6]
-        for file in files_in_str(col, flds):
+    query: str = "select * from notes where id in " + strnids
+    rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
+    for row in (bar := tqdm(rows, ncols=TQDM_NUM_COLS, disable=silent)):
+        bar.set_description(f"Media", refresh=True)
+        for file in files_in_str(col, row.flds):
 
             # Skip files in subdirs.
             if file != os.path.basename(file):
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                media[nid] = media.get(nid, set()) | set([media_file])
+                media[row.nid] = media.get(row.nid, set()) | set([media_file])
             else:
                 warnings.add(MissingMediaFileWarning(col.path, media_file))
 
@@ -980,8 +971,8 @@ def write_repository(
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
-    iterator = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)
-    for nid in iterator:
+    for nid in (bar := tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)):
+        bar.set_description(f"Notes", refresh=True)
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
@@ -995,7 +986,7 @@ def write_repository(
     tidy_html_recursively(root, silent)
 
     media: Dict[int, Set[ExtantFile]]
-    media, warnings = get_media_files(col, silent=silent, leave=True)
+    media, warnings = get_media_files(col, silent=silent)
 
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
@@ -1090,9 +1081,9 @@ def write_decks(
 
     # TODO: This block is littered with unsafe code. Fix.
     nodes: List[DeckTreeNode] = postorder(root)
-    for i, node in tqdm(
-        list(enumerate(nodes)), ncols=TQDM_NUM_COLS, disable=silent, position=1
-    ):
+    for node in (bar := tqdm(nodes, ncols=TQDM_NUM_COLS, disable=silent)):
+        bar.set_description(f"Decks", refresh=True)
+
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
         # returns a deck with `did == 0` at the end of each call, probably
@@ -1298,7 +1289,8 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     batches: List[List[ExtantFile]] = list(
         F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
     )
-    for batch in tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent):
+    for batch in (bar := tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)):
+        bar.set_description(f"HTML", refresh=True)
 
         # Fail silently here, so as to not bother user with tidy warnings.
         command = [

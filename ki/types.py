@@ -11,7 +11,7 @@ import prettyprinter as pp
 from anki.collection import Note
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Optional
+from beartype.typing import List, Dict, Any, Optional, Union
 
 from ki.transformer import FlatNote
 
@@ -57,12 +57,13 @@ class ExtantStrangePath(type(Path())):
     when it was resolved.
     """
 
+
 class NoFile(NoPath):
     """A nonexistent file in an extant directory."""
+
     @property
     def parent(self):
         return ExtantDir(super().parent)
-
 
 
 # ENUMS
@@ -223,6 +224,22 @@ class Leaves:
 class CloneResult:
     repo: git.Repo
     md5sum: str
+
+
+@beartype
+@dataclass(frozen=True)
+class NoteDBRow:
+    nid: int
+    guid: str
+    mid: int
+    mod: int
+    usn: int
+    tags: str
+    flds: str
+    sfld: Union[str, int]
+    csum: int
+    flags: int
+    data: str
 
 
 # EXCEPTIONS
