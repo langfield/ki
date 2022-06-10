@@ -21,6 +21,7 @@ from ki.types import (
     ExtantDir,
     EmptyDir,
     NoPath,
+    NoFile,
     KiRepo,
     KiRepoRef,
     RepoRef,
@@ -114,6 +115,18 @@ def nopath(path: Path) -> NoPath:
     if path.exists():
         raise ExpectedNonexistentPathError(path)
     return NoPath(path)
+
+
+@beartype
+def nofile(path: Path) -> NoFile:
+    """
+    Maybe convert a path to a NoPath, i.e. a path that did not exist at
+    resolve-time, which is when this function was called.
+    """
+    path = path.resolve()
+    path = M.nopath(path)
+    M.xdir(path.parent)
+    return NoFile(path)
 
 
 @beartype

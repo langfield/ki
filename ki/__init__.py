@@ -69,6 +69,7 @@ from ki.types import (
     ExtantDir,
     EmptyDir,
     NoPath,
+    NoFile,
     GitChangeType,
     Delta,
     KiRepo,
@@ -601,7 +602,7 @@ def validate_flatnote_fields(notetype: Notetype, flatnote: FlatNote) -> List[War
 # should use other fields when there is not enough content in the first field
 # to get a unique filename, if they exist.
 @beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
+def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
     """Get note path from sort field text."""
     field_text = sort_field_text
 
@@ -628,12 +629,10 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> ExtantFile:
     note_path = F.test(deck_dir / filename)
 
     i = 1
-    while not isinstance(note_path, NoPath):
+    while not isinstance(note_path, NoFile):
         filename = f"{slug}_{i}{MD}"
         note_path = F.test(deck_dir / filename)
         i += 1
-
-    note_path: ExtantFile = F.touch(deck_dir, filename)
 
     return note_path
 
@@ -1094,10 +1093,6 @@ def write_decks(
     for i, node in tqdm(
         list(enumerate(nodes)), ncols=TQDM_NUM_COLS, disable=silent, position=1
     ):
-
-        # Leave the progress bar on the screen if this is the last iteration.
-        leave: bool = i == len(nodes) - 1
-
         # The name stored in a `DeckTreeNode` object is not the full name of
         # the deck, it is just the 'basename'. The `postorder()` function
         # returns a deck with `did == 0` at the end of each call, probably
@@ -1151,9 +1146,9 @@ def write_decks(
 
             # TODO: See if this indentation can be restructured.
             if card.nid not in written_notes:
-                note_path: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
+                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
                 payload: str = get_note_payload(colnote, tidy_field_files)
-                note_path.write_text(payload, encoding="UTF-8")
+                note_path: ExtantFile = F.write(note_path, payload)
                 written_notes[card.nid] = WrittenNoteFile(did, note_path)
             else:
                 # If `card` is in the same deck as the card we wrote `written`
@@ -1166,10 +1161,8 @@ def write_decks(
                 if card.did == written.did:
                     continue
 
-                # TODO: Mildly unsafe, consider writing an `F.symlink()` function.
-                note_path: ExtantFile = get_note_path(colnote.sortf_text, deck_dir)
-                note_path: NoPath = F.unlink(note_path)
-                note_path.symlink_to(written_notes[card.nid].file)
+                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
+                F.symlink(note_path, written_notes[card.nid].file)
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
@@ -1978,8 +1971,8 @@ def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> Li
         repo_note_path.unlink()
 
     parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: ExtantFile = get_note_path(colnote.sortf_text, parent)
-    new_note_path.write_text(get_colnote_repr(colnote), encoding="UTF-8")
+    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
+    F.write(new_note_path, get_colnote_repr(colnote))
 
     # Construct a nice commit message line.
     msg = f"Reassigned nid: '{colnote.old_nid}' -> "

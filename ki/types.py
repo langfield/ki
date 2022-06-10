@@ -57,6 +57,13 @@ class ExtantStrangePath(type(Path())):
     when it was resolved.
     """
 
+class NoFile(NoPath):
+    """A nonexistent file in an extant directory."""
+    @property
+    def parent(self):
+        return ExtantDir(super().parent)
+
+
 
 # ENUMS
 

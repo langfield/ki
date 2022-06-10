@@ -31,6 +31,7 @@ from ki.types import (
     ExtantDir,
     EmptyDir,
     NoPath,
+    NoFile,
     Singleton,
     ExtantStrangePath,
     KiRepoRef,
@@ -86,7 +87,7 @@ def shallow_walk(
 @beartype
 def test(
     path: Path,
-) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath]:
+) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile]:
     """Test whether `path` is a file, a directory, or something else."""
     path = path.resolve()
     if path.is_file():
@@ -97,6 +98,8 @@ def test(
         return ExtantDir(path)
     if path.exists():
         return ExtantStrangePath(path)
+    if path.parent.is_dir():
+        return NoFile(path)
     return NoPath(path)
 
 
@@ -106,6 +109,19 @@ def touch(directory: ExtantDir, name: str) -> ExtantFile:
     path = directory / singleton(name)
     path.touch()
     return ExtantFile(path.resolve())
+
+
+@beartype
+def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
+    with open(path, "w+", encoding="UTF-8") as f:
+        f.write(text)
+    return ExtantFile(path)
+
+
+@beartype
+def symlink(path: NoFile, target: ExtantFile) -> ExtantFile:
+    path.symlink_to(target)
+    return ExtantFile(path)
 
 
 @beartype
