@@ -127,20 +127,6 @@ def symlink(path: NoFile, target: ExtantFile) -> ExtantFile:
 
 
 @beartype
-def unlink(file: ExtantFile) -> NoPath:
-    """Unlink a file."""
-    file.unlink()
-    return NoPath(file.resolve())
-
-
-@beartype
-def mkdir(path: NoPath) -> EmptyDir:
-    """Make a directory (with parents)."""
-    path.mkdir(parents=True)
-    return EmptyDir(path)
-
-
-@beartype
 def mksubdir(directory: EmptyDir, suffix: Path) -> EmptyDir:
     """
     Make a subdirectory of an empty directory (with parents).
@@ -258,28 +244,18 @@ def get_batches(lst: List[ExtantFile], n: int) -> Generator[ExtantFile, None, No
 
 
 @beartype
-def slugify(value: str, allow_unicode: bool = False) -> str:
+def slugify(value: str) -> str:
     """
-    Taken from [1]. Convert to ASCII if 'allow_unicode' is False. Convert
-    spaces or repeated dashes to single dashes. Remove characters that aren't
-    alphanumerics, underscores, or hyphens. Convert to lowercase. Also strip
-    leading and trailing whitespace, dashes, and underscores.
+    Taken from [1]. Convert spaces or repeated dashes to single dashes. Remove
+    characters that aren't alphanumerics, underscores, or hyphens. Convert to
+    lowercase. Also strip leading and trailing whitespace, dashes, and
+    underscores.
 
     [1] https://github.com/django/django/blob/master/django/utils/text.py
     """
-    if allow_unicode:
-        value = unicodedata.normalize("NFKC", value)
-    else:
-        value = (
-            unicodedata.normalize("NFKD", value)
-            .encode("ascii", "ignore")
-            .decode("ascii")
-        )
-
+    value = unicodedata.normalize("NFKC", value)
     value = re.sub(SLUG_REGEX, "", value.lower())
-    result: str = re.sub(r"[-\s]+", "-", value).strip("-_")
-
-    return result
+    return re.sub(r"[-\s]+", "-", value).strip("-_")
 
 
 @beartype

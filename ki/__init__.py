@@ -617,7 +617,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
         field_text = sort_field_text
 
     name = field_text[:MAX_FIELNAME_LEN]
-    slug = F.slugify(name, allow_unicode=True)
+    slug = F.slugify(name)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
     # a `Path('.')` which is a bug, and causes a runtime exception.  If all
@@ -687,7 +687,7 @@ def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
 @beartype
 def get_field_note_id(nid: int, fieldname: str) -> str:
     """A str ID that uniquely identifies field-note pairs."""
-    return f"{nid}{F.slugify(fieldname, allow_unicode=True)}"
+    return f"{nid}{F.slugify(fieldname)}"
 
 
 @beartype
