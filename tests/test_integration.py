@@ -43,7 +43,7 @@ from ki.types import (
     MissingFieldOrdinalError,
     AnkiAlreadyOpenError,
 )
-from ki.maybes import KI, NO_SM_DIR
+from ki.maybes import KI
 from tests.test_ki import (
     open_collection,
     EDITED_COLLECTION_PATH,
@@ -784,7 +784,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
         repo = git.Repo.init(Path(REPODIR))
-        effects = [repo, git.InvalidGitRepositoryError()]
+        effects = [git.InvalidGitRepositoryError()]
         mocker.patch("ki.M.repo", side_effect=effects)
 
         os.chdir(REPODIR)
@@ -1450,32 +1450,6 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path):
         assert "a" not in notes
         assert notes == ["c"]
         assert "ki push: up to date." not in out
-
-
-def test_push_doesnt_leave_ki_subdir_in_no_submodules_tree(tmp_path):
-    col_file = get_col_file()
-    col_copy_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-
-        # Clone collection in cwd.
-        clone(runner, col_file)
-
-        # Remove a note file.
-        os.chdir(REPODIR)
-        assert os.path.isfile(NOTE_0)
-        os.remove(NOTE_0)
-
-        # Commit the deletion.
-        os.chdir("../")
-        repo = git.Repo(REPODIR)
-        repo.git.add(all=True)
-        repo.index.commit("Deleted.")
-
-        # Push changes.
-        os.chdir(REPODIR)
-        push(runner)
-        assert not os.path.isdir(Path(KI) / NO_SM_DIR / KI)
 
 
 def test_push_doesnt_unnecessarily_deduplicate_notetypes():

@@ -36,7 +36,6 @@ from ki import (
     LAST_PUSH_FILE,
     GITIGNORE_FILE,
     BACKUPS_DIR,
-    NO_SM_DIR,
     NotetypeDict,
     GitChangeType,
     Notetype,

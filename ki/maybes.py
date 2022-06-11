@@ -48,7 +48,6 @@ CONFIG_FILE = "config"
 HASHES_FILE = "hashes"
 BACKUPS_DIR = "backups"
 LAST_PUSH_FILE = "last_push"
-NO_SM_DIR = "no_submodules_tree"
 
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
@@ -85,13 +84,6 @@ LAST_PUSH_FILE_INFO = """
 This is the '.ki/last_push' file, used internally by ki to keep diffs and
 eliminate unnecessary merge conflicts during pull operations. It should never
 be missing, and if it is, the repository may have become corrupted.
-"""
-
-NO_MODULES_DIR_INFO = """
-This is the '.ki/no_submodules_tree' file, used internally by ki to keep track
-of what notes need to be written/modified/deleted in the Anki database. It
-should never be missing, and if it is, the repository may have become
-corrupted.
 """
 
 COL_FILE_INFO = """
@@ -219,10 +211,6 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
     last_push_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
-    # Load the no_submodules_tree.
-    no_modules_dir = M.xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M.repo(no_modules_dir)
-
     # Check that collection file exists.
     config = configparser.ConfigParser()
     config.read(config_file)
@@ -239,7 +227,6 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
         hashes_file,
         models_file,
         last_push_file,
-        no_modules_repo,
     )
 
 

@@ -119,7 +119,6 @@ class KiRepo:
     hashes_file: ExtantFile
     models_file: ExtantFile
     last_push_file: ExtantFile
-    no_modules_repo: git.Repo
 
 
 @beartype

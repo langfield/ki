@@ -110,7 +110,6 @@ from ki.maybes import (
     GITIGNORE_FILE,
     GITMODULES_FILE,
     KI,
-    NO_SM_DIR,
     CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
@@ -1024,16 +1023,19 @@ def write_repository(
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
     # TODO: Maybe print how many warnings are ignored of each type.
-    for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
+    with F.halo("Processing warnings..."):
+        for warning in warnings:
+            if type(warning) not in WARNING_IGNORE_LIST:
+                click.secho(str(warning), fg="yellow")
 
-    for note_media in media.values():
-        for media_file in note_media:
-            F.copyfile(media_file, media_dir, media_file.name)
+    with F.halo("Copying media..."):
+        for note_media in media.values():
+            for media_file in note_media:
+                F.copyfile(media_file, media_dir, media_file.name)
 
-    F.rmtree(root)
-    col.close(save=False)
+    with F.halo("Closing collection..."):
+        F.rmtree(root)
+        col.close(save=False)
 
 
 @beartype
@@ -1169,7 +1171,6 @@ def write_decks(
             # it to disk.
             colnote: ColNote = colnotes[card.nid]
 
-            # TODO: See if this indentation can be restructured.
             if card.nid not in written_notes:
                 note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
                 payload: str = get_note_payload(colnote, tidy_field_files)
@@ -1472,9 +1473,11 @@ def clone(collection: str, directory: str = "") -> None:
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
     _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
-    kirepo: KiRepo = M.kirepo(targetdir)
+
+    with F.halo("Loading ki repository..."):
+        kirepo: KiRepo = M.kirepo(targetdir)
     kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
-    echo("done.")
+    echo("Done.")
 
     if PROFILE:
         profiler.stop()
@@ -1521,7 +1524,7 @@ def _clone(
     leaves: Leaves = F.fmkleaves(
         directories.dirs[KI],
         files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-        dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+        dirs={BACKUPS_DIR: BACKUPS_DIR},
     )
 
     md5sum = F.md5(col_file)
@@ -1533,14 +1536,10 @@ def _clone(
     write_repository(col_file, targetdir, leaves, directories.dirs[MEDIA], silent)
 
     # Initialize the main repository.
-    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-    repo.git.add(all=True)
-    _ = repo.index.commit(msg)
-
-    # Create a special copy of the repository in `.ki/no_submodules_tree/`,
-    # where all the submodules have been removed, but the files themselves have
-    # been preserved.
-    _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
+    with F.halo("Initializing repository and committing contents..."):
+        repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+        repo.git.add(all=True)
+        _ = repo.index.commit(msg)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)

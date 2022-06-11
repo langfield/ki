@@ -43,7 +43,7 @@ from ki.types import (
 
 FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
-HALO_ENABLED = True
+HALO_ENABLED = False
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
