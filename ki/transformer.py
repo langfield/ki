@@ -34,7 +34,6 @@ class FlatNote:
     title: str
     nid: int
     model: str
-    deck: str
     tags: List[str]
     markdown: bool
     fields: Dict[str, str]
@@ -48,44 +47,37 @@ class Header:
     title: str
     nid: int
     model: str
-    deck: str
     tags: List[str]
     markdown: bool
 
 
 class NoteTransformer(Transformer):
     r"""
-    file
-      note
-        header
-          title     Note
-          nid: 123412341234
-
-          model: Basic
-
-          deck      a
-          tags      None
-          markdown: false
-
-
-        field
-          fieldheader
-            ###
-            Front
-          r
-
-
-        field
-          fieldheader
-            ###
-            Back
-          s
+    note
+      header
+        title     Note
+        nid: 123412341234
+  
+        model: Basic
+  
+        tags      None
+        markdown: false
+  
+  
+      field
+        fieldheader
+          ###
+          Front
+        r
+  
+  
+      field
+        fieldheader
+          ###
+          Back
+        s
     """
     # pylint: disable=no-self-use, missing-function-docstring
-
-    @beartype
-    def file(self, flatnotes: List[FlatNote]) -> List[FlatNote]:
-        return flatnotes
 
     @beartype
     def note(self, n: List[Union[Header, Field]]) -> FlatNote:
@@ -104,7 +96,6 @@ class NoteTransformer(Transformer):
             header.title,
             header.nid,
             header.model,
-            header.deck,
             header.tags,
             header.markdown,
             fieldmap,
@@ -139,18 +130,6 @@ class NoteTransformer(Transformer):
         return f[1]
 
     @beartype
-    def deck(self, d: List[str]) -> str:
-        """
-        Lark syntax:
-        ``deck: "deck:" DECKNAME "\n"``
-
-        This is guaranteed to be nonempty.
-        """
-        assert len(d) == 1
-        assert len(d[0]) > 0
-        return d[0]
-
-    @beartype
     def NID(self, t: Token) -> int:
         """Return ``-1`` if empty."""
         nid = re.sub(r"^nid:", "", str(t)).strip()
@@ -169,10 +148,6 @@ class NoteTransformer(Transformer):
         md = re.sub(r"^markdown:", "", str(t)).strip()
         assert md in ("true", "false")
         return md == "true"
-
-    @beartype
-    def DECKNAME(self, t: Token) -> str:
-        return str(t).strip()
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:

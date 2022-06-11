@@ -1,8 +1,5 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ FILE + NOTE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-// A ``file`` is a sequence of 0 or more ``note`` rules.
-file: "\n"* note*
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NOTE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
 note: header field+
@@ -21,7 +18,7 @@ FIELDSENTINEL: "###"
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (title NID MODEL deck tags MARKDOWN)
+header: (title NID MODEL tags MARKDOWN)
 
 
 // === TITLE ===
@@ -42,20 +39,6 @@ NID: "nid:" " "* INT? "\n"+
 // === MODEL ===
 
 MODEL: "model:" " "* ANKINAME "\n"+
-
-
-// === DECK ====
-
-// Deck names look like ``<component>[::<component>]*``.
-// Anki allows empty deck component names, but we do not, because that is
-// insane.
-deck: "deck:" DECKNAME "\n"
-DECKNAME: DECKCOMPONENTNAME (DECKDELIMITER DECKCOMPONENTNAME)*
-DECKCOMPONENTNAME: DECKNONSPACECHAR+ (DECKCHAR+ DECKNONSPACECHAR+)*
-DECKCHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\r\n]/
-DECKNONSPACECHAR: /(?!::)[^\0\x07\x08\x0b\x0c"\s]/
-DECKSENTINEL: "deck:"
-DECKDELIMITER: "::"
 
 
 // === TAGS ====
