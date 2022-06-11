@@ -326,6 +326,8 @@ def diff2(
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD` to `HEAD~1`."""
+    logger.debug(f"head repo working directory: {repo.working_dir}")
+    logger.debug(f"Diffing HEAD~1: {repo.commit('HEAD~1')} against HEAD: {repo.commit('HEAD')}")
     head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
     uuid = "%4x" % random.randrange(16**4)
     head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
@@ -1633,7 +1635,8 @@ def push() -> PushResult:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=False)
-    git_copy = F.copytree(F.git_dir(head_kirepo.repo), F.test(F.mkdtemp() / "GIT"))
+
+    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
     del remote_repo
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)

@@ -66,7 +66,6 @@ from ki import (
     display_fields_health_warning,
     is_anki_note,
     parse_markdown_note,
-    flatten_staging_repo,
     lock,
     unsubmodule_repo,
     write_repository,
