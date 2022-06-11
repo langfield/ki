@@ -1,7 +1,6 @@
 ## Note
 nid: 1645897918284
 model: Basic
-deck: Default
 tags: #hi
 markdown: false
 
