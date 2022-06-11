@@ -1435,6 +1435,67 @@ def echo_note_change_types(deltas: List[Delta]) -> None:
     echo("=" * (WORD_PAD + COUNT_PAD))
 
 
+@beartype
+def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
+    """Add all new models."""
+    for model in models.values():
+
+        # TODO: Consider waiting to parse `models` until after the
+        # `add_dict()` call.
+        #
+        # Set the model id to `0`, and then add.
+        # TODO: What happens if we try to add a model with the same name as
+        # an existing model, but the two models are not the same,
+        # content-wise?
+        #
+        # Check if a model already exists with this name, and get its `mid`.
+        mid: Optional[int] = col.models.id_for_name(model.name)
+
+        @beartype
+        def hash_notetype(notetype: Notetype) -> int:
+            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+            s: str = json.dumps(dictionary, sort_keys=True)
+            return hash(s)
+
+        # TODO: This block is unfinished. We need to add new notetypes (and
+        # rename them) only if they are 'new', where new means they are
+        # different from anything else already in the DB, in the
+        # content-addressed sense. If they are new, then we must indicate that
+        # the notes we are adding actually have these new notetypes. For this,
+        # it may make sense to use the hash of the notetype everywhere (i.e. in
+        # the note file) rather than the name or mid.
+        #
+        # If a model already exists with this name, parse it, and check if its
+        # hash is identical to the model we are trying to add.
+        if mid is not None:
+            nt: NotetypeDict = col.models.get(mid)
+
+            # If we are trying to add a model that has the exact same content
+            # and name as an existing model, skip it.
+            existing_model: Notetype = parse_notetype_dict(nt)
+            if hash_notetype(model) == hash_notetype(existing_model):
+                continue
+
+            logger.warning(
+                f"Collision: New model '{model.name}' has same name"
+                "as existing model with mid '{mid}', but hashes differ."
+            )
+
+            # If the hashes don't match, then we somehow need to update
+            # `flatnote.model` for the relevant notes.
+
+            # TODO: Consider using the hash of the notetype instead of its
+            # name.
+
+        nt_copy: NotetypeDict = copy.deepcopy(model.dict)
+        nt_copy["id"] = 0
+        changes: OpChangesWithId = col.models.add_dict(nt_copy)
+        nt: NotetypeDict = col.models.get(changes.id)
+        model: Notetype = parse_notetype_dict(nt)
+        echo(f"Added model '{model.name}'")
+
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -1791,66 +1852,13 @@ def push_deltas(
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
+    # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
     col: Collection = M.collection(new_col_file)
     F.chdir(cwd)
 
-    # Add all new models.
-    for model in models.values():
-
-        # TODO: Consider waiting to parse `models` until after the
-        # `add_dict()` call.
-        #
-        # Set the model id to `0`, and then add.
-        # TODO: What happens if we try to add a model with the same name as
-        # an existing model, but the two models are not the same,
-        # content-wise?
-        #
-        # Check if a model already exists with this name, and get its `mid`.
-        mid: Optional[int] = col.models.id_for_name(model.name)
-
-        @beartype
-        def hash_notetype(notetype: Notetype) -> int:
-            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            s: str = json.dumps(dictionary, sort_keys=True)
-            return hash(s)
-
-        # TODO: This block is unfinished. We need to add new notetypes (and
-        # rename them) only if they are 'new', where new means they are
-        # different from anything else already in the DB, in the
-        # content-addressed sense. If they are new, then we must indicate that
-        # the notes we are adding actually have these new notetypes. For this,
-        # it may make sense to use the hash of the notetype everywhere (i.e. in
-        # the note file) rather than the name or mid.
-        #
-        # If a model already exists with this name, parse it, and check if its
-        # hash is identical to the model we are trying to add.
-        if mid is not None:
-            nt: NotetypeDict = col.models.get(mid)
-
-            # If we are trying to add a model that has the exact same content
-            # and name as an existing model, skip it.
-            existing_model: Notetype = parse_notetype_dict(nt)
-            if hash_notetype(model) == hash_notetype(existing_model):
-                continue
-
-            logger.warning(
-                f"Collision: New model '{model.name}' has same name"
-                "as existing model with mid '{mid}', but hashes differ."
-            )
-
-            # If the hashes don't match, then we somehow need to update
-            # `flatnote.model` for the relevant notes.
-
-            # TODO: Consider using the hash of the notetype instead of its
-            # name.
-
-        nt_copy: NotetypeDict = copy.deepcopy(model.dict)
-        nt_copy["id"] = 0
-        changes: OpChangesWithId = col.models.add_dict(nt_copy)
-        nt: NotetypeDict = col.models.get(changes.id)
-        model: Notetype = parse_notetype_dict(nt)
-        echo(f"Added model '{model.name}'")
+    # Add new models to the collection.
+    add_models(col, models)
 
     # Gather logging statements to display.
     log: List[str] = []
@@ -1876,9 +1884,9 @@ def push_deltas(
             col.remove_notes([flatnote.nid])
             continue
 
-        # TODO: If relevant prefix of sort field has changed, we regenerate
-        # the file. Recall that the sort field is used to determine the
-        # filename. If the content of the sort field has changed, then we
+        # TODO: If relevant prefix of sort field has changed, we should
+        # regenerate the file. Recall that the sort field is used to determine
+        # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
         colnote, note_warnings = push_flatnote_to_anki(col, flatnote)
         log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
