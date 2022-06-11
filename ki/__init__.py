@@ -18,6 +18,7 @@ import re
 import json
 import copy
 import shutil
+import random
 import logging
 import secrets
 import sqlite3
@@ -134,13 +135,13 @@ TQDM_NUM_COLS = 80
 MAX_FIELNAME_LEN = 30
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
-FLAT_SUFFIX = Path("ki/flat/")
-HEAD_SUFFIX = Path("ki/head/")
-LOCAL_SUFFIX = Path("ki/local")
-STAGE_SUFFIX = Path("ki/stage")
-REMOTE_SUFFIX = Path("ki/remote")
-DELETED_SUFFIX = Path("ki/deleted")
-FIELD_HTML_SUFFIX = Path("ki/fieldhtml")
+FLAT_SUFFIX = Path("ki-flat")
+HEAD_SUFFIX = Path("ki-head")
+LOCAL_SUFFIX = Path("ki-local")
+STAGE_SUFFIX = Path("ki-stage")
+REMOTE_SUFFIX = Path("ki-remote")
+DELETED_SUFFIX = Path("ki-deleted")
+FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
@@ -181,7 +182,13 @@ def unlock(con: sqlite3.Connection) -> None:
 def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into `<tmp_dir>/suffix/`.
-    target: NoPath = F.test(F.mkdtemp() / suffix)
+    target: NoFile = F.test(F.mkdtemp() / suffix)
+    logger.debug(target)
+    logger.debug(target.parent)
+    logger.debug(target.parent.parent)
+    # TODO: Remove.
+    if not isinstance(target, NoFile):
+        raise ValueError
     ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
 
     # Annihilate the .ki subdirectory.
@@ -217,8 +224,7 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = copy_repo(ref, suffix)
-    ephem_ki_dir: NoPath = M.nopath(Path(ephem.working_dir) / KI)
-    F.copytree(kirepo_ref.kirepo.ki_dir, ephem_ki_dir)
+    F.copytree(kirepo_ref.kirepo.ki_dir, F.test(F.working_dir(ephem) / KI))
     kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
 
     return kirepo
@@ -280,7 +286,7 @@ def get_note_warnings(
 
 
 @beartype
-def unsubmodule_repo(repo: git.Repo) -> None:
+def unsubmodule_repo(repo: git.Repo) -> git.Repo:
     """
     Un-submodule all the git submodules (convert them to ordinary
     subdirectories and destroy their commit history).  Commit the changes to
@@ -319,7 +325,87 @@ def unsubmodule_repo(repo: git.Repo) -> None:
     if gitmodules_path.exists():
         repo.git.rm(gitmodules_path)
         _ = repo.index.commit("Remove '.gitmodules' file.")
+    return repo
 
+@beartype
+def diff2(
+    repo: git.Repo,
+    parser: Lark,
+    transformer: NoteTransformer,
+) -> List[Union[Delta, Warning]]:
+    """Diff `repo` from `HEAD` to `HEAD~1`."""
+    head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+    uuid = "%4x" % random.randrange(16**4)
+    head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
+
+    # We diff from A~B.
+    a_repo = repo
+    b_repo = head1_repo
+
+    # Use a `DiffIndex` to get the changed files.
+    deltas = []
+    a_dir = F.test(Path(a_repo.working_dir))
+    b_dir = F.test(Path(b_repo.working_dir))
+
+    halotext = f"Diffing {b_repo.head.commit}~{head1.sha}..."
+    with F.halo(text=halotext):
+        diff_index = b_repo.commit("HEAD").diff(b_repo.commit("HEAD~1"))
+
+    for change_type in GitChangeType:
+
+        diffs = diff_index.iter_change_type(change_type.value)
+        bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
+        bar.set_description(f"{change_type}")
+        for diff in bar:
+            a_warning: Optional[Warning] = get_note_warnings(
+                Path(diff.a_path),
+                a_dir,
+                ignore_files=IGNORE_FILES,
+                ignore_dirs=IGNORE_DIRECTORIES,
+            )
+            b_warning: Optional[Warning] = get_note_warnings(
+                Path(diff.b_path),
+                b_dir,
+                ignore_files=IGNORE_FILES,
+                ignore_dirs=IGNORE_DIRECTORIES,
+            )
+
+            if a_warning is not None:
+                deltas.append(a_warning)
+                continue
+            if b_warning is not None:
+                deltas.append(b_warning)
+                continue
+
+            a_path = F.test(a_dir / diff.a_path)
+            b_path = F.test(b_dir / diff.b_path)
+
+            a_relpath = Path(diff.a_path)
+            b_relpath = Path(diff.b_path)
+
+            if change_type == GitChangeType.DELETED:
+                if not isinstance(a_path, ExtantFile):
+                    deltas.append(DeletedFileNotFoundWarning(a_relpath))
+                    continue
+
+                deltas.append(Delta(change_type, a_path, a_relpath))
+                continue
+
+            if not isinstance(b_path, ExtantFile):
+                deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
+                continue
+
+            if change_type == GitChangeType.RENAMED:
+                a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
+                b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
+                if a_flatnote.nid != b_flatnote.nid:
+                    deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
+                    deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
+                    continue
+
+            deltas.append(Delta(change_type, b_path, b_relpath))
+
+    return deltas
 
 @beartype
 def diff_repo(
@@ -1424,45 +1510,7 @@ def clone(collection: str, directory: str = "") -> None:
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
-    _, md5sum = _clone(col_file, targetdir, msg="Initial commit", silent=False)
-    targetdir: ExtantDir = M.xdir(targetdir)
-    kirepo: KiRepo = M.kirepo(targetdir)
-
-    # Get reference to HEAD of current repo.
-    head: KiRepoRef = M.head_kirepo_ref(kirepo)
-
-    # Get staging repository in temp directory, and copy to `no_submodules_tree`.
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    click.secho("Constructing stage repository... ", bold=True, nl=False)
-    stage_kirepo: KiRepo = copy_kirepo(head, f"{STAGE_SUFFIX}-{md5sum}")
-
-    click.secho("done.", bold=True, nl=True)
-    click.secho("Flattening stage repository... ", bold=True, nl=False)
-    stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
-
-    click.secho("done.", bold=True, nl=True)
-    click.secho("Committing changes... ", bold=True, nl=False)
-
-    # Commit the changes made since the last time we pushed, since the git
-    # history of the staging repo is actually the git history of the
-    # `no_submodules_tree` (we copy the .git/ folder). This will include the
-    # unified diff of all commits to the main repo since the last push, as well
-    # as the changes we made within the `unsubmodule_repo()` call within
-    # `flatten_staging_repo()`.
-    stage_kirepo.repo.git.add(all=True)
-    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
-    click.secho("done.", bold=True, nl=True)
-
-    # Completely annihilate the `.ki/no_submodules_tree` directory/repository,
-    # and replace it with `stage_kirepo`. This is a sensible operation because
-    # earlier, we copied the `.git/` directory from `.ki/no_submodules_tree` to
-    # the staging repo. So the history is preserved.
-    click.secho("Copying stage to '.ki/'... ", bold=True, nl=False)
-    no_modules_root: NoPath = F.rmtree(F.working_dir(head.kirepo.no_modules_repo))
-    F.copytree(stage_kirepo.root, no_modules_root)
-
-    # Dump HEAD ref of the newly cloned repo to `.ki/last_push`.
-    M.kirepo(targetdir).last_push_file.write_text(head.sha)
+    _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
     click.secho("done.", bold=True, nl=True)
 
 
@@ -1671,9 +1719,10 @@ def push() -> PushResult:
         - Clone collection into a temp directory
         - Delete all files and folders except `.git/`
         - Copy into this temp directory all files and folders from the current
-          repository (excluding `.git*` stuff).
+          repository checked out at HEAD (excluding `.git*` stuff).
+        - Unsubmodule repo
         - Add and commit everything
-        - Take diff from `HEAD` to `HEAD~`.
+        - Take diff from `HEAD` to `HEAD~1`.
     """
     if PROFILE:
         profiler = Profiler()
@@ -1692,52 +1741,24 @@ def push() -> PushResult:
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
 
-    # Get reference to HEAD of current repo.
+    # =================== NEW PUSH ARCHITECTURE ====================
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    flat_head: RepoRef = M.head_repo_ref(kirepo.no_modules_repo)
-
-    with F.halo(text="Copying flattened repository..."):
-        flat_repo: git.Repo = copy_repo(flat_head, f"{FLAT_SUFFIX}-{md5sum}")
-
-    with F.halo(text="Copying ki subdirectory..."):
-        F.copytree(kirepo.ki_dir, F.test(F.working_dir(flat_repo) / KI))
-
-    flat_kirepo: KiRepo = M.kirepo(F.working_dir(flat_repo))
-    flat_kirepo.last_push_file.write_text(flat_kirepo.repo.head.commit.hexsha)
-
-    # TODO: Figure out how to check if we are already up-to-date, in order to
-    # avoid this pull if it is unnecessary. This will involve some fancy
-    # manipulation of the hashes file. Perhaps it must be put under version
-    # control, i.e. removed from the gitignore.
-    _pull(flat_kirepo, silent=False)
-
-    with F.halo(text="Copying repository..."):
-        head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-
-    with F.halo(text="Flattening submodules..."):
-        unsubmodule_repo(head_kirepo.repo)
-        head_git_dir: NoPath = F.rmtree(F.git_dir(head_kirepo.repo))
-        F.copytree(F.git_dir(flat_kirepo.repo), head_git_dir)
-        flat_head_kirepo: KiRepo = M.kirepo(F.working_dir(head_kirepo.repo))
-
-    # This statement cannot be any farther down because we must get a reference
-    # to HEAD *before* we commit the changes made since the last PUSH. After
-    # the following line, the reference we got will be HEAD~1, hence the
-    # variable name.
-    head_1: RepoRef = M.head_repo_ref(flat_head_kirepo.repo)
-
-    # Commit the changes made since the last time we pushed, since the git
-    # history of the flat repo is actually the git history of the
-    # `no_submodules_tree` (we copy the .git/ folder). This will include the
-    # unified diff of all commits to the main repo since the last push, as well
-    # as the changes we made within the `unsubmodule_repo()` call above.
-    with F.halo(text="Committing changes to flattened repository..."):
-        commit_msg = f"Add changes up to and including ref {head.sha}"
-        flat_head_kirepo.repo.git.add(all=True)
-        flat_head_kirepo.repo.index.commit(commit_msg)
-
-    with F.halo(text="Copying repository at HEAD..."):
-        head_kirepo: KiRepo = copy_kirepo(head, f"{LOCAL_SUFFIX}-{md5sum}")
+    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+    remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=False)
+    git_copy = F.copytree(F.git_dir(head_kirepo.repo), F.test(F.mkdtemp() / "GIT"))
+    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    del remote_repo
+    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    del remote_repo
+    F.copytree(git_copy, F.test(git_dir))
+    remote_repo: git.Repo = M.repo(remote_root)
+    remote_repo.git.add(all=True)
+    remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
+    # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.
     # TODO:! Should we assume this always exists? A nice error message should
@@ -1750,16 +1771,7 @@ def push() -> PushResult:
     parser = Lark(grammar, start="file", parser="lalr")
     transformer = NoteTransformer()
 
-    # Get deltas from `HEAD~1` -> `HEAD` within `b_repo`. Note that `a_repo` is
-    # only used to construct paths to return within the `Delta` dataclasses. It
-    # is not used to compute diffs against. And `b_repo` is really just
-    # `flat_kirepo.repo`.
-    #
-    # TODO: Consider changing what we call `b_repo` in accordance with the
-    # above comment to make this more readable.
-    with F.halo(text="Copying repository at HEAD~1..."):
-        a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
-    deltas = diff_repo(a_repo, head_1, parser, transformer)
+    deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
 
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
@@ -1772,7 +1784,6 @@ def push() -> PushResult:
         parser,
         transformer,
         head_kirepo,
-        flat_kirepo,
         con,
     )
 
@@ -1793,7 +1804,6 @@ def push_deltas(
     parser: Lark,
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
-    flat_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> PushResult:
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
@@ -1995,21 +2005,6 @@ def push_deltas(
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
-
-    # Completely annihilate the `.ki/no_submodules_tree`
-    # directory/repository, and replace it with `flat_kirepo`. This is a
-    # sensible operation because earlier, we copied the `.git/` directory
-    # from `.ki/no_submodules_tree` to the staging repo. So the history is
-    # preserved.
-    with F.halo(text="Updating flattened tree..."):
-        no_modules_root: NoPath = F.rmtree(F.working_dir(kirepo.no_modules_repo))
-        no_modules_root: ExtantDir = F.copytree(flat_kirepo.root, no_modules_root)
-        no_modules_ki_dir = F.test(no_modules_root / KI)
-        if isinstance(no_modules_ki_dir, ExtantDir):
-            F.rmtree(no_modules_ki_dir)
-
-    # Dump HEAD ref of current repo in `.ki/last_push`.
-    kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
     unlock(con)

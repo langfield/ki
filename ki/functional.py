@@ -56,15 +56,15 @@ SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS 
 
 
 @beartype
-def rmtree(target: ExtantDir) -> NoPath:
+def rmtree(target: ExtantDir) -> NoFile:
     """Call shutil.rmtree()."""
     shutil.rmtree(target)
-    return NoPath(target)
+    return NoFile(target)
 
 
 # TODO: This is unsafe, because `target` may not have an extant parent.
 @beartype
-def copytree(source: ExtantDir, target: NoPath) -> ExtantDir:
+def copytree(source: ExtantDir, target: NoFile) -> ExtantDir:
     """Call shutil.copytree()."""
     shutil.copytree(source, target)
     return ExtantDir(target.resolve())
