@@ -333,8 +333,8 @@ def diff2(
     head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
-    a_repo = repo
-    b_repo = head1_repo
+    b_repo = repo
+    a_repo = head1_repo
 
     # Use a `DiffIndex` to get the changed files.
     deltas = []
@@ -343,7 +343,7 @@ def diff2(
 
     halotext = f"Diffing {repo.head.commit}~{head1.sha}..."
     with F.halo(text=halotext):
-        diff_index = repo.commit("HEAD").diff(repo.commit("HEAD~1"))
+        diff_index = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     for change_type in GitChangeType:
 
@@ -1703,7 +1703,7 @@ def push_deltas(
         echo("ki push: up to date.")
         return PushResult.UP_TO_DATE
 
-    # logger.debug(pp.pformat(deltas))
+    logger.debug(pp.pformat(deltas))
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
