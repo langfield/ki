@@ -62,7 +62,6 @@ def rmtree(target: ExtantDir) -> NoFile:
     return NoFile(target)
 
 
-# TODO: This is unsafe, because `target` may not have an extant parent.
 @beartype
 def copytree(source: ExtantDir, target: NoFile) -> ExtantDir:
     """Call shutil.copytree()."""
@@ -81,6 +80,7 @@ def cwd() -> ExtantDir:
 def shallow_walk(
     directory: ExtantDir,
 ) -> Tuple[ExtantDir, List[ExtantDir], List[ExtantFile]]:
+    """Walk only the top-level directory with `os.walk()`."""
     root, dirs, files = next(os.walk(directory))
     dirs = [ExtantDir(d) for d in dirs]
     files = [ExtantFile(f) for f in files]
@@ -118,6 +118,7 @@ def touch(directory: ExtantDir, name: str) -> ExtantFile:
 
 @beartype
 def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
+    """Write text to a file."""
     with open(path, "w+", encoding="UTF-8") as f:
         f.write(text)
     return ExtantFile(path)
@@ -125,6 +126,7 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
 
 @beartype
 def symlink(path: NoFile, target: ExtantFile) -> ExtantFile:
+    """Symlink `path` to `target`."""
     path.symlink_to(target)
     return ExtantFile(path)
 
@@ -306,6 +308,7 @@ def fmkleaves(
 
 @beartype
 def halo(text: str) -> Halo:
+    """Construct a Halo spinner (for indicating progress)."""
     return Halo(
         text=text,
         spinner=SPINNER,

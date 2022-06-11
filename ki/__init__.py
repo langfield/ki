@@ -326,8 +326,6 @@ def diff2(
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD` to `HEAD~1`."""
-    logger.debug(f"head repo working directory: {repo.working_dir}")
-    logger.debug(f"Diffing HEAD~1: {repo.commit('HEAD~1')} against HEAD: {repo.commit('HEAD')}")
     head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
     uuid = "%4x" % random.randrange(16**4)
     head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
@@ -1354,7 +1352,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 @beartype
 def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> EmptyDir:
-    # Create default target directory.
+    """Create default target directory."""
     path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
@@ -1362,6 +1360,81 @@ def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> EmptyDir
     if isinstance(path, EmptyDir):
         return path
     raise TargetExistsError(path)
+
+
+@beartype
+def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> List[str]:
+    """
+    Construct the contents of a note corresponding to the arguments `colnote`,
+    which itself was created from `flatnote`, and then write it to disk.
+
+    Returns a list of lines to add to the commit message (either an empty list,
+    or a list containing a single line).
+
+    This function is intended to be used when we are adding *completely* new
+    notes, in which case the caller generates a new note with a newly generated
+    nid, which can be accessed at `colnote.n.id`. In general, this is the
+    branch taken whenever Anki fails to recognize the nid given in the note
+    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
+    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
+    newly assigned nid for this note, yielded by the Anki runtime, and the
+    latter has whatever was written in the file.
+    """
+    # If this is not a new note, then we didn't reassign its nid, and we don't
+    # need to regenerate the file. So we don't add a line to the commit
+    # message.
+    if not colnote.new:
+        return []
+
+    # Get paths to note in local repo, as distinct from staging repo.
+    repo_note_path: Path = root / relpath
+
+    # If this is not an entirely new file, remove it.
+    if repo_note_path.is_file():
+        repo_note_path.unlink()
+
+    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
+    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
+    F.write(new_note_path, get_colnote_repr(colnote))
+
+    # Construct a nice commit message line.
+    msg = f"Reassigned nid: '{colnote.old_nid}' -> "
+    msg += f"'{colnote.n.id}' in '{os.path.relpath(new_note_path, root)}'"
+    return [msg]
+
+
+@beartype
+def echo_note_change_types(deltas: List[Delta]) -> None:
+    """Write a table of git change types for notes to stdout."""
+    is_change_type = lambda t: lambda d: d.status == t
+
+    adds = list(filter(is_change_type(GitChangeType.ADDED), deltas))
+    deletes = list(filter(is_change_type(GitChangeType.DELETED), deltas))
+    renames = list(filter(is_change_type(GitChangeType.RENAMED), deltas))
+    modifies = list(filter(is_change_type(GitChangeType.MODIFIED), deltas))
+    typechanges = list(filter(is_change_type(GitChangeType.TYPECHANGED), deltas))
+
+    WORD_PAD = 15
+    COUNT_PAD = 9
+    add_info: str = "ADD".ljust(WORD_PAD) + str(len(adds)).rjust(COUNT_PAD)
+    delete_info: str = "DELETE".ljust(WORD_PAD) + str(len(deletes)).rjust(COUNT_PAD)
+    modification_info: str = "MODIFY".ljust(WORD_PAD) + str(len(modifies)).rjust(
+        COUNT_PAD
+    )
+    rename_info: str = "RENAME".ljust(WORD_PAD) + str(len(renames)).rjust(COUNT_PAD)
+    typechange_info: str = "TYPE CHANGE".ljust(WORD_PAD) + str(len(typechanges)).rjust(
+        COUNT_PAD
+    )
+
+    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("Note change types")
+    echo("-" * (WORD_PAD + COUNT_PAD))
+    echo(add_info)
+    echo(delete_info)
+    echo(modification_info)
+    echo(rename_info)
+    echo(typechange_info)
+    echo("=" * (WORD_PAD + COUNT_PAD))
 
 
 @click.group()
@@ -1399,7 +1472,7 @@ def clone(collection: str, directory: str = "") -> None:
     _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
     kirepo: KiRepo = M.kirepo(targetdir)
     kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
-    click.secho("done.", bold=True, nl=True)
+    echo("done.")
 
 
 @beartype
@@ -1584,33 +1657,23 @@ def push() -> PushResult:
 
     Consists of the following operations:
 
-        - Check that the command was run within a ki repo
-        - Lock the collection
-        - Hash the collection and abort if there were remote changes
-
-        - Copy the submoduleless repo to a temp directory ("flat stage")
-        - Copy the .ki/ folder to the flat stage
-        - Open the flat stage as a KiRepo
-        - Write HEAD ref of the flat stage to its LAST_PUSH file
-        - Pull remote changes into the flat stage
-        - Copy HEAD into a temp directory ("stage")
-        - Unsubmodule stage
-        - Annihilate .git folder of stage
-        - Copy .git folder of flat stage to stage
-        - Commit changes in stage (these will be all changes from the last
-          commit of the submoduless repo to current HEAD, i.e. since the last
-          time we pushed)
-        - Copy HEAD into another temp directory ("head repo")
-
-    This seems unnecessarily complicated. New procedure:
-
         - Clone collection into a temp directory
         - Delete all files and folders except `.git/`
         - Copy into this temp directory all files and folders from the current
           repository checked out at HEAD (excluding `.git*` stuff).
         - Unsubmodule repo
         - Add and commit everything
-        - Take diff from `HEAD` to `HEAD~1`.
+        - Take diff from `HEAD~1` to `HEAD`.
+
+    Returns
+    -------
+    PushResult
+        An `Enum` indicating whether the push was nontrivial.
+
+    Raises
+    ------
+    UpdatesRejectedError
+        If the user needs to pull remote changes first.
     """
     if PROFILE:
         profiler = Profiler()
@@ -1695,6 +1758,7 @@ def push_deltas(
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> PushResult:
+    """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
 
@@ -1702,8 +1766,6 @@ def push_deltas(
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
         return PushResult.UP_TO_DATE
-
-    logger.debug(pp.pformat(deltas))
 
     echo(f"Pushing to '{kirepo.col_file}'")
     echo(f"Computed md5sum: {md5sum}")
@@ -1787,40 +1849,10 @@ def push_deltas(
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset("HEAD", hard=True)
 
+    # Display table of note change type counts.
+    echo_note_change_types(deltas)
+
     is_delete = lambda d: d.status == GitChangeType.DELETED
-    is_change_type = lambda t: lambda d: d.status == t
-
-    deletes: List[Delta] = list(filter(is_delete, deltas))
-
-    adds = list(filter(is_change_type(GitChangeType.ADDED), deltas))
-    deletes = list(filter(is_change_type(GitChangeType.DELETED), deltas))
-    renames = list(filter(is_change_type(GitChangeType.RENAMED), deltas))
-    modifies = list(filter(is_change_type(GitChangeType.MODIFIED), deltas))
-    typechanges = list(filter(is_change_type(GitChangeType.TYPECHANGED), deltas))
-
-    WORD_PAD = 15
-    COUNT_PAD = 9
-    add_info: str = "ADD".ljust(WORD_PAD) + str(len(adds)).rjust(COUNT_PAD)
-    delete_info: str = "DELETE".ljust(WORD_PAD) + str(len(deletes)).rjust(COUNT_PAD)
-    modification_info: str = "MODIFY".ljust(WORD_PAD) + str(len(modifies)).rjust(
-        COUNT_PAD
-    )
-    rename_info: str = "RENAME".ljust(WORD_PAD) + str(len(renames)).rjust(COUNT_PAD)
-    typechange_info: str = "TYPE CHANGE".ljust(WORD_PAD) + str(len(typechanges)).rjust(
-        COUNT_PAD
-    )
-
-    # echo("")
-    echo("=" * (WORD_PAD + COUNT_PAD))
-    echo("Note change types")
-    echo("-" * (WORD_PAD + COUNT_PAD))
-    echo(add_info)
-    echo(delete_info)
-    echo(modification_info)
-    echo(rename_info)
-    echo(typechange_info)
-    echo("=" * (WORD_PAD + COUNT_PAD))
-    # echo("")
 
     bar = tqdm(deltas, ncols=TQDM_NUM_COLS)
     bar.set_description("Deltas")
@@ -1901,44 +1933,3 @@ def push_deltas(
     # Unlock Anki SQLite DB.
     unlock(con)
     return PushResult.NONTRIVIAL
-
-
-@beartype
-def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> List[str]:
-    """
-    Construct the contents of a note corresponding to the arguments `colnote`,
-    which itself was created from `flatnote`, and then write it to disk.
-
-    Returns a list of lines to add to the commit message (either an empty list,
-    or a list containing a single line).
-
-    This function is intended to be used when we are adding *completely* new
-    notes, in which case the caller generates a new note with a newly generated
-    nid, which can be accessed at `colnote.n.id`. In general, this is the
-    branch taken whenever Anki fails to recognize the nid given in the note
-    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
-    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
-    newly assigned nid for this note, yielded by the Anki runtime, and the
-    latter has whatever was written in the file.
-    """
-    # If this is not a new note, then we didn't reassign its nid, and we don't
-    # need to regenerate the file. So we don't add a line to the commit
-    # message.
-    if not colnote.new:
-        return []
-
-    # Get paths to note in local repo, as distinct from staging repo.
-    repo_note_path: Path = root / relpath
-
-    # If this is not an entirely new file, remove it.
-    if repo_note_path.is_file():
-        repo_note_path.unlink()
-
-    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
-    F.write(new_note_path, get_colnote_repr(colnote))
-
-    # Construct a nice commit message line.
-    msg = f"Reassigned nid: '{colnote.old_nid}' -> "
-    msg += f"'{colnote.n.id}' in '{os.path.relpath(new_note_path, root)}'"
-    return [msg]
