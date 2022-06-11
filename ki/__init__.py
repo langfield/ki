@@ -135,12 +135,9 @@ TQDM_NUM_COLS = 80
 MAX_FIELNAME_LEN = 30
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
-FLAT_SUFFIX = Path("ki-flat")
 HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
-STAGE_SUFFIX = Path("ki-stage")
 REMOTE_SUFFIX = Path("ki-remote")
-DELETED_SUFFIX = Path("ki-deleted")
 FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
@@ -183,12 +180,6 @@ def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into `<tmp_dir>/suffix/`.
     target: NoFile = F.test(F.mkdtemp() / suffix)
-    logger.debug(target)
-    logger.debug(target.parent)
-    logger.debug(target.parent.parent)
-    # TODO: Remove.
-    if not isinstance(target, NoFile):
-        raise ValueError
     ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
 
     # Annihilate the .ki subdirectory.
@@ -327,6 +318,7 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
         _ = repo.index.commit("Remove '.gitmodules' file.")
     return repo
 
+
 @beartype
 def diff2(
     repo: git.Repo,
@@ -350,78 +342,6 @@ def diff2(
     halotext = f"Diffing {b_repo.head.commit}~{head1.sha}..."
     with F.halo(text=halotext):
         diff_index = b_repo.commit("HEAD").diff(b_repo.commit("HEAD~1"))
-
-    for change_type in GitChangeType:
-
-        diffs = diff_index.iter_change_type(change_type.value)
-        bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
-        bar.set_description(f"{change_type}")
-        for diff in bar:
-            a_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.a_path),
-                a_dir,
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-            b_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.b_path),
-                b_dir,
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-
-            if a_warning is not None:
-                deltas.append(a_warning)
-                continue
-            if b_warning is not None:
-                deltas.append(b_warning)
-                continue
-
-            a_path = F.test(a_dir / diff.a_path)
-            b_path = F.test(b_dir / diff.b_path)
-
-            a_relpath = Path(diff.a_path)
-            b_relpath = Path(diff.b_path)
-
-            if change_type == GitChangeType.DELETED:
-                if not isinstance(a_path, ExtantFile):
-                    deltas.append(DeletedFileNotFoundWarning(a_relpath))
-                    continue
-
-                deltas.append(Delta(change_type, a_path, a_relpath))
-                continue
-
-            if not isinstance(b_path, ExtantFile):
-                deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
-                continue
-
-            if change_type == GitChangeType.RENAMED:
-                a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
-                b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
-                if a_flatnote.nid != b_flatnote.nid:
-                    deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
-                    deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
-                    continue
-
-            deltas.append(Delta(change_type, b_path, b_relpath))
-
-    return deltas
-
-@beartype
-def diff_repo(
-    a_repo: git.Repo,
-    ref: RepoRef,
-    parser: Lark,
-    transformer: NoteTransformer,
-) -> List[Union[Delta, Warning]]:
-    """Diff `ref.repo` at `ref` ~ `HEAD`."""
-    # Use a `DiffIndex` to get the changed files.
-    deltas = []
-    a_dir = F.test(Path(a_repo.working_dir))
-    b_dir = F.test(Path(ref.repo.working_dir))
-    halotext = f"Diffing {ref.sha}~{ref.repo.head.commit}..."
-    with F.halo(text=halotext):
-        diff_index = ref.repo.commit(ref.sha).diff(ref.repo.head.commit)
 
     for change_type in GitChangeType:
 

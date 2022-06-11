@@ -28,8 +28,6 @@ import ki.maybes as M
 import ki.functional as F
 from ki import (
     BRANCH_NAME,
-    STAGE_SUFFIX,
-    DELETED_SUFFIX,
     KI,
     MEDIA,
     HASHES_FILE,
@@ -63,7 +61,6 @@ from ki import (
     get_colnote,
     backup,
     copy_repo,
-    diff_repo,
     update_note,
     parse_notetype_dict,
     display_fields_health_warning,
