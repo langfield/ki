@@ -325,9 +325,10 @@ def diff2(
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD` to `HEAD~1`."""
-    head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
-    uuid = "%4x" % random.randrange(16**4)
-    head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
+    with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
+        head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+        uuid = "%4x" % random.randrange(16**4)
+        head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
     b_repo = repo
@@ -338,8 +339,7 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    halotext = f"Diffing {repo.head.commit}~{head1.sha}..."
-    with F.halo(text=halotext):
+    with F.halo(text=f"Diffing '{repo.head.commit}' ~ '{head1.sha}'..."):
         diff_index = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     for change_type in GitChangeType:
@@ -1023,19 +1023,17 @@ def write_repository(
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
     # TODO: Maybe print how many warnings are ignored of each type.
-    with F.halo("Processing warnings..."):
-        for warning in warnings:
-            if type(warning) not in WARNING_IGNORE_LIST:
-                click.secho(str(warning), fg="yellow")
+    for warning in warnings:
+        if type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
 
     with F.halo("Copying media..."):
         for note_media in media.values():
             for media_file in note_media:
                 F.copyfile(media_file, media_dir, media_file.name)
 
-    with F.halo("Closing collection..."):
-        F.rmtree(root)
-        col.close(save=False)
+    F.rmtree(root)
+    col.close(save=False)
 
 
 @beartype
@@ -1298,16 +1296,17 @@ def git_pull(
     silent: bool,
 ) -> None:
     """Pull remote into branch using a subprocess call."""
-    echo(f"Pulling into '{cwd}'... ", silent=silent)
-    args = ["git", "pull", "-v"]
-    if unrelated:
-        args += ["--allow-unrelated-histories"]
-    if theirs:
-        args += ["--strategy-option", "theirs"]
-    args += [remote, branch]
-    p = subprocess.run(args, check=check, cwd=cwd, capture_output=True)
+    with F.halo(f"Pulling into '{cwd}'..."):
+        args = ["git", "pull", "-v"]
+        if unrelated:
+            args += ["--allow-unrelated-histories"]
+        if theirs:
+            args += ["--strategy-option", "theirs"]
+        args += [remote, branch]
+        p = subprocess.run(args, check=check, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
     echo(f"{p.stderr.decode()}", silent=silent)
+    echo(f"Pulling into '{cwd}'... done.", silent=silent)
 
 
 @beartype
@@ -1473,9 +1472,7 @@ def clone(collection: str, directory: str = "") -> None:
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
     _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
-
-    with F.halo("Loading ki repository..."):
-        kirepo: KiRepo = M.kirepo(targetdir)
+    kirepo: KiRepo = M.kirepo(targetdir)
     kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
     echo("Done.")
 
@@ -1699,22 +1696,30 @@ def push() -> PushResult:
         raise UpdatesRejectedError(kirepo.col_file)
 
     # =================== NEW PUSH ARCHITECTURE ====================
-    head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-    remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    with F.halo("Initializing stage repository..."):
+        head: KiRepoRef = M.head_kirepo_ref(kirepo)
+        head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+        remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=False)
-    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
-    del remote_repo
-    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
-    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
-    del remote_repo
-    F.copytree(git_copy, F.test(git_dir))
-    remote_repo: git.Repo = M.repo(remote_root)
-    remote_repo.git.add(all=True)
-    remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
+
+    with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
+        git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
+        remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+        del remote_repo
+        remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+
+    with F.halo(f"Flattening stage repository submodules in '{remote_root}'..."):
+        remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+        git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+        del remote_repo
+        F.copytree(git_copy, F.test(git_dir))
+
+    with F.halo(f"Committing stage repository contents in '{remote_root}'..."):
+        remote_repo: git.Repo = M.repo(remote_root)
+        remote_repo.git.add(all=True)
+        remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
     # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.
