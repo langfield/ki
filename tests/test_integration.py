@@ -794,6 +794,47 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
             pull(runner)
 
 
+@pytest.mark.xfail
+def test_pull_preserves_reassigned_note_ids(tmp_path):
+    """UNFINISHED!"""
+    col_file = get_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        repo: git.Repo = get_repo_with_submodules(runner, col_file)
+        os.chdir(repo.working_dir)
+
+        # Edit a file within the submodule.
+        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
+        logger.debug(f"Adding 'z' to file '{file}'")
+        with open(file, "a", encoding="UTF-8") as note_f:
+            note_f.write("\nz\n")
+
+        # Copy a new note into the submodule.
+        shutil.copyfile(
+            NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        )
+
+        # Get a reference to the submodule repo.
+        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+
+        # Clone the submodule repo into another directory.
+        sm_remote_repo = git.Repo.clone_from(subrepo.working_dir, "sm_remote")
+
+        subrepo.git.add(all=True)
+        subrepo.index.commit("Add `z` to `submodule/Default/a.md`")
+        repo.git.add(all=True)
+        repo.index.commit("Update submodule.")
+
+        out = push(runner)
+        logger.debug(out)
+
+        colnotes = get_notes(col_file)
+        notes: List[Note] = [colnote.n for colnote in colnotes]
+        assert len(notes) == 3
+        assert "<br />z<br />" in notes[0]["Back"]
+        raise NotImplementedError
+
+
 # PUSH
 
 
