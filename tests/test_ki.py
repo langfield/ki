@@ -280,8 +280,6 @@ def clone(runner: CliRunner, collection: ExtantFile, directory: str = "") -> str
         standalone_mode=False,
         catch_exceptions=False,
     )
-    if isinstance(res.return_value, Err):
-        raise res.return_value
     return res.output
 
 
@@ -289,8 +287,6 @@ def clone(runner: CliRunner, collection: ExtantFile, directory: str = "") -> str
 def pull(runner: CliRunner) -> str:
     """Make a test `ki pull` call."""
     res = runner.invoke(ki.ki, ["pull"], standalone_mode=False, catch_exceptions=False)
-    if isinstance(res.return_value, Err):
-        raise res.return_value
     return res.output
 
 
@@ -298,8 +294,6 @@ def pull(runner: CliRunner) -> str:
 def push(runner: CliRunner) -> str:
     """Make a test `ki push` call."""
     res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
-    if isinstance(res.return_value, Err):
-        raise res.return_value
     return res.output
 
 

@@ -282,8 +282,9 @@ def get_note_warnings(
 @beartype
 def unsubmodule_repo(repo: git.Repo) -> None:
     """
-    Un-submodule all the git submodules (convert to ordinary subdirectories and
-    destroy commit history).
+    Un-submodule all the git submodules (convert them to ordinary
+    subdirectories and destroy their commit history).  Commit the changes to
+    the main repository.
 
     MUTATES REPO in-place!
 
@@ -1650,6 +1651,7 @@ def push() -> PushResult:
         - Check that the command was run within a ki repo
         - Lock the collection
         - Hash the collection and abort if there were remote changes
+
         - Copy the submoduleless repo to a temp directory ("flat stage")
         - Copy the .ki/ folder to the flat stage
         - Open the flat stage as a KiRepo
@@ -1663,6 +1665,15 @@ def push() -> PushResult:
           commit of the submoduless repo to current HEAD, i.e. since the last
           time we pushed)
         - Copy HEAD into another temp directory ("head repo")
+
+    This seems unnecessarily complicated. New procedure:
+
+        - Clone collection into a temp directory
+        - Delete all files and folders except `.git/`
+        - Copy into this temp directory all files and folders from the current
+          repository (excluding `.git*` stuff).
+        - Add and commit everything
+        - Take diff from `HEAD` to `HEAD~`.
     """
     if PROFILE:
         profiler = Profiler()
