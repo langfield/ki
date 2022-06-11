@@ -843,7 +843,7 @@ def files_in_str(
 def get_media_files(
     col: Collection,
     silent: bool,
-) -> Tuple[Dict[int, ExtantFile], Set[Warning]]:
+) -> Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
     """
     Get a list of extant media files used in notes and notetypes.
 

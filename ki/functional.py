@@ -306,4 +306,17 @@ def fmkleaves(
 
 @beartype
 def halo(text: str) -> Halo:
-    return Halo(text=text, spinner=SPINNER, color="white", text_color="white", enabled=HALO_ENABLED)
+    return Halo(
+        text=text,
+        spinner=SPINNER,
+        color="white",
+        text_color="white",
+        enabled=HALO_ENABLED,
+    )
+
+
+@beartype
+def mkdir(path: NoPath) -> EmptyDir:
+    """Make a directory (with parents)."""
+    path.mkdir(parents=True)
+    return EmptyDir(path)
