@@ -1431,6 +1431,8 @@ def clone(collection: str, directory: str = "") -> None:
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
     _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    kirepo: KiRepo = M.kirepo(targetdir)
+    kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
     click.secho("done.", bold=True, nl=True)
 
 

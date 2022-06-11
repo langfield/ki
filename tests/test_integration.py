@@ -292,21 +292,6 @@ def test_clone_creates_directory():
 
 
 @beartype
-def test_clone_displays_errors_from_creation_of_staging_kirepo(mocker: MockerFixture):
-    """Do errors get displayed nicely?"""
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        mocker.patch(
-            "ki.copy_kirepo",
-            side_effect=ExpectedNonexistentPathError(Path("path-that-exists")),
-        )
-        with pytest.raises(ExpectedNonexistentPathError):
-            clone(runner, col_file)
-
-
-@beartype
 def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
     """Do errors get displayed nicely?"""
     col_file = get_col_file()
@@ -318,26 +303,6 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
         mocker.patch("ki.F.fmkleaves", side_effect=collision)
 
         with pytest.raises(PathCreationCollisionError):
-            clone(runner, col_file)
-
-
-@beartype
-def test_clone_displays_errors_from_head_kirepo_ref(mocker: MockerFixture):
-    """Do errors get displayed nicely?"""
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        directory = F.force_mkdir(Path("repo"))
-        repo = git.Repo.init(directory)
-
-        mocker.patch(
-            "ki.M.head_kirepo_ref",
-            side_effect=GitHeadRefNotFoundError(
-                repo, ValueError("<failed_to_find_HEAD_exception>")
-            ),
-        )
-
-        with pytest.raises(GitHeadRefNotFoundError):
             clone(runner, col_file)
 
 
@@ -383,7 +348,7 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
 
         mocker.patch(
             "ki.M.kirepo",
-            side_effect=[A_kirepo, B_kirepo, C_kirepo, NotKiRepoError()],
+            side_effect=[NotKiRepoError()],
         )
         with pytest.raises(NotKiRepoError):
             clone(runner, col_file)
