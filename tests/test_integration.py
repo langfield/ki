@@ -87,8 +87,7 @@ from tests.test_ki import (
 )
 
 
-PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING = 14
-PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 16
+PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 
 # pylint:disable=unnecessary-pass, too-many-lines
 
@@ -1231,35 +1230,6 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
             push(runner)
 
 
-def test_push_displays_errors_from_head_repo_ref_in_push_deltas(mocker: MockerFixture):
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone, edit, and commit.
-        clone(runner, col_file)
-        os.chdir(REPODIR)
-
-        repo = git.Repo(".")
-        head_1_sha = repo.head.commit.hexsha
-
-        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-        repo = git.Repo(".")
-        repo.git.add(all=True)
-        repo.index.commit(".")
-
-        mocker.patch(
-            "ki.M.head_repo_ref",
-            side_effect=[
-                RepoRef(repo, head_1_sha),
-                GitHeadRefNotFoundError(repo, Exception("<exc>")),
-            ],
-        )
-        with pytest.raises(GitHeadRefNotFoundError):
-            out = push(runner)
-            logger.debug(out)
-
-
 def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
     mocker: MockerFixture,
 ):
@@ -1283,8 +1253,7 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
         notetype: Notetype = ki.parse_notetype_dict(note.note_type())
         col.close()
 
-        effects = [notetype] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_MODEL_ADDING
-        effects += [MissingFieldOrdinalError(3, "<notetype>")]
+        effects = [MissingFieldOrdinalError(3, "<notetype>")]
 
         mocker.patch("ki.parse_notetype_dict", side_effect=effects)
 
