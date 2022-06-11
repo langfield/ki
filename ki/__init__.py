@@ -339,9 +339,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    halotext = f"Diffing {b_repo.head.commit}~{head1.sha}..."
+    halotext = f"Diffing {repo.head.commit}~{head1.sha}..."
     with F.halo(text=halotext):
-        diff_index = b_repo.commit("HEAD").diff(b_repo.commit("HEAD~1"))
+        diff_index = repo.commit("HEAD").diff(repo.commit("HEAD~1"))
 
     for change_type in GitChangeType:
 
@@ -1348,42 +1348,6 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
             subprocess.run(command, check=False, capture_output=True)
         except Exception as err:
             raise err
-
-
-@beartype
-def flatten_staging_repo(stage_kirepo: KiRepo, kirepo: KiRepo) -> KiRepo:
-    """
-    Convert the staging repository into a format that is amenable to taking
-    diffs across all files in all submodules.
-
-    To do this, we first convert all submodules into ordinary subdirectories of
-    the git repository. Then we replace the dot git directory of the staging
-    repo with the .git directory of the repo in `.ki/no_submodules_tree/`,
-    which, as its name suggests, is a copy of the main repository with all its
-    submodules converted into directories.
-
-    This is done in order to preserve the history of `.ki/no_submodules_tree/`.
-    The staging repository can be thought of as the next commit to this repo.
-    The repository at `no_submodules_tree/` is simply a copy of the staging
-    repository from the last time we pushed, or from the intial clone, in the
-    case where there have been no pushes yet.
-
-    We return a reloaded version of the staging repository, re-read from disk.
-    """
-    # Commit submodules as ordinary directories.
-    unsubmodule_repo(stage_kirepo.repo)
-
-    # Shutil rmtree the stage repo .git directory.
-    stage_git_dir: NoPath = F.rmtree(F.git_dir(stage_kirepo.repo))
-    stage_root: ExtantDir = stage_kirepo.root
-    del stage_kirepo
-
-    # Copy the .git/ folder from `no_submodules_tree` into the stage repo.
-    stage_git_dir = F.copytree(F.git_dir(kirepo.no_modules_repo), stage_git_dir)
-    stage_root: ExtantDir = F.parent(stage_git_dir)
-
-    # Reload stage kirepo.
-    return M.kirepo(stage_root)
 
 
 @beartype
