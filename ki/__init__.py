@@ -1013,9 +1013,8 @@ def write_repository(
         for fieldname, fieldtext in colnote.n.items():
             if re.search(HTML_REGEX, fieldtext):
                 fid: str = get_field_note_id(nid, fieldname)
-                html_file: ExtantFile = F.touch(root, fid)
-                html_file.write_text(fieldtext, encoding="UTF-8")
-                tidy_field_files[fid] = html_file
+                html_file: NoFile = F.test(root / fid)
+                tidy_field_files[fid] = F.write(html_file, fieldtext)
 
     tidy_html_recursively(root, silent)
 
@@ -1033,8 +1032,7 @@ def write_repository(
         for media_file in note_media:
             F.copyfile(media_file, media_dir, media_file.name)
 
-    # TODO: Replace with frmtree.
-    shutil.rmtree(root)
+    F.rmtree(root)
     col.close(save=False)
 
 
@@ -1464,6 +1462,10 @@ def clone(collection: str, directory: str = "") -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
+    if PROFILE:
+        profiler = Profiler()
+        profiler.start()
+
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
@@ -1473,6 +1475,11 @@ def clone(collection: str, directory: str = "") -> None:
     kirepo: KiRepo = M.kirepo(targetdir)
     kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
     echo("done.")
+
+    if PROFILE:
+        profiler.stop()
+        s = profiler.output_html()
+        Path("ki_clone_profile.html").resolve().write_text(s)
 
 
 @beartype
@@ -1698,7 +1705,6 @@ def push() -> PushResult:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=False)
-
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
     del remote_repo
