@@ -37,6 +37,7 @@ from ki import (
     GITIGNORE_FILE,
     BACKUPS_DIR,
     NotetypeDict,
+    DeckNote,
     GitChangeType,
     Notetype,
     ColNote,
@@ -69,7 +70,7 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    push_flatnote_to_anki,
+    push_decknote_to_anki,
     get_models_recursively,
     append_md5sum,
     get_media_files,
@@ -524,9 +525,9 @@ def test_update_note_raises_error_on_too_few_fields():
     field = "data"
 
     # Note that "Back" field is missing.
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, {"Front": field})
+    decknote = DeckNote("title", 0, "Basic", "Default", [], False, {"Front": field})
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    res: OkErr = update_note(note, decknote, notetype, notetype)
     warning: Warning = res
     assert isinstance(warning, Warning)
     assert isinstance(warning, NoteFieldValidationWarning)
@@ -542,10 +543,10 @@ def test_update_note_raises_error_on_too_many_fields():
 
     # Note that "Left" field is extra.
     fields = {"Front": field, "Back": field, "Left": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], False, fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    res: OkErr = update_note(note, decknote, notetype, notetype)
     warning: Warning = res
     assert isinstance(warning, Warning)
     assert isinstance(warning, NoteFieldValidationWarning)
@@ -561,10 +562,10 @@ def test_update_note_raises_error_wrong_field_name():
 
     # Field `Backus` has wrong name, should be `Back`.
     fields = {"Front": field, "Backus": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], False, fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    res: OkErr = update_note(note, decknote, notetype, notetype)
     warning: Warning = res
     assert isinstance(warning, Warning)
     assert isinstance(warning, NoteFieldValidationWarning)
@@ -581,11 +582,11 @@ def test_update_note_sets_tags():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("", 0, "Basic", "Default", ["tag"], False, fields)
+    decknote = DeckNote("", 0, "Basic", "Default", ["tag"], False, fields)
 
     assert note.tags == []
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, notetype)
+    update_note(note, decknote, notetype, notetype)
     assert note.tags == ["tag"]
 
 
@@ -596,14 +597,14 @@ def test_update_note_sets_deck():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic", "deck", [], False, fields)
+    decknote = DeckNote("title", 0, "Basic", "deck", [], False, fields)
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "Default"
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, notetype)
+    update_note(note, decknote, notetype, notetype)
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
 
@@ -615,12 +616,12 @@ def test_update_note_sets_field_contents():
 
     field = "TITLE\ndata"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], True, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], True, fields)
 
     assert "TITLE" not in note.fields[0]
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, notetype)
+    update_note(note, decknote, notetype, notetype)
 
     assert "TITLE" in note.fields[0]
     assert "</p>" in note.fields[0]
@@ -633,11 +634,11 @@ def test_update_note_removes_field_contents():
 
     field = "y"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], False, fields)
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, notetype)
+    update_note(note, decknote, notetype, notetype)
     assert "a" not in note.fields[0]
 
 
@@ -648,10 +649,10 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Nonexistent", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Nonexistent", "Default", [], False, fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, notetype)
+    res: OkErr = update_note(note, decknote, notetype, notetype)
     error: Exception = res
     assert isinstance(error, Exception)
     assert isinstance(error, NotetypeMismatchError)
@@ -664,12 +665,12 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
 
     field = "data"
     fields = {"Text": field, "Back Extra": ""}
-    flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Cloze", "Default", [], False, fields)
 
     clz: NotetypeDict = col.models.by_name("Cloze")
     cloze: Notetype = parse_notetype_dict(clz)
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, flatnote, notetype, cloze)
+    res: OkErr = update_note(note, decknote, notetype, cloze)
     warning = res
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
@@ -685,14 +686,14 @@ def test_update_note_changes_notetype():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote(
+    decknote = DeckNote(
         "title", 0, "Basic (and reversed card)", "Default", [], False, fields
     )
 
     rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
     reverse: Notetype = parse_notetype_dict(rev)
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, reverse)
+    update_note(note, decknote, notetype, reverse)
 
 
 @pytest.mark.skip
@@ -757,15 +758,15 @@ def test_update_note_converts_markdown_formatting_to_html():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
-    # We MUST pass markdown=True to the FlatNote constructor, or else this will
+    # We MUST pass markdown=True to the DeckNote constructor, or else this will
     # not work.
     field = "*hello*"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], True, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], True, fields)
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, flatnote, notetype, notetype)
+    update_note(note, decknote, notetype, notetype)
     assert "<em>hello</em>" in note.fields[0]
 
 
@@ -1343,15 +1344,15 @@ def test_maybe_xfile(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
-def test_push_flatnote_to_anki():
+def test_push_decknote_to_anki():
     """Do we print a nice error when a notetype is missing?"""
     col = open_collection(get_col_file())
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "NonexistentModel", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "NonexistentModel", "Default", [], False, fields)
     with pytest.raises(MissingNotetypeError) as error:
-        push_flatnote_to_anki(col, flatnote)
+        push_decknote_to_anki(col, decknote)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1397,16 +1398,16 @@ def test_maybe_head_kirepo_ref():
 
 
 @beartype
-def test_push_flatnote_to_anki_handles_note_key_errors(mocker: MockerFixture):
+def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     """Do we print a nice error when a KeyError is raised on note[]?"""
     col = open_collection(get_col_file())
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Basic", "Default", [], False, fields)
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     with pytest.raises(NoteFieldKeyError) as error:
-        push_flatnote_to_anki(col, flatnote)
+        push_decknote_to_anki(col, decknote)
     assert "Expected field" in str(error.exconly())
     assert "'bad_field_key'" in str(error.exconly())
 

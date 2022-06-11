@@ -28,6 +28,7 @@ from ki.types import (
     KiRepo,
     RepoRef,
     Notetype,
+    ColNote,
     ExtantDir,
     ExtantFile,
     MissingFileError,

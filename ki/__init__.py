@@ -83,6 +83,7 @@ from ki.types import (
     RepoRef,
     Leaves,
     NoteDBRow,
+    DeckNote,
     PushResult,
     WrittenNoteFile,
     UpdatesRejectedError,
@@ -387,11 +388,13 @@ def diff2(
                 continue
 
             if change_type == GitChangeType.RENAMED:
-                a_flatnote: FlatNote = parse_markdown_note(parser, transformer, a_path)
-                b_flatnote: FlatNote = parse_markdown_note(parser, transformer, b_path)
-                if a_flatnote.nid != b_flatnote.nid:
-                    deltas.append(Delta(GitChangeType.DELETED, a_path, a_relpath))
-                    deltas.append(Delta(GitChangeType.ADDED, b_path, b_relpath))
+                a_delta = Delta(GitChangeType.DELETED, a_path, a_relpath)
+                b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
+                a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
+                b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
+                if a_decknote.nid != b_decknote.nid:
+                    deltas.append(a_delta)
+                    deltas.append(b_delta)
                     continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
@@ -520,28 +523,36 @@ def display_fields_health_warning(note: Note) -> int:
 
 @beartype
 def parse_markdown_note(
-    parser: Lark, transformer: NoteTransformer, notes_file: ExtantFile
-) -> FlatNote:
+    parser: Lark, transformer: NoteTransformer, delta: Delta
+) -> DeckNote:
     """Parse with lark."""
-    tree = parser.parse(notes_file.read_text(encoding="UTF-8"))
-    flatnotes: List[FlatNote] = transformer.transform(tree)
-
-    # UNSAFE!
-    return flatnotes[0]
+    tree = parser.parse(delta.path.read_text(encoding="UTF-8"))
+    flatnote: FlatNote = transformer.transform(tree)
+    parts: Tuple[str, ...] = delta.relpath.parent.parts
+    deck: str = "::".join(parts)
+    return DeckNote(
+        title=flatnote.title,
+        nid=flatnote.nid,
+        deck=deck,
+        model=flatnote.model,
+        tags=flatnote.tags,
+        markdown=flatnote.markdown,
+        fields=flatnote.fields,
+    )
 
 
 @beartype
 def update_note(
-    note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
+    note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> Tuple[Note, List[Warning]]:
     """
-    Change all the data of `note` to that given in `flatnote`.
+    Change all the data of `note` to that given in `decknote`.
 
     This is only to be called on notes whose nid already exists in the
-    database.  Creates a new deck if `flatnote.deck` doesn't exist.  Assumes
+    database.  Creates a new deck if `decknote.deck` doesn't exist.  Assumes
     that the model has already been added to the collection, and raises an
     exception if it finds otherwise.  Changes notetype to that specified by
-    `flatnote.model`.  Overwrites all fields with `flatnote.fields`.
+    `decknote.model`.  Overwrites all fields with `decknote.fields`.
 
     Updates:
     - tags
@@ -551,18 +562,18 @@ def update_note(
     """
 
     # Check that the passed argument `new_notetype` has a name consistent with
-    # the model specified in `flatnote`. The former should be derived from the
+    # the model specified in `decknote`. The former should be derived from the
     # latter, and if they don't match, there is a bug in the caller.
-    if flatnote.model != new_notetype.name:
-        raise NotetypeMismatchError(flatnote, new_notetype)
+    if decknote.model != new_notetype.name:
+        raise NotetypeMismatchError(decknote, new_notetype)
 
-    note.tags = flatnote.tags
+    note.tags = decknote.tags
     note.flush()
 
     # Set the deck of the given note, and create a deck with this name if it
     # doesn't already exist. See the comments/docstrings in the implementation
     # of the `anki.decks.DeckManager.id()` method.
-    newdid: int = note.col.decks.id(flatnote.deck, create=True)
+    newdid: int = note.col.decks.id(decknote.deck, create=True)
     cids = [c.id for c in note.cards()]
 
     # Set deck for all cards of this note.
@@ -577,18 +588,18 @@ def update_note(
     note.load()
 
     # Validate field keys against notetype.
-    warnings: List[Warning] = validate_flatnote_fields(new_notetype, flatnote)
+    warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
 
     # TODO: Don't print this here.
     for warning in warnings:
         logger.warning(warning)
 
     # Set field values. This is correct because every field name that appears
-    # in `new_notetype` is contained in `flatnote.fields`, or else we would
+    # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
     # TODO: Check if these apy methods can raise exceptions.
-    for key, field in flatnote.fields.items():
-        if flatnote.markdown:
+    for key, field in decknote.fields.items():
+        if decknote.markdown:
             note[key] = markdown_to_html(field)
         else:
             note[key] = plain_to_html(field)
@@ -606,21 +617,21 @@ def update_note(
 
 
 @beartype
-def validate_flatnote_fields(notetype: Notetype, flatnote: FlatNote) -> List[Warning]:
+def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[Warning]:
     """Validate that the fields given in the note match the notetype."""
     warnings: List[Warning] = []
     # Set current notetype for collection to `model_name`.
     field_names: List[str] = [field.name for field in notetype.flds]
 
     # TODO: Use a more descriptive error message. It is probably sufficient to
-    # just add the `nid` from the flatnote, so we know which note we failed to
+    # just add the `nid` from the decknote, so we know which note we failed to
     # validate. It might also be nice to print the path of the note in the
-    # repository. This would have to be added to the `FlatNote` spec.
-    if len(flatnote.fields.keys()) != len(field_names):
-        msg = f"Wrong number of fields for model {flatnote.model}!"
+    # repository. This would have to be added to the `DeckNote` spec.
+    if len(decknote.fields.keys()) != len(field_names):
+        msg = f"Wrong number of fields for model {decknote.model}!"
         warnings.append(NoteFieldValidationWarning(msg))
 
-    for x, y in zip(field_names, flatnote.fields.keys()):
+    for x, y in zip(field_names, decknote.fields.keys()):
         if x != y:
             msg = f"Inconsistent field names ({x} != {y})"
             warnings.append(NoteFieldValidationWarning(msg))
@@ -720,34 +731,34 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 
 
 @beartype
-def push_flatnote_to_anki(
-    col: Collection, flatnote: FlatNote
+def push_decknote_to_anki(
+    col: Collection, decknote: DeckNote
 ) -> Tuple[ColNote, List[Warning]]:
     """
-    Update the Anki `Note` object in `col` corresponding to `flatnote`,
+    Update the Anki `Note` object in `col` corresponding to `decknote`,
     creating it if it does not already exist.
 
     Raises
     ------
     MissingNotetypeError
-        If we can't find a notetype with the name provided in `flatnote`.
+        If we can't find a notetype with the name provided in `decknote`.
     NoteFieldKeyError
-        If the parsed sort field name from the notetype specified in `flatnote`
+        If the parsed sort field name from the notetype specified in `decknote`
         does not exist.
     """
     # Notetype/model names are privileged in Anki, so if we don't find the
     # right name, we raise an error.
-    model_id: Optional[int] = col.models.id_for_name(flatnote.model)
+    model_id: Optional[int] = col.models.id_for_name(decknote.model)
     if model_id is None:
-        raise MissingNotetypeError(flatnote.model)
+        raise MissingNotetypeError(decknote.model)
 
     new = False
     note: Note
     try:
-        note = col.get_note(flatnote.nid)
+        note = col.get_note(decknote.nid)
     except NotFoundError:
         note = col.new_note(model_id)
-        col.add_note(note, col.decks.id(flatnote.deck, create=True))
+        col.add_note(note, col.decks.id(decknote.deck, create=True))
         new = True
 
     # If we are updating an existing note, we need to know the old and new
@@ -755,7 +766,7 @@ def push_flatnote_to_anki(
     # accordingly.
     old_notetype: Notetype = parse_notetype_dict(note.note_type())
     new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    note, warnings = update_note(note, flatnote, old_notetype, new_notetype)
+    note, warnings = update_note(note, decknote, old_notetype, new_notetype)
 
     # Get the text of the sort field for this note.
     try:
@@ -766,10 +777,10 @@ def push_flatnote_to_anki(
     colnote = ColNote(
         n=note,
         new=new,
-        deck=flatnote.deck,
-        title=flatnote.title,
-        old_nid=flatnote.nid,
-        markdown=flatnote.markdown,
+        deck=decknote.deck,
+        title=decknote.title,
+        old_nid=decknote.nid,
+        markdown=decknote.markdown,
         notetype=new_notetype,
         sortf_text=sortf_text,
     )
@@ -785,7 +796,7 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
-    # `push_flatnote_to_anki()`.
+    # `push_decknote_to_anki()`.
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
@@ -815,8 +826,6 @@ def get_header_lines(colnote) -> List[str]:
         f"nid: {colnote.n.id}",
         f"model: {colnote.notetype.name}",
     ]
-
-    lines += [f"deck: {colnote.deck}"]
     lines += [f"tags: {', '.join(colnote.n.tags)}"]
 
     # TODO: There is almost certainly a bug here, since when the sentinel
@@ -1364,7 +1373,7 @@ def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> EmptyDir
 def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> List[str]:
     """
     Construct the contents of a note corresponding to the arguments `colnote`,
-    which itself was created from `flatnote`, and then write it to disk.
+    which itself was created from `decknote`, and then write it to disk.
 
     Returns a list of lines to add to the commit message (either an empty list,
     or a list containing a single line).
@@ -1482,7 +1491,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
             )
 
             # If the hashes don't match, then we somehow need to update
-            # `flatnote.model` for the relevant notes.
+            # `decknote.model` for the relevant notes.
 
             # TODO: Consider using the hash of the notetype instead of its
             # name.
@@ -1493,7 +1502,6 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         nt: NotetypeDict = col.models.get(changes.id)
         model: Notetype = parse_notetype_dict(nt)
         echo(f"Added model '{model.name}'")
-
 
 
 @click.group()
@@ -1791,7 +1799,7 @@ def push() -> PushResult:
     grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.
-    parser = Lark(grammar, start="file", parser="lalr")
+    parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
 
     deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
@@ -1876,19 +1884,19 @@ def push_deltas(
     bar.set_description("Deltas")
     for delta in bar:
 
-        # Parse the file at `delta.path` into a `FlatNote`, and
+        # Parse the file at `delta.path` into a `DeckNote`, and
         # add/edit/delete in collection.
-        flatnote = parse_markdown_note(parser, transformer, delta.path)
+        decknote = parse_markdown_note(parser, transformer, delta)
 
         if is_delete(delta):
-            col.remove_notes([flatnote.nid])
+            col.remove_notes([decknote.nid])
             continue
 
         # TODO: If relevant prefix of sort field has changed, we should
         # regenerate the file. Recall that the sort field is used to determine
         # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote, note_warnings = push_flatnote_to_anki(col, flatnote)
+        colnote, note_warnings = push_decknote_to_anki(col, decknote)
         log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
         warnings += note_warnings
 

@@ -91,6 +91,20 @@ class PushResult(Enum):
 
 @beartype
 @dataclass(frozen=True)
+class DeckNote:
+    """Flat (as possible) representation of a note, but with deck."""
+
+    title: str
+    nid: int
+    deck: str
+    model: str
+    tags: List[str]
+    markdown: bool
+    fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
 class Delta:
     """The git delta for a single file."""
 

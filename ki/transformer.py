@@ -57,20 +57,20 @@ class NoteTransformer(Transformer):
       header
         title     Note
         nid: 123412341234
-  
+
         model: Basic
-  
+
         tags      None
         markdown: false
-  
-  
+
+
       field
         fieldheader
           ###
           Front
         r
-  
-  
+
+
       field
         fieldheader
           ###
