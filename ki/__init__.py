@@ -1301,7 +1301,7 @@ def git_pull(
     silent: bool,
 ) -> None:
     """Pull remote into branch using a subprocess call."""
-    echo(f"Pulling into {cwd}... ", silent=silent)
+    echo(f"Pulling into '{cwd}'... ", silent=silent)
     args = ["git", "pull", "-v"]
     if unrelated:
         args += ["--allow-unrelated-histories"]
@@ -1894,6 +1894,9 @@ def push_deltas(
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
+
+    # Update the commit SHA of most recent successful PUSH.
+    kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
     unlock(con)
