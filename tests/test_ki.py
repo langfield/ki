@@ -21,7 +21,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype, roar
-from beartype.typing import List, Union
+from beartype.typing import List, Union, Set
 
 import ki
 import ki.maybes as M
@@ -73,6 +73,7 @@ from ki import (
     get_models_recursively,
     append_md5sum,
     get_media_files,
+    diff2,
 )
 from ki.types import (
     Leaves,
@@ -777,16 +778,16 @@ class DiffReposArgs:
 
 
 @beartype
-def get_diff_repo_args() -> DiffReposArgs:
+def get_diff2_args() -> DiffReposArgs:
     """
     A test 'fixture' (not really a pytest fixture, but a setup function) to be
-    called when we need to test `diff_repo()`.
+    called when we need to test `diff2()`.
 
     Basically a section of the code from `push()`, but without any error
     handling, since we expect things to work out nicely, and for the
     repositories operated upon during tests to be valid.
 
-    Returns the values needed to pass as arguments to `diff_repo()`.
+    Returns the values needed to pass as arguments to `diff2()`.
 
     This makes ephemeral repositories, so we should make any changes we expect
     to see the results of in `deltas: List[Delta]` *before* calling this
@@ -834,7 +835,7 @@ def get_diff_repo_args() -> DiffReposArgs:
 
 
 @pytest.mark.skip
-def test_diff_repo_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
+def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -843,8 +844,8 @@ def test_diff_repo_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_pa
         clone(runner, col_file)
         os.chdir(REPODIR)
 
-        args: DiffReposArgs = get_diff_repo_args()
-        deltas: List[Delta] = diff_repo(
+        args: DiffReposArgs = get_diff2_args()
+        deltas: List[Delta] = diff2(
             args.a_repo,
             args.head_1,
             args.parser,
@@ -858,7 +859,7 @@ def test_diff_repo_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_pa
 
 
 @pytest.mark.skip
-def test_diff_repo_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
+def test_diff2_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -872,11 +873,11 @@ def test_diff_repo_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
-        args: DiffReposArgs = get_diff_repo_args()
+        args: DiffReposArgs = get_diff2_args()
 
         # We pass in `b_repo` for both arguments in order to simulate the
         # deleted file being missing.
-        deltas: List[Union[Delta, Warning]] = diff_repo(
+        deltas: List[Union[Delta, Warning]] = diff2(
             args.a_repo,
             args.head_1,
             args.parser,
@@ -889,7 +890,7 @@ def test_diff_repo_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path
 
 
 @pytest.mark.skip
-def test_diff_repo_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
+def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -903,11 +904,11 @@ def test_diff_repo_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
-        args: DiffReposArgs = get_diff_repo_args()
+        args: DiffReposArgs = get_diff2_args()
 
         os.remove(Path(args.head_1.repo.working_dir) / NOTE_2)
 
-        deltas: List[Union[Delta, Warning]] = diff_repo(
+        deltas: List[Union[Delta, Warning]] = diff2(
             args.a_repo,
             args.head_1,
             args.parser,
@@ -937,9 +938,9 @@ def test_unsubmodule_repo_removes_gitmodules(tmp_path):
 
 
 @pytest.mark.skip
-def test_diff_repo_handles_submodules():
+def test_diff2_handles_submodules():
     """
-    Does 'diff_repo()' correctly generate deltas
+    Does 'diff2()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
     col_file = get_col_file()
@@ -949,8 +950,8 @@ def test_diff_repo_handles_submodules():
 
         os.chdir(REPODIR)
 
-        args: DiffReposArgs = get_diff_repo_args()
-        deltas: List[Delta] = diff_repo(
+        args: DiffReposArgs = get_diff2_args()
+        deltas: List[Delta] = diff2(
             args.a_repo,
             args.head_1,
             args.parser,
@@ -970,8 +971,8 @@ def test_diff_repo_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        args: DiffReposArgs = get_diff_repo_args()
-        deltas: List[Delta] = diff_repo(
+        args: DiffReposArgs = get_diff2_args()
+        deltas: List[Delta] = diff2(
             args.a_repo,
             args.head_1,
             args.parser,
@@ -1048,7 +1049,7 @@ def test_tidy_html_recursively():
             os.environ["PATH"] = ""
             error = tidy_html_recursively(root, False)
             assert isinstance(error, FileNotFoundError)
-            assert "'tidy'" in str(error)
+            assert "'tidy'" in str(error.exconly())
         finally:
             os.environ["PATH"] = old_path
 
@@ -1120,7 +1121,7 @@ def test_write_repository_generates_deck_tree_correctly():
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+            dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
 
         write_repository(col_file, targetdir, leaves, media_dir, silent=False)
@@ -1150,7 +1151,7 @@ def test_write_repository_handles_html():
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+            dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
         write_repository(col_file, targetdir, leaves, media_dir, silent=False)
 
@@ -1176,7 +1177,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+            dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
 
         mocker.patch(
@@ -1187,7 +1188,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         )
         assert isinstance(error, Exception)
         assert isinstance(error, NoteFieldKeyError)
-        assert "'bad_field_key'" in str(error)
+        assert "'bad_field_key'" in str(error.exconly())
 
 
 @pytest.mark.skip
@@ -1202,7 +1203,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         shutil.rmtree(targetdir / KI)
         error: Exception = M.kirepo(targetdir)
-        assert "fatal: not a ki repository" in str(error)
+        assert "fatal: not a ki repository" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/` is a file instead of a directory.
@@ -1211,7 +1212,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         shutil.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         error: Exception = M.kirepo(targetdir)
-        assert "fatal: not a ki repository" in str(error)
+        assert "fatal: not a ki repository" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/backups` directory doesn't exist.
@@ -1219,8 +1220,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         shutil.rmtree(targetdir / KI / BACKUPS_DIR)
         error: Exception = M.kirepo(targetdir)
-        assert "Directory not found" in str(error)
-        assert "'.ki/backups'" in str(error)
+        assert "Directory not found" in str(error.exconly())
+        assert "'.ki/backups'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/backups` is a file instead of a directory.
@@ -1229,8 +1230,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         shutil.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         error: Exception = M.kirepo(targetdir)
-        assert "A directory was expected" in str(error)
-        assert "'.ki/backups'" in str(error)
+        assert "A directory was expected" in str(error.exconly())
+        assert "'.ki/backups'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
@@ -1238,8 +1239,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         os.remove(targetdir / KI / CONFIG_FILE)
         error: Exception = M.kirepo(targetdir)
-        assert "File not found" in str(error)
-        assert "'.ki/config'" in str(error)
+        assert "File not found" in str(error.exconly())
+        assert "'.ki/config'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/config` is a directory instead of a file.
@@ -1248,8 +1249,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         os.remove(targetdir / KI / CONFIG_FILE)
         os.mkdir(targetdir / KI / CONFIG_FILE)
         error: Exception = M.kirepo(targetdir)
-        assert "A file was expected" in str(error)
-        assert "'.ki/config'" in str(error)
+        assert "A file was expected" in str(error.exconly())
+        assert "'.ki/config'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/hashes` file doesn't exist.
@@ -1257,8 +1258,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         os.remove(targetdir / KI / HASHES_FILE)
         error: Exception = M.kirepo(targetdir)
-        assert "File not found" in str(error)
-        assert "'.ki/hashes'" in str(error)
+        assert "File not found" in str(error.exconly())
+        assert "'.ki/hashes'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where `.ki/models` file doesn't exist.
@@ -1266,8 +1267,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         os.remove(targetdir / MODELS_FILE)
         error: Exception = M.kirepo(targetdir)
-        assert "File not found" in str(error)
-        assert f"'{MODELS_FILE}'" in str(error)
+        assert "File not found" in str(error.exconly())
+        assert f"'{MODELS_FILE}'" in str(error.exconly())
         shutil.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
@@ -1275,10 +1276,10 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         targetdir: ExtantDir = F.test(Path(REPODIR))
         os.remove(col_file)
         error: Exception = M.kirepo(targetdir)
-        assert "File not found" in str(error)
-        assert "'.anki2'" in str(error)
-        assert "database" in str(error)
-        assert "collection.anki2" in str(error)
+        assert "File not found" in str(error.exconly())
+        assert "'.anki2'" in str(error.exconly())
+        assert "database" in str(error.exconly())
+        assert "collection.anki2" in str(error.exconly())
         shutil.rmtree(targetdir)
 
 
@@ -1291,8 +1292,8 @@ def test_get_target(tmp_path):
         Path("file/subfile").touch()
         col_file: ExtantFile = F.touch(F.cwd(), "file.anki2")
         error: Exception = get_target(F.cwd(), col_file, "")
-        assert "fatal: destination path" in str(error)
-        assert "file" in str(error)
+        assert "fatal: destination path" in str(error.exconly())
+        assert "file" in str(error.exconly())
 
 
 @pytest.mark.skip
@@ -1304,50 +1305,43 @@ def test_maybe_emptydir(tmp_path):
         error: Exception = M.emptydir(F.cwd())
         assert isinstance(error, Exception)
         assert isinstance(error, ExpectedEmptyDirectoryButGotNonEmptyDirectoryError)
-        assert "but it is nonempty" in str(error)
-        assert str(Path.cwd()) in str(error)
+        assert "but it is nonempty" in str(error.exconly())
+        assert str(Path.cwd()) in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_maybe_emptydir_handles_non_directories(tmp_path):
     """Do we print a nice error when the path is not a directory?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         file = Path("file")
         file.touch()
-        error: Exception = M.emptydir(file)
-        assert isinstance(error, Exception)
-        assert isinstance(error, ExpectedDirectoryButGotFileError)
-        assert str(file) in str(error)
+        with pytest.raises(ExpectedDirectoryButGotFileError) as error:
+            M.emptydir(file)
+        assert str(file) in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_maybe_xdir(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkfifo("pipe")
-        error: Exception = M.xdir(Path("pipe"))
-        assert isinstance(error, Exception)
-        assert isinstance(error, StrangeExtantPathError)
-        assert "pseudofile" in str(error)
-        assert "pipe" in str(error)
+        with pytest.raises(StrangeExtantPathError) as error:
+            M.xdir(Path("pipe"))
+        assert "pseudofile" in str(error.exconly())
+        assert "pipe" in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_maybe_xfile(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkfifo("pipe")
-        error: Exception = M.xfile(Path("pipe"))
-        assert isinstance(error, Exception)
-        assert isinstance(error, StrangeExtantPathError)
-        assert "pseudofile" in str(error)
-        assert "pipe" in str(error)
+        with pytest.raises(StrangeExtantPathError) as error:
+            M.xfile(Path("pipe"))
+        assert "pseudofile" in str(error.exconly())
+        assert "pipe" in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_push_flatnote_to_anki():
     """Do we print a nice error when a notetype is missing?"""
     col = open_collection(get_col_file())
@@ -1355,26 +1349,21 @@ def test_push_flatnote_to_anki():
     field = "data"
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "NonexistentModel", "Default", [], False, fields)
-    error: Exception = push_flatnote_to_anki(col, flatnote)
-    assert isinstance(error, Exception)
-    assert isinstance(error, MissingNotetypeError)
-    assert "NonexistentModel" in str(error)
+    with pytest.raises(MissingNotetypeError) as error:
+        push_flatnote_to_anki(col, flatnote)
+    assert "NonexistentModel" in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_maybe_head_repo_ref():
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = git.Repo.init("repo")
-        error = M.head_repo_ref(repo)
-        assert isinstance(error, Exception)
-        assert isinstance(error, GitHeadRefNotFoundError)
-        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(
-            error
-        )
+        with pytest.raises(GitHeadRefNotFoundError) as error:
+            M.head_repo_ref(repo)
+        err_snippet = "ValueError raised while trying to get ref 'HEAD' from repo"
+        assert err_snippet in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_maybe_head_kirepo_ref():
     col_file = get_col_file()
     runner = CliRunner()
@@ -1389,28 +1378,24 @@ def test_maybe_head_kirepo_ref():
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+            dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
         md5sum = F.md5(col_file)
         ignore_path = targetdir / GITIGNORE_FILE
         ignore_path.write_text(".ki/\n")
         write_repository(col_file, targetdir, leaves, media_dir, silent)
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        _ = git.Repo.init(leaves.dirs[NO_SM_DIR], initial_branch=BRANCH_NAME)
         append_md5sum(ki_dir, col_file.name, md5sum, silent)
 
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.test(Path(repo.working_dir)))
-        error = M.head_kirepo_ref(kirepo)
-        assert isinstance(error, Exception)
-        assert isinstance(error, GitHeadRefNotFoundError)
-        assert "ValueError raised while trying to get ref 'HEAD' from repo" in str(
-            error
-        )
+        with pytest.raises(GitHeadRefNotFoundError) as error:
+            M.head_kirepo_ref(kirepo)
+        err_snippet = "ValueError raised while trying to get ref 'HEAD' from repo"
+        assert err_snippet in str(error.exconly())
 
 
 @beartype
-@pytest.mark.skip
 def test_push_flatnote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     """Do we print a nice error when a KeyError is raised on note[]?"""
     col = open_collection(get_col_file())
@@ -1419,33 +1404,28 @@ def test_push_flatnote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     fields = {"Front": field, "Back": field}
     flatnote = FlatNote("title", 0, "Basic", "Default", [], False, fields)
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
-    error: Exception = push_flatnote_to_anki(col, flatnote)
-    assert isinstance(error, Exception)
-    assert isinstance(error, NoteFieldKeyError)
-    assert "Expected field" in str(error)
-    assert "'bad_field_key'" in str(error)
+    with pytest.raises(NoteFieldKeyError) as error:
+        push_flatnote_to_anki(col, flatnote)
+    assert "Expected field" in str(error.exconly())
+    assert "'bad_field_key'" in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_parse_notetype_dict():
     nt = NT
 
     # This field ordinal doesn't exist.
     nt["sortf"] = 3
-    error = parse_notetype_dict(nt)
-    assert isinstance(error, Exception)
-    assert isinstance(error, MissingFieldOrdinalError)
-    assert "3" in str(error)
+    with pytest.raises(MissingFieldOrdinalError) as error:
+        parse_notetype_dict(nt)
+    assert "3" in str(error.exconly())
 
 
-@pytest.mark.skip
 def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
     col = open_collection(get_col_file())
     nid = 44444444444444444
-    error = get_colnote(col, nid)
-    assert isinstance(error, Exception)
-    assert isinstance(error, MissingNoteIdError)
-    assert str(nid) in str(error)
+    with pytest.raises(MissingNoteIdError) as error:
+        get_colnote(col, nid)
+    assert str(nid) in str(error.exconly())
 
 
 @beartype
@@ -1453,7 +1433,7 @@ def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFi
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
-    mocker.patch("ki.parse_notetype_dict", return_value=Err(UnnamedNotetypeError(NT)))
+    mocker.patch("ki.parse_notetype_dict", side_effect=UnnamedNotetypeError(NT))
     with pytest.raises(UnnamedNotetypeError) as error:
         get_colnote(col, note.id)
     assert "Failed to find 'name' field" in str(error.exconly())
@@ -1638,9 +1618,9 @@ def test_get_media_files_returns_nice_errors():
         shutil.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
-            error = get_media_files(col, silent=True)
-        assert "media.media" in str(error)
-        assert "bad Anki collection media directory" in str(error)
+            get_media_files(col, silent=True)
+        assert "media.media" in str(error.exconly())
+        assert "bad Anki collection media directory" in str(error.exconly())
 
 
 @pytest.mark.xfail
@@ -1656,7 +1636,7 @@ def test_write_repository_displays_missing_media_warnings(capfd):
         leaves: OkErr = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR, NO_SM_DIR: NO_SM_DIR},
+            dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
 
         # Remove the contents of the media directory.
