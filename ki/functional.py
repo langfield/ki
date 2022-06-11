@@ -43,7 +43,7 @@ from ki.types import (
 
 FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
-HALO_ENABLED = False
+HALO_ENABLED = True
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -306,4 +306,4 @@ def fmkleaves(
 
 @beartype
 def halo(text: str) -> Halo:
-    return Halo(text=text, spinner=SPINNER, color="white", enabled=HALO_ENABLED)
+    return Halo(text=text, spinner=SPINNER, color="white", text_color="white", enabled=HALO_ENABLED)
