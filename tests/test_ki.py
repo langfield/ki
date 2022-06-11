@@ -184,6 +184,7 @@ MEDIA_NOTE_PATH = os.path.join(NOTES_PATH, MEDIA_NOTE)
 
 NOTE_0_ID = 1645010162168
 NOTE_4_ID = 1645027705329
+MULTI_NOTE_ID = 1645985861853
 
 # A models dictionary mapping model ids to notetype dictionaries.
 # Note that the `flds` field has been removed.
