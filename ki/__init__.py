@@ -325,7 +325,7 @@ def diff2(
     parser: Lark,
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
-    """Diff `repo` from `HEAD` to `HEAD~1`."""
+    """Diff `repo` from `HEAD~1` to `HEAD`."""
     with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
         head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
         uuid = "%4x" % random.randrange(16**4)
@@ -340,7 +340,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    with F.halo(text=f"Diffing '{repo.head.commit}' ~ '{head1.sha}'..."):
+    logger.debug(f"Diffing '{repo.working_dir}' at '{head1.sha}' ~ '{repo.head.commit}'...")
+
+    with F.halo(text=f"Diffing '{head1.sha}' ~ '{repo.head.commit}'..."):
         diff_index = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     for change_type in GitChangeType:
@@ -374,6 +376,11 @@ def diff2(
 
             a_relpath = Path(diff.a_path)
             b_relpath = Path(diff.b_path)
+
+            if diff.a_blob is not None:
+                logger.debug("A blob:\n{}".format(diff.a_blob.data_stream.read().decode('utf-8')))
+            if diff.b_blob is not None:
+                logger.debug("B blob:\n{}".format(diff.b_blob.data_stream.read().decode('utf-8'))) 
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
@@ -584,6 +591,10 @@ def update_note(
     fmap: Dict[str, None] = {}
     for field in old_notetype.flds:
         fmap[field.ord] = None
+    note.load()
+
+    # Change notetype (also clears all fields).
+    original_fields: Dict[str, str] = {k: v for k, v in note.items()}
     note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
     note.load()
 
@@ -602,6 +613,13 @@ def update_note(
         if decknote.markdown:
             note[key] = markdown_to_html(field)
         else:
+            if note[key] != plain_to_html(field):
+
+                # This can raise a KeyError if notetype is changed.
+                logger.debug(f"Orig: {original_fields[key]}")
+                logger.debug(f"New: {plain_to_html(field)}")
+                logger.debug(f"Raw new: {field}")
+
             note[key] = plain_to_html(field)
 
     # Flush fields to collection object.
@@ -756,7 +774,10 @@ def push_decknote_to_anki(
     note: Note
     try:
         note = col.get_note(decknote.nid)
+        logger.debug(f"Got existing note:")
+        logger.debug(pp.pformat(note.values()))
     except NotFoundError:
+        logger.debug(f"Adding new note.")
         note = col.new_note(model_id)
         col.add_note(note, col.decks.id(decknote.deck, create=True))
         new = True
@@ -1287,7 +1308,12 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     # Construct note repr from `tidy_fields` map.
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
+
+        # Strip newlines.
+        field_text = field_text.replace("\n", "")
         lines.append("### " + field_name)
+        logger.debug(f"Raw field text: {field_text}")
+        logger.debug(f"Plain field text: {html_to_screen(field_text)}")
         lines.append(html_to_screen(field_text))
         lines.append("")
 
@@ -1857,6 +1883,8 @@ def push_deltas(
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+
+    logger.debug(pp.pformat(deltas))
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
