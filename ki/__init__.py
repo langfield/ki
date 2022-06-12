@@ -190,10 +190,6 @@ def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     # Do a reset --hard to the given SHA.
     ephem.git.reset(repo_ref.sha, hard=True)
 
-    # Update submodules.
-    for sm in ephem.submodules:
-        sm.update()
-
     return ephem
 
 
@@ -1305,6 +1301,7 @@ def git_pull(
     cwd: ExtantDir,
     unrelated: bool,
     theirs: bool,
+    subtree: bool,
     check: bool,
     silent: bool,
 ) -> None:
@@ -1314,7 +1311,9 @@ def git_pull(
         if unrelated:
             args += ["--allow-unrelated-histories"]
         if theirs:
-            args += ["--strategy-option", "theirs"]
+            args += ["--strategy-option=theirs"]
+        if subtree:
+            args += ["--strategy=subtree"]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
@@ -1719,14 +1718,14 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
     old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, True, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(old_cwd)
 
     # Create remote pointing to `last_push` repo and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
 
     # Append the hash of the collection to the hashes file, and raise an error
