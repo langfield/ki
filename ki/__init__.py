@@ -27,6 +27,7 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from dataclasses import dataclass
 
 import git
 import click
@@ -1724,7 +1725,83 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
     old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, True, silent)
+
+    # =================== NEW PULL ARCHITECTURE ====================
+    @beartype
+    @dataclass(frozen=True)
+    class DiffPath:
+        a: str
+        b: str
+
+    DEV_NULL = "/dev/null"
+    anki_remote.fetch()
+    head: git.Commit = last_push_repo.commit("HEAD")
+    fetch_head: git.Commit = last_push_repo.commit("FETCH_HEAD")
+    diffpaths: Set[DiffPath] = set()
+    for d in head.diff(fetch_head, create_patch=True, binary=True):
+        a: str = DEV_NULL if d.a_rawpath is None else d.a_rawpath.decode('utf-8')
+        b: str = DEV_NULL if d.b_rawpath is None else d.b_rawpath.decode('utf-8')
+        if a == DEV_NULL:
+            a = b
+        if b == DEV_NULL:
+            b = a
+        diffpaths.add(DiffPath(a, b))
+
+    logger.debug("Monolithic:\n")
+    raw_unified_patch: str = last_push_repo.git.diff("FETCH_HEAD", binary=True)
+
+    import whatthepatch
+    for diff in whatthepatch.parse_patch(raw_unified_patch):
+        a_path = diff.header.old_path
+        b_path = diff.header.new_path
+        a_path = a_path.lstrip("\"").rstrip("\"")
+        b_path = b_path.lstrip("\"").rstrip("\"")
+        if a_path == DEV_NULL:
+            a_path = b_path
+        if b_path == DEV_NULL:
+            b_path = a_path
+        logger.debug(a_path)
+        logger.debug(b_path)
+        logger.debug(diff.text)
+
+    """
+    DIFF_DELIMITER = "\ndiff --git "
+    patches: List[str] = patch.split(DIFF_DELIMITER)
+    patches = [DIFF_DELIMITER + patch for patch in patches]
+    """
+    
+
+    
+    """
+    patch_map: Dict[DiffPath, str] = {}
+    for diffpath in diffpaths:
+        patchset = set(patches)
+        first_line, _, _ = patch.partition("\n")
+        found = False
+        found_patch: str = ""
+        for patch in patchset:
+            if diffpath.a in first_line and diffpath.b in first_line:
+                patch_map[diffpath] = patch
+                found = True
+                break
+
+    patch_map: Dict[DiffPath, str] = {}
+    for patch in patches:
+        first_line, _, _ = patch.partition("\n")
+        found = False
+        for diffpath in diffpaths:
+            if diffpath.a in first_line and diffpath.b in first_line:
+                patch_map[diffpath] = patch
+                found = True
+                break
+        if not found:
+            raise RuntimeError(f"Failed to resolve paths for patch {patch}")
+        logger.debug(f"Patch: \n{patch}")
+    """
+
+    # =================== NEW PULL ARCHITECTURE ====================
+
+    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(old_cwd)
 
