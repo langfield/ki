@@ -233,7 +233,13 @@ Modifying note types (DONE)
 Changing note types (DONE)
 Pulling in remote changes in submodules without losing review data
 Generating HTML
-Media
+Media (DONE)
+
+
+
+Mapping database changes to submodules
+--------------------------------------
+To fix #18, one option is to use git diff to save a patch for the diff from HEAD~1 to HEAD. Then for each extant submodule, filter the patches relevant to that repo, ltrim the paths so they begin at the root of the submodule, and apply them to the submodules directly. If submodules have been renamed since the last push, then we can construct a map to the new names. The cases we must treat are directories that have been converted into submodules, submodules that have been converted into directories, and submodules that have been renamed. As a special case of the second, we have submodules that have been deleted. This is the most common use case. Most users will not be creating shared decks. Git's default behavior works well for this case. For the case of converting directories into submodules, we simply check if any extant submodules have the exact same path as a directory with changes. If so, we use patches. This case is covered by the fix described above. If submodules have been renamed, well, we only worry about this case, actually we choose to not worry about this case. Git's default behavior will be to do whatever it does when you pull changes to a directory which has been renamed. We should prioritize using ort over subtree.
 
 
 Won't fix
@@ -1063,4 +1069,3 @@ then clone an ephemeral repo and pull the ephem into that last-pull-commit
 repo, forcing merge conflict resolution with --theirs. Then we can pull this
 repo into the main ki repo, and the merge conflicts should be gone because
 there is now a shared history.
-
