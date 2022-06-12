@@ -988,6 +988,56 @@ Bugs
   On branch main
   nothing to commit, working tree clean
 
+18. Commannd to reproduce:
+
+  ki clone ~/.local/share/Anki2/User\ 2/collection.anki2 && cd collection/ && trash japanese-core-2000/ && git commit -am "rm" && ki push && git submodule add git@github.com:langfield/japanese-core-2000.git && git commit -m "add" && ki push
+
+  Then edit a card in the submodule deck (or use `merge_conflict_edited.anki2`.
+
+  Then run `ki pull`.
+
+  Pulling from /home/user/.local/share/Anki2/User 2/collection.anki2
+  Computed md5sum: 6adee212efae918c0795b0b60d4838e8
+  Found .anki2 file at /home/user/.local/share/Anki2/User 2/collection.anki2
+  Computed md5sum: 6adee212efae918c0795b0b60d4838e8
+  Cloning into /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8...
+  Notes: 100%|█████████████████████████████████████| 1/1 [00:00<00:00, 796.34it/s]
+  HTML: 100%|██████████████████████████████████████| 1/1 [00:00<00:00, 362.67it/s]
+  Media: 100%|████████████████████████████████████| 1/1 [00:00<00:00, 1274.09it/s]
+  Decks: 100%|████████████████████████████████████| 2/2 [00:00<00:00, 1307.45it/s]
+  Wrote md5sum to /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8/.ki/hashes
+  Removing japanese-core-2000
+  Removing .gitmodules
+  Removing .gitignore
+  Merge made by the subtree strategy.
+   .gitignore                    |    1 -
+   .gitmodules                   |    3 -
+   japanese-core-2000            |    1 -
+   models.json                   | 1314 +----------------------------------------
+   "\343\201\235\343\202\214.md" |   26 +
+   5 files changed, 30 insertions(+), 1315 deletions(-)
+   delete mode 100644 .gitignore
+   delete mode 100644 .gitmodules
+   delete mode 160000 japanese-core-2000
+   create mode 100644 "\343\201\235\343\202\214.md"
+
+  From /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8/
+   * branch            main       -> FETCH_HEAD
+   * [new branch]      main       -> anki/main
+
+  Pulling into /tmp/tmp8g0jbavm/ki-local-6adee212efae918c0795b0b60d4838e8... done.
+  CONFLICT (modify/delete): japanese-core-2000 deleted in 33e6af290811f450baecbe130a9d3b06400528e6 and modified in HEAD.  Version HEAD of japanese-core-2000 left in tree.
+  Automatic merge failed; fix conflicts and then commit the result.
+
+  From /tmp/tmp8g0jbavm/ki-local-6adee212efae918c0795b0b60d4838e8/
+   * branch            main       -> FETCH_HEAD
+   * [new branch]      main       -> anki/main
+
+  Pulling into /home/user/collection... done.
+
+
+
+
 
 On making push faster
 ---------------------
