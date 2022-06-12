@@ -1706,7 +1706,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     echo(f"Pulling from '{kirepo.col_file}'", silent)
     echo(f"Computed md5sum: {md5sum}", silent)
 
-    # Git clone `repo` at commit SHA of last successful `push()`.
+    # Copy `repo` into a temp directory and `reset --hard` at ref of last
+    # successful `push()`.
     sha: str = kirepo.last_push_file.read_text()
     with F.halo(text=f"Checking out repo at '{sha}'..."):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
@@ -1727,7 +1728,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_repo.delete_remote(anki_remote)
     F.chdir(old_cwd)
 
-    # Create remote pointing to `last_push` repo and pull into `repo`.
+    # Create remote pointing to `last_push_repo` and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, False, silent)
