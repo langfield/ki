@@ -1312,9 +1312,12 @@ def git_pull(
         if theirs:
             args += ["--strategy-option", "theirs"]
         args += [remote, branch]
-        p = subprocess.run(args, check=check, cwd=cwd, capture_output=True)
+        p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
     echo(f"{p.stderr.decode()}", silent=silent)
+    if check and p.returncode != 0:
+        click.secho(f"Error while pulling into '{cwd}'", fg="red")
+        raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
     echo(f"Pulling into '{cwd}'... done.", silent=silent)
 
 
@@ -1486,8 +1489,8 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
                 continue
 
             logger.warning(
-                f"Collision: New model '{model.name}' has same name"
-                "as existing model with mid '{mid}', but hashes differ."
+                f"Collision: New model '{model.name}' has same name "
+                f"as existing model with mid '{mid}', but hashes differ."
             )
 
             # If the hashes don't match, then we somehow need to update

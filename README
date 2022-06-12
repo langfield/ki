@@ -936,6 +936,55 @@ Bugs
     File "<string>", line 3, in __hash__
   TypeError: unhashable type: 'list'
 
+17. Seemingly unreproducible error:
+
+  (anki) user@computer:~/collection$ ki pull
+  Pulling from '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 7777eae7d0169b6c608996678150acf9
+  Found .anki2 file at '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 7777eae7d0169b6c608996678150acf9
+  Cloning into '/tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9'...
+  Notes: 100%|██████████████████████████████| 2632/2632 [00:00<00:00, 4996.70it/s]
+  HTML: 100%|██████████████████████████████████████| 1/1 [00:00<00:00, 244.48it/s]
+  Media: 100%|██████████████████████████████| 2632/2632 [00:00<00:00, 8345.04it/s]
+  Decks: 100%|██████████████████████████████████████| 5/5 [00:01<00:00,  3.45it/s]
+  Wrote md5sum to '/tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9/.ki/hashes'
+
+  From /tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9/
+   * branch              main       -> FETCH_HEAD
+  * [new branch]        main       -> anki/main
+  error: The following untracked working tree files would be overwritten by merge:
+          japanese-core-2000/models.json
+  Please move or remove them before you merge.
+  Aborting
+
+  Error while pulling into '/tmp/tmpai8kpux8/ki-local-7777eae7d0169b6c608996678150acf9'
+  Traceback (most recent call last):
+    File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
+      sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
+      return self.main(*args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
+      rv = self.invoke(ctx)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
+      return _process_result(sub_ctx.command.invoke(sub_ctx))
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
+      return ctx.invoke(self.callback, **ctx.params)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
+      return __callback(*args, **kwargs)
+    File "<@beartype(ki.pull) at 0x7f6d4bfe55e0>", line 10, in pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1640, in pull
+      _pull(kirepo, silent=False)
+    File "<@beartype(ki._pull) at 0x7f6d4bfe54c0>", line 49, in _pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1707, in _pull
+      git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
+    File "<@beartype(ki.git_pull) at 0x7f6d4c2579d0>", line 139, in git_pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1320, in git_pull
+      raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
+  RuntimeError: Git failed with return code '128'.
+  (anki) user@computer:~/collection$ git status
+  On branch main
+  nothing to commit, working tree clean
 
 
 On making push faster
