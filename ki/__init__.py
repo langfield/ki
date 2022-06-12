@@ -1466,8 +1466,14 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         @beartype
         def hash_notetype(notetype: Notetype) -> int:
             dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            s: str = json.dumps(dictionary, sort_keys=True)
+            s: str = json.dumps(dictionary, sort_keys=True, indent=4)
             return hash(s)
+
+        @beartype
+        def notetype_hash_repr(notetype: Notetype) -> str:
+            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+            s: str = json.dumps(dictionary, sort_keys=True, indent=4)
+            return f"JSON for '{pp.pformat(notetype)}':\n{s}"
 
         # TODO: This block is unfinished. We need to add new notetypes (and
         # rename them) only if they are 'new', where new means they are
@@ -1492,6 +1498,8 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
                 f"Collision: New model '{model.name}' has same name "
                 f"as existing model with mid '{mid}', but hashes differ."
             )
+            logger.warning(notetype_hash_repr(model))
+            logger.warning(notetype_hash_repr(existing_model))
 
             # If the hashes don't match, then we somehow need to update
             # `decknote.model` for the relevant notes.

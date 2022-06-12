@@ -86,6 +86,11 @@ from tests.test_ki import (
     checksum_git_repository,
     get_notes,
     get_repo_with_submodules,
+    JAPANESE_GITREPO_PATH,
+    UNCOMMITTED_SM_ERROR_REPODIR,
+    UNCOMMITTED_SM_ERROR_EDITED_PATH,
+    get_uncommitted_sm_pull_exception_col_file,
+    BRANCH_NAME,
 )
 
 
@@ -877,47 +882,50 @@ def test_pull_preserves_reassigned_note_ids(tmp_path):
 
 def test_pull_handles_uncommitted_submodule_commits(tmp_path):
     """UNFINISHED!"""
-    col_file = get_col_file()
+    col_file = get_uncommitted_sm_pull_exception_col_file()
     runner = CliRunner()
+    japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, col_file)
-        os.chdir(repo.working_dir)
 
-        # Edit a file within the submodule.
-        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'z' to file '{file}'")
-        with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
+        JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
-        # Copy a new note into the submodule.
-        shutil.copyfile(
-            NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
-        )
+        # Clone collection in cwd.
+        out = clone(runner, col_file)
+        logger.debug(f"\n{out}")
 
-        # Get a reference to the submodule repo.
-        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
-
-        # Clone the submodule repo into another directory.
-        sm_remote_repo = git.Repo.clone_from(subrepo.working_dir, "sm_remote")
-
-        subrepo.git.add(all=True)
-        subrepo.index.commit("Add `z` to `submodule/Default/a.md`")
+        sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
+        shutil.rmtree(sm_dir)
+        repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
-        repo.index.commit("Update submodule.")
+        repo.index.commit("Delete cloned `japanese-core-2000` folder.")
 
-        # Edit a file within the submodule.
-        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'y' to file '{file}'")
-        with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\ny\n")
+        os.chdir(UNCOMMITTED_SM_ERROR_REPODIR)
+        out = push(runner)
+        logger.debug(out)
 
-        subrepo.git.add(all=True)
-        subrepo.index.commit("Add `y` to `submodule/Default/a.md`")
+        # Create submodule out of GITREPO_PATH.
+        submodule_name = JAPANESE_SUBMODULE_DIRNAME
+        shutil.copytree(japanese_gitrepo_path, submodule_name)
+        git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
+        sm = git.Repo(submodule_name)
+        sm.git.add(all=True)
+        _ = sm.index.commit("Initial commit.")
+
+        # Add as a submodule.
+        repo.git.submodule("add", Path(submodule_name).resolve())
         repo.git.add(all=True)
-        repo.index.commit("Update submodule.")
+        _ = repo.index.commit("Add submodule.")
+
+        out = push(runner)
+        logger.debug(out)
+
+        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a") as f:
+            f.write("A new line at the bottom.")
+        sm.git.add(all=True)
+        _ = sm.index.commit("Added a new line.")
 
         # Edit collection.
-        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+        shutil.copyfile(UNCOMMITTED_SM_ERROR_EDITED_PATH, col_file)
 
         out = pull(runner)
         logger.debug(out)

@@ -110,6 +110,8 @@ ORIG_COLLECTION_FILENAME = "original.anki2"
 EDITED_COLLECTION_FILENAME = "edited.anki2"
 MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
 HTML_COLLECTION_FILENAME = "html.anki2"
+UNCOMMITTED_SM_ERROR_FILENAME = "uncommitted_submodule_commits.anki2"
+UNCOMMITTED_SM_ERROR_EDITED_FILENAME = "uncommitted_submodule_commits_edited.anki2"
 MEDIA_COLLECTION_FILENAME = "media.anki2"
 MEDIA_MEDIA_DIRNAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media"
 MEDIA_MEDIA_DB_FILENAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
@@ -129,6 +131,12 @@ MULTIDECK_COLLECTION_PATH = os.path.abspath(
 )
 HTML_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, HTML_COLLECTION_FILENAME)
+)
+UNCOMMITTED_SM_ERROR_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, UNCOMMITTED_SM_ERROR_FILENAME)
+)
+UNCOMMITTED_SM_ERROR_EDITED_PATH = os.path.abspath(
+    os.path.join(COLLECTIONS_PATH, UNCOMMITTED_SM_ERROR_EDITED_FILENAME)
 )
 MEDIA_COLLECTION_PATH = os.path.abspath(
     os.path.join(COLLECTIONS_PATH, MEDIA_COLLECTION_FILENAME)
@@ -151,9 +159,11 @@ SPLIT_MEDIA_DB_PATH = os.path.abspath(
 
 GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
+JAPANESE_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "japanese-core-2000/")
 REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
 MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
 HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
+UNCOMMITTED_SM_ERROR_REPODIR = os.path.splitext(UNCOMMITTED_SM_ERROR_FILENAME)[0]
 MEDIA_REPODIR = os.path.splitext(MEDIA_COLLECTION_FILENAME)[0]
 SPLIT_REPODIR = os.path.splitext(SPLIT_COLLECTION_FILENAME)[0]
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
@@ -302,6 +312,16 @@ def get_col_file() -> ExtantFile:
     tempdir = tempfile.mkdtemp()
     col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
     shutil.copyfile(COLLECTION_PATH, col_file)
+    return F.test(Path(col_file))
+
+
+@beartype
+def get_uncommitted_sm_pull_exception_col_file() -> ExtantFile:
+    """Put `uncommitted_submodule_commits.anki2` in a tempdir and return its abspath."""
+    # Copy collection to tempdir.
+    tempdir = tempfile.mkdtemp()
+    col_file = os.path.abspath(os.path.join(tempdir, UNCOMMITTED_SM_ERROR_FILENAME))
+    shutil.copyfile(UNCOMMITTED_SM_ERROR_PATH, col_file)
     return F.test(Path(col_file))
 
 
