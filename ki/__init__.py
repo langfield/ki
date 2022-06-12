@@ -469,7 +469,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
 
 
 @beartype
-def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
+def get_models_recursively(kirepo: KiRepo, silent: bool) -> Dict[str, Notetype]:
     """
     Find and merge all `models.json` files recursively.
 
@@ -483,7 +483,7 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     all_models: Dict[str, Notetype] = {}
 
     # Load notetypes from json files.
-    bar = tqdm(F.rglob(kirepo.root, MODELS_FILE), ncols=TQDM_NUM_COLS)
+    bar = tqdm(F.rglob(kirepo.root, MODELS_FILE), ncols=TQDM_NUM_COLS, leave=not silent)
     bar.set_description("Models")
     for models_file in bar:
 
@@ -917,7 +917,7 @@ def get_media_files(
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
 
-    bar = tqdm(rows, ncols=TQDM_NUM_COLS, disable=silent)
+    bar = tqdm(rows, ncols=TQDM_NUM_COLS, leave=not silent)
     bar.set_description("Media")
     for row in bar:
         for file in files_in_str(col, row.flds):
@@ -1012,7 +1012,7 @@ def write_repository(
     # sending deck names to lists of notes.
     all_nids = list(col.find_notes(query=""))
 
-    bar = tqdm(all_nids, ncols=TQDM_NUM_COLS, disable=silent)
+    bar = tqdm(all_nids, ncols=TQDM_NUM_COLS, leave=not silent)
     bar.set_description("Notes")
     for nid in bar:
         colnote: ColNote = get_colnote(col, nid)
@@ -1123,7 +1123,7 @@ def write_decks(
     # TODO: This block is littered with unsafe code. Fix.
     nodes: List[DeckTreeNode] = postorder(root)
 
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, disable=silent)
+    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
     bar.set_description("Decks")
     for node in bar:
 
@@ -1339,7 +1339,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
         F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
     )
 
-    bar = tqdm(batches, ncols=TQDM_NUM_COLS, disable=silent)
+    bar = tqdm(batches, ncols=TQDM_NUM_COLS, leave=not silent)
     bar.set_description("HTML")
     for batch in bar:
         # TODO: Should we fail silently here, so as to not bother user with
@@ -1788,7 +1788,7 @@ def push() -> PushResult:
         remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=False)
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
 
     with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
         git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
@@ -1822,7 +1822,7 @@ def push() -> PushResult:
     deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
 
     # Map model names to models.
-    models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
+    models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
 
     result: PushResult = push_deltas(
         deltas,
