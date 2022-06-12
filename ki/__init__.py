@@ -190,6 +190,10 @@ def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     # Do a reset --hard to the given SHA.
     ephem.git.reset(repo_ref.sha, hard=True)
 
+    # Update submodules.
+    for sm in ephem.submodules:
+        sm.update()
+
     return ephem
 
 
@@ -1464,16 +1468,19 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         mid: Optional[int] = col.models.id_for_name(model.name)
 
         @beartype
-        def hash_notetype(notetype: Notetype) -> int:
+        def get_notetype_json(notetype: Notetype) -> str:
             dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            s: str = json.dumps(dictionary, sort_keys=True, indent=4)
-            return hash(s)
+            dictionary.pop("id")
+            inner = dictionary["dict"]
+            inner.pop("id")
+            inner.pop("mod")
+            dictionary["dict"] = inner
+            return json.dumps(dictionary, sort_keys=True, indent=4)
 
         @beartype
         def notetype_hash_repr(notetype: Notetype) -> str:
-            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            s: str = json.dumps(dictionary, sort_keys=True, indent=4)
-            return f"JSON for '{pp.pformat(notetype)}':\n{s}"
+            s = get_notetype_json(notetype)
+            return f"JSON for '{pp.pformat(notetype.id)}':\n{s}"
 
         # TODO: This block is unfinished. We need to add new notetypes (and
         # rename them) only if they are 'new', where new means they are
@@ -1491,7 +1498,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
             # If we are trying to add a model that has the exact same content
             # and name as an existing model, skip it.
             existing_model: Notetype = parse_notetype_dict(nt)
-            if hash_notetype(model) == hash_notetype(existing_model):
+            if get_notetype_json(model) == get_notetype_json(existing_model):
                 continue
 
             logger.warning(
