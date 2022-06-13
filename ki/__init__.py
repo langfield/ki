@@ -306,7 +306,8 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
         repo.git.rm(sm_path, cached=True)
 
         # May not exist.
-        repo.git.rm(gitmodules_path)
+        if gitmodules_path.is_file:
+            repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
         sm_git_path = F.test(sm_path / GIT)
         if isinstance(sm_git_path, ExtantDir):
@@ -1741,35 +1742,45 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # changes that we don't want. Calling `git submodule update` here checks
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
-    unsub_repo.git.submodule("update")
-    last_push_repo.git.submodule("update")
-    unsub_repo = unsubmodule_repo(unsub_repo)
+    with F.halo(text=f"Updating submodules in stage repositories..."):
+        unsub_repo.git.submodule("update")
+        last_push_repo.git.submodule("update")
+    with F.halo(text=f"Unsubmoduling repository at '{unsub_repo.working_dir}'..."):
+        unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
-    anki_remote.fetch()
-    unsub_remote.fetch()
-    raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
-    patches: List[Patch] = []
-    for diff in whatthepatch.parse_patch(raw_unified_patch):
+    with F.halo(text=f"Fetching from remote at '{remote_repo.working_dir}'..."):
+        anki_remote.fetch()
+        unsub_remote.fetch()
+    with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in repository at '{unsub_repo.working_dir}'..."):
+        raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
 
-        @beartype
-        def unquote_diff_path(path: str) -> str:
-            if len(path) <= 4:
-                return path
-            if path[0] == '"' and path[-1] == '"':
-                path = path.lstrip('"').rstrip('"')
-            if path[:2] in ("a/", "b/"):
-                path = path[2:]
+    @beartype
+    def unquote_diff_path(path: str) -> str:
+        if len(path) <= 4:
             return path
+        if path[0] == '"' and path[-1] == '"':
+            path = path.lstrip('"').rstrip('"')
+        if path[:2] in ("a/", "b/"):
+            path = path[2:]
+        return path
 
-        a_path = unquote_diff_path(diff.header.old_path)
-        b_path = unquote_diff_path(diff.header.new_path)
+    patches: List[Patch] = []
+    import io
+    from contextlib import redirect_stdout
+    f = io.StringIO()
+    with F.halo(text=f"Generating submodule patches..."):
+        with redirect_stdout(f):
+            for diff in whatthepatch.parse_patch(raw_unified_patch):
 
-        if a_path == DEV_NULL:
-            a_path = b_path
-        if b_path == DEV_NULL:
-            b_path = a_path
-        patch = Patch(Path(a_path), Path(b_path), diff)
-        patches.append(patch)
+                a_path = unquote_diff_path(diff.header.old_path)
+                b_path = unquote_diff_path(diff.header.new_path)
+
+                if a_path == DEV_NULL:
+                    a_path = b_path
+                if b_path == DEV_NULL:
+                    b_path = a_path
+                patch = Patch(Path(a_path), Path(b_path), diff)
+                patches.append(patch)
 
     # Get paths to submodules.
     subrepos: Dict[Path, git.Repo] = {}
@@ -1781,14 +1792,18 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
-            remote_repo.git.rm(["-r", str(sm_rel_root)])
+            with F.halo(text=f"Removing submodule directory '{sm_rel_root}' from remote repository..."):
+                remote_repo.git.rm(["-r", str(sm_rel_root)])
 
-    remote_repo.git.add(all=True)
-    remote_repo.index.commit("Remove submodule directories.")
+    with F.halo(text=f"Committing submodule directory removals..."):
+        remote_repo.git.add(all=True)
+        remote_repo.index.commit("Remove submodule directories.")
 
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
-    for patch in patches:
+    bar = tqdm(patches, ncols=TQDM_NUM_COLS)
+    bar.set_description("Patches")
+    for patch in bar:
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
@@ -1832,9 +1847,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 sm_repo.git.apply(patch_path)
 
     # Commit patches in submodules.
-    for sm_repo in subrepos.values():
-        sm_repo.git.add(all=True)
-        sm_repo.index.commit(msg)
+    with F.halo(text=f"Committing applied patches to submodules..."):
+        for sm_repo in subrepos.values():
+            sm_repo.git.add(all=True)
+            sm_repo.index.commit(msg)
 
     # TODO: What if a submodule was deleted (or added) entirely?
 
@@ -1853,7 +1869,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # Put detached HEAD back on `main` in the remote submodule.
                 remote_sm.git.branch("temp")
                 remote_sm.git.checkout(BRANCH_NAME)
-                remote_sm.git.merge(["--strategy-option", "theirs", "temp"])
+                echo(remote_sm.git.merge(["--strategy-option", "theirs", "temp"]))
 
                 remote_target: ExtantDir = F.git_dir(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
@@ -1870,8 +1886,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 sm_repo.delete_remote(sm_remote)
 
     # Commit new submodules commits in `last_push_repo`.
-    last_push_repo.git.add(all=True)
-    last_push_repo.index.commit(msg)
+    with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
+        last_push_repo.git.add(all=True)
+        last_push_repo.index.commit(msg)
 
     # =================== NEW PULL ARCHITECTURE ====================
 
