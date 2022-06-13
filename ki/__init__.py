@@ -1739,17 +1739,18 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # changes that we don't want. Calling `git submodule update` here checks
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
+    unsub_root = F.working_dir(unsub_repo)
     with F.halo(text=f"Updating submodules in stage repositories..."):
         unsub_repo.git.submodule("update")
         last_push_repo.git.submodule("update")
-    with F.halo(text=f"Unsubmoduling repository at '{unsub_repo.working_dir}'..."):
+    with F.halo(text=f"Unsubmoduling repository at '{unsub_root}'..."):
         unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     with F.halo(text=f"Fetching from remote at '{remote_repo.working_dir}'..."):
         anki_remote.fetch()
         unsub_remote.fetch()
-    with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in repository at '{unsub_repo.working_dir}'..."):
-        raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+    with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in '{unsub_root}'..."):
+        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
 
     @beartype
     def unquote_diff_path(path: str) -> str:
@@ -1789,7 +1790,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
-            with F.halo(text=f"Removing submodule directory '{sm_rel_root}' from remote repository..."):
+            halotext = f"Removing submodule directory '{sm_rel_root}' from remote..."
+            with F.halo(text=halotext):
                 remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     if len(last_push_repo.submodules) > 0:
@@ -1890,14 +1892,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Commit new submodules commits in `last_push_repo`.
     if len(patched_submodules) > 0:
-        with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
+        with F.halo(text=f"Committing new submodule commits to '{last_push_root}'..."):
             last_push_repo.git.add(all=True)
             last_push_repo.index.commit(msg)
 
     # Handle deleted files, preferring `theirs`.
     deletes = 0
     del_msg = "Remove files deleted in remote.\n\n"
-    diff_index = last_push_repo.commit("HEAD").diff(last_push_repo.commit("FETCH_HEAD"))
+    fetch_head = last_push_repo.commit("FETCH_HEAD")
+    diff_index = last_push_repo.commit("HEAD").diff(fetch_head)
     for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
         a_path: Path = F.test(last_push_root / diff.a_path)
         if isinstance(a_path, ExtantFile):
@@ -1907,7 +1910,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             deletes += 1
 
     if deletes > 0:
-        with F.halo(text=f"Committing remote deletions to stage repository at '{last_push_repo.working_dir}'..."):
+        with F.halo(text=f"Committing remote deletions to '{last_push_root}'..."):
             last_push_repo.git.add(all=True)
             last_push_repo.index.commit(del_msg)
 
