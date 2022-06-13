@@ -1765,6 +1765,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     patches: List[Patch] = []
     import io
     from contextlib import redirect_stdout
+
     f = io.StringIO()
     with F.halo(text=f"Generating submodule patches..."):
         with redirect_stdout(f):
