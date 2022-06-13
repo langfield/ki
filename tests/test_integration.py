@@ -941,9 +941,11 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
 
         with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r") as f:
             note_text = f.read()
-            logger.debug(f"SM note text:\n{note_text}")
-            expected = "that, that one\nthat, that one\nholy mackerel\nthis, this one"
-            assert expected in note_text
+        logger.debug(f"SM note text:\n{note_text}")
+        expected_mackerel = "\nholy mackerel\n"
+        expected_this = "\nthis, this one\n"
+        assert expected_mackerel in note_text
+        assert expected_this in note_text
 
 
 # PUSH

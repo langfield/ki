@@ -1741,6 +1741,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
     unsub_repo.git.submodule("update")
+    last_push_repo.git.submodule("update")
     unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
@@ -1853,11 +1854,21 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # in the main repository, and then pulling from that remote. Then the
     # remote should be deleted. Remote could be called `patch` or something.
     for sm in kirepo.repo.submodules:
+        logger.debug(f"Found submodule {sm}")
         if sm.exists() and sm.module_exists():
+            logger.debug(f"Found extant submodule {sm}")
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
             if sm_rel_root in subrepos:
-                remote_target: ExtantDir = F.git_dir(subrepos[sm_rel_root])
+                logger.debug(f"Matched to path {sm_rel_root}")
+                remote_sm: git.Repo = subrepos[sm_rel_root]
+
+                # Put detached HEAD back on `main` in the remote submodule.
+                remote_sm.git.branch("temp")
+                remote_sm.git.checkout(BRANCH_NAME)
+                remote_sm.git.merge(["--strategy-option", "theirs", "temp"])
+
+                remote_target: ExtantDir = F.git_dir(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,

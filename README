@@ -257,6 +257,12 @@ Git's default behavior will be to do whatever it does when you pull changes to
 a directory which has been renamed. We should prioritize using ort over
 subtree.
 
+To fix the 'not our ref' error during submodule fetch, we must do the
+following:
+
+  cd <sm>/ && git log --oneline --graph && git branch temp && \
+  git checkout main && git merge --strategy-option=theirs temp
+
 
 Won't fix
 ---------
