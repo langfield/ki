@@ -1903,9 +1903,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     fetch_head = last_push_repo.commit("FETCH_HEAD")
     diff_index = last_push_repo.commit("HEAD").diff(fetch_head)
     for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
+
+        # Don't remove gitmodules.
+        if diff.a_path == GITMODULES_FILE:
+            continue
+
         a_path: Path = F.test(last_push_root / diff.a_path)
         if isinstance(a_path, ExtantFile):
-            logger.debug(f"Found file deleted in remote: '{a_path}'")
             last_push_repo.git.rm(diff.a_path)
             del_msg += f"Remove '{a_path}'\n"
             deletes += 1
