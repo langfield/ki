@@ -31,7 +31,9 @@ from dataclasses import dataclass
 
 import git
 import click
+import blake3
 import markdownify
+import whatthepatch
 import prettyprinter as pp
 from tqdm import tqdm
 from halo import Halo
@@ -74,6 +76,7 @@ from ki.types import (
     NoPath,
     NoFile,
     GitChangeType,
+    Patch,
     Delta,
     KiRepo,
     Field,
@@ -127,6 +130,7 @@ T = TypeVar("T")
 
 # TODO: What if there is a deck called `media`?
 MEDIA = "_media"
+DEV_NULL = "/dev/null"
 BATCH_SIZE = 500
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
@@ -1724,27 +1728,14 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    unsub_anki_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
+    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
-    old_cwd: ExtantDir = F.chdir(last_push_root)
-    last_push_repo.git.config("pull.rebase", "false")
 
     # =================== NEW PULL ARCHITECTURE ====================
-    import blake3
-    import whatthepatch
-    DEV_NULL = "/dev/null"
-    @beartype
-    @dataclass(frozen=True)
-    class Patch:
-        """Relative paths and a Diff object."""
-        a: Path
-        b: Path
-        diff: whatthepatch.patch.diffobj
-
     unsub_repo: git.Repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
-    unsub_anki_remote.fetch()
+    unsub_remote.fetch()
     raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
     patches: List[Patch] = []
     for diff in whatthepatch.parse_patch(raw_unified_patch):
@@ -1756,13 +1747,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
-        if len(diff.text) < 2000:
-            logger.debug(diff.text)
-
         patch = Patch(Path(a_path), Path(b_path), diff)
         patches.append(patch)
-
-    logger.debug(f"Flat last push repo root: {unsub_repo.working_dir}")
 
     # Get paths to submodules.
     subrepos: Dict[ExtantDir, git.Repo] = {}
@@ -1778,7 +1764,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     remote_repo.git.add(all=True)
     remote_repo.index.commit("Remove submodule directories.")
-    logger.debug(f"remote repo root: {remote_repo.working_dir}")
 
     # Apply patches within submodules.
     for patch in patches:
@@ -1786,11 +1771,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
 
             # TODO: We must also treat case where we moved a file into or out
-            # of a submodule, but we just do this for now.
+            # of a submodule, but we just do this for now. In this case, we may
+            # have `patch.a` not be relative to the submodule root (if we moved
+            # a file into the sm dir), or vice-versa.
             if patch.a.is_relative_to(sm_rel_root) and patch.b.is_relative_to(sm_rel_root):
-
                 patch_bytes: bytes = patch.diff.text.encode()
+
+                # pylint: disable=not-callable
                 patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
+
+                # pylint: enable=not-callable
                 patch_path: NoFile = F.test(patches_dir / patch_hash)
 
                 # Replace paths relative to `last_push_root` with paths
@@ -1802,26 +1792,18 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 if a_relpath == Path(".") or b_relpath == Path("."):
                     continue
 
+                # TODO: More tests are needed to make sure that the `git apply`
+                # call is not flaky. In particular, we must treat new and
+                # deleted files.
                 patch_text: str = patch.diff.text
                 patch_text = patch_text.replace(str(patch.a), str(a_relpath))
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
-
-                logger.debug(f"FOUND SUBMODULE DIFF: {b_relpath} with patch at {patch_path}")
-                header = patch_text.split('\n')[0]
-                logger.debug(f"Trying to apply: {header}")
-                src_path = F.test(sm_rel_root / a_relpath)
-                if isinstance(src_path, NoFile):
-                    logger.debug(f"Touching {src_path}")
-                    src_path: ExtantFile = F.touch(F.test(src_path.parent), src_path.name)
-                if isinstance(src_path, NoPath):
-                    raise FileNotFoundError(f"Can't find parent directory of '{src_path}'")
-                logger.debug(f"SM root: {sm_repo.working_dir}")
-                sm_repo.git.apply([patch_path])
-
-    logger.debug(f"Last push repo root: {last_push_repo.working_dir}")
+                sm_repo.git.apply(patch_path)
     # =================== NEW PULL ARCHITECTURE ====================
 
+    old_cwd: ExtantDir = F.chdir(last_push_root)
+    last_push_repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(old_cwd)

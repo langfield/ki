@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 import git
+import whatthepatch
 import prettyprinter as pp
 from anki.collection import Note
 
@@ -87,6 +88,15 @@ class PushResult(Enum):
 
 
 # DATACLASSES
+
+
+@beartype
+@dataclass(frozen=True)
+class Patch:
+    """Relative paths and a Diff object."""
+    a: Path
+    b: Path
+    diff: whatthepatch.patch.diffobj
 
 
 @beartype
