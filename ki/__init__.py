@@ -1747,6 +1747,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
+        logger.debug(f"Examining patch for {a_path}")
+        if a_path[-3:] == ".md":
+            logger.debug(f"Patch contents for {a_path}:\n{diff.text}")
         patch = Patch(Path(a_path), Path(b_path), diff)
         patches.append(patch)
 
@@ -1801,6 +1804,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  '{patch.a}'\n"
                 logger.debug(f"Applying patch:\n{patch_text}")
+
+                # Note that it is unnecessary to use `--3way` here, because
+                # this submodule is supposed to represent a fast-forward from
+                # the last successful push to the current state of the remote.
+                # There should be no nontrivial merging involved.
                 sm_repo.git.apply(patch_path)
 
     # Commit patches in submodules.
