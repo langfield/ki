@@ -185,6 +185,12 @@ TODO
     PULL
   The note is still there in the repo.
 
+  The problem is that `git merge --strategy-option=theirs` doesn't actually use
+  `theirs` for everything. To do that, we'd need `git merge --strategy=theirs`,
+  but there is no such thing. See
+  https://stackoverflow.com/questions/173919/is-there-a-theirs-version-of-git-merge-s-ours
+  for a workaround.
+
 16-April-2022
 -------------
 Merge write_deck() and write_decks(). (DONE)

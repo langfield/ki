@@ -1323,7 +1323,7 @@ def git_pull(
         if unrelated:
             args += ["--allow-unrelated-histories"]
         if theirs:
-            args += ["--strategy-option=theirs"]
+            args += ["--strategy=theirs"]
         if subtree:
             args += ["--strategy=subtree"]
         args += [remote, branch]
@@ -1795,9 +1795,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             with F.halo(text=f"Removing submodule directory '{sm_rel_root}' from remote repository..."):
                 remote_repo.git.rm(["-r", str(sm_rel_root)])
 
-    with F.halo(text=f"Committing submodule directory removals..."):
-        remote_repo.git.add(all=True)
-        remote_repo.index.commit("Remove submodule directories.")
+    if len(last_push_repo.submodules) > 0:
+        with F.halo(text=f"Committing submodule directory removals..."):
+            remote_repo.git.add(all=True)
+            remote_repo.index.commit("Remove submodule directories.")
 
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
@@ -1892,9 +1893,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 sm_repo.delete_remote(sm_remote)
 
     # Commit new submodules commits in `last_push_repo`.
-    with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
-        last_push_repo.git.add(all=True)
-        last_push_repo.index.commit(msg)
+    if len(patched_submodules) > 0:
+        with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
+            last_push_repo.git.add(all=True)
+            last_push_repo.index.commit(msg)
     # =================== NEW PULL ARCHITECTURE ====================
 
     old_cwd: ExtantDir = F.chdir(last_push_root)
