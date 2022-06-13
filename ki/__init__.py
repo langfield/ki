@@ -1323,7 +1323,7 @@ def git_pull(
         if unrelated:
             args += ["--allow-unrelated-histories"]
         if theirs:
-            args += ["--strategy=theirs"]
+            args += ["--strategy-option=theirs"]
         if subtree:
             args += ["--strategy=subtree"]
         args += [remote, branch]
