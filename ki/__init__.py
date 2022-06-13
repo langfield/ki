@@ -1714,7 +1714,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     with F.halo(text=f"Checking out repo at '{sha}'..."):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
         last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
-        flat_last_push_repo: git.Repo = copy_repo(ref, f"flat-{LOCAL_SUFFIX}-{md5sum}")
+        unsub_repo: git.Repo = copy_repo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1724,7 +1724,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    flat_anki_remote = flat_last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
+    unsub_anki_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
     old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
@@ -1741,11 +1741,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         b: Path
         diff: whatthepatch.patch.diffobj
 
-    flat_last_push_repo: git.Repo = unsubmodule_repo(flat_last_push_repo)
+    unsub_repo: git.Repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
-    flat_anki_remote.fetch()
-    raw_unified_patch: str = flat_last_push_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+    unsub_anki_remote.fetch()
+    raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
     patches: List[Patch] = []
     for diff in whatthepatch.parse_patch(raw_unified_patch):
         a_path = diff.header.old_path
@@ -1762,8 +1762,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         patch = Patch(Path(a_path), Path(b_path), diff)
         patches.append(patch)
 
-    logger.debug(f"Flat last push repo root: {flat_last_push_repo.working_dir}")
-    # Apply patches within submodules.
+    logger.debug(f"Flat last push repo root: {unsub_repo.working_dir}")
 
     # Get paths to submodules.
     subrepos: Dict[ExtantDir, git.Repo] = {}
@@ -1773,6 +1772,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_root: ExtantDir = F.working_dir(sm_repo)
             subrepos[sm_root] = sm_repo
 
+            # Remove submodules directories from remote repo.
+            sm_rel_root: Path = sm_root.relative_to(last_push_root)
+            remote_repo.git.rm(["-r", str(sm_rel_root)])
+
+    remote_repo.git.add(all=True)
+    remote_repo.index.commit("Remove submodule directories.")
+    logger.debug(f"remote repo root: {remote_repo.working_dir}")
+
+    # Apply patches within submodules.
     for patch in patches:
         for sm_root, sm_repo in subrepos.items():
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
@@ -1811,12 +1819,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 logger.debug(f"SM root: {sm_repo.working_dir}")
                 sm_repo.git.apply([patch_path])
 
-    # Configure sparse checkout to avoid pulling directories that are submodules.
-    last_push_repo.git.config("core.sparsecheckout", "true")
-    with open(F.git_dir(last_push_repo) / "info" / "sparse-checkout", "a+") as f:
-        for sm_root in subrepos:
-            sm_rel_root: Path = sm_root.relative_to(last_push_root)
-            f.write(str(sm_rel_root) + "\n")
     logger.debug(f"Last push repo root: {last_push_repo.working_dir}")
     # =================== NEW PULL ARCHITECTURE ====================
 
