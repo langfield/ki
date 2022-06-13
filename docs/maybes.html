@@ -34,25 +34,26 @@
 &#34;&#34;&#34;Monadic factory functions for safely handling errors in type construction.&#34;&#34;&#34;
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
-# pylint: disable=too-many-return-statements, too-many-lines
+# pylint: disable=too-many-return-statements, too-many-lines, import-self
 
 import configparser
 from pathlib import Path
 
 import git
-from result import Result, Err, Ok, OkErr
-
 from beartype import beartype
+
+import anki
+from anki.collection import Collection
 
 import ki.maybes as M
 import ki.functional as F
-from ki.monadic import monadic
 from ki.types import (
     MODELS_FILE,
     ExtantFile,
     ExtantDir,
     EmptyDir,
     NoPath,
+    NoFile,
     KiRepo,
     KiRepoRef,
     RepoRef,
@@ -61,12 +62,14 @@ from ki.types import (
     ExpectedFileButGotDirectoryError,
     ExpectedDirectoryButGotFileError,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
+    ExpectedNonexistentPathError,
     StrangeExtantPathError,
     NotKiRepoError,
     GitRefNotFoundError,
+    GitHeadRefNotFoundError,
+    AnkiAlreadyOpenError,
 )
-
-FS_ROOT = Path(&#34;/&#34;)
+from ki.functional import FS_ROOT
 
 KI = &#34;.ki&#34;
 GIT = &#34;.git&#34;
@@ -77,7 +80,6 @@ CONFIG_FILE = &#34;config&#34;
 HASHES_FILE = &#34;hashes&#34;
 BACKUPS_DIR = &#34;backups&#34;
 LAST_PUSH_FILE = &#34;last_push&#34;
-NO_SM_DIR = &#34;no_submodules_tree&#34;
 
 REMOTE_CONFIG_SECTION = &#34;remote&#34;
 COLLECTION_FILE_PATH_CONFIG_FIELD = &#34;path&#34;
@@ -103,8 +105,8 @@ local ones. It may be missing because the current ki repository has become
 corrupted.
 &#34;&#34;&#34;
 
-MODELS_FILE_INFO = &#34;&#34;&#34;
-This is the top-level &#39;models.json&#39; file, which contains serialized notetypes
+MODELS_FILE_INFO = f&#34;&#34;&#34;
+This is the top-level &#39;{MODELS_FILE}&#39; file, which contains serialized notetypes
 for all notes in the current repository. Ki should always create this during
 cloning. If it has been manually deleted, try reverting to an earlier commit.
 Otherwise, it may indicate that the repository has become corrupted.
@@ -114,13 +116,6 @@ LAST_PUSH_FILE_INFO = &#34;&#34;&#34;
 This is the &#39;.ki/last_push&#39; file, used internally by ki to keep diffs and
 eliminate unnecessary merge conflicts during pull operations. It should never
 be missing, and if it is, the repository may have become corrupted.
-&#34;&#34;&#34;
-
-NO_MODULES_DIR_INFO = &#34;&#34;&#34;
-This is the &#39;.ki/no_submodules_tree&#39; file, used internally by ki to keep track
-of what notes need to be written/modified/deleted in the Anki database. It
-should never be missing, and if it is, the repository may have become
-corrupted.
 &#34;&#34;&#34;
 
 COL_FILE_INFO = &#34;&#34;&#34;
@@ -134,22 +129,32 @@ deleted. The path can be manually fixed by editing the &#39;.ki/config&#39; file
 # MAYBES
 
 
-@monadic
 @beartype
-def nopath(path: Path) -&gt; Result[NoPath, Exception]:
+def nopath(path: Path) -&gt; NoPath:
     &#34;&#34;&#34;
     Maybe convert a path to a NoPath, i.e. a path that did not exist at
     resolve-time, which is when this function was called.
     &#34;&#34;&#34;
     path = path.resolve()
     if path.exists():
-        return Err(FileExistsError(str(path)))
-    return Ok(NoPath(path))
+        raise ExpectedNonexistentPathError(path)
+    return NoPath(path)
 
 
-@monadic
 @beartype
-def xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception]:
+def nofile(path: Path) -&gt; NoFile:
+    &#34;&#34;&#34;
+    Maybe convert a path to a NoPath, i.e. a path that did not exist at
+    resolve-time, which is when this function was called.
+    &#34;&#34;&#34;
+    path = path.resolve()
+    path = M.nopath(path)
+    M.xdir(path.parent)
+    return NoFile(path)
+
+
+@beartype
+def xfile(path: Path, info: str = &#34;&#34;) -&gt; ExtantFile:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantFile.
     &#34;&#34;&#34;
@@ -158,19 +163,18 @@ def xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception
 
     # Check that path exists and is a file.
     if not path.exists():
-        return Err(MissingFileError(path, info))
+        raise MissingFileError(path, info)
     if path.is_dir():
-        return Err(ExpectedFileButGotDirectoryError(path, info))
+        raise ExpectedFileButGotDirectoryError(path, info)
     if not path.is_file():
-        return Err(StrangeExtantPathError(path, info))
+        raise StrangeExtantPathError(path, info)
 
     # Must be an extant file.
-    return Ok(ExtantFile(path))
+    return ExtantFile(path)
 
 
-@monadic
 @beartype
-def xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
+def xdir(path: Path, info: str = &#34;&#34;) -&gt; ExtantDir:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantDir.
     &#34;&#34;&#34;
@@ -179,48 +183,40 @@ def xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
 
     # Check that path exists and is a directory.
     if not path.exists():
-        return Err(MissingDirectoryError(path, info))
+        raise MissingDirectoryError(path, info)
     if path.is_dir():
-        return Ok(ExtantDir(path))
+        return ExtantDir(path)
     if path.is_file():
-        return Err(ExpectedDirectoryButGotFileError(path, info))
-    return Err(StrangeExtantPathError(path, info))
+        raise ExpectedDirectoryButGotFileError(path, info)
+    raise StrangeExtantPathError(path, info)
 
 
-@monadic
 @beartype
-def emptydir(path: Path) -&gt; Result[ExtantDir, Exception]:
+def emptydir(path: Path) -&gt; ExtantDir:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantDir.
     &#34;&#34;&#34;
     # Check if it&#39;s an extant directory.
-    res: OkErr = M.xdir(path)
-
-    # Return the Err if not.
-    if res.is_err():
-        return res
-
-    # Unwrap the value otherwise.
-    directory: ExtantDir = res.unwrap()
+    directory: ExtantDir = M.xdir(path)
     if F.is_empty(directory):
-        return Ok(EmptyDir(Path(directory).resolve()))
-    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))
+        return EmptyDir(Path(directory).resolve())
+    raise ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(directory)
 
 
-@monadic
 @beartype
-def repo(root: ExtantDir) -&gt; Result[git.Repo, Exception]:
+def repo(root: ExtantDir) -&gt; git.Repo:
     &#34;&#34;&#34;Read a git repo safely.&#34;&#34;&#34;
     try:
-        repo = git.Repo(root)
+        repository = git.Repo(root)
     except git.InvalidGitRepositoryError as err:
-        return Err(err)
-    return Ok(repo)
+        # TODO: Make this error more descriptive. It currently sucks. A test
+        # should be written for &#39;M.kirepo()&#39; in which we return this error.
+        raise err
+    return repository
 
 
-@monadic
 @beartype
-def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
+def kirepo(cwd: ExtantDir) -&gt; KiRepo:
     &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
     current = cwd
 
@@ -234,11 +230,11 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
         current = F.parent(current)
 
     if current == FS_ROOT:
-        return Err(NotKiRepoError())
+        raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.
     root = current
-    repo: OkErr = M.repo(root)
+    repository: git.Repo = M.repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
     backups_dir = M.xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
@@ -247,50 +243,14 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
     last_push_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
-    # Load the no_submodules_tree.
-    no_modules_dir = M.xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M.repo(no_modules_dir)
-
     # Check that collection file exists.
-    if config_file.is_err():
-        return config_file
-    config_file: ExtantFile = config_file.unwrap()
     config = configparser.ConfigParser()
     config.read(config_file)
     col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
     col_file = M.xfile(col_file, info=COL_FILE_INFO)
 
-    @monadic
-    @beartype
-    def constructor(
-        repo: git.Repo,
-        root: ExtantDir,
-        ki_dir: ExtantDir,
-        col_file: ExtantFile,
-        backups_dir: ExtantDir,
-        config_file: ExtantFile,
-        hashes_file: ExtantFile,
-        models_file: ExtantFile,
-        last_push_file: ExtantFile,
-        no_modules_repo: git.Repo,
-    ) -&gt; Result[KiRepo, Exception]:
-        return Ok(
-            KiRepo(
-                repo,
-                root,
-                ki_dir,
-                col_file,
-                backups_dir,
-                config_file,
-                hashes_file,
-                models_file,
-                last_push_file,
-                no_modules_repo,
-            )
-        )
-
-    return constructor(
-        repo,
+    return KiRepo(
+        repository,
         root,
         ki_dir,
         col_file,
@@ -299,46 +259,43 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
         hashes_file,
         models_file,
         last_push_file,
-        no_modules_repo,
     )
 
 
-@monadic
 @beartype
-def kirepo_ref(kirepo: KiRepo, sha: str) -&gt; Result[KiRepoRef, Exception]:
-    if not F.ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))
+def repo_ref(repository: git.Repo, sha: str) -&gt; RepoRef:
+    if not F.ref_exists(repository, sha):
+        raise GitRefNotFoundError(repository, sha)
+    return RepoRef(repository, sha)
 
 
-@monadic
 @beartype
-def repo_ref(repo: git.Repo, sha: str) -&gt; Result[RepoRef, Exception]:
-    if not F.ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))
-
-
-@monadic
-@beartype
-def head_repo_ref(repo: git.Repo) -&gt; Result[RepoRef, Exception]:
+def head_repo_ref(repository: git.Repo) -&gt; RepoRef:
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
+        ref = RepoRef(repository, repository.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
-    return Ok(ref)
+        raise GitHeadRefNotFoundError(repository, err) from err
+    return ref
 
 
-@monadic
 @beartype
-def head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
+def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
-        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
+        ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
-    return Ok(ref)</code></pre>
+        raise GitHeadRefNotFoundError(kirepository.repo, err) from err
+    return ref
+
+
+@beartype
+def collection(col_file: ExtantFile) -&gt; Collection:
+    try:
+        col = Collection(col_file)
+    except anki.errors.DBError as err:
+        raise AnkiAlreadyOpenError(str(err)) from err
+    return col</code></pre>
 </details>
 </section>
 <section>
@@ -348,8 +305,26 @@ def head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="ki.maybes.collection"><code class="name flex">
+<span>def <span class="ident">collection</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> anki.collection.Collection</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def collection(col_file: ExtantFile) -&gt; Collection:
+    try:
+        col = Collection(col_file)
+    except anki.errors.DBError as err:
+        raise AnkiAlreadyOpenError(str(err)) from err
+    return col</code></pre>
+</details>
+</dd>
 <dt id="ki.maybes.emptydir"><code class="name flex">
-<span>def <span class="ident">emptydir</span></span>(<span>path: pathlib.Path) ‑> Union[result.result.Ok[<a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">emptydir</span></span>(<span>path: pathlib.Path) ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Attempt to instantiate an ExtantDir.</p></div>
@@ -357,28 +332,20 @@ def head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def emptydir(path: Path) -&gt; Result[ExtantDir, Exception]:
+<pre><code class="python">@beartype
+def emptydir(path: Path) -&gt; ExtantDir:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantDir.
     &#34;&#34;&#34;
     # Check if it&#39;s an extant directory.
-    res: OkErr = M.xdir(path)
-
-    # Return the Err if not.
-    if res.is_err():
-        return res
-
-    # Unwrap the value otherwise.
-    directory: ExtantDir = res.unwrap()
+    directory: ExtantDir = M.xdir(path)
     if F.is_empty(directory):
-        return Ok(EmptyDir(Path(directory).resolve()))
-    return ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(str(directory))</code></pre>
+        return EmptyDir(Path(directory).resolve())
+    raise ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(directory)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.head_kirepo_ref"><code class="name flex">
-<span>def <span class="ident">head_kirepo_ref</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> Union[result.result.Ok[<a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">head_kirepo_ref</span></span>(<span>kirepository: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> <a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -386,19 +353,18 @@ def emptydir(path: Path) -&gt; Result[ExtantDir, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
+<pre><code class="python">@beartype
+def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
-        ref = KiRepoRef(kirepo, kirepo.repo.head.commit.hexsha)
+        ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
-    return Ok(ref)</code></pre>
+        raise GitHeadRefNotFoundError(kirepository.repo, err) from err
+    return ref</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.head_repo_ref"><code class="name flex">
-<span>def <span class="ident">head_repo_ref</span></span>(<span>repo: git.repo.base.Repo) ‑> Union[result.result.Ok[<a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">head_repo_ref</span></span>(<span>repository: git.repo.base.Repo) ‑> <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -406,19 +372,18 @@ def head_kirepo_ref(kirepo: KiRepo) -&gt; Result[KiRepoRef, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def head_repo_ref(repo: git.Repo) -&gt; Result[RepoRef, Exception]:
+<pre><code class="python">@beartype
+def head_repo_ref(repository: git.Repo) -&gt; RepoRef:
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
-        ref = RepoRef(repo, repo.head.commit.hexsha)
+        ref = RepoRef(repository, repository.head.commit.hexsha)
     except ValueError as err:
-        return Err(err)
-    return Ok(ref)</code></pre>
+        raise GitHeadRefNotFoundError(repository, err) from err
+    return ref</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.kirepo"><code class="name flex">
-<span>def <span class="ident">kirepo</span></span>(<span>cwd: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> Union[result.result.Ok[<a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">kirepo</span></span>(<span>cwd: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Get the containing ki repository of <code>path</code>.</p></div>
@@ -426,9 +391,8 @@ def head_repo_ref(repo: git.Repo) -&gt; Result[RepoRef, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
+<pre><code class="python">@beartype
+def kirepo(cwd: ExtantDir) -&gt; KiRepo:
     &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
     current = cwd
 
@@ -442,11 +406,11 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
         current = F.parent(current)
 
     if current == FS_ROOT:
-        return Err(NotKiRepoError())
+        raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.
     root = current
-    repo: OkErr = M.repo(root)
+    repository: git.Repo = M.repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
     backups_dir = M.xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
@@ -455,50 +419,14 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
     last_push_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
-    # Load the no_submodules_tree.
-    no_modules_dir = M.xdir(ki_dir / NO_SM_DIR, info=NO_MODULES_DIR_INFO)
-    no_modules_repo = M.repo(no_modules_dir)
-
     # Check that collection file exists.
-    if config_file.is_err():
-        return config_file
-    config_file: ExtantFile = config_file.unwrap()
     config = configparser.ConfigParser()
     config.read(config_file)
     col_file = Path(config[REMOTE_CONFIG_SECTION][COLLECTION_FILE_PATH_CONFIG_FIELD])
     col_file = M.xfile(col_file, info=COL_FILE_INFO)
 
-    @monadic
-    @beartype
-    def constructor(
-        repo: git.Repo,
-        root: ExtantDir,
-        ki_dir: ExtantDir,
-        col_file: ExtantFile,
-        backups_dir: ExtantDir,
-        config_file: ExtantFile,
-        hashes_file: ExtantFile,
-        models_file: ExtantFile,
-        last_push_file: ExtantFile,
-        no_modules_repo: git.Repo,
-    ) -&gt; Result[KiRepo, Exception]:
-        return Ok(
-            KiRepo(
-                repo,
-                root,
-                ki_dir,
-                col_file,
-                backups_dir,
-                config_file,
-                hashes_file,
-                models_file,
-                last_push_file,
-                no_modules_repo,
-            )
-        )
-
-    return constructor(
-        repo,
+    return KiRepo(
+        repository,
         root,
         ki_dir,
         col_file,
@@ -507,29 +435,11 @@ def kirepo(cwd: ExtantDir) -&gt; Result[KiRepo, Exception]:
         hashes_file,
         models_file,
         last_push_file,
-        no_modules_repo,
     )</code></pre>
 </details>
 </dd>
-<dt id="ki.maybes.kirepo_ref"><code class="name flex">
-<span>def <span class="ident">kirepo_ref</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, sha: str) ‑> Union[result.result.Ok[<a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a>], result.result.Err[Exception]]</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@monadic
-@beartype
-def kirepo_ref(kirepo: KiRepo, sha: str) -&gt; Result[KiRepoRef, Exception]:
-    if not F.ref_exists(kirepo.repo, sha):
-        return Err(GitRefNotFoundError(kirepo.repo, sha))
-    return Ok(KiRepoRef(kirepo, sha))</code></pre>
-</details>
-</dd>
-<dt id="ki.maybes.nopath"><code class="name flex">
-<span>def <span class="ident">nopath</span></span>(<span>path: pathlib.Path) ‑> Union[result.result.Ok[<a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>], result.result.Err[Exception]]</span>
+<dt id="ki.maybes.nofile"><code class="name flex">
+<span>def <span class="ident">nofile</span></span>(<span>path: pathlib.Path) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Maybe convert a path to a NoPath, i.e. a path that did not exist at
@@ -538,21 +448,42 @@ resolve-time, which is when this function was called.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def nopath(path: Path) -&gt; Result[NoPath, Exception]:
+<pre><code class="python">@beartype
+def nofile(path: Path) -&gt; NoFile:
+    &#34;&#34;&#34;
+    Maybe convert a path to a NoPath, i.e. a path that did not exist at
+    resolve-time, which is when this function was called.
+    &#34;&#34;&#34;
+    path = path.resolve()
+    path = M.nopath(path)
+    M.xdir(path.parent)
+    return NoFile(path)</code></pre>
+</details>
+</dd>
+<dt id="ki.maybes.nopath"><code class="name flex">
+<span>def <span class="ident">nopath</span></span>(<span>path: pathlib.Path) ‑> <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Maybe convert a path to a NoPath, i.e. a path that did not exist at
+resolve-time, which is when this function was called.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def nopath(path: Path) -&gt; NoPath:
     &#34;&#34;&#34;
     Maybe convert a path to a NoPath, i.e. a path that did not exist at
     resolve-time, which is when this function was called.
     &#34;&#34;&#34;
     path = path.resolve()
     if path.exists():
-        return Err(FileExistsError(str(path)))
-    return Ok(NoPath(path))</code></pre>
+        raise ExpectedNonexistentPathError(path)
+    return NoPath(path)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.repo"><code class="name flex">
-<span>def <span class="ident">repo</span></span>(<span>root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> Union[result.result.Ok[git.repo.base.Repo], result.result.Err[Exception]]</span>
+<span>def <span class="ident">repo</span></span>(<span>root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> git.repo.base.Repo</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Read a git repo safely.</p></div>
@@ -560,19 +491,20 @@ def nopath(path: Path) -&gt; Result[NoPath, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def repo(root: ExtantDir) -&gt; Result[git.Repo, Exception]:
+<pre><code class="python">@beartype
+def repo(root: ExtantDir) -&gt; git.Repo:
     &#34;&#34;&#34;Read a git repo safely.&#34;&#34;&#34;
     try:
-        repo = git.Repo(root)
+        repository = git.Repo(root)
     except git.InvalidGitRepositoryError as err:
-        return Err(err)
-    return Ok(repo)</code></pre>
+        # TODO: Make this error more descriptive. It currently sucks. A test
+        # should be written for &#39;M.kirepo()&#39; in which we return this error.
+        raise err
+    return repository</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.repo_ref"><code class="name flex">
-<span>def <span class="ident">repo_ref</span></span>(<span>repo: git.repo.base.Repo, sha: str) ‑> Union[result.result.Ok[<a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">repo_ref</span></span>(<span>repository: git.repo.base.Repo, sha: str) ‑> <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -580,16 +512,15 @@ def repo(root: ExtantDir) -&gt; Result[git.Repo, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def repo_ref(repo: git.Repo, sha: str) -&gt; Result[RepoRef, Exception]:
-    if not F.ref_exists(repo, sha):
-        return Err(GitRefNotFoundError(repo, sha))
-    return Ok(RepoRef(repo, sha))</code></pre>
+<pre><code class="python">@beartype
+def repo_ref(repository: git.Repo, sha: str) -&gt; RepoRef:
+    if not F.ref_exists(repository, sha):
+        raise GitRefNotFoundError(repository, sha)
+    return RepoRef(repository, sha)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.xdir"><code class="name flex">
-<span>def <span class="ident">xdir</span></span>(<span>path: pathlib.Path, info: str = '') ‑> Union[result.result.Ok[<a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">xdir</span></span>(<span>path: pathlib.Path, info: str = '') ‑> <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Attempt to instantiate an ExtantDir.</p></div>
@@ -597,9 +528,8 @@ def repo_ref(repo: git.Repo, sha: str) -&gt; Result[RepoRef, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
+<pre><code class="python">@beartype
+def xdir(path: Path, info: str = &#34;&#34;) -&gt; ExtantDir:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantDir.
     &#34;&#34;&#34;
@@ -608,16 +538,16 @@ def xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
 
     # Check that path exists and is a directory.
     if not path.exists():
-        return Err(MissingDirectoryError(path, info))
+        raise MissingDirectoryError(path, info)
     if path.is_dir():
-        return Ok(ExtantDir(path))
+        return ExtantDir(path)
     if path.is_file():
-        return Err(ExpectedDirectoryButGotFileError(path, info))
-    return Err(StrangeExtantPathError(path, info))</code></pre>
+        raise ExpectedDirectoryButGotFileError(path, info)
+    raise StrangeExtantPathError(path, info)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.xfile"><code class="name flex">
-<span>def <span class="ident">xfile</span></span>(<span>path: pathlib.Path, info: str = '') ‑> Union[result.result.Ok[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>], result.result.Err[Exception]]</span>
+<span>def <span class="ident">xfile</span></span>(<span>path: pathlib.Path, info: str = '') ‑> <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Attempt to instantiate an ExtantFile.</p></div>
@@ -625,9 +555,8 @@ def xdir(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantDir, Exception]:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@monadic
-@beartype
-def xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception]:
+<pre><code class="python">@beartype
+def xfile(path: Path, info: str = &#34;&#34;) -&gt; ExtantFile:
     &#34;&#34;&#34;
     Attempt to instantiate an ExtantFile.
     &#34;&#34;&#34;
@@ -636,14 +565,14 @@ def xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception
 
     # Check that path exists and is a file.
     if not path.exists():
-        return Err(MissingFileError(path, info))
+        raise MissingFileError(path, info)
     if path.is_dir():
-        return Err(ExpectedFileButGotDirectoryError(path, info))
+        raise ExpectedFileButGotDirectoryError(path, info)
     if not path.is_file():
-        return Err(StrangeExtantPathError(path, info))
+        raise StrangeExtantPathError(path, info)
 
     # Must be an extant file.
-    return Ok(ExtantFile(path))</code></pre>
+    return ExtantFile(path)</code></pre>
 </details>
 </dd>
 </dl>
@@ -669,11 +598,12 @@ def xfile(path: Path, info: str = &#34;&#34;) -&gt; Result[ExtantFile, Exception
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="two-column">
+<li><code><a title="ki.maybes.collection" href="#ki.maybes.collection">collection</a></code></li>
 <li><code><a title="ki.maybes.emptydir" href="#ki.maybes.emptydir">emptydir</a></code></li>
 <li><code><a title="ki.maybes.head_kirepo_ref" href="#ki.maybes.head_kirepo_ref">head_kirepo_ref</a></code></li>
 <li><code><a title="ki.maybes.head_repo_ref" href="#ki.maybes.head_repo_ref">head_repo_ref</a></code></li>
 <li><code><a title="ki.maybes.kirepo" href="#ki.maybes.kirepo">kirepo</a></code></li>
-<li><code><a title="ki.maybes.kirepo_ref" href="#ki.maybes.kirepo_ref">kirepo_ref</a></code></li>
+<li><code><a title="ki.maybes.nofile" href="#ki.maybes.nofile">nofile</a></code></li>
 <li><code><a title="ki.maybes.nopath" href="#ki.maybes.nopath">nopath</a></code></li>
 <li><code><a title="ki.maybes.repo" href="#ki.maybes.repo">repo</a></code></li>
 <li><code><a title="ki.maybes.repo_ref" href="#ki.maybes.repo_ref">repo_ref</a></code></li>

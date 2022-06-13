@@ -16,4 +16,5 @@ pyinstrument
 coverage
 pytest-mock
 result==0.7.0
-halo
+halo==0.0.31
+blake3==0.3.1
