@@ -94,6 +94,7 @@ class PushResult(Enum):
 @dataclass(frozen=True)
 class Patch:
     """Relative paths and a Diff object."""
+
     a: Path
     b: Path
     diff: whatthepatch.patch.diffobj

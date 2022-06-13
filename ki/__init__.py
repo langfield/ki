@@ -1748,10 +1748,20 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     raw_unified_patch: str = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
     patches: List[Patch] = []
     for diff in whatthepatch.parse_patch(raw_unified_patch):
-        a_path = diff.header.old_path
-        b_path = diff.header.new_path
-        a_path = a_path.lstrip("\"").rstrip("\"")
-        b_path = b_path.lstrip("\"").rstrip("\"")
+
+        @beartype
+        def unquote_diff_path(path: str) -> str:
+            if len(path) <= 4:
+                return path
+            if path[0] == '"' and path[-1] == '"':
+                path = path.lstrip('"').rstrip('"')
+            if path[:2] in ("a/", "b/"):
+                path = path[2:]
+            return path
+
+        a_path = unquote_diff_path(diff.header.old_path)
+        b_path = unquote_diff_path(diff.header.new_path)
+
         if a_path == DEV_NULL:
             a_path = b_path
         if b_path == DEV_NULL:
@@ -1780,13 +1790,22 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
     for patch in patches:
+        patched = False
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
             # of a submodule, but we just do this for now. In this case, we may
             # have `patch.a` not be relative to the submodule root (if we moved
             # a file into the sm dir), or vice-versa.
-            if patch.a.is_relative_to(sm_rel_root) and patch.b.is_relative_to(sm_rel_root):
+            logger.debug(f"Checking if patch paths are relative to '{sm_rel_root}'")
+            logger.debug(f"a: {patch.a}")
+            logger.debug(f"b: {patch.b}")
+            a_is_relative: bool = patch.a.is_relative_to(sm_rel_root)
+            b_is_relative: bool = patch.b.is_relative_to(sm_rel_root)
+            logger.debug(f"{a_is_relative = }")
+            logger.debug(f"{b_is_relative = }")
+
+            if a_is_relative and b_is_relative:
                 patch_bytes: bytes = patch.diff.text.encode()
 
                 # pylint: disable=not-callable
@@ -1812,6 +1831,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  '{patch.a}'\n"
+                logger.debug(f"In submodule: {sm_repo.working_dir}")
                 logger.debug(f"Applying patch:\n{patch_text}")
 
                 # Note that it is unnecessary to use `--3way` here, because
@@ -1839,7 +1859,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             if sm_rel_root in subrepos:
                 remote_target: ExtantDir = F.git_dir(subrepos[sm_rel_root])
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
-                git_pull(REMOTE_NAME, BRANCH_NAME, F.working_dir(sm_repo), False, False, False, False, silent)
+                git_pull(
+                    REMOTE_NAME,
+                    BRANCH_NAME,
+                    F.working_dir(sm_repo),
+                    False,
+                    False,
+                    False,
+                    False,
+                    silent,
+                )
                 sm_repo.delete_remote(sm_remote)
 
     # Commit new submodules commits in `last_push_repo`.
