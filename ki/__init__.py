@@ -1732,7 +1732,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
-    unsub_repo: git.Repo = unsubmodule_repo(unsub_repo)
+    # Update all submodules in `unsub_repo`. This is critically important,
+    # because it essentially 'rolls-back' commits made in submodules since the
+    # last successful ki push in the main repository. Our `copy_repo()` call
+    # does a `reset --hard` to the commit of the last push, but this does *not*
+    # do an equivalent rollback for submodules. So they may contain new local
+    # changes that we don't want. Calling `git submodule update` here checks
+    # out the commit that *was* recorded in the submodule file at the ref of
+    # the last push.
+    unsub_repo.git.submodule("update")
+    unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
     unsub_remote.fetch()
