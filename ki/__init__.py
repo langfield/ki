@@ -1751,24 +1751,24 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         patches.append(patch)
 
     # Get paths to submodules.
-    subrepos: Dict[ExtantDir, git.Repo] = {}
+    subrepos: Dict[Path, git.Repo] = {}
     for sm in last_push_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_root: ExtantDir = F.working_dir(sm_repo)
-            subrepos[sm_root] = sm_repo
+            sm_rel_root: Path = sm_root.relative_to(last_push_root)
+            subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
-            sm_rel_root: Path = sm_root.relative_to(last_push_root)
             remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     remote_repo.git.add(all=True)
     remote_repo.index.commit("Remove submodule directories.")
 
     # Apply patches within submodules.
+    msg = "Applying patches:\n\n"
     for patch in patches:
-        for sm_root, sm_repo in subrepos.items():
-            sm_rel_root: Path = sm_root.relative_to(last_push_root)
+        for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
             # of a submodule, but we just do this for now. In this case, we may
@@ -1799,7 +1799,36 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text = patch_text.replace(str(patch.a), str(a_relpath))
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
+                msg += f"  '{patch.a}'\n"
+                logger.debug(f"Applying patch:\n{patch_text}")
                 sm_repo.git.apply(patch_path)
+
+    # Commit patches in submodules.
+    for sm_repo in subrepos.values():
+        sm_repo.git.add(all=True)
+        sm_repo.index.commit(msg)
+
+    # TODO: What if a submodule was deleted (or added) entirely?
+
+    # TODO: New commits in submodules within `last_push_repo` must be pulled
+    # into the submodules within `kirepo.repo`. This can be done by adding a
+    # remote pointing to the patched submodule in each corresponding submodule
+    # in the main repository, and then pulling from that remote. Then the
+    # remote should be deleted. Remote could be called `patch` or something.
+    for sm in kirepo.repo.submodules:
+        if sm.exists() and sm.module_exists():
+            sm_repo: git.Repo = sm.module()
+            sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
+            if sm_rel_root in subrepos:
+                remote_target: ExtantDir = F.git_dir(subrepos[sm_rel_root])
+                sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
+                git_pull(REMOTE_NAME, BRANCH_NAME, F.working_dir(sm_repo), False, False, False, False, silent)
+                sm_repo.delete_remote(sm_remote)
+
+    # Commit new submodules commits in `last_push_repo`.
+    last_push_repo.git.add(all=True)
+    last_push_repo.index.commit(msg)
+
     # =================== NEW PULL ARCHITECTURE ====================
 
     old_cwd: ExtantDir = F.chdir(last_push_root)
@@ -1924,7 +1953,7 @@ def push() -> PushResult:
     if PROFILE:
         profiler.stop()
         s = profiler.output_html()
-        Path("ki_push_profile.html").resolve().write_text(s)
+        Path("ki_push_profile.html").resolve().write_text(s, encoding="UTF-8")
 
     return result
 
