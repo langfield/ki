@@ -179,6 +179,11 @@ TODO
   Specifically, if you have add a submodule called `a` but its top-level deck
   is called `b`, then once pushed, every push will be nontrivial, because it
   will look like a path rename. (DONE)
+- Ki fails to pull deletions. If we:
+    CLONE
+    Delete a note in Anki
+    PULL
+  The note is still there in the repo.
 
 16-April-2022
 -------------

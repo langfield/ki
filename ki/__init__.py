@@ -1803,6 +1803,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     msg = "Applying patches:\n\n"
     bar = tqdm(patches, ncols=TQDM_NUM_COLS)
     bar.set_description("Patches")
+    patched_submodules: Set[Path] = set()
     for patch in bar:
         for sm_rel_root, sm_repo in subrepos.items():
 
@@ -1814,6 +1815,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             b_is_relative: bool = patch.b.is_relative_to(sm_rel_root)
 
             if a_is_relative and b_is_relative:
+                patched_submodules.add(sm_rel_root)
                 patch_bytes: bytes = patch.diff.text.encode()
 
                 # pylint: disable=not-callable
@@ -1845,6 +1847,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
                 sm_repo.git.apply(patch_path)
+
+    echo(f"Applied {len(patched_submodules)} patches within submodules.")
+    for sm_rel_root in patched_submodules:
+        echo(f"  Patched '{sm_rel_root}'")
 
     # Commit patches in submodules.
     with F.halo(text=f"Committing applied patches to submodules..."):
@@ -1889,7 +1895,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
         last_push_repo.git.add(all=True)
         last_push_repo.index.commit(msg)
-
     # =================== NEW PULL ARCHITECTURE ====================
 
     old_cwd: ExtantDir = F.chdir(last_push_root)
