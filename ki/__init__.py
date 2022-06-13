@@ -1459,6 +1459,22 @@ def echo_note_change_types(deltas: List[Delta]) -> None:
 @beartype
 def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
     """Add all new models."""
+
+    @beartype
+    def get_notetype_json(notetype: Notetype) -> str:
+        dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+        dictionary.pop("id")
+        inner = dictionary["dict"]
+        inner.pop("id")
+        inner.pop("mod")
+        dictionary["dict"] = inner
+        return json.dumps(dictionary, sort_keys=True, indent=4)
+
+    @beartype
+    def notetype_hash_repr(notetype: Notetype) -> str:
+        s = get_notetype_json(notetype)
+        return f"JSON for '{pp.pformat(notetype.id)}':\n{s}"
+
     for model in models.values():
 
         # TODO: Consider waiting to parse `models` until after the
@@ -1471,21 +1487,6 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         #
         # Check if a model already exists with this name, and get its `mid`.
         mid: Optional[int] = col.models.id_for_name(model.name)
-
-        @beartype
-        def get_notetype_json(notetype: Notetype) -> str:
-            dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-            dictionary.pop("id")
-            inner = dictionary["dict"]
-            inner.pop("id")
-            inner.pop("mod")
-            dictionary["dict"] = inner
-            return json.dumps(dictionary, sort_keys=True, indent=4)
-
-        @beartype
-        def notetype_hash_repr(notetype: Notetype) -> str:
-            s = get_notetype_json(notetype)
-            return f"JSON for '{pp.pformat(notetype.id)}':\n{s}"
 
         # TODO: This block is unfinished. We need to add new notetypes (and
         # rename them) only if they are 'new', where new means they are
@@ -1727,30 +1728,21 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_repo.git.config("pull.rebase", "false")
 
     # =================== NEW PULL ARCHITECTURE ====================
+    import blake3
+    import tempfile
+    import whatthepatch
+    DEV_NULL = "/dev/null"
     @beartype
     @dataclass(frozen=True)
-    class DiffPath:
-        a: str
-        b: str
+    class Patch:
+        a: Path
+        b: Path
+        file: ExtantFile
 
-    DEV_NULL = "/dev/null"
+    patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
-    head: git.Commit = last_push_repo.commit("HEAD")
-    fetch_head: git.Commit = last_push_repo.commit("FETCH_HEAD")
-    diffpaths: Set[DiffPath] = set()
-    for d in head.diff(fetch_head, create_patch=True, binary=True):
-        a: str = DEV_NULL if d.a_rawpath is None else d.a_rawpath.decode('utf-8')
-        b: str = DEV_NULL if d.b_rawpath is None else d.b_rawpath.decode('utf-8')
-        if a == DEV_NULL:
-            a = b
-        if b == DEV_NULL:
-            b = a
-        diffpaths.add(DiffPath(a, b))
-
-    logger.debug("Monolithic:\n")
     raw_unified_patch: str = last_push_repo.git.diff("FETCH_HEAD", binary=True)
-
-    import whatthepatch
+    patches: Dict[Path, Patch] = {}
     for diff in whatthepatch.parse_patch(raw_unified_patch):
         a_path = diff.header.old_path
         b_path = diff.header.new_path
@@ -1760,45 +1752,32 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
-        logger.debug(a_path)
-        logger.debug(b_path)
-        logger.debug(diff.text)
+        a_path = Path(last_push_repo.working_dir) / a_path
+        b_path = Path(last_push_repo.working_dir) / b_path
 
-    """
-    DIFF_DELIMITER = "\ndiff --git "
-    patches: List[str] = patch.split(DIFF_DELIMITER)
-    patches = [DIFF_DELIMITER + patch for patch in patches]
-    """
-    
+        patch_bytes: bytes = diff.text.encode()
+        patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
+        patch_path: NoFile = F.test(patches_dir / patch_hash)
+        patch_path: ExtantFile = F.write(patch_path, diff.text)
 
-    
-    """
-    patch_map: Dict[DiffPath, str] = {}
-    for diffpath in diffpaths:
-        patchset = set(patches)
-        first_line, _, _ = patch.partition("\n")
-        found = False
-        found_patch: str = ""
-        for patch in patchset:
-            if diffpath.a in first_line and diffpath.b in first_line:
-                patch_map[diffpath] = patch
-                found = True
-                break
+        patch = Patch(a_path, b_path, patch_path)
+        patches[b_path] = patch
 
-    patch_map: Dict[DiffPath, str] = {}
-    for patch in patches:
-        first_line, _, _ = patch.partition("\n")
-        found = False
-        for diffpath in diffpaths:
-            if diffpath.a in first_line and diffpath.b in first_line:
-                patch_map[diffpath] = patch
-                found = True
-                break
-        if not found:
-            raise RuntimeError(f"Failed to resolve paths for patch {patch}")
-        logger.debug(f"Patch: \n{patch}")
-    """
+    # Apply patches within submodules.
 
+    # Get paths to submodules.
+    subrepos: Dict[ExtantDir, git.Repo] = {}
+    for sm in last_push_repo.submodules:
+        if sm.exists() and sm.module_exists():
+            sm_repo: git.Repo = sm.module()
+            sm_root: ExtantDir = F.working_dir(sm_repo)
+            subrepos[sm_root] = sm_repo
+
+    for path, patch in patches.items():
+        for root, sm_repo in subrepos.items():
+            if path.is_relative_to(root):
+                logger.debug(f"FOUND SUBMODULE DIFF: {path} with patch at {patch.file.name}")
+                sm_repo.git.apply(["-3", patch.file])
     # =================== NEW PULL ARCHITECTURE ====================
 
     git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
