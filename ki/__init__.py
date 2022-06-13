@@ -1714,6 +1714,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     with F.halo(text=f"Checking out repo at '{sha}'..."):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
         last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
+        flat_last_push_repo: git.Repo = copy_repo(ref, f"flat-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1723,6 +1724,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
+    flat_anki_remote = flat_last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
     last_push_root: ExtantDir = F.working_dir(last_push_repo)
     old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
@@ -1739,9 +1741,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         b: Path
         diff: whatthepatch.patch.diffobj
 
+    flat_last_push_repo: git.Repo = unsubmodule_repo(flat_last_push_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
-    raw_unified_patch: str = last_push_repo.git.diff("FETCH_HEAD", binary=True)
+    flat_anki_remote.fetch()
+    raw_unified_patch: str = flat_last_push_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
     patches: List[Patch] = []
     for diff in whatthepatch.parse_patch(raw_unified_patch):
         a_path = diff.header.old_path
@@ -1752,10 +1756,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
+        if len(diff.text) < 2000:
+            logger.debug(diff.text)
 
         patch = Patch(Path(a_path), Path(b_path), diff)
         patches.append(patch)
 
+    logger.debug(f"Flat last push repo root: {flat_last_push_repo.working_dir}")
     # Apply patches within submodules.
 
     # Get paths to submodules.
@@ -1768,7 +1775,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     for patch in patches:
         for sm_root, sm_repo in subrepos.items():
-            sm_rel_root: Path = Path(sm_root.name)
+            sm_rel_root: Path = sm_root.relative_to(last_push_root)
 
             # TODO: We must also treat case where we moved a file into or out
             # of a submodule, but we just do this for now.
@@ -1793,7 +1800,24 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
 
                 logger.debug(f"FOUND SUBMODULE DIFF: {b_relpath} with patch at {patch_path}")
-                sm_repo.git.apply(["-3", patch_path])
+                header = patch_text.split('\n')[0]
+                logger.debug(f"Trying to apply: {header}")
+                src_path = F.test(sm_rel_root / a_relpath)
+                if isinstance(src_path, NoFile):
+                    logger.debug(f"Touching {src_path}")
+                    src_path: ExtantFile = F.touch(F.test(src_path.parent), src_path.name)
+                if isinstance(src_path, NoPath):
+                    raise FileNotFoundError(f"Can't find parent directory of '{src_path}'")
+                logger.debug(f"SM root: {sm_repo.working_dir}")
+                sm_repo.git.apply([patch_path])
+
+    # Configure sparse checkout to avoid pulling directories that are submodules.
+    last_push_repo.git.config("core.sparsecheckout", "true")
+    with open(F.git_dir(last_push_repo) / "info" / "sparse-checkout", "a+") as f:
+        for sm_root in subrepos:
+            sm_rel_root: Path = sm_root.relative_to(last_push_root)
+            f.write(str(sm_rel_root) + "\n")
+    logger.debug(f"Last push repo root: {last_push_repo.working_dir}")
     # =================== NEW PULL ARCHITECTURE ====================
 
     git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
