@@ -1,6 +1,6 @@
-<p align="center">
+<h1 align="center">
   <img src="./docs/u1F367-shavedice.svg" width="25%" height="25%">
-</p>
+</h1>
 
 **Ki** is a
 [command-line](https://developer.mozilla.org/en-US/docs/Learn/Tools_and_testing/Understanding_client-side_tools/Command_line)
