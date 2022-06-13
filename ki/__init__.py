@@ -1767,9 +1767,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
-        logger.debug(f"Examining patch for {a_path}")
-        if a_path[-3:] == ".md":
-            logger.debug(f"Patch contents for {a_path}:\n{diff.text}")
         patch = Patch(Path(a_path), Path(b_path), diff)
         patches.append(patch)
 
@@ -1798,13 +1795,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             # of a submodule, but we just do this for now. In this case, we may
             # have `patch.a` not be relative to the submodule root (if we moved
             # a file into the sm dir), or vice-versa.
-            logger.debug(f"Checking if patch paths are relative to '{sm_rel_root}'")
-            logger.debug(f"a: {patch.a}")
-            logger.debug(f"b: {patch.b}")
             a_is_relative: bool = patch.a.is_relative_to(sm_rel_root)
             b_is_relative: bool = patch.b.is_relative_to(sm_rel_root)
-            logger.debug(f"{a_is_relative = }")
-            logger.debug(f"{b_is_relative = }")
 
             if a_is_relative and b_is_relative:
                 patch_bytes: bytes = patch.diff.text.encode()
@@ -1832,8 +1824,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  '{patch.a}'\n"
-                logger.debug(f"In submodule: {sm_repo.working_dir}")
-                logger.debug(f"Applying patch:\n{patch_text}")
 
                 # Note that it is unnecessary to use `--3way` here, because
                 # this submodule is supposed to represent a fast-forward from
@@ -1854,13 +1844,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # in the main repository, and then pulling from that remote. Then the
     # remote should be deleted. Remote could be called `patch` or something.
     for sm in kirepo.repo.submodules:
-        logger.debug(f"Found submodule {sm}")
         if sm.exists() and sm.module_exists():
-            logger.debug(f"Found extant submodule {sm}")
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
             if sm_rel_root in subrepos:
-                logger.debug(f"Matched to path {sm_rel_root}")
                 remote_sm: git.Repo = subrepos[sm_rel_root]
 
                 # Put detached HEAD back on `main` in the remote submodule.
