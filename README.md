@@ -22,3 +22,9 @@ command:
 ```bash
 pip install git+https://github.com/langfield/ki.git@main
 ```
+
+### Questions
+
+Want to try this but can't figure out how? **Please, please** [open an
+issue](https://github.com/langfield/ki/issues/new) and explain what you need
+help with. Any and all complaints, questions, and rants are welcome!

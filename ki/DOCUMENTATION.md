@@ -1,114 +1,24 @@
 
-`ki` provides command-line functions to:
+Ki provides command-line functions to:
 
 1. **clone** a `.anki2` collection into a directory as a git repository.
 2. **pull** changes from the Anki desktop client (and AnkiWeb) into an existing
    repository.
 3. **push** changes (safely!) back to Anki.
 
-### Source code
-This is documentation for the `ki`
-[repository](https://github.com/langfield/ki). If you have `git`, you can clone
-a local copy of the source code by running the following command in a terminal:
-```bash
-git clone git@github.com:langfield/ki.git
-```
+
+This is documentation for the ki
+[repository](https://github.com/langfield/ki). 
 
 # Installation
-`ki` is tested on Python 3.9 and Anki 2.1.49.
 
-1. Install the `ki` package from PyPI:
+Ki is tested on Python 3.9. You'll need to install Python and Git, and then run
+the following command in a terminal:
+
+1. Install the `ki` package:
 ```bash
-pip install anki-ki
+pip install git+https://github.com/langfield/ki.git@main
 ```
-
-# Usage reference
-
-## Clone
-
-The `ki clone` command takes one required argument (the path to a `.anki2`
-file) and one optional argument (a path to a target directory). The usage is
-meant to mirror that of `git clone`.
-
-An example of the `clone` subcommand usage and its output is given below.
-
-```bash
-$ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
-```
-```bash
-Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
-Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
-Wrote md5sum to '/home/lyra/decks/.ki/hashes'
-Cloning into '/home/lyra/decks/'...
-100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
-```
-
-## Pull
-
-Once an Anki collection has been cloned, we can `pull` changes made by the Anki
-desktop client into our repository.
-
-An example of the `pull` subcommand usage and its output is given below.
-
-```bash
-$ ki pull
-```
-```bash
-Pulling from '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
-Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
-Updating 5a9ef09..9c30b73
-Fast-forward
- note1645010162168.md |  4 ++--
- note1645222430007.md | 11 +++++++++++
- 2 files changed, 13 insertions(+), 2 deletions(-)
- create mode 100644 note1645222430007.md
-
-From /tmp/tmpt5a3yd9a/ki/local/199216c39eeabe23a1da016a99ffd3e2/
- * branch            main       -> FETCH_HEAD
- * [new branch]      main       -> anki/main
-
-Wrote md5sum to '/home/lyra/decks/.ki/hashes'
-```
-
-`ki` first deletes any residual ephemeral repositories in `/tmp/ki/remote/`.
-These would only remain here if a previous pull command failed.
-
-It then verifies that the path to the `.anki2` file specified in the `.ki/`
-directory (analogous to the `.git/` directory) still exists.
-
-It computes and records the hash of the collection file. In this way, `ki`
-keeps track of whether the collection database has changed since the last
-`clone`/`pull`.
-
-Finally, the collection is then cloned into an ephemeral repository in a temp
-directory, which is then `git pull`-ed into the current repository.
-
-At this point, if the git operation fails, the user can take over and manage
-the merge themselves.
-
-## Push
-
-When we want to push our changes back to the Anki desktop client, we can use
-`ki push` to do that.
-
-An example of the `push` subcommand usage and its output is given below.
-
-```bash
-$ ki push
-```
-```bash
-Pushing to '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
-Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
-Verified md5sum matches latest hash in '/home/lyra/decks/.ki/hashes'
-Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49
-Writing changes to '/tmp/tmpyiids2qm/original.anki2'...
-100%|█████████████████████████████████| 2/2 [00:00<00:00, 1081.56it/s]
-Database was modified.
-Writing backup of .anki2 file to '/home/lyra/decks/.ki/backups'
-Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
-```
-
-We store 5 backups of the collection prior to a push.
 
 # Getting started
 [getting started]: #getting-started
@@ -455,7 +365,93 @@ repositories *are* git repositories), we refer to
 [StackOverflow](https://stackoverflow.com/questions/161813/how-to-resolve-merge-conflicts-in-a-git-repository)
 for how to proceed.
 
+# Usage reference
 
+## Clone
+
+The `ki clone` command takes one required argument (the path to a `.anki2`
+file) and one optional argument (a path to a target directory). The usage is
+meant to mirror that of `git clone`.
+
+An example of the `clone` subcommand usage and its output is given below.
+
+```bash
+$ ki clone ~/.local/share/Anki2/lyra/collection.anki2 decks
+```
+```bash
+Found .anki2 file at '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: ad7ea6d486a327042cf0b09b54626b66
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
+Cloning into '/home/lyra/decks/'...
+100%|█████████████████████████| 28886/28886 [00:10<00:00, 2883.78it/s]
+```
+
+## Pull
+
+Once an Anki collection has been cloned, we can `pull` changes made by the Anki
+desktop client into our repository.
+
+An example of the `pull` subcommand usage and its output is given below.
+
+```bash
+$ ki pull
+```
+```bash
+Pulling from '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Updating 5a9ef09..9c30b73
+Fast-forward
+ note1645010162168.md |  4 ++--
+ note1645222430007.md | 11 +++++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+ create mode 100644 note1645222430007.md
+
+From /tmp/tmpt5a3yd9a/ki/local/199216c39eeabe23a1da016a99ffd3e2/
+ * branch            main       -> FETCH_HEAD
+ * [new branch]      main       -> anki/main
+
+Wrote md5sum to '/home/lyra/decks/.ki/hashes'
+```
+
+`ki` first deletes any residual ephemeral repositories in `/tmp/ki/remote/`.
+These would only remain here if a previous pull command failed.
+
+It then verifies that the path to the `.anki2` file specified in the `.ki/`
+directory (analogous to the `.git/` directory) still exists.
+
+It computes and records the hash of the collection file. In this way, `ki`
+keeps track of whether the collection database has changed since the last
+`clone`/`pull`.
+
+Finally, the collection is then cloned into an ephemeral repository in a temp
+directory, which is then `git pull`-ed into the current repository.
+
+At this point, if the git operation fails, the user can take over and manage
+the merge themselves.
+
+## Push
+
+When we want to push our changes back to the Anki desktop client, we can use
+`ki push` to do that.
+
+An example of the `push` subcommand usage and its output is given below.
+
+```bash
+$ ki push
+```
+```bash
+Pushing to '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+Computed md5sum: 199216c39eeabe23a1da016a99ffd3e2
+Verified md5sum matches latest hash in '/home/lyra/decks/.ki/hashes'
+Generating local .anki2 file from latest commit: 2aa009729b6dd337dd1ce795df611f5a49
+Writing changes to '/tmp/tmpyiids2qm/original.anki2'...
+100%|█████████████████████████████████| 2/2 [00:00<00:00, 1081.56it/s]
+Database was modified.
+Writing backup of .anki2 file to '/home/lyra/decks/.ki/backups'
+Overwrote '/home/lyra/.local/share/Anki2/lyra/collection.anki2'
+```
+
+We store 5 backups of the collection prior to a push.
 
 # Collaborative decks
 
@@ -742,3 +738,10 @@ If we have an addon implementation, we can import it here and use it in our
 base64 encoding of the code block, and a `implementation` attribute whose value
 is the name of a function. At import-time, `ki` will decode this and write the
 human-readable source to the relevant markdown file instead.
+
+### Source code
+If you have `git`, you can clone
+a local copy of the source code by running the following command in a terminal:
+```bash
+git clone git@github.com:langfield/ki.git
+```
