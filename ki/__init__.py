@@ -1895,12 +1895,21 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             last_push_repo.index.commit(msg)
 
     # Handle deleted files, preferring `theirs`.
+    deletes = 0
+    del_msg = "Remove files deleted in remote.\n\n"
     diff_index = last_push_repo.commit("HEAD").diff(last_push_repo.commit("FETCH_HEAD"))
     for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
         a_path: Path = F.test(last_push_root / diff.a_path)
         if isinstance(a_path, ExtantFile):
             logger.debug(f"Found file deleted in remote: '{a_path}'")
             last_push_repo.git.rm(diff.a_path)
+            del_msg += f"Remove '{a_path}'\n"
+            deletes += 1
+
+    if deletes > 0:
+        with F.halo(text=f"Committing remote deletions to stage repository at '{last_push_repo.working_dir}'..."):
+            last_push_repo.git.add(all=True)
+            last_push_repo.index.commit(del_msg)
 
     # =================== NEW PULL ARCHITECTURE ====================
 
