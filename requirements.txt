@@ -18,3 +18,4 @@ pytest-mock
 result==0.7.0
 halo==0.0.31
 blake3==0.3.1
+whatthepatch==1.0.2
