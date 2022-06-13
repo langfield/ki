@@ -1,0 +1,1138 @@
++--+
+|ki|
++--+
+
+
+Python package `ki` is a command-line interface for the version control and
+editing of ``.anki2`` collections as git repositories of markdown files.
+Rather than providing an interactive UI like the Anki desktop client, `ki` aims
+to allow natural editing *in the filesystem*.
+
+In general, the purpose of `ki` is to allow users to work on large, complex
+Anki decks in exactly the same way they work on large, complex software
+projects.
+
+
+TODO
+----
+- Add implementations to test function sigs in `tests/test_ki.py`. (DONE)
+- Add CLI tests that actually call the subcommands. (DONE)
+- Add `shell-doctest` tests for CLI subcommands. (NO)
+- Add implementations of `clone`, `pull`, and `push`. (DONE)
+- Make sure `push` acquires lock on SQLite3 file before overwriting. (DONE)
+- Make clone work on empty directories to match `git` behavior. (DONE)
+- Test utilities. (DONE)
+- Handle file deletion. (DONE)
+- Try doing one file per deck, and see if this is faster. (NO)
+- Handle merge conflicts better. (DONE)
+- Test that uncommitted changes do not get pushed. (DONE)
+- Test that repeated push-pull on up-to-date repo is no-op/idempotent. (DONE)
+- Test hashes and backups get committed or ignored. (DONE)
+- Test that parser handles leading '#' characters (currently doesn't).
+- Test warnings are captured.
+- Test that the existence of a backup file with an up-to-date checksum doesn't
+  prevent us from pushing.
+- Remove commit call that deletes .ki/initial (DONE)
+- Test that the sequence PULL -> EDIT -> PUSH -> PULL yields a no-op on the
+  last PULL.
+- Test ``get_fetch_head_sha``. (NO)
+- Test that .ki/ is in gitignore, and doesn't get committed.
+- Test that CLONE -> EDIT -> COMMIT -> PULL -> PUSH results in a nontrivial
+  PUSH.
+- Test that CLONE -> PULL NONTRIVIAL -> PUSH results in trivial PUSH.
+- Test that ephemeral clones are maximally shallow.
+- Test that the 'Initial commit' created on nontrivial PUSH ops is squashed
+  into the merge commit or at least given a better name (renaming is probably
+  the better option, because merges may not always succeed).
+- Write a 'Getting started' section with an example repository on github that
+  users can clone and pull into their collections with ki (requires submodule
+  support, which is not yet implemented).
+- Test that cloning deck repos from github and adding as submodules works as
+  expected.
+- Write a finite state machine test with the following operations as rules:
+    1.  clone
+    2.  pull
+    3.  push
+    4.  edit a field
+    5.  add a note
+    6.  delete a note
+    7.  the three above operations, but using the anki API
+    8.  changed the note type of a card
+    9.  add an image
+    10. all the above operations, but with subdecks
+- Separate tests into quick and slow. (NO)
+- Try working with a Japanese language deck. (DONE)
+- Test that the media folder isn't created outside the repository. (NO)
+- Test that actual merge conflicts are handled nicely.
+- Test that ki cleans up its tempdirs unless a debug flag is set. There is no
+  need to backup the ephemeral repos because those commits can be checked-out.
+- Use terminology other than FETCH_HEAD, because this no longer represents the
+  git ref FETCH_HEAD. (DONE)
+- Make notemap a namedtuple, dataclass, or Namespace (figure out which is
+  best). (DONE)
+- Test warnings are displayed for duplicate notes.
+- Test pure note deletion doesn't raise deprecation warning.
+- Test that push does not work if there are uncommitted changes. (NO)
+- Test that notes get renamed and their nids modified when being added.
+- Test that pull squashes initial commit and merge if and only if there were no
+  merge conflicts.
+- Test that deleting individual notes from files containing multiple notes
+  works as intended. (NO)
+- Test that push works when adding notes and with changes to the working tree
+  or untracked files (uncommitted stuff). (DONE)
+- Test that clone cleans up directory if it aborts due to invalid DB path.
+- Test the media folder is cloned, and that a warning is printed if it isn't
+  found.
+- Add a section in docs that explains what a `ki` repository is.
+- Try pdoc instead of pdoc3.
+- Convert path manipulation code to pathlib. (DONE)
+- Profile code. (DONE)
+- Use NestedText instead of markdown. (NO)
+- Add asciinema gif for simple workflow. (DONE)
+- Test that strange targetdirs are handled well.
+- Test branches work as expected.
+- Test that `apy` parser handles decks that don't exist (it doesn't, currrently).
+- Remove all beautiful soup usage. (DONE)
+- Test decknames with leadings dots and resulting collisions from stripping
+  dots.
+- Handle problem of notes with cards in distinct decks by symlinking notes,
+  making the choice of where the ground-truth note lives arbitrarily (perhaps
+  by choosing the deck with shortest name). (DONE)
+- Test that bug is squashed: slugify filters all characters from filename
+  causes files to not be put in appropriate directory. (More likely without
+  allowing UTF-8). (DONE)
+- Add this for html detection https://stackoverflow.com/a/70585604 (DONE)
+- Do fieldnames have to be distinct within a model? (DONE)
+- Consider writing a short vim plugin to fix syntax highlighting:
+  https://stackoverflow.com/a/34645680
+- Fix the following issue: since the location of card files within a ki
+  repository has semantic significance, i.e. determines which deck they are in,
+  it is important that we preserve the information of where symlinks live.
+  However, when we are pushing, it is possible that because of the
+  `Path.resolve()` calls littered everywhere, we are instead seeing that all
+  cards are in a single deck, because they all resolve to the location of the
+  note file corresponding to the first cid processed in the clone operation. A
+  test should be written for this.
+- There is a long time before any output when adding japanese-core-2000 as a
+  submodule, committing, and then pushing. (DONE)
+- Test that the stuff that checks out HEAD to avoid pushing working changes
+  does so for the submodules as well. What if submodules have working changes?
+  Does this push them? (DONE)
+- Investigate faster way to create ephemeral directories:
+  https://stackoverflow.com/questions/28157815/make-local-duplicate-of-local-git-repo
+  (DONE)
+- Add a full suite of submodule tests. (DONE)
+- Test that adding completely foreign models works as expected. (DONE)
+- Add tests for handling of Anki's `Default` deck. Anki does some weird magic
+  with the `Default` deck. If it has subdecks, but no cards directly belong to
+  `Default`, then it appears to be removed from the tree. Ki should remove it
+  as well during pushes if necessary, so that after a `pull()` or `push()` the
+  directory tree structure *always* matches the deck tree structure. See e.g.
+  `fn hide_default_deck` and `fn remove_single_deck` in
+  `rslib/src/decks/tree.rs`.
+- Test that the directory within which a card resides is meaningful. So moving
+  a card should change its deck. This will require removing the `deck` field
+  from the grammar, which is good. We can just replace spaces with hyphens in
+  any decks we upload to github, and it will still look reasonably nice. (DONE)
+- Make DB error shorter. Should just say 'database is locked'.
+- Refactor error message display logic. (DONE)
+- Test that models are not duplicated unnecessarily (see bug #14). (DONE)
+- Start using GitHub issues.
+- Serious bug: push logic is broken. The following sequence is an MWE:
+  CLONE
+  delete a note
+  PUSH
+  add note back inside anki
+  PULL
+  delete note again
+  PUSH
+
+  Before this last PUSH, the note exists inside anki. We've deleted it in our
+  repo, and committed the deletion, so when we push, the note should be gone
+  inside anki. But this is not what happens. Instead, it says `up to date`.
+  This is because `diff_repos()` takes the diff between the commit of our last
+  PUSH, at which point the note had been deleted, and the current HEAD, at
+  which point the note is *also* deleted. This is WRONG. What is the actual
+  diff we want? We want the diff between the REMOTE and the HEAD, and the
+  REMOTE is just the Anki collection as it sits on disk. Updates may have been
+  made to it since the last PUSH, and if we pull those changes, and then revert
+  them, these reversions will not "take", because there is no change between
+  the state at last PUSH and the state at current HEAD. And updates aren't
+  rejected because we just PULLed. So in order for the diff to be correct, we
+  must get a temp repo reset to LAST PUSH COMMIT REF, and then pull the remote
+  into that. Then our temp repo will have exactly the same state as the remote,
+  and we can diff that against the current HEAD. (DONE)
+- Test that '.ki/no_submodules_tree' does not, itself, have a '.ki/' directory.
+  (NO)
+- Test that deleting a deck directory deletes the deck, i.e. there isn't an
+  empty folder left in the Anki client after pushing.
+- Test that changing models but leaving cards untouched doesn't result in 'up
+  to date.'.
+- Test that deleting notetypes from models file actually removes them.
+- Consider making each model a file, and then making `_models` a directory.
+  Then we can safely symlink all the models in deck directories to the
+  top-level `_models/` directory, and then just resolve the symlinks when we
+  need to push a submodule to github.
+- There is a bug where pushes are not no-ops when they should be as a result of
+  having submodules whose repository name is different from the deck name.
+
+  Specifically, if you have add a submodule called `a` but its top-level deck
+  is called `b`, then once pushed, every push will be nontrivial, because it
+  will look like a path rename. (DONE)
+- Ki fails to pull deletions. If we:
+    CLONE
+    Delete a note in Anki
+    PULL
+  The note is still there in the repo.
+
+  The problem is that `git merge --strategy-option=theirs` doesn't actually use
+  `theirs` for everything. To do that, we'd need `git merge --strategy=theirs`,
+  but there is no such thing. See
+  https://stackoverflow.com/questions/173919/is-there-a-theirs-version-of-git-merge-s-ours
+  for a workaround.
+
+16-April-2022
+-------------
+Merge write_deck() and write_decks(). (DONE)
+
+19-April-2022
+-------------
+Remove ki qualified import from tests to make code copying easier. (DONE)
+Finish refactoring tests. (DONE)
+
+20-April-2022
+-------------
+Move types, errors, maybes, and generic functions into separate files. (DONE)
+Fix bug where reassigned nid differs from old nid in commit msg. (DONE)
+Fix imports in tests to reflect new repository structure. (DONE)
+Remove all duplicated constant declarations. (DONE)
+Split tests into integration/unit. (DONE)
+
+26-April-2022
+-------------
+Write tests for all ki functions. (DONE)
+
+28-April-2022
+-------------
+Achieve 100% test coverage. (DONE)
+Make sure all warnings and errors are actually displayed at the command line. (DONE)
+Media writes. (DONE)
+
+29-April-2022
+-------------
+Create a `.media` directory recursively in each deck directory. (DONE)
+Fix logic in `write_repository()` so that we use the deck tree to construct a
+  list of relevant colnotes instead of using a global list of all nids to
+  construct a mapping from deck names to lists of colnotes. (DONE)
+Add test for above that checks that a `models.json` file and a `.media`
+  directory are created for every deck, even if all its cards are contained in
+  subdecks.
+Add media files back to collection in during `push()` calls. (DONE)
+Remove submodule update calls. (DONE)
+Add test to make sure that pushing new media files that have the same filenames
+  as existing media files in the collection doesn't break paths in note fields.
+Persistent note ids across pulls.
+
+
+Triage
+------
+Ghostwrite hypothesis tests (NO)
+Command line output (DONE)
+Test backlog (DONE)
+Submodules (DONE)
+Modifying note types (DONE)
+Changing note types (DONE)
+Pulling in remote changes in submodules without losing review data
+Generating HTML
+Media (DONE)
+
+
+
+Mapping database changes to submodules
+--------------------------------------
+To fix #18, one option is to use git diff to save a patch for the diff from
+HEAD~1 to HEAD. Then for each extant submodule, filter the patches relevant to
+that repo, ltrim the paths so they begin at the root of the submodule, and
+apply them to the submodules directly. If submodules have been renamed since
+the last push, then we can construct a map to the new names. The cases we must
+treat are directories that have been converted into submodules, submodules that
+have been converted into directories, and submodules that have been renamed. As
+a special case of the second, we have submodules that have been deleted. This
+is the most common use case. Most users will not be creating shared decks.
+Git's default behavior works well for this case. For the case of converting
+directories into submodules, we simply check if any extant submodules have the
+exact same path as a directory with changes. If so, we use patches. This case
+is covered by the fix described above. If submodules have been renamed, well,
+we only worry about this case, actually we choose to not worry about this case.
+Git's default behavior will be to do whatever it does when you pull changes to
+a directory which has been renamed. We should prioritize using ort over
+subtree.
+
+To fix the 'not our ref' error during submodule fetch, we must do the
+following:
+
+  cd <sm>/ && git log --oneline --graph && git branch temp && \
+  git checkout main && git merge --strategy-option=theirs temp
+
+
+Won't fix
+---------
+pdoc3 doesn't generate docstrings for click commands
+Clone doesn't work on ankiweb deck URLs
+Comments aren't supported in notes
+Implicitly adding new notetypes is not allowed, currently they cannot be added
+  from ki at all, and in the future it should probably require explicitly
+  creating a template/model file
+Can't map back from HTML to plaintext/markdown while preserving changes made in
+  Anki. Editing the files directly is not the main use case. Nice serialization
+  and ability to put notes on github is. Mapping back from HTML is impossible
+  in the general case, and it adds needless complexity.
+
+
+Pulling remote changes from GitHub decks while preserving review data
+---------------------------------------------------------------------
+Consider the following scenario:
+- User A clones their collection into a ki repository. All the nids in the note
+  files are the nids generated by their Anki installation.
+- User A converts their `C* Algebras` deck into a submodule in their
+  repository, and pushes this repo to GitHub.
+- User B clones their collection, and then clones User A's `C-star-algebras`
+  GitHub repo into their ki repository as a submodule. New nids are generated
+  for all the notes in this deck, since User B's Anki installation does not
+  recognize the nids generated by User A's Anki installation, which are still
+  listed in all the note files on GitHub. These new nids are committed to the
+  submodule by ki.
+- User B studies these notes, accumulating review data.
+- User A pushes commits to their `C-star-algebras` GitHub repo, which contain
+  important corrections to errata in the deck.
+- User B wants these corrections, so they run `git pull` within their submodule
+  inside their ki repository. Their branch has diverged from the remote, since
+  ki automatically committed the nid reassignments. The merge likely succeeds
+  because the line where the nid is defined within each note will not have
+  changed within User A's local copy of the repository, since they're still
+  using the same nid for that note.
+- User B corrects some errata in their local copy of the `C* Algebras` deck
+  from within Anki. They want to push their corrections back to User A's GitHub
+  repo. They make a pull request with their corrections, but the diff is
+  *HUGE*, because the nid for every single note has been changed. This is not
+  ideal, because they will have to manually go in and remove the nid changes,
+  perhaps with some git wizardry. In particular, they would have to construct a
+  branch without the nid reassignment commit.
+
+After thinking about the problem at length, this does not seem to be a
+critically high priority issue. Although annoying, it will not cause the
+collaboration workflow to be prohibitively cumbersome.
+
+It should still be fixed long-term, however. One possible solution is replacing
+the `nid` field within the note grammar with a `uuid` field. There would exist
+a `.ki/manifest.yaml` file, which would map uuids to nids. This manifest file
+would be unique to each user/Anki installation, whereas the uuid for that
+particular note would be somethat that is unique across all users studying that
+note (e.g. if it resided in a collaborative deck hosted on GitHub). During a
+clone operation, a uuid would be generated for each note, perhaps seeded with a
+hash of the note's content. Then the manifest file would be generated, which,
+as we mentioned above, would simply map uuids to nids. The uuids would live in
+the note files, and then there would be no need to worry about different
+people's nids when merging pull requests on GitHub. Everyone would have the
+same uuid for a given note. We now have a very simple condition for when an nid
+must be regenerated: this must be done whenever we parse a uuid from a note
+that does not exist in the manifest yet.
+
+
+On the deleted notes repo
+-------------------------
+This is only used to examine the diff between the last push commit ref and the
+current HEAD. This diff is used to see which files were deleted, and to be able
+to read these files even though they were removed from the repository. This is
+done with some reset --hard magic. We want to read these deleted files to
+figure out what nids were extant at the last push commit ref. But this is a
+very bad way to do this. A simpler thing is to just store the nids that are
+currently extant every time we push in a file called ``.ki/last_push_nids``.
+Then we simply read these and take the diff against the currently extant nids,
+and see which ones were deleted, and remove them with an ``a.col`` call.
+
+This is slow though, because you must read every note on every ki command.
+Better to use git to get the diffs, and to do that, we need to use a deleted
+notes repo.
+
+
+Deck names, field names, notetype names
+---------------------------------------
+ANKI SPECIAL CHARS: #/^
+BAD FIELDNAME CHARS:
+:
+{
+}
+"
+(leading and trailing whitespace and special chars)
+See: notetype/fields.rs:53
+
+BAD FIELDCONTENT CHARS (NOTE: This is HTML, so newlines are represented as <br> tags):
+(ascii control)
+(newline)
+(tab)
+See: notes/mod.rs:186
+
+BAD DECKCOMPONENT CHARS:
+(ascii control)
+"
+See: decks/name.rs:175
+
+BAD TAG CHARS:
+(ascii control)
+"
+(space)
+(\u3000)
+See: tags/register.rs:124
+
+
+
+On pushing new notes
+--------------------
+We must use nids as the filename so that edits to fields don't require edits to
+the filenames as well. The only other alternative so far is doing
+one-file-per-deck.
+
+So what happens when you add a new note?
+
+- Create new md file.
+- Add content, add an nid or leave it blank.
+- Call push()
+
+    - Ki asks anki to generate a new nid for this note.
+    - Changed are pushed to collection.
+    - Ki stashes unstaged and staged files
+      (git stash -u --keep-index && git reset --hard HEAD).
+    - Ki renames file to reflect new nid and changes nid in file.
+
+        - If a new nid must be generated, we first delete the file containing
+          that note.
+        - Then we regenerate the file (may contain multiple notes) from a
+          representation (list of notemaps) saved during push() call.
+
+            - In order to regenerate the file, we must keep track of which
+              notes we generated new nids for.
+            - For these notes, we must edit the ``notemap`` to have the correct
+              ``nid``, and then serialize all the notemaps for that file and
+              regenerate the markdown.
+
+        - The order of notes in a file is deterministic, and the filename
+          generated is the nid of the first note.
+
+    - Ki commits these changes.
+    - Ki recovers the stashed files (git stash pop).
+
+So what happens when you modify an existing nid?
+
+BAD THINGS! YOU LOSE YOUR REVIEW DATA!!
+We'll add warning when the nid is generated not to mess with it.
+
+If the user copies the text of a note and doesn't remove the ki-generated nid
+stuff, then ki will use some variant of edit distance to figure out which is
+the original.
+
+If the user changes the nid of an existing note to something else, then on the
+next push, ki will treat it like a new note and generate a new nid for it. The
+review/learning data will be lost (can be recovered by reverting to an earlier
+commit and pushing again).
+
+We are effectively reimplementing functionality that git can already handle.
+The `nid` is to anki what a `filename` is to git.
+
+So the ``apy`` spec for a note looks like this:
+
+    # Note
+    nid: 1645010162168
+    model: Basic
+    tags:
+    markdown: false
+
+    ## Front
+    a
+
+    ## Back
+    b
+
+And our modified spec looks similar to this:
+
+
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@~~~ki~~~@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    @@@ # WARNING: DO NOT EDIT DATA IN THIS SECTION!
+    @@@
+    @@@ nid: 1645010162168
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@~~~ki~~~@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+    ---
+
+    # Note
+    model: Basic
+    tags:
+    markdown: false
+
+    ## Front
+    a
+
+    ## Back
+    b
+
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+Notes
+-----
+To debug gitpython commands:
+    export GIT_PYTHON_TRACE=full
+
+Bugs
+----
+1.  Collection is not open.
+
+    Issue was that we were trying to interact with anki note objects after
+    closing apy Anki object.
+
+    (anki39) user@host:~$ ki clone ~/.local/share/Anki2/User\ 1/collection.anki2
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "/home/user/pkgs/ki/ki/__init__.py", line 77, in clone
+        _clone(collection, directory)
+      File "/home/user/pkgs/ki/ki/__init__.py", line 130, in _clone
+        note_file.write(str(note))
+      File "/home/user/pkgs/ki/ki/note.py", line 18, in __repr__
+        apy_note_repr: str = super().__repr__()
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 44, in __repr__
+        lines += [f'deck: {self.get_deck()}']
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/apy/note.py", line 318, in get_deck
+        return self.a.col.decks.name(self.n.cards()[0].did)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 123, in cards
+        return [self.col.getCard(id) for id in self.card_ids()]
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py", line 126, in card_ids
+        return self.col.card_ids_of_note(self.id)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py", line 390, in card_ids_of_note
+        return [CardId(id) for id in self._backend.cards_of_note(note_id)]
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py", line 361, in cards_of_note
+        output.ParseFromString(self._run_command(2, 11, input))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/__init__.py", line 131, in _run_command
+        raise backend_exception_to_pylib(err)
+    anki.errors.InvalidInput: CollectionNotOpen
+
+2.  Remote not deleted.
+
+    (anki39) user@host:~/collection$ ki pull
+    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: MarkupResemblesLocatorWarning: "." looks like a directory name, not markup. You may want to open a file found in this directory and pass the filehandle into Beautiful Soup.
+      warnings.warn(
+    /home/user/conda/envs/anki39/lib/python3.9/site-packages/bs4/__init__.py:337: MarkupResemblesLocatorWarning: "/" looks like a directory name, not markup. You may want to open a file found in this directory and pass the filehandle into Beautiful Soup.
+      warnings.warn(
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7f343f93adc0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 188, in pull
+        _ = repo.create_remote("origin", os.path.join(ephem, ".git"))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/repo/base.py", line 458, in create_remote
+        return Remote.create(self, name, url, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/remote.py", line 680, in create
+        repo.git.remote(scmd, name, Git.polish_url(url), **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 638, in <lambda>
+        return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 1183, in _call_process
+        return self.execute(call, **exec_kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 983, in execute
+        raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+    git.exc.GitCommandError: Cmd('git') failed due to: exit code(3)
+      cmdline: git remote add origin /tmp/tmpuand3wz0/ki/remote/1625c6643169d7c6b7b8d13d654645d5/.git
+      stderr: 'error: remote origin already exists.'
+
+3.  Note names not generated in fixed order. Caused merge conflict for every note.
+
+4.  We loop over all note files 4 times, but we should not do this at all. We
+    should ask git which files have changed since the last pull, and only update
+    those.
+
+5.  KeyError in push:
+
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.push) at 0x7f28fab90f70>", line 10, in push
+      File "/home/user/pkgs/ki/ki/__init__.py", line 299, in push
+        nid = int(notemap["nid"])
+    KeyError: 'nid'
+
+6.  Doesn't handle when users make up new note IDs:
+
+                # Add new file.
+                shutil.copyfile(NOTE_2, os.path.basename(NOTE_2))
+
+                # Commit.
+                os.chdir("../")
+                repo = git.Repo(REPODIR)
+                repo.git.add(all=True)
+                repo.index.commit("Added 'e'.")
+
+                # Push changes.
+                os.chdir(REPODIR)
+    >           push(runner)
+
+    tests/test_ki.py:278:
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    <@beartype(tests.test_ki.push) at 0x7fa4345f8a60>:30: in push
+        ???
+    tests/test_ki.py:74: in push
+        res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/testing.py:408: in invoke
+        return_value = cli.main(args=args or (), prog_name=prog_name, **extra)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1053: in main
+        rv = self.invoke(ctx)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1659: in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:1395: in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/click/core.py:754: in invoke
+        return __callback(*args, **kwargs)
+    <@beartype(ki.push) at 0x7fa4345ea940>:10: in push
+        ???
+    ki/__init__.py:273: in push
+        note: Note = Note(a, a.col.get_note(nid))
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/collection.py:332: in get_note
+        return Note(self, id=id)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:46: in __init__
+        self.load()
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/notes.py:52: in load
+        note = self.col._backend.get_note(self.id)
+    ../../conda/envs/anki39/lib/python3.9/site-packages/anki/_backend/generated.py:327: in get_note
+        output.ParseFromString(self._run_command(2, 5, input))
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    self = <anki._backend.RustBackend object at 0x7fa43459ba90>, service = 2, method = 5, input = nid: 123412341234
+
+
+        def _run_command(self, service: int, method: int, input: Any) -> bytes:
+            input_bytes = input.SerializeToString()
+            try:
+                return self._backend.command(service, method, input_bytes)
+            except Exception as e:
+                err_bytes = bytes(e.args[0])
+            err = backend_pb2.BackendError()
+            err.ParseFromString(err_bytes)
+    >       raise backend_exception_to_pylib(err)
+    E       anki.errors.NotFoundError
+
+7.  Doesn't say 'up to date.' when pushing right after a nontrivial pull:
+
+    (anki39) user@host:~/collection$ ki pull
+    Found .anki2 file at '/home/user/.local/share/Anki2/test2/collection.anki2'
+    Computed md5sum: 3aebb4b7c59e24b8f000739c6f6cb72a
+    Wrote md5sum to '/tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a/.ki/hashes'
+    Cloning into '/tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a'...
+    100%|█████████████████████████████████| 3/3 [00:00<00:00, 1698.10it/s]
+
+    Merge made by the 'ort' strategy.
+     note1645298206334.md | 11 +++++++++++
+     1 file changed, 11 insertions(+)
+     create mode 100644 note1645298206334.md
+
+
+    From /tmp/tmphpeuc9t4/ki/remote/3aebb4b7c59e24b8f000739c6f6cb72a/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+
+    Updating 986fee6..51c4d9c
+    Fast-forward
+     note1645298206334.md | 11 +++++++++++
+     1 file changed, 11 insertions(+)
+     create mode 100644 note1645298206334.md
+
+
+    From /tmp/tmp_699r57b/ki/local/3aebb4b7c59e24b8f000739c6f6cb72a/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+    (anki39) user@host:~/collection$ ls
+    note1645010162168.md  note1645222430007.md  note1645298206334.md
+    (anki39) user@host:~/collection$ ki push
+    ki push: nontrivial push.
+    100%|██████████████████████████████████| 2/2 [00:00<00:00, 621.75it/s]
+    Database was modified.
+
+8.  Unknown issue on pulling nontrivial change from live collection:
+
+    (anki39) user@host:~/collection$ ki pull
+    Found .anki2 file at '/home/user/.local/share/Anki2/test2/collection.anki2'
+    Computed md5sum: 658fa0b356262c2c42077bde3a526eda
+    Wrote md5sum to '/tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda/.ki/hashes'
+    Cloning into '/tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda'...
+    100%|█████████████████████████████████| 4/4 [00:00<00:00, 2145.15it/s]
+
+
+
+    From /tmp/tmp13847e9i/ki/remote/658fa0b356262c2c42077bde3a526eda/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+    Your local changes to the following files would be overwritten by merge:
+      note1645010162168.md
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7f09fc045ee0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 228, in pull
+        assert p.returncode == 0
+    AssertionError
+
+9.  Pull when Anki is open should print a prettier error message:
+
+    (anki39) user@host:~/collection$ ki pull
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7ff2bea48ee0>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 174, in pull
+        con = lock(collection)
+      File "<@beartype(ki.lock) at 0x7ff2bea55dc0>", line 30, in lock
+      File "/home/user/pkgs/ki/ki/__init__.py", line 538, in lock
+        con.execute("BEGIN EXCLUSIVE")
+    sqlite3.OperationalError: database is locked
+
+10. Note parse errors should not be silent.
+
+11. Deletion of 'anki' git remote and write to hashes file should be in a
+    'finally' block. In particular, they should happen if we get a merge conflict:
+
+    (anki39) user@host:~/collection$ ki pull
+    2022-02-20 14:55:14.448 | DEBUG    | ki:pull:235 - fetch_head_sha: 74c98c22a54485fd6f7648592076dfd6c5ac1a4a
+    2022-02-20 14:55:14.453 | DEBUG    | ki:pull:237 -
+    diff --git a/note1645010162168.md b/note1645010162168.md
+    index e6f8464..d924148 100644
+    --- a/note1645010162168.md
+    +++ b/note1645010162168.md
+    @@ -20,4 +20,4 @@ eee
+     888
+     999
+     999
+    -888
+    +111
+
+    2022-02-20 14:55:14.453 | DEBUG    | ki:pull:238 -
+
+    Auto-merging note1645010162168.md
+    Merge made by the 'ort' strategy.
+     note1645010162168.md | 1 +
+     1 file changed, 1 insertion(+)
+
+    From /tmp/tmpm88m07j6/ki/remote/96d99f27d75f7715a71f26ed6f282b0c/
+     * branch            main       -> FETCH_HEAD
+     * [new branch]      main       -> anki/main
+
+    2022-02-20 14:55:14.488 | DEBUG    | ki:pull:261 -
+    diff --git a/note1645010162168.md b/note1645010162168.md
+    index d924148..1b9c51b 100644
+    --- a/note1645010162168.md
+    +++ b/note1645010162168.md
+    @@ -21,3 +21,4 @@ eee
+     999
+     999
+     111
+    +222
+
+    2022-02-20 14:55:14.488 | DEBUG    | ki:pull:262 -
+
+    Traceback (most recent call last):
+      File "/home/user/conda/envs/anki39/bin/ki", line 33, in <module>
+        sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1128, in __call__
+        return self.main(*args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1053, in main
+        rv = self.invoke(ctx)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1659, in invoke
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 1395, in invoke
+        return ctx.invoke(self.callback, **ctx.params)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/click/core.py", line 754, in invoke
+        return __callback(*args, **kwargs)
+      File "<@beartype(ki.pull) at 0x7f9e7dc9c160>", line 10, in pull
+      File "/home/user/pkgs/ki/ki/__init__.py", line 270, in pull
+        fetch_head_remote = repo.create_remote(REMOTE_NAME, fetch_head_remote_path)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/repo/base.py", line 458, in create_remote
+        return Remote.create(self, name, url, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/remote.py", line 680, in create
+        repo.git.remote(scmd, name, Git.polish_url(url), **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 638, in <lambda>
+        return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 1183, in _call_process
+        return self.execute(call, **exec_kwargs)
+      File "/home/user/conda/envs/anki39/lib/python3.9/site-packages/git/cmd.py", line 983, in execute
+        raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+    git.exc.GitCommandError: Cmd('git') failed due to: exit code(3)
+      cmdline: git remote add anki /tmp/tmpuglbuhux/ki/local/96d99f27d75f7715a71f26ed6f282b0c/.git
+      stderr: 'error: remote anki already exists.'
+
+12. Nid reassignment in submodules doesn't get committed.
+
+
+13. KeyError can be raised within `update_note()` when field names are wrong
+    for notetype.
+
+
+    self = <anki.notes.Note object at 0x7f45f510b0a0>, key = Text
+
+        def _field_index(self, key: str) -> int:
+            try:
+    >           return self._fmap[key][0]
+    E           KeyError: Text
+
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:150: KeyError
+
+    The above exception was the direct cause of the following exception:
+
+    capfd = <_pytest.capture.CaptureFixture object at 0x7f45f510bee0>
+
+        def test_display_fields_health_warning_catches_missing_clozes(capfd):
+            col = open_collection(get_col_file())
+            note = col.get_note(set(col.find_notes("")).pop())
+
+            field = "data"
+            fields = {"Text": field, "Back Extra": ""}
+            flatnote = FlatNote("title", 0, "Cloze", "Default", [], False, fields)
+
+            clz: ki.NotetypeDict = col.models.by_name("Cloze")
+            cloze: ki.Notetype = ki.parse_notetype_dict(clz)
+            notetype: ki.Notetype = ki.parse_notetype_dict(note.note_type())
+    >       res: OkErr = ki.update_note(note, flatnote, notetype, cloze)
+
+    tests/test_ki.py:1310:
+    ki/safe.py:101: in decorated
+        result = func(*args, **kwargs)
+    <@beartype(ki.update_note) at 0x7f45f520c790>:88: in update_note
+        ???
+    ki/__init__.py:1201: in update_note
+        note[key] = plain_to_html(field)
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:158: in __setitem__
+        self.fields[self._field_index(key)] = value
+
+    self = <anki.notes.Note object at 0x7f45f510b0a0>, key = Text
+
+        def _field_index(self, key: str) -> int:
+            try:
+                return self._fmap[key][0]
+            except Exception as exc:
+    >           raise KeyError(key) from exc
+    E           KeyError: Text
+
+    ../../conda/envs/anki/lib/python3.9/site-packages/anki/notes.py:152: KeyError
+
+
+
+14. This should indicate that Anki might just have been left open.
+
+  Unexpected SQLite3 error while attempting to acquire lock on file:
+  '/home/user/.local/share/Anki2/User 2/collection.anki2':
+
+   A 'sqlite3.DatabaseError' was raised with error message: 'database
+   is locked'. This may indicate that either the database file at the
+   location specified above is corrupted, or the config file at
+   '.ki/config' is pointing to the wrong location. (The latter may occur
+   in the unlikely event that the collection file in the Anki data
+   directory has been accidentally overwritten.)
+
+
+15. Models are duplicated when they shouldn't be:
+    (Try hashing).
+
+  (anki) user@computer:~/collection/Default$ ki push
+  Pushing to '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 742bf0303a945bd41bf3f2fa40ff0e20
+  Verified md5sum matches latest hash in '/home/user/collection/.ki/hashes'
+  Generating local .anki2 file from latest commit: 8ee98bcac67a05a354b5fcc8285ea5635b1da750
+  Writing changes to '/tmp/tmpllvv3_x_/collection.anki2'...
+  Adding model 'Basic'
+  Adding model 'Basic (and reversed card)'
+  Adding model 'Basic (and reversed card)-5957f'
+  Adding model 'Basic (and reversed card)-696ec'
+  Adding model 'Basic (and reversed card)-6e007'
+  Adding model 'Basic (and reversed card)-6e007-211ab'
+  Adding model 'Basic (and reversed card)-6e007-5c63d'
+  Adding model 'Basic (optional reversed card)'
+  Adding model 'Basic (optional reversed card)-0a5c8'
+  Adding model 'Basic (optional reversed card)-a02f0'
+  Adding model 'Basic (optional reversed card)-a02f0-e20ab'
+  Adding model 'Basic (optional reversed card)-a02f0-ebe19'
+  Adding model 'Basic (optional reversed card)-e98ee'
+  Adding model 'Basic (type in the answer)'
+  Adding model 'Basic (type in the answer)-841b0'
+  Adding model 'Basic (type in the answer)-95d76'
+  Adding model 'Basic (type in the answer)-95db0'
+  Adding model 'Basic (type in the answer)-95db0-327b8'
+  Adding model 'Basic (type in the answer)-95db0-c6d7b'
+  Adding model 'Basic-80a9f'
+  Adding model 'Basic-8c842'
+  Adding model 'Basic-96249'
+  Adding model 'Basic-96249-57f78'
+  Adding model 'Basic-96249-7a344'
+  Adding model 'Cloze'
+  Adding model 'Cloze (overlapping)'
+  Adding model 'Cloze (overlapping)-2abb6'
+  Adding model 'Cloze (overlapping)-2abb6-9cef8'
+  Adding model 'Cloze (overlapping)-2abb6-e76ce'
+  Adding model 'Cloze (overlapping)-52c69'
+  Adding model 'Cloze (overlapping)-77214'
+  Adding model 'Cloze-65eb1'
+  Adding model 'Cloze-793e9'
+  Adding model 'Cloze-793e9-01988'
+  Adding model 'Cloze-793e9-f8b7a'
+  Adding model 'Cloze-f1441'
+  Adding model 'iKnow! Vocabulary'
+  Adding model 'iKnow! Vocabulary-4da59'
+  Adding model 'iKnow! Vocabulary-969e7'
+  Deleting 0 notes.
+  100%|███████████████████████████████████| 2/2 [00:00<00:00, 72.82it/s]
+  Warning: ignoring '/tmp/tmp2sbt7haa/ki/deleted/742bf0303a945bd41bf3f2fa40ff0e20/models.json' matching ignore pattern 'models.json'
+  Reassigned 0 nids.
+  Writing backup of .anki2 file to '/home/user/collection/.ki/backups/742bf0303a945bd41bf3f2fa40ff0e20.anki2'
+  Overwrote '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Wrote md5sum to '/home/user/collection/.ki/hashes'
+
+
+16.
+
+  (anki) user@computer:~/collection$ ki push
+  Pushing to '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 8088fdf10af084b9671c5ae1ee286373
+  Verified md5sum matches latest hash in '/home/user/collection/.ki/hashes'
+  Generating local .anki2 file from latest commit: b60bae990527d0598fcab7d6aa9a859d4d0b762f
+  Writing changes to '/tmp/tmp2saf8zp_/collection.anki2'...
+  Traceback (most recent call last):
+    File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
+      sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
+      return self.main(*args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
+      rv = self.invoke(ctx)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
+      return _process_result(sub_ctx.command.invoke(sub_ctx))
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
+      return ctx.invoke(self.callback, **ctx.params)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
+      return __callback(*args, **kwargs)
+    File "<@beartype(ki.push) at 0x7f45922e3c10>", line 11, in push
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1786, in push
+      return push_deltas(
+    File "/home/user/pkgs/ki/ki/monadic.py", line 98, in decorated
+      result = func(*args, **kwargs)
+    File "<@beartype(ki.push_deltas) at 0x7f45922e3b80>", line 197, in push_deltas
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1876, in push_deltas
+      if hash(model) == hash(remote_model):
+    File "<string>", line 3, in __hash__
+  TypeError: unhashable type: 'list'
+
+17. Seemingly unreproducible error:
+
+  (anki) user@computer:~/collection$ ki pull
+  Pulling from '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 7777eae7d0169b6c608996678150acf9
+  Found .anki2 file at '/home/user/.local/share/Anki2/User 2/collection.anki2'
+  Computed md5sum: 7777eae7d0169b6c608996678150acf9
+  Cloning into '/tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9'...
+  Notes: 100%|██████████████████████████████| 2632/2632 [00:00<00:00, 4996.70it/s]
+  HTML: 100%|██████████████████████████████████████| 1/1 [00:00<00:00, 244.48it/s]
+  Media: 100%|██████████████████████████████| 2632/2632 [00:00<00:00, 8345.04it/s]
+  Decks: 100%|██████████████████████████████████████| 5/5 [00:01<00:00,  3.45it/s]
+  Wrote md5sum to '/tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9/.ki/hashes'
+
+  From /tmp/tmpt_frry_t/ki-remote/7777eae7d0169b6c608996678150acf9/
+   * branch              main       -> FETCH_HEAD
+  * [new branch]        main       -> anki/main
+  error: The following untracked working tree files would be overwritten by merge:
+          japanese-core-2000/models.json
+  Please move or remove them before you merge.
+  Aborting
+
+  Error while pulling into '/tmp/tmpai8kpux8/ki-local-7777eae7d0169b6c608996678150acf9'
+  Traceback (most recent call last):
+    File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
+      sys.exit(load_entry_point('ki', 'console_scripts', 'ki')())
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
+      return self.main(*args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
+      rv = self.invoke(ctx)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
+      return _process_result(sub_ctx.command.invoke(sub_ctx))
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
+      return ctx.invoke(self.callback, **ctx.params)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
+      return __callback(*args, **kwargs)
+    File "<@beartype(ki.pull) at 0x7f6d4bfe55e0>", line 10, in pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1640, in pull
+      _pull(kirepo, silent=False)
+    File "<@beartype(ki._pull) at 0x7f6d4bfe54c0>", line 49, in _pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1707, in _pull
+      git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
+    File "<@beartype(ki.git_pull) at 0x7f6d4c2579d0>", line 139, in git_pull
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1320, in git_pull
+      raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
+  RuntimeError: Git failed with return code '128'.
+  (anki) user@computer:~/collection$ git status
+  On branch main
+  nothing to commit, working tree clean
+
+18. Commannd to reproduce:
+
+  ki clone ~/.local/share/Anki2/User\ 2/collection.anki2 && cd collection/ && trash japanese-core-2000/ && git commit -am "rm" && ki push && git submodule add git@github.com:langfield/japanese-core-2000.git && git commit -m "add" && ki push
+
+  Then edit a card in the submodule deck (or use `merge_conflict_edited.anki2`.
+
+  Then run `ki pull`.
+
+  Pulling from /home/user/.local/share/Anki2/User 2/collection.anki2
+  Computed md5sum: 6adee212efae918c0795b0b60d4838e8
+  Found .anki2 file at /home/user/.local/share/Anki2/User 2/collection.anki2
+  Computed md5sum: 6adee212efae918c0795b0b60d4838e8
+  Cloning into /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8...
+  Notes: 100%|█████████████████████████████████████| 1/1 [00:00<00:00, 796.34it/s]
+  HTML: 100%|██████████████████████████████████████| 1/1 [00:00<00:00, 362.67it/s]
+  Media: 100%|████████████████████████████████████| 1/1 [00:00<00:00, 1274.09it/s]
+  Decks: 100%|████████████████████████████████████| 2/2 [00:00<00:00, 1307.45it/s]
+  Wrote md5sum to /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8/.ki/hashes
+  Removing japanese-core-2000
+  Removing .gitmodules
+  Removing .gitignore
+  Merge made by the subtree strategy.
+   .gitignore                    |    1 -
+   .gitmodules                   |    3 -
+   japanese-core-2000            |    1 -
+   models.json                   | 1314 +----------------------------------------
+   "\343\201\235\343\202\214.md" |   26 +
+   5 files changed, 30 insertions(+), 1315 deletions(-)
+   delete mode 100644 .gitignore
+   delete mode 100644 .gitmodules
+   delete mode 160000 japanese-core-2000
+   create mode 100644 "\343\201\235\343\202\214.md"
+
+  From /tmp/tmpd0mhyok7/ki-remote/6adee212efae918c0795b0b60d4838e8/
+   * branch            main       -> FETCH_HEAD
+   * [new branch]      main       -> anki/main
+
+  Pulling into /tmp/tmp8g0jbavm/ki-local-6adee212efae918c0795b0b60d4838e8... done.
+  CONFLICT (modify/delete): japanese-core-2000 deleted in 33e6af290811f450baecbe130a9d3b06400528e6 and modified in HEAD.  Version HEAD of japanese-core-2000 left in tree.
+  Automatic merge failed; fix conflicts and then commit the result.
+
+  From /tmp/tmp8g0jbavm/ki-local-6adee212efae918c0795b0b60d4838e8/
+   * branch            main       -> FETCH_HEAD
+   * [new branch]      main       -> anki/main
+
+  Pulling into /home/user/collection... done.
+
+
+19. Unknown gitmodules error:
+
+  (anki) user@computer:~/collection$ ki push
+  Traceback (most recent call last):
+    File "/home/user/conda/envs/anki/bin/ki", line 33, in <module>
+      sys.exit(load_entry_point(ki, console_scripts, ki)())
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1130, in __call__
+      return self.main(*args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1055, in main
+      rv = self.invoke(ctx)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1657, in invoke
+      return _process_result(sub_ctx.command.invoke(sub_ctx))
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 1404, in invoke
+      return ctx.invoke(self.callback, **ctx.params)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/click/core.py", line 760, in invoke
+      return __callback(*args, **kwargs)
+    File "<@beartype(ki.push) at 0x7f8fdea75ee0>", line 10, in push
+    File "/home/user/pkgs/ki/ki/__init__.py", line 1975, in push
+      remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    File "<@beartype(ki.unsubmodule_repo) at 0x7f8fdea61e50>", line 30, in unsubmodule_repo
+    File "/home/user/pkgs/ki/ki/__init__.py", line 309, in unsubmodule_repo
+      repo.git.rm(gitmodules_path)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/git/cmd.py", line 639, in <lambda>
+      return lambda *args, **kwargs: self._call_process(name, *args, **kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/git/cmd.py", line 1184, in _call_process
+      return self.execute(call, **exec_kwargs)
+    File "/home/user/conda/envs/anki/lib/python3.9/site-packages/git/cmd.py", line 984, in execute
+      raise GitCommandError(redacted_command, status, stderr_value, stdout_value)
+  git.exc.GitCommandError: Cmd(git) failed due to: exit code(128)
+    cmdline: git rm /tmp/tmprlllmg2g/ki-remote/91d921e25437d59c29091b98f50e114e/.gitmodules
+    stderr: fatal: pathspec /tmp/tmprlllmg2g/ki-remote/91d921e25437d59c29091b98f50e114e/.gitmodules did not match any files
+
+
+
+
+
+
+On making push faster
+---------------------
+We only want to update notes in the SQLite DB that have changed since the last
+time we fetched from the remote, i.e. from the local Anki desktop client.
+
+The only times we fetch are when we clone, or when we pull.
+
+We have already handled the case where we pulled.
+
+We must now make sure we don't include anything that was written in the initial
+clone call.
+
+Merge conflicts
+---------------
+When you pull, ki clones a new ephemeral repository and commits its contents.
+Then it git pulls from this repo. If there are any changes to the remote, this
+will always cause a merge conflict. This is because the current branch and the
+ephemeral branch have completely unrelated histories.
+
+One possible solution is to clone the commit of the last successful pull, and
+then clone an ephemeral repo and pull the ephem into that last-pull-commit
+repo, forcing merge conflict resolution with --theirs. Then we can pull this
+repo into the main ki repo, and the merge conflicts should be gone because
+there is now a shared history.

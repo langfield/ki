@@ -1,7 +1,6 @@
 ## Note hello -- 887987
 nid: 123412341234
 model: Basic
-deck: :a:::b:
 tags: heimdall, thor, loki, 4387
 markdown: false
 
@@ -15,7 +14,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: :a:::b:
 tags: heimdall, thor, loki, 4387
 markdown: false
 
@@ -29,7 +27,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: ab::ab ab::44 44 ab 44::hi
 tags: heimdall, thor, loki, 4387
 markdown: false
 
@@ -43,7 +40,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags: heimdall, thor, loki, 4387
 markdown: false
 
@@ -57,7 +53,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -71,7 +66,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: abcdefg999
 tags:
 markdown: false
 
@@ -85,7 +79,6 @@ s
 ## Nota
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -99,7 +92,6 @@ s
 ## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -111,7 +103,6 @@ markdown: false
 ## Kota the Child 123412--__
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -125,7 +116,6 @@ s
 ## Kota the Child 123412--__
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -147,7 +137,6 @@ markdown: false
 ## Kota the Child 123412--__
 nid:
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -169,7 +158,6 @@ markdown: false
 ## Kota the Child 123412--__
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 

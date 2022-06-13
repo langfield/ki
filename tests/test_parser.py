@@ -25,7 +25,7 @@ def get_parser():
     grammar = grammar_path.read_text()
 
     # Instantiate parser.
-    parser = Lark(grammar, start="file", parser="lalr")
+    parser = Lark(grammar, start="note", parser="lalr")
 
     return parser
 
@@ -44,11 +44,9 @@ def debug_lark_error(note: str, err: UnexpectedInput) -> None:
     logger.error(f"\n{err}")
 
 
-TOO_MANY_HASHES_TITLE = r"""
-### Note
+TOO_MANY_HASHES_TITLE = r"""### Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -67,17 +65,18 @@ def test_too_many_hashes_for_title():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 2
-    assert err.column == 1
-    assert err.token == "###"
-    assert err.token_history is None
+    debug_lark_error(note, err)
+    assert err.line == 1
+    assert err.column == 3
+    assert err.token == "# Note\n"
+    assert len(err.token_history) == 1
+    prev = err.token_history.pop()
+    assert str(prev) == "##"
 
 
-TOO_FEW_HASHES_TITLE = r"""
-# Note
+TOO_FEW_HASHES_TITLE = r"""# Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -96,17 +95,16 @@ def test_too_few_hashes_for_title():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 2
+    assert err.line == 1
     assert err.column == 1
     assert err.token == "# Note\n"
-    assert err.token_history is None
+    assert len(err.token_history) == 1
+    assert err.token_history.pop() is None
 
 
-TOO_FEW_HASHES_FIELDNAME = r"""
-## Note
+TOO_FEW_HASHES_FIELDNAME = r"""## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -125,20 +123,18 @@ def test_too_few_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 9
+    assert err.line == 7
     assert err.column == 1
-    assert err.token == "## Front"
+    assert err.token == "##"
     assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "markdown: false\n\n"
 
 
-TOO_MANY_HASHES_FIELDNAME = r"""
-## Note
+TOO_MANY_HASHES_FIELDNAME = r"""## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -157,20 +153,18 @@ def test_too_many_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 9
+    assert err.line == 7
     assert err.column == 4
-    assert err.token == "# Front"
+    assert err.token == "# Front\n"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "###"
 
 
-MISSING_FIELDNAME = r"""
-## Note
+MISSING_FIELDNAME = r"""## Note
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -189,7 +183,7 @@ def test_missing_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 9
+    assert err.line == 7
     assert err.column == 8
     assert err.token == "\n"
     assert err.expected == set(["ANKINAME"])
@@ -198,11 +192,9 @@ def test_missing_fieldname():
     assert str(prev) == "###"
 
 
-MISSING_TITLE = r"""
-##
+MISSING_TITLE = r"""##
 nid: 123412341234
 model: Basic
-deck: a
 tags:
 markdown: false
 
@@ -221,7 +213,7 @@ def test_missing_title():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 2
+    assert err.line == 1
     assert err.column == 3
     assert err.token == "\n"
     assert err.expected == set(["TITLENAME"])
@@ -230,11 +222,9 @@ def test_missing_title():
     assert str(prev) == "##"
 
 
-MISSING_MODEL = r"""
-##a
+MISSING_MODEL = r"""##a
 nid: 123412341234
 model:
-deck: a
 tags:
 markdown: false
 
@@ -253,20 +243,18 @@ def test_missing_model():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 4
+    assert err.line == 3
     assert err.column == 1
-    assert err.token == "model:"
+    assert err.token == "model"
     assert err.expected == set(["MODEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "nid: 123412341234\n"
 
 
-WHITESPACE_MODEL = r"""
-##a
+WHITESPACE_MODEL = r"""##a
 nid: 123412341234
 model:          	
-deck: a
 tags:
 markdown: false
 
@@ -285,20 +273,18 @@ def test_whitespace_model():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 4
+    assert err.line == 3
     assert err.column == 1
-    assert err.token == "model:"
+    assert err.token == "model"
     assert err.expected == set(["MODEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "nid: 123412341234\n"
 
 
-FIELDNAME_VALIDATION = r"""
-## a
+FIELDNAME_VALIDATION = r"""## a
 nid: 123412341234
 model: a
-deck: a
 tags:
 markdown: false
 
@@ -322,7 +308,7 @@ def test_bad_field_single_char_name_validation():
             parser.parse(note)
         err = exc.value
 
-        assert err.line == 9
+        assert err.line == 7
         assert err.column == 5
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
@@ -344,7 +330,7 @@ def test_bad_field_multi_char_name_validation():
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 9
+        assert err.line == 7
         assert err.column == 7
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
@@ -369,7 +355,7 @@ def test_fieldname_start_validation():
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 9
+        assert err.line == 7
         assert err.column == 5
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
@@ -381,11 +367,9 @@ def test_fieldname_start_validation():
             assert err.char == char
 
 
-FIELD_CONTENT_VALIDATION = r"""
-## a
+FIELD_CONTENT_VALIDATION = r"""## a
 nid: 123412341234
 model: a
-deck: a
 tags:
 markdown: false
 
@@ -407,7 +391,7 @@ def test_field_content_validation():
         with pytest.raises(UnexpectedCharacters) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 10
+        assert err.line == 8
         assert err.column == 1
         assert err.char == char
         assert len(err.token_history) == 1
@@ -415,51 +399,9 @@ def test_field_content_validation():
         assert str(prev) == "\n"
 
 
-DECK_VALIDATION = r"""
-## a
-nid: 123412341234
-model: a
-deck: @@@@@
-tags:
-markdown: false
-
-### a
-r
-
-### b
-s
-"""
-
-BAD_DECK_CHARS = ['"'] + BAD_ASCII_CONTROLS
-
-
-def test_deck_validation():
-    """Do ascii control characters and quotes in deck names raise an error?"""
-    template = DECK_VALIDATION
-    parser = get_parser()
-    for char in BAD_DECK_CHARS:
-        deck = char + "a"
-        note = template.replace("@@@@@", deck)
-        with pytest.raises(UnexpectedInput) as exc:
-            parser.parse(note)
-        err = exc.value
-        assert err.line == 5
-        assert err.column == 7
-        assert len(err.token_history) == 1
-        prev = err.token_history.pop()
-        assert str(prev) == "deck:"
-        if isinstance(err, UnexpectedToken):
-            assert err.token == deck + "\n"
-            assert err.expected == set(["DECKNAME"])
-        if isinstance(err, UnexpectedCharacters):
-            assert err.char == char
-
-
-TAG_VALIDATION = r"""
-## a
+TAG_VALIDATION = r"""## a
 nid: 123412341234
 model: 0a
-deck: a0
 tags: @@@@@
 markdown: false
 
@@ -483,7 +425,7 @@ def test_tag_validation():
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 6
+        assert err.line == 4
         assert err.column in (15, 16)
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
@@ -494,39 +436,6 @@ def test_tag_validation():
             assert err.expected == set(["TAGNAME"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
-
-
-ONLY_COLON_DECK_NAME = r"""
-##a
-nid: 123412341234
-model: a
-deck: ::
-tags:
-markdown: false
-
-### a
-r
-
-### b
-s
-"""
-
-
-def test_colon_deck_name():
-    """Does a deck name of '::' raise a parse error?"""
-    note = ONLY_COLON_DECK_NAME
-    parser = get_parser()
-    with pytest.raises(UnexpectedToken) as exc:
-        tree = parser.parse(note)
-        logger.debug(f"\n{tree.pretty()}")
-    err = exc.value
-    assert err.line == 5
-    assert err.column == 7
-    assert err.token == "::\n"
-    assert err.expected == set(["DECKNAME"])
-    assert len(err.token_history) == 1
-    prev = err.token_history.pop()
-    assert str(prev) == "deck:"
 
 
 def test_parser_goods():
