@@ -1729,20 +1729,20 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
     import blake3
-    import tempfile
     import whatthepatch
     DEV_NULL = "/dev/null"
     @beartype
     @dataclass(frozen=True)
     class Patch:
+        """Relative paths and a Diff object."""
         a: Path
         b: Path
-        file: ExtantFile
+        diff: whatthepatch.patch.diffobj
 
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
     raw_unified_patch: str = last_push_repo.git.diff("FETCH_HEAD", binary=True)
-    patches: Dict[Path, Patch] = {}
+    patches: List[Patch] = []
     for diff in whatthepatch.parse_patch(raw_unified_patch):
         a_path = diff.header.old_path
         b_path = diff.header.new_path
@@ -1752,16 +1752,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             a_path = b_path
         if b_path == DEV_NULL:
             b_path = a_path
-        a_path = Path(last_push_repo.working_dir) / a_path
-        b_path = Path(last_push_repo.working_dir) / b_path
 
-        patch_bytes: bytes = diff.text.encode()
-        patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
-        patch_path: NoFile = F.test(patches_dir / patch_hash)
-        patch_path: ExtantFile = F.write(patch_path, diff.text)
-
-        patch = Patch(a_path, b_path, patch_path)
-        patches[b_path] = patch
+        patch = Patch(Path(a_path), Path(b_path), diff)
+        patches.append(patch)
 
     # Apply patches within submodules.
 
@@ -1773,11 +1766,34 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_root: ExtantDir = F.working_dir(sm_repo)
             subrepos[sm_root] = sm_repo
 
-    for path, patch in patches.items():
-        for root, sm_repo in subrepos.items():
-            if path.is_relative_to(root):
-                logger.debug(f"FOUND SUBMODULE DIFF: {path} with patch at {patch.file.name}")
-                sm_repo.git.apply(["-3", patch.file])
+    for patch in patches:
+        for sm_root, sm_repo in subrepos.items():
+            sm_rel_root: Path = Path(sm_root.name)
+
+            # TODO: We must also treat case where we moved a file into or out
+            # of a submodule, but we just do this for now.
+            if patch.a.is_relative_to(sm_rel_root) and patch.b.is_relative_to(sm_rel_root):
+
+                patch_bytes: bytes = patch.diff.text.encode()
+                patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
+                patch_path: NoFile = F.test(patches_dir / patch_hash)
+
+                # Replace paths relative to `last_push_root` with paths
+                # relative to `sm_root`.
+                a_relpath = patch.a.relative_to(sm_rel_root)
+                b_relpath = patch.b.relative_to(sm_rel_root)
+
+                # Ignore the submodule 'file' itself.
+                if a_relpath == Path(".") or b_relpath == Path("."):
+                    continue
+
+                patch_text: str = patch.diff.text
+                patch_text = patch_text.replace(str(patch.a), str(a_relpath))
+                patch_text = patch_text.replace(str(patch.b), str(b_relpath))
+                patch_path: ExtantFile = F.write(patch_path, patch_text)
+
+                logger.debug(f"FOUND SUBMODULE DIFF: {b_relpath} with patch at {patch_path}")
+                sm_repo.git.apply(["-3", patch_path])
     # =================== NEW PULL ARCHITECTURE ====================
 
     git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
