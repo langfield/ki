@@ -796,6 +796,7 @@ def push_decknote_to_anki(
 
 @beartype
 def get_colnote(col: Collection, nid: int) -> ColNote:
+    """Get a dataclass representation of an Anki note."""
     try:
         note = col.get_note(nid)
     except NotFoundError as err:
@@ -1570,13 +1571,13 @@ def clone(collection: str, directory: str = "") -> None:
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
     _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
     kirepo: KiRepo = M.kirepo(targetdir)
-    kirepo.last_push_file.write_text(kirepo.repo.head.commit.hexsha)
+    F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
     echo("Done.")
 
     if PROFILE:
         profiler.stop()
         s = profiler.output_html()
-        Path("ki_clone_profile.html").resolve().write_text(s)
+        Path("ki_clone_profile.html").resolve().write_text(s, encoding="UTF-8")
 
 
 @beartype
@@ -1668,7 +1669,7 @@ def pull() -> None:
     if PROFILE:
         profiler.stop()
         s = profiler.output_html()
-        Path("ki_pull_profile.html").resolve().write_text(s)
+        Path("ki_pull_profile.html").resolve().write_text(s, encoding="UTF-8")
 
 
 @beartype
@@ -1788,7 +1789,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
     for patch in patches:
-        patched = False
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
