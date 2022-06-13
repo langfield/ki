@@ -1313,7 +1313,6 @@ def git_pull(
     cwd: ExtantDir,
     unrelated: bool,
     theirs: bool,
-    subtree: bool,
     check: bool,
     silent: bool,
 ) -> None:
@@ -1324,8 +1323,6 @@ def git_pull(
             args += ["--allow-unrelated-histories"]
         if theirs:
             args += ["--strategy-option=theirs"]
-        if subtree:
-            args += ["--strategy=subtree"]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
@@ -1865,7 +1862,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # into the submodules within `kirepo.repo`. This can be done by adding a
     # remote pointing to the patched submodule in each corresponding submodule
     # in the main repository, and then pulling from that remote. Then the
-    # remote should be deleted. Remote could be called `patch` or something.
+    # remote should be deleted.
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
@@ -1887,7 +1884,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                     False,
                     False,
                     False,
-                    False,
                     silent,
                 )
                 sm_repo.delete_remote(sm_remote)
@@ -1897,18 +1893,27 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         with F.halo(text=f"Committing new submodule commits to stage repository at '{last_push_repo.working_dir}'..."):
             last_push_repo.git.add(all=True)
             last_push_repo.index.commit(msg)
+
+    # Handle deleted files, preferring `theirs`.
+    diff_index = last_push_repo.commit("HEAD").diff(last_push_repo.commit("FETCH_HEAD"))
+    for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
+        a_path: Path = F.test(last_push_root / diff.a_path)
+        if isinstance(a_path, ExtantFile):
+            logger.debug(f"Found file deleted in remote: '{a_path}'")
+            last_push_repo.git.rm(diff.a_path)
+
     # =================== NEW PULL ARCHITECTURE ====================
 
     old_cwd: ExtantDir = F.chdir(last_push_root)
     last_push_repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, False, True, silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
     last_push_repo.delete_remote(anki_remote)
     F.chdir(old_cwd)
 
     # Create remote pointing to `last_push_repo` and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, False, silent)
+    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
 
     # Append the hash of the collection to the hashes file, and raise an error
