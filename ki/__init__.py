@@ -130,7 +130,7 @@ logging.basicConfig(level=logging.INFO)
 
 T = TypeVar("T")
 
-# TODO: What if there is a deck called `media`?
+# TODO: What if there is a deck called `_media`?
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 500
@@ -160,6 +160,7 @@ FAILED = "Failed: exiting."
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
 SPINNER = "bouncingBall"
+VERBOSE = False
 PROFILE = False
 
 
@@ -351,11 +352,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    verbose = True
-
     head = repo.commit("HEAD")
     with F.halo(text=f"Diffing '{head1.sha}' ~ '{head.hexsha}'..."):
-        diff_index = repo.commit("HEAD~1").diff(head, create_patch=verbose)
+        diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
 
     for change_type in GitChangeType:
 
@@ -383,7 +382,7 @@ def diff2(
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
 
-            if verbose:
+            if VERBOSE:
                 logger.debug(f"{a_relpath} -> {b_relpath}")
                 logger.debug(diff.diff.decode())
 
@@ -424,7 +423,7 @@ def diff2(
 
             deltas.append(Delta(change_type, b_path, b_relpath))
 
-    if verbose:
+    if VERBOSE:
         echo(f"Diffing '{repo.working_dir}': '{head1.sha}' ~ '{head.hexsha}'")
 
     return deltas

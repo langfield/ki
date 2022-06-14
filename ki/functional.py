@@ -14,7 +14,6 @@ from pathlib import Path
 
 import git
 from halo import Halo
-from loguru import logger
 
 from beartype import beartype
 from beartype.typing import (
