@@ -1250,8 +1250,6 @@ def html_to_screen(html: str) -> str:
     plain = plain.replace("<br>", "\n")
     plain = plain.replace("<br/>", "\n")
     plain = plain.replace("<br />", "\n")
-    plain = plain.replace("<div>", "\n")
-    plain = plain.replace("</div>", "")
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
@@ -1299,7 +1297,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     for field_name, field_text in tidy_fields.items():
 
         # Strip newlines.
-        field_text = field_text.replace("\n", "")
+        # field_text = field_text.replace("\n", "")
         lines.append("### " + field_name)
         lines.append(html_to_screen(field_text))
         lines.append("")

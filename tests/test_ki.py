@@ -1015,7 +1015,6 @@ def test_create_deck_dir():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_create_deck_dir_strips_leading_periods():
     deckname = ".aa::bb::.cc"
     runner = CliRunner()
@@ -1026,7 +1025,6 @@ def test_create_deck_dir_strips_leading_periods():
         assert os.path.isdir("aa/bb/cc")
 
 
-@pytest.mark.skip
 def test_get_note_payload():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -1055,7 +1053,6 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
-@pytest.mark.skip
 def test_write_repository_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
@@ -1088,7 +1085,6 @@ def test_write_repository_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
     col_file = get_html_col_file()
@@ -1107,14 +1103,12 @@ def test_write_repository_handles_html():
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text()
+        logger.debug(contents)
 
-        # The tidy call should add the DOCTYPE tag and indentation.
-        assert "<!DOCTYPE html>\n<title></title>" in contents
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents
 
 
 @beartype
-@pytest.mark.skip
 def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixture):
     """Do errors get forwarded nicdely?"""
     col_file = get_html_col_file()
