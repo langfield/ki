@@ -109,6 +109,8 @@ from ki.types import (
     MissingMediaDirectoryError,
     MissingMediaFileWarning,
     ExpectedNonexistentPathError,
+    WrongFieldCountWarning,
+    InconsistentFieldNamesWarning,
 )
 from ki.maybes import (
     GIT,
@@ -600,16 +602,17 @@ def update_note(
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
-
-    # TODO: Don't print this here.
-    for warning in warnings:
-        logger.warning(warning)
+    if len(warnings) > 0:
+        return note, warnings
 
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
     # TODO: Check if these apy methods can raise exceptions.
     for key, field in decknote.fields.items():
+        if key not in note:
+            warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
+            continue
         if decknote.markdown:
             note[key] = markdown_to_html(field)
         else:
@@ -631,21 +634,16 @@ def update_note(
 def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[Warning]:
     """Validate that the fields given in the note match the notetype."""
     warnings: List[Warning] = []
-    # Set current notetype for collection to `model_name`.
-    field_names: List[str] = [field.name for field in notetype.flds]
+    names: List[str] = [field.name for field in notetype.flds]
 
-    # TODO: Use a more descriptive error message. It is probably sufficient to
-    # just add the `nid` from the decknote, so we know which note we failed to
-    # validate. It might also be nice to print the path of the note in the
+    # TODO: It might also be nice to print the path of the note in the
     # repository. This would have to be added to the `DeckNote` spec.
-    if len(decknote.fields.keys()) != len(field_names):
-        msg = f"Wrong number of fields for model {decknote.model}!"
-        warnings.append(NoteFieldValidationWarning(msg))
+    if len(decknote.fields.keys()) != len(names):
+        warnings.append(WrongFieldCountWarning(decknote, names))
 
-    for x, y in zip(field_names, decknote.fields.keys()):
+    for x, y in zip(names, decknote.fields.keys()):
         if x != y:
-            msg = f"Inconsistent field names ({x} != {y})"
-            warnings.append(NoteFieldValidationWarning(msg))
+            warnings.append(InconsistentFieldNamesWarning(x, y, decknote))
 
     return warnings
 
@@ -1743,7 +1741,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
     unsub_root = F.working_dir(unsub_repo)
-    with F.halo(text=f"Updating submodules in stage repositories..."):
+    with F.halo(text="Updating submodules in stage repositories..."):
         unsub_repo.git.submodule("update")
         last_push_repo.git.submodule("update")
     with F.halo(text=f"Unsubmoduling repository at '{unsub_root}'..."):
@@ -1770,7 +1768,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     from contextlib import redirect_stdout
 
     f = io.StringIO()
-    with F.halo(text=f"Generating submodule patches..."):
+    with F.halo(text="Generating submodule patches..."):
         with redirect_stdout(f):
             for diff in whatthepatch.parse_patch(raw_unified_patch):
 
@@ -1799,7 +1797,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     if len(last_push_repo.submodules) > 0:
-        with F.halo(text=f"Committing submodule directory removals..."):
+        with F.halo(text="Committing submodule directory removals..."):
             remote_repo.git.add(all=True)
             remote_repo.index.commit("Remove submodule directories.")
 
@@ -1857,7 +1855,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         echo(f"  Patched '{sm_rel_root}'")
 
     # Commit patches in submodules.
-    with F.halo(text=f"Committing applied patches to submodules..."):
+    with F.halo(text="Committing applied patches to submodules..."):
         for sm_repo in subrepos.values():
             sm_repo.git.add(all=True)
             sm_repo.index.commit(msg)

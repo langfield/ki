@@ -97,6 +97,8 @@ from ki.types import (
     MissingMediaDirectoryError,
     MissingMediaFileWarning,
     TargetExistsError,
+    WrongFieldCountWarning,
+    InconsistentFieldNamesWarning,
 )
 from ki.transformer import FlatNote, NoteTransformer
 
@@ -541,7 +543,6 @@ def open_collection(col_file: ExtantFile) -> Collection:
     return col
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -551,14 +552,13 @@ def test_update_note_raises_error_on_too_few_fields():
     # Note that "Back" field is missing.
     decknote = DeckNote("title", 0, "Default", "Basic", [], False, {"Front": field})
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, decknote, notetype, notetype)
-    warning: Warning = res
+    note, warnings = update_note(note, decknote, notetype, notetype)
+    warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, NoteFieldValidationWarning)
-    assert "Wrong number of fields for model Basic!" in str(warning)
+    assert isinstance(warning, WrongFieldCountWarning)
+    assert "Wrong number of fields for model 'Basic'" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -570,14 +570,13 @@ def test_update_note_raises_error_on_too_many_fields():
     decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, decknote, notetype, notetype)
-    warning: Warning = res
+    note, warnings = update_note(note, decknote, notetype, notetype)
+    warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, NoteFieldValidationWarning)
-    assert "Wrong number of fields for model Basic!" in str(warning)
+    assert isinstance(warning, WrongFieldCountWarning)
+    assert "Wrong number of fields for model 'Basic'" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
     col = open_collection(get_col_file())
@@ -589,16 +588,15 @@ def test_update_note_raises_error_wrong_field_name():
     decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, decknote, notetype, notetype)
-    warning: Warning = res
+    note, warnings = update_note(note, decknote, notetype, notetype)
+    warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
-    assert isinstance(warning, NoteFieldValidationWarning)
+    assert isinstance(warning, InconsistentFieldNamesWarning)
     assert "Inconsistent field names" in str(warning)
     assert "Backus" in str(warning)
     assert "Back" in str(warning)
 
 
-@pytest.mark.skip
 def test_update_note_sets_tags():
     """Do we update tags of anki note?"""
     col = open_collection(get_col_file())
@@ -614,14 +612,13 @@ def test_update_note_sets_tags():
     assert note.tags == ["tag"]
 
 
-@pytest.mark.skip
 def test_update_note_sets_deck():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Basic", "deck", [], False, fields)
+    decknote = DeckNote("title", 0, "deck", "Basic", [], False, fields)
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
@@ -691,8 +688,8 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     clz: NotetypeDict = col.models.by_name("Cloze")
     cloze: Notetype = parse_notetype_dict(clz)
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    res: OkErr = update_note(note, decknote, notetype, cloze)
-    warning = res
+    note, warnings = update_note(note, decknote, notetype, cloze)
+    warning = warnings.pop()
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
 

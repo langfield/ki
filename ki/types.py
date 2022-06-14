@@ -233,14 +233,6 @@ class WrittenNoteFile:
 
 
 @beartype
-def errwrap(msg: str) -> str:
-    out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-    out = out.lstrip()
-    out = out.rstrip()
-    return out
-
-
-@beartype
 @dataclass(frozen=True)
 class Leaves:
     root: ExtantDir
@@ -267,6 +259,14 @@ class NoteDBRow:
 # EXCEPTIONS
 
 
+@beartype
+def errwrap(msg: str) -> str:
+    out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+    out = out.lstrip()
+    out = out.rstrip()
+    return out
+
+
 # TODO: Refactor the rest of the error messages so that they look like this,
 # with the empty line between the header and the body, and making use of
 # `errwrap()`.
@@ -282,7 +282,7 @@ class MissingDirectoryError(Exception):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"Directory not found: '{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedFileButGotDirectoryError(FileNotFoundError):
@@ -290,7 +290,7 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
     def __init__(self, path: Path, info: str = ""):
         msg = "A file was expected at this location, but got a directory: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedDirectoryButGotFileError(Exception):
@@ -298,7 +298,7 @@ class ExpectedDirectoryButGotFileError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "A directory was expected at this location, but got a file: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
@@ -306,7 +306,7 @@ class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
     def __init__(self, path: Path, info: str = ""):
         msg = "An empty directory was expected at this location, but it is nonempty: "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class StrangeExtantPathError(Exception):
@@ -315,7 +315,7 @@ class StrangeExtantPathError(Exception):
         msg = "A normal file or directory was expected, but got a weird pseudofile "
         msg += "(e.g. a socket, or a device): "
         msg += f"'{path}'{info.rstrip()}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedNonexistentPathError(FileExistsError):
@@ -324,7 +324,7 @@ class ExpectedNonexistentPathError(FileExistsError):
         msg = f"""
         Expected this path not to exist, but it does: '{path}'{info.rstrip()}
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class NotKiRepoError(Exception):
@@ -332,14 +332,14 @@ class NotKiRepoError(Exception):
     def __init__(self):
         msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
         msg += "Stopping at filesystem boundary."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class UpdatesRejectedError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class TargetExistsError(Exception):
@@ -347,14 +347,14 @@ class TargetExistsError(Exception):
     def __init__(self, target: Path):
         msg = f"fatal: destination path '{target}' already exists and is "
         msg += "not an empty directory."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class GitRefNotFoundError(Exception):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class GitHeadRefNotFoundError(Exception):
@@ -367,14 +367,14 @@ class GitHeadRefNotFoundError(Exception):
         the case, because ki repositories must be instantiated with a 'ki clone
         <collection>' command, and this command creates an initial commit.
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class CollectionChecksumError(Exception):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class MissingNotetypeError(Exception):
@@ -397,14 +397,14 @@ class MissingFieldOrdinalError(Exception):
     @beartype
     def __init__(self, ord: int, model: str):
         msg = f"Field with ordinal {ord} missing from notetype '{model}'."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class MissingNoteIdError(Exception):
     @beartype
     def __init__(self, nid: int):
         msg = f"Failed to locate note with nid '{nid}' in Anki database."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class NotetypeMismatchError(Exception):
@@ -415,7 +415,7 @@ class NotetypeMismatchError(Exception):
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class NotetypeKeyError(Exception):
@@ -426,7 +426,7 @@ class NotetypeKeyError(Exception):
         '{MODELS_FILE}' file in the current repository (may be contained in a
         subdirectory).
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class NoteFieldKeyError(Exception):
@@ -438,7 +438,7 @@ class NoteFieldKeyError(Exception):
         `anki.notes.Note` objects on names pulled from their own notetype
         dictionary.
         """
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class UnnamedNotetypeError(Exception):
@@ -449,8 +449,7 @@ class UnnamedNotetypeError(Exception):
         a '{MODELS_FILE}' file in the current repository (may be
         contained in a subdirectory):
         """
-        msg = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        super().__init__(msg + "\n" + pp.pformat(nt))
+        super().__init__(errwrap(msg) + "\n" + pp.pformat(nt))
 
 
 class SQLiteLockError(Exception):
@@ -470,11 +469,7 @@ class SQLiteLockError(Exception):
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         """
-        super().__init__(
-            header
-            + "\n"
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{header}\n{errwrap(msg)}")
 
 
 class PathCreationCollisionError(Exception):
@@ -489,11 +484,7 @@ class PathCreationCollisionError(Exception):
         calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
         directory, whose contents all ought to be distinct.
         """
-        super().__init__(
-            header
-            + "\n"
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{header}\n{errwrap(msg)}")
 
 
 class MissingMediaDirectoryError(Exception):
@@ -508,9 +499,7 @@ class MissingMediaDirectoryError(Exception):
         tampered with, or an old version of Anki incompatible with ki is
         installed.
         """
-        super().__init__(
-            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{top}\n{errwrap(msg)}")
 
 
 class AnkiAlreadyOpenError(Exception):
@@ -522,10 +511,37 @@ class AnkiAlreadyOpenError(Exception):
 # WARNINGS
 
 
-# TODO: Make this warning more descriptive. Should given the note id, the path,
-# the field(s) which are missing, and the model.
 class NoteFieldValidationWarning(Warning):
-    pass
+    @beartype
+    def __init__(self, nid: int, field: str, notetype: Notetype):
+        top = f"Warning: Bad field '{field}' for notetype '{notetype}' in note '{nid}'"
+        msg = "Try correcting the field name or changing the notetype."
+        msg += f"The fields for the notetype '{notetype}' are:"
+        fields: List[str] = [field.name for field in notetype.flds]
+        listing: str = "  " + "\n  ".join(fields)
+        super().__init__(f"{top}\n{errwrap(msg)}\n{listing}")
+
+
+class WrongFieldCountWarning(Warning):
+    @beartype
+    def __init__(self, decknote: DeckNote, names: List[str]):
+        top = f"Warning: Wrong number of fields for model '{decknote.model}'"
+        msg = f"""
+        The notetype '{decknote.model}' takes '{len(names)}' fields, but got
+        '{len(decknote.fields.keys())}' for note '{decknote.nid}'.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class InconsistentFieldNamesWarning(Warning):
+    @beartype
+    def __init__(self, x: str, y: str, decknote: DeckNote):
+        top = f"Warning: Inconsistent field names ('{x}' != '{y}')"
+        msg = """
+        Expected a field '{x}' for notetype '{decknote.model}', but got a field
+        '{y}' in note '{decknote.nid}'.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
 
 
 class UnhealthyNoteWarning(Warning):
@@ -557,9 +573,7 @@ class DeletedFileNotFoundWarning(Warning):
         a 'Warning' instead of an 'Exception' in order to avoid interrupting
         the execution of a 'push()' call where it is not strictly necessary.
         """
-        super().__init__(
-            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{top}\n{errwrap(msg)}")
 
 
 class DiffTargetFileNotFoundWarning(Warning):
@@ -575,9 +589,7 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
         """
-        super().__init__(
-            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{top}\n{errwrap(msg)}")
 
 
 class MissingMediaFileWarning(Warning):
@@ -592,6 +604,4 @@ class MissingMediaFileWarning(Warning):
         files within the media directory (usually called 'collection.media/'
         within the relevant Anki user profile directory).
         """
-        super().__init__(
-            top + "\n" + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f"{top}\n{errwrap(msg)}")
