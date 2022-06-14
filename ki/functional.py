@@ -44,6 +44,8 @@ from ki.types import (
 FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
 HALO_ENABLED = True
+if os.environ["KITEST"] == "1":
+    HALO_ENABLED = False
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -65,7 +67,7 @@ def rmtree(target: ExtantDir) -> NoFile:
 @beartype
 def copytree(source: ExtantDir, target: NoFile) -> ExtantDir:
     """Call shutil.copytree()."""
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, symlinks=True)
     return ExtantDir(target.resolve())
 
 
