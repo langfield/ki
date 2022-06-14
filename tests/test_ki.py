@@ -1374,7 +1374,7 @@ def test_push_decknote_to_anki():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "NonexistentModel", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
     with pytest.raises(MissingNotetypeError) as error:
         push_decknote_to_anki(col, decknote)
     assert "NonexistentModel" in str(error.exconly())
@@ -1428,7 +1428,7 @@ def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Basic", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     with pytest.raises(NoteFieldKeyError) as error:
         push_decknote_to_anki(col, decknote)
@@ -1545,7 +1545,7 @@ def test_get_models_recursively(tmp_path):
             json.dump(MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd())
         with pytest.raises(NotetypeKeyError) as error:
-            get_models_recursively(kirepo)
+            get_models_recursively(kirepo, silent=True)
         assert "not found in notetype" in str(error.exconly())
         assert "flds" in str(error.exconly())
         assert "Basic" in str(error.exconly())
@@ -1564,7 +1564,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
             json.dump(NAMELESS_MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd())
         with pytest.raises(UnnamedNotetypeError) as error:
-            get_models_recursively(kirepo)
+            get_models_recursively(kirepo, silent=True)
         assert "Failed to find 'name' field" in str(error.exconly())
         assert "1645010146011" in str(error.exconly())
 

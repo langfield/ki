@@ -108,6 +108,7 @@ from ki.types import (
     NoteFieldKeyError,
     MissingMediaDirectoryError,
     MissingMediaFileWarning,
+    ExpectedNonexistentPathError,
 )
 from ki.maybes import (
     GIT,
@@ -219,7 +220,10 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = copy_repo(ref, suffix)
-    F.copytree(kirepo_ref.kirepo.ki_dir, F.test(F.working_dir(ephem) / KI))
+    ki_dir: Path = F.test(F.working_dir(ephem) / KI)
+    if not isinstance(ki_dir, NoFile):
+        raise ExpectedNonexistentPathError(ki_dir)
+    F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
     kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
 
     return kirepo
