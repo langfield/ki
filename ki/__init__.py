@@ -1256,7 +1256,7 @@ def html_to_screen(html: str) -> str:
 
 
 @beartype
-def get_colnote_repr(colnote: ColNote) -> str:
+def get_colnote_as_str(colnote: ColNote) -> str:
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append("### " + field_name)
@@ -1287,17 +1287,19 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     for field_name, field_text in colnote.n.items():
         fid = get_field_note_id(colnote.n.id, field_name)
         if fid in tidy_field_files:
-            tidy_fields[field_name] = tidy_field_files[fid].read_text()
+            # HTML5-tidy adds a newline after `<br>` in indent mode, so we
+            # remove these, because `html_to_screen()` converts `<br>` tags to
+            # newlines anyway.
+            tidied_field_text: str = tidy_field_files[fid].read_text()
+            tidied_field_text = tidied_field_text.replace("<br>\n", "\n")
+            tidied_field_text = tidied_field_text.replace("<br/>\n", "\n")
+            tidied_field_text = tidied_field_text.replace("<br />\n", "\n")
+            tidy_fields[field_name] = tidied_field_text
         else:
             tidy_fields[field_name] = field_text
 
-    # TODO: Make this use `get_colnote_repr()`.
-    # Construct note repr from `tidy_fields` map.
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
-
-        # Strip newlines.
-        # field_text = field_text.replace("\n", "")
         lines.append("### " + field_name)
         lines.append(html_to_screen(field_text))
         lines.append("")
@@ -1416,7 +1418,7 @@ def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> Li
 
     parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
     new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
-    F.write(new_note_path, get_colnote_repr(colnote))
+    F.write(new_note_path, get_colnote_as_str(colnote))
 
     # Construct a nice commit message line.
     msg = f"Reassigned nid: '{colnote.old_nid}' -> "
