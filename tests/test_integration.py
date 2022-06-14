@@ -842,7 +842,6 @@ def test_pull_preserves_reassigned_note_ids(tmp_path):
 
 
 def test_pull_handles_uncommitted_submodule_commits(tmp_path):
-    """UNFINISHED!"""
     col_file = get_uncommitted_sm_pull_exception_col_file()
     runner = CliRunner()
     japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
@@ -1736,7 +1735,6 @@ def test_push_changes_deck_for_moved_notes():
 
 
 def test_push_is_trivial_for_committed_submodule_contents(tmp_path):
-    """UNFINISHED!"""
     col_file = get_uncommitted_sm_pull_exception_col_file()
     runner = CliRunner()
     japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
