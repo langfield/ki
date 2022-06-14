@@ -14,8 +14,6 @@ from anki.collection import Note
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
 
-from ki.transformer import FlatNote
-
 # pylint: disable=too-many-lines, missing-class-docstring
 
 NotetypeDict = Dict[str, Any]
@@ -411,9 +409,9 @@ class MissingNoteIdError(Exception):
 
 class NotetypeMismatchError(Exception):
     @beartype
-    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
-        msg = f"Notetype '{flatnote.model}' "
-        msg += f"specified in FlatNote with nid '{flatnote.nid}' "
+    def __init__(self, decknote: DeckNote, new_notetype: Notetype):
+        msg = f"Notetype '{decknote.model}' "
+        msg += f"specified in DeckNote with nid '{decknote.nid}' "
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
