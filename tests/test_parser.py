@@ -65,7 +65,6 @@ def test_too_many_hashes_for_title():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    debug_lark_error(note, err)
     assert err.line == 1
     assert err.column == 3
     assert err.token == "# Note\n"
