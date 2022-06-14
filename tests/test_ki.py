@@ -877,7 +877,6 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         assert "note123412341234.md" in str(warning)
 
 
-@pytest.mark.skip
 def test_unsubmodule_repo_removes_gitmodules(tmp_path):
     """
     When you have a ki repo with submodules, does calling
@@ -894,7 +893,6 @@ def test_unsubmodule_repo_removes_gitmodules(tmp_path):
         assert not gitmodules_path.exists()
 
 
-@pytest.mark.skip
 def test_diff2_handles_submodules():
     """
     Does 'diff2()' correctly generate deltas
@@ -933,12 +931,13 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        deltas = [d for d in deltas if isinstance(d, Delta)]
 
+        assert len(deltas) > 0
         for delta in deltas:
             assert delta.path.is_file()
 
 
-@pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(capfd):
     """Do we print a nice message when we backup an already-backed-up file?"""
     col_file = get_col_file()
@@ -953,7 +952,6 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
         assert "Backup already exists." in captured.out
 
 
-@pytest.mark.skip
 def test_git_pull():
     col_file = get_col_file()
     runner = CliRunner()
@@ -967,7 +965,7 @@ def test_git_pull():
         os.chdir(REPODIR)
 
         # Pull, poorly.
-        with pytest.raises(ValueError):
+        with pytest.raises(RuntimeError):
             git_pull(
                 "anki",
                 "main",
@@ -979,7 +977,6 @@ def test_git_pull():
             )
 
 
-@pytest.mark.skip
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     runner = CliRunner()
@@ -991,7 +988,6 @@ def test_get_note_path():
         assert str(note_path.name) == "a_1.md"
 
 
-@pytest.mark.skip
 def test_tidy_html_recursively():
     """Does tidy wrapper print a nice error when tidy is missing?"""
     runner = CliRunner()
@@ -1009,7 +1005,6 @@ def test_tidy_html_recursively():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
