@@ -537,7 +537,7 @@ class InconsistentFieldNamesWarning(Warning):
     @beartype
     def __init__(self, x: str, y: str, decknote: DeckNote):
         top = f"Warning: Inconsistent field names ('{x}' != '{y}')"
-        msg = """
+        msg = f"""
         Expected a field '{x}' for notetype '{decknote.model}', but got a field
         '{y}' in note '{decknote.nid}'.
         """

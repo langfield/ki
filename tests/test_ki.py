@@ -4,6 +4,7 @@ import os
 import json
 import random
 import shutil
+import sqlite3
 import tempfile
 from pathlib import Path
 from dataclasses import dataclass
@@ -30,6 +31,8 @@ from ki import (
     BRANCH_NAME,
     KI,
     MEDIA,
+    HEAD_SUFFIX,
+    REMOTE_SUFFIX,
     HASHES_FILE,
     MODELS_FILE,
     CONFIG_FILE,
@@ -75,8 +78,11 @@ from ki import (
     append_md5sum,
     get_media_files,
     diff2,
+    _clone,
 )
 from ki.types import (
+    NoFile,
+    NoPath,
     Leaves,
     ExtantStrangePath,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
@@ -630,7 +636,6 @@ def test_update_note_sets_deck():
     assert deck == "deck"
 
 
-@pytest.mark.skip
 def test_update_note_sets_field_contents():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
@@ -676,14 +681,13 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
         update_note(note, decknote, notetype, notetype)
 
 
-@pytest.mark.skip
 def test_display_fields_health_warning_catches_missing_clozes(capfd):
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "data"
     fields = {"Text": field, "Back Extra": ""}
-    decknote = DeckNote("title", 0, "Cloze", "Default", [], False, fields)
+    decknote = DeckNote("title", 0, "Default", "Cloze", [], False, fields)
 
     clz: NotetypeDict = col.models.by_name("Cloze")
     cloze: Notetype = parse_notetype_dict(clz)
@@ -773,8 +777,7 @@ def test_update_note_converts_markdown_formatting_to_html():
 @beartype
 @dataclass(frozen=True)
 class DiffReposArgs:
-    a_repo: git.Repo
-    head_1: RepoRef
+    repo: git.Repo
     parser: Lark
     transformer: NoteTransformer
 
@@ -797,46 +800,32 @@ def get_diff2_args() -> DiffReposArgs:
     a `GitChangeType.ADDED`, then we should do that in `REPODIR` before calling
     this function.
     """
-
-    # Check that we are inside a ki repository, and get the associated collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    lock(kirepo.col_file)
+    con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
-
-    # Get reference to HEAD of current repo.
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-
-    # Copy current kirepo into a temp directory (the STAGE), hard reset to HEAD.
-    stage_kirepo: KiRepo = copy_kirepo(head, f"{STAGE_SUFFIX}-{md5sum}")
-    stage_kirepo = flatten_staging_repo(stage_kirepo, kirepo)
-
-    # This statement cannot be any farther down because we must get a reference
-    # to HEAD *before* we commit, and then after the following line, the
-    # reference we got will be HEAD~1, hence the variable name.
-    head_1: RepoRef = M.head_repo_ref(stage_kirepo.repo)
-
-    stage_kirepo.repo.git.add(all=True)
-    stage_kirepo.repo.index.commit(f"Pull changes from ref {head.sha}")
-
-    # Read grammar.
-    # TODO:! Should we assume this always exists? A nice error message should
-    # be printed on initialization if the grammar file is missing. No
-    # computation should be done, and none of the click commands should work.
+    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+    remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
+    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    F.copytree(git_copy, F.test(git_dir))
+    remote_repo: git.Repo = M.repo(remote_root)
+    remote_repo.git.add(all=True)
+    remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
-
-    # Instantiate parser.
-    parser = Lark(grammar, start="file", parser="lalr")
+    parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
 
-    # Get deltas.
-    a_repo: git.Repo = copy_repo(head_1, f"{DELETED_SUFFIX}-{md5sum}")
-
-    return DiffReposArgs(a_repo, head_1, parser, transformer)
+    return DiffReposArgs(remote_repo, parser, transformer)
 
 
-@pytest.mark.skip
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
@@ -848,8 +837,7 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
 
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
-            args.a_repo,
-            args.head_1,
+            args.repo,
             args.parser,
             args.transformer,
         )
@@ -860,38 +848,6 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
         assert "last_push" not in captured.err
 
 
-@pytest.mark.skip
-def test_diff2_yields_a_warning_when_a_deleted_file_cannot_be_found(tmp_path):
-    col_file = get_col_file()
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-
-        # Clone collection in cwd.
-        clone(runner, col_file)
-        os.chdir(REPODIR)
-
-        os.remove("Default/a.md")
-        repo = git.Repo(".")
-        repo.git.add(all=True)
-        repo.index.commit("CommitMessage")
-
-        args: DiffReposArgs = get_diff2_args()
-
-        # We pass in `b_repo` for both arguments in order to simulate the
-        # deleted file being missing.
-        deltas: List[Union[Delta, Warning]] = diff2(
-            args.a_repo,
-            args.head_1,
-            args.parser,
-            args.transformer,
-        )
-        warnings = [d for d in deltas if isinstance(d, DeletedFileNotFoundWarning)]
-        assert len(warnings) == 1
-        warning = warnings.pop()
-        assert "Default/a.md" in str(warning)
-
-
-@pytest.mark.skip
 def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
     col_file = get_col_file()
     runner = CliRunner()
@@ -908,11 +864,10 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
 
         args: DiffReposArgs = get_diff2_args()
 
-        os.remove(Path(args.head_1.repo.working_dir) / NOTE_2)
+        os.remove(Path(args.repo.working_dir) / NOTE_2)
 
         deltas: List[Union[Delta, Warning]] = diff2(
-            args.a_repo,
-            args.head_1,
+            args.repo,
             args.parser,
             args.transformer,
         )
@@ -954,8 +909,7 @@ def test_diff2_handles_submodules():
 
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
-            args.a_repo,
-            args.head_1,
+            args.repo,
             args.parser,
             args.transformer,
         )
@@ -975,8 +929,7 @@ def test_diff2_handles_submodules():
 
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
-            args.a_repo,
-            args.head_1,
+            args.repo,
             args.parser,
             args.transformer,
         )
@@ -1120,7 +1073,7 @@ def test_write_repository_generates_deck_tree_correctly():
         targetdir = F.mkdir(targetdir)
         ki_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / KI))
         media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
-        leaves: OkErr = F.fmkleaves(
+        leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
@@ -1150,7 +1103,7 @@ def test_write_repository_handles_html():
         targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
         ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
         media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
-        leaves: OkErr = F.fmkleaves(
+        leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
@@ -1176,14 +1129,14 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
         ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
         media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
-        leaves: OkErr = F.fmkleaves(
+        leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
 
         mocker.patch(
-            "ki.get_colnote", return_value=Err(NoteFieldKeyError("'bad_field_key'", 0))
+            "ki.get_colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
             write_repository(
@@ -1640,7 +1593,7 @@ def test_write_repository_displays_missing_media_warnings(capfd):
         targetdir = F.mkdir(targetdir)
         ki_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / KI))
         media_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / MEDIA))
-        leaves: OkErr = F.fmkleaves(
+        leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
