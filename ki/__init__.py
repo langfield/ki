@@ -1222,7 +1222,9 @@ def write_decks(
                     continue
 
                 note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                F.symlink(note_path, written_notes[card.nid].file)
+                abs_target: ExtantFile = written_notes[card.nid].file
+                target: Path = abs_target.relative_to(targetdir)
+                F.symlink(note_path, target)
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}

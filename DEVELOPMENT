@@ -190,6 +190,7 @@ TODO
   but there is no such thing. See
   https://stackoverflow.com/questions/173919/is-there-a-theirs-version-of-git-merge-s-ours
   for a workaround.
+- Add test for symlink handling.
 
 16-April-2022
 -------------
