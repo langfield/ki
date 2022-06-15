@@ -190,6 +190,11 @@ TODO
   but there is no such thing. See
   https://stackoverflow.com/questions/173919/is-there-a-theirs-version-of-git-merge-s-ours
   for a workaround.
+- Add test for symlink handling.
+- Tags should be on separate lines so that git can merge them nicely. See
+  https://github.com/ankitects/anki/issues/1018#issuecomment-1153998635
+- Try to see if there is a way to test if non-notetype changes result in a
+  syncable database.
 
 16-April-2022
 -------------

@@ -56,6 +56,9 @@ class ExtantStrangePath(type(Path())):
     when it was resolved.
     """
 
+class Symlink(type(Path())):
+    """UNSAFE: Indicates that this path was a symlink when tested."""
+
 
 class NoFile(NoPath):
     """A nonexistent file in an extant directory."""

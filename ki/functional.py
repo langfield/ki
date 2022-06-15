@@ -33,6 +33,7 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
     Singleton,
     ExtantStrangePath,
     KiRepoRef,
@@ -44,6 +45,8 @@ from ki.types import (
 FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
 HALO_ENABLED = True
+if "KITEST" in os.environ and os.environ["KITEST"] == "1":
+    HALO_ENABLED = False
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -65,7 +68,7 @@ def rmtree(target: ExtantDir) -> NoFile:
 @beartype
 def copytree(source: ExtantDir, target: NoFile) -> ExtantDir:
     """Call shutil.copytree()."""
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, symlinks=True)
     return ExtantDir(target.resolve())
 
 
@@ -91,7 +94,7 @@ def shallow_walk(
 def test(
     path: Path,
     resolve: bool = True,
-) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile]:
+) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile, Symlink]:
     """Test whether `path` is a file, a directory, or something else."""
     if resolve:
         path = path.resolve()
@@ -103,6 +106,8 @@ def test(
         return ExtantDir(path)
     if path.exists():
         return ExtantStrangePath(path)
+    if os.path.islink(path):
+        return Symlink(path)
     if path.parent.is_dir():
         return NoFile(path)
     return NoPath(path)
@@ -124,10 +129,13 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
     return ExtantFile(path)
 
 
+# TODO: This should really take a `RelativeFile`, which would be a dataclass of
+# an `ExtantFile` and an `ExtantDir` with the constraint that the directory is
+# an ancestor of the file.
 @beartype
-def symlink(path: NoFile, target: ExtantFile) -> ExtantFile:
+def symlink(path: NoFile, target: Path) -> ExtantFile:
     """Symlink `path` to `target`."""
-    path.symlink_to(target)
+    os.symlink(target, path)
     return ExtantFile(path)
 
 

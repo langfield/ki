@@ -130,7 +130,7 @@ logging.basicConfig(level=logging.INFO)
 
 T = TypeVar("T")
 
-# TODO: What if there is a deck called `media`?
+# TODO: What if there is a deck called `_media`?
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 500
@@ -160,6 +160,7 @@ FAILED = "Failed: exiting."
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
 SPINNER = "bouncingBall"
+VERBOSE = False
 PROFILE = False
 
 
@@ -351,8 +352,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    with F.halo(text=f"Diffing '{head1.sha}' ~ '{repo.head.commit}'..."):
-        diff_index = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
+    head = repo.commit("HEAD")
+    with F.halo(text=f"Diffing '{head1.sha}' ~ '{head.hexsha}'..."):
+        diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
 
     for change_type in GitChangeType:
 
@@ -360,18 +362,29 @@ def diff2(
         bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
         bar.set_description(f"{change_type}")
         for diff in bar:
+            a_relpath: str = diff.a_path
+            b_relpath: str = diff.b_path
+            if diff.a_path is None:
+                a_relpath = b_relpath
+            if diff.b_path is None:
+                b_relpath = a_relpath
+
             a_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.a_path),
+                Path(a_relpath),
                 a_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
             b_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.b_path),
+                Path(b_relpath),
                 b_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
+
+            if VERBOSE:
+                logger.debug(f"{a_relpath} -> {b_relpath}")
+                logger.debug(diff.diff.decode())
 
             if a_warning is not None:
                 deltas.append(a_warning)
@@ -380,11 +393,11 @@ def diff2(
                 deltas.append(b_warning)
                 continue
 
-            a_path = F.test(a_dir / diff.a_path)
-            b_path = F.test(b_dir / diff.b_path)
+            a_path = F.test(a_dir / a_relpath)
+            b_path = F.test(b_dir / b_relpath)
 
-            a_relpath = Path(diff.a_path)
-            b_relpath = Path(diff.b_path)
+            a_relpath = Path(a_relpath)
+            b_relpath = Path(b_relpath)
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
@@ -409,6 +422,9 @@ def diff2(
                     continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
+
+    if VERBOSE:
+        echo(f"Diffing '{repo.working_dir}': '{head1.sha}' ~ '{head.hexsha}'")
 
     return deltas
 
@@ -597,8 +613,9 @@ def update_note(
         fmap[field.ord] = None
 
     # Change notetype (also clears all fields).
-    note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
-    note.load()
+    if old_notetype.id != new_notetype.id:
+        note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
+        note.load()
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
@@ -1028,11 +1045,12 @@ def write_repository(
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for fieldname, fieldtext in colnote.n.items():
-            if re.search(HTML_REGEX, fieldtext):
-                fid: str = get_field_note_id(nid, fieldname)
+        for field_name, field_text in colnote.n.items():
+            field_text: str = html_to_screen(field_text)
+            if re.search(HTML_REGEX, field_text):
+                fid: str = get_field_note_id(nid, field_name)
                 html_file: NoFile = F.test(root / fid)
-                tidy_field_files[fid] = F.write(html_file, fieldtext)
+                tidy_field_files[fid] = F.write(html_file, field_text)
 
     tidy_html_recursively(root, silent)
 
@@ -1205,7 +1223,9 @@ def write_decks(
                     continue
 
                 note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                F.symlink(note_path, written_notes[card.nid].file)
+                abs_target: ExtantFile = written_notes[card.nid].file
+                target: Path = abs_target.relative_to(targetdir)
+                F.symlink(note_path, target)
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}

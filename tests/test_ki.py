@@ -707,7 +707,9 @@ def test_update_note_changes_notetype():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic (and reversed card)", [], False, fields)
+    decknote = DeckNote(
+        "title", 0, "Default", "Basic (and reversed card)", [], False, fields
+    )
 
     rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
     reverse: Notetype = parse_notetype_dict(rev)
@@ -722,6 +724,7 @@ def test_display_fields_health_warning_catches_empty_notes():
     note.fields = []
     health = display_fields_health_warning(note)
     assert health == 1
+
 
 def test_slugify_handles_unicode():
     """Test that slugify handles unicode alphanumerics."""
@@ -1128,9 +1131,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
             "ki.get_colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
-            write_repository(
-            col_file, targetdir, leaves, media_dir, silent=False
-        )
+            write_repository(col_file, targetdir, leaves, media_dir, silent=False)
         assert "'bad_field_key'" in str(error.exconly())
 
 
