@@ -72,7 +72,7 @@ It also supports:
   make a variant of it.
 * **Granular merge conflict resolution.** AnkiSync forces you to either
   overwrite *everything* with the sever-side version, or your local version
-  when it doesn't know how to automatically sync your decks. With Ki, you can
+  when it doesn't know how to automatically sync your decks. With ki, you can
   pick and choose which things you want from the server, and which things you
   want to keep from your device.
 * Collision-free reads and writes to the `collection.anki2` database file via
