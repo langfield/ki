@@ -613,8 +613,9 @@ def update_note(
         fmap[field.ord] = None
 
     # Change notetype (also clears all fields).
-    note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
-    note.load()
+    if old_notetype.id != new_notetype.id:
+        note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
+        note.load()
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
