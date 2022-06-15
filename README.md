@@ -10,6 +10,27 @@ tool for converting Anki collections and decks into
 * [Getting started](https://langfield.github.io/ki/)
 * [Demo video](https://asciinema.org/a/500300)
 
+
+### Installation
+
+Install the following dependencies:
+
+* [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+* [Python](https://www.python.org/downloads/)
+
+Then open a terminal or command-line window, and install with the following
+command:
+```bash
+pip install git+https://github.com/langfield/ki.git@main
+```
+
+### Questions
+
+Want to try this but can't figure out how? **Please, please** [open an
+issue](https://github.com/langfield/ki/issues/new) and explain what you need
+help with. Any and all complaints, questions, and rants are welcome!
+
+
 ### Features
 
 Ki provides three high-level features:
@@ -25,15 +46,14 @@ It also supports:
 * **Collaborative decks on GitHub** via git submodules, which means you can
   download shared decks, upload your own, contribute changes to others' decks,
   and review/merge others' contributions to your own decks.
-* Unicode (`UTF-8`), foreign language characters, and symbols in all fields.
-* Properly-escaped `LaTeX` and `MathJaX`.
-* Full version history of your decks, with the ability to roll-back to any
-  previous [commit](https://github.com/git-guides/git-commit) of your
+* **Full version history of your decks**, with the ability to **roll-back** to
+  any previous [commit](https://github.com/git-guides/git-commit) of your
   collection (these are made any time you run a ki command).
-* Automatic backups of your collection before every write to the Anki database
-  file (you can find these in your repository in the `.ki/backups` directory).
+* **Automatic backups** of your collection before every write to the
+  [Anki database file](https://github.com/ankidroid/Anki-Android/wiki/Database-Structure)
+  (you can find these in your repository in the `.ki/backups` directory).
 * Support for `Basic`, `Basic (and reversed)`, `Cloze`, `Cloze-Overlapper`, and
-  actually any arbitrary notetypes you can make up.
+  any arbitrary notetypes you make.
 * Full version history of edits to all your notetypes.
 * Full version history of all your media files.
 * Private fields for collaborative decks (so you can make your own notes and
@@ -69,23 +89,5 @@ It also supports:
   language-agnostic, and so a parser could be written in e.g. Kotlin to import
   decks from GitHub right on your phone, but this would take a nontrivial
   amount of development effort.
-
-
-### Installation
-
-Install the following dependencies:
-
-* [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-* [Python](https://www.python.org/downloads/)
-
-Then open a terminal or command-line window, and install with the following
-command:
-```bash
-pip install git+https://github.com/langfield/ki.git@main
-```
-
-### Questions
-
-Want to try this but can't figure out how? **Please, please** [open an
-issue](https://github.com/langfield/ki/issues/new) and explain what you need
-help with. Any and all complaints, questions, and rants are welcome!
+* Unicode (`UTF-8`), foreign language characters, and symbols in all fields.
+* Properly-escaped `LaTeX` and `MathJaX`.
