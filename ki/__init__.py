@@ -41,7 +41,7 @@ from loguru import logger
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, CardId
+from anki.cards import Card, CardId, TemplateDict
 from anki.decks import DeckTreeNode
 from anki.utils import ids2str
 from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
@@ -139,7 +139,7 @@ REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 80
-MAX_FIELNAME_LEN = 30
+MAX_FIELNAME_LEN = 40
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
@@ -669,7 +669,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 # should use other fields when there is not enough content in the first field
 # to get a unique filename, if they exist.
 @beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
+def get_note_path(sort_field_text: str, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = sort_field_text
 
@@ -690,8 +690,10 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
         slug = secrets.token_hex(10)
-        logger.warning(f"Slug for {name} is empty. Using {slug} as filename")
+        logger.warning(f"Slug for '{name}' is empty. Using '{slug}' as filename.")
 
+    if card_name != "":
+        slug = f"{slug}_{card_name}"
     filename: str = f"{slug}{MD}"
     note_path = F.test(deck_dir / filename, resolve=False)
 
@@ -1222,9 +1224,17 @@ def write_decks(
                 if card.did == written.did:
                     continue
 
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
+                # Get card template name.
+                template: TemplateDict = card.template()
+                name: str = template["name"]
+
+                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir, name)
                 abs_target: ExtantFile = written_notes[card.nid].file
-                target: Path = abs_target.relative_to(targetdir)
+                distance = len(note_path.parent.relative_to(targetdir).parts)
+                up_path = Path("../" * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
+                logger.debug(f"Pointing link {note_path} -> {target}")
                 F.symlink(note_path, target)
 
         # Write `models.json` for current deck.
