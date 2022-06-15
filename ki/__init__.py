@@ -1045,11 +1045,12 @@ def write_repository(
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for fieldname, fieldtext in colnote.n.items():
-            if re.search(HTML_REGEX, fieldtext):
-                fid: str = get_field_note_id(nid, fieldname)
+        for field_name, field_text in colnote.n.items():
+            field_text: str = html_to_screen(field_text)
+            if re.search(HTML_REGEX, field_text):
+                fid: str = get_field_note_id(nid, field_name)
                 html_file: NoFile = F.test(root / fid)
-                tidy_field_files[fid] = F.write(html_file, fieldtext)
+                tidy_field_files[fid] = F.write(html_file, field_text)
 
     tidy_html_recursively(root, silent)
 

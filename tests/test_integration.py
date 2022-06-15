@@ -361,7 +361,6 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
             clone(runner, col_file)
 
 
-@pytest.mark.xfail
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     col_file = get_html_col_file()
@@ -374,7 +373,28 @@ def test_clone_handles_html():
 
         path = Path(".") / "html" / "Default" / "あだ名.md"
         contents = path.read_text()
-        assert "<!DOCTYPE html>" in contents
+        logger.debug(contents)
+        assert (
+            """<table class="kanji-match">\n    <tbody>\n      <tr class="match-row-kanji" lang="ja">\n"""
+            in contents
+        )
+
+
+def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
+    """Does it tidy html and stuff?"""
+    col_file = get_html_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, col_file)
+        assert os.path.isdir(HTML_REPODIR)
+
+        path = Path(".") / "html" / "Default" / "on-evil.md"
+        contents = path.read_text()
+
+        # This line should not be broken.
+        assert "and I doubt that punishment should be relevant to criminal justice." in contents
 
 
 def test_clone_errors_when_directory_is_populated():
