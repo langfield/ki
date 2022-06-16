@@ -10,6 +10,11 @@ tool for converting Anki collections and decks into
 * [Getting started](https://langfield.github.io/ki/)
 * [Demo video](https://asciinema.org/a/500300)
 
+<p align="center">
+  <a href="https://asciinema.org/a/502129">
+    <img src="https://cdn.jsdelivr.net/gh/langfield/ki@asciicast-svg/docs/push2.svg" width="90%" height="90%">
+  </a>
+</p>
 
 ### Installation
 
