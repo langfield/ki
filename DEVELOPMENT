@@ -253,6 +253,13 @@ Generating HTML
 Media (DONE)
 
 
+Hardening media symlinks
+------------------------
+Do this in the relevant `_media/` directory:
+
+  shopt -s globstar && sed -i '' **/*
+
+
 Media deduplication
 -------------------
 Currently, a copy of every media file is put in each ancestor of each deck
