@@ -882,12 +882,15 @@ def files_in_str(
 
 
 @beartype
-def get_media_files(
+def copy_media_files(
     col: Collection,
+    media_target_dir: EmptyDir,
     silent: bool,
 ) -> Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
     """
-    Get a list of extant media files used in notes and notetypes.
+    Get a list of extant media files used in notes and notetypes, copy those
+    media files to the top-level `_media/` directory in the repository root,
+    and return a map sending note ids to sets of copied media files.
 
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
@@ -954,7 +957,8 @@ def get_media_files(
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                media[row.nid] = media.get(row.nid, set()) | set([media_file])
+                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
             else:
                 warnings.add(MissingMediaFileWarning(col.path, media_file))
 
@@ -977,8 +981,9 @@ def get_media_files(
                     # obtained from an `os.listdir()` call.
                     media_file = F.test(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
+                        copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
                         notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([media_file])
+                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
 
     return media, warnings
@@ -1008,7 +1013,7 @@ def write_repository(
     col_file: ExtantFile,
     targetdir: ExtantDir,
     leaves: Leaves,
-    media_dir: EmptyDir,
+    media_target_dir: EmptyDir,
     silent: bool,
 ) -> None:
     """Write notes to appropriate directories in `targetdir`."""
@@ -1055,7 +1060,7 @@ def write_repository(
     tidy_html_recursively(root, silent)
 
     media: Dict[int, Set[ExtantFile]]
-    media, warnings = get_media_files(col, silent=silent)
+    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
@@ -1063,11 +1068,6 @@ def write_repository(
     for warning in warnings:
         if type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
-
-    with F.halo("Copying media..."):
-        for note_media in media.values():
-            for media_file in note_media:
-                F.copyfile(media_file, media_dir, media_file.name)
 
     F.rmtree(root)
     col.close(save=False)
