@@ -10,6 +10,9 @@ tool for converting Anki collections and decks into
 * [Getting started](https://langfield.github.io/ki/)
 * [Demo video](https://asciinema.org/a/500300)
 
+<p align="center">
+  <img src="./docs/ki-pull-request.svg" width="25%" height="25%">
+</p>
 
 ### Installation
 
