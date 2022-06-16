@@ -1257,7 +1257,6 @@ def write_decks(
                 up_path = Path("../" * distance)
                 relative: Path = abs_target.relative_to(targetdir)
                 target: Path = up_path / relative
-                logger.debug(f"Pointing link {note_path} -> {target}")
                 F.symlink(note_path, target)
 
         # Write `models.json` for current deck.
@@ -1290,11 +1289,21 @@ def write_decks(
                 for media_file in media[nid]:
                     parent: DeckTreeNode = parents[fullname]
                     if parent.name != "":
-                        parent_media_dir = media_dirs[fullname]
-                        target: Symlink = F.test(parent_media_dir / media_file.name)
+                        parent_did: int = parent.deck_id
+                        parent_fullname: str = col.decks.name(parent_did)
+                        logger.debug(f"Linking media in {fullname} to media in {parent_fullname}")
+                        parent_media_dir = media_dirs[parent_fullname]
+                        logger.debug(f"Media dir for {parent_fullname} is {parent_media_dir}")
+                        abs_target: Symlink = F.test(parent_media_dir / media_file.name, resolve=False)
                     else:
-                        target: ExtantFile = media_file
+                        abs_target: ExtantFile = media_file
                     path: NoFile = F.test(deck_media_dir / media_file.name)
+                    distance = len(path.parent.relative_to(targetdir).parts)
+                    up_path = Path("../" * distance)
+                    relative: Path = abs_target.relative_to(targetdir)
+                    logger.debug(f"Target relative to top-level: {relative}")
+                    logger.debug(f"Target ({abs_target}) relative to top-level ({targetdir}) : {relative}")
+                    target: Path = up_path / relative
                     F.symlink(path, target)
 
 
