@@ -1137,6 +1137,28 @@ def write_decks(
         traversal += [node]
         return traversal
 
+    @beartype
+    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+        """
+        Pre-order traversal. Guarantees that we won't process a node until
+        we've processed all its ancestors.
+        """
+        traversal: List[DeckTreeNode] = [node]
+        for child in node.children:
+            traversal += preorder(child)
+        return traversal
+
+    @beartype
+    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
+        parents: Dict[str, DeckTreeNode] = {}
+        for child in node.children:
+            did: int = child.deck_id
+            name: str = col.decks.name(did)
+            parents[name] = node
+            subparents = map_parents(child, col)
+            parents.update(subparents)
+        return parents
+
     # All card ids we've already processed.
     written_cids: Set[int] = set()
 
@@ -1232,12 +1254,30 @@ def write_decks(
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-        # Write media files for this deck.
+    # TODO: This should be in its own function to make sure loop variables aren't being reused.
+
+    # Chain symlinks up the deck tree into `<repo_root>/_media/`.
+    media_dirs: Dict[str, ExtantDir] = {}
+    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
+    for node in preorder(root):
+        if node.name == "":
+            continue
+        did: int = node.deck_id
+        fullname = col.decks.name(did)
+        logger.debug(f"Parent for decknode '{fullname}' is '{parents[fullname].name}'")
+        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        media_dirs[fullname] = deck_media_dir
+        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
         for nid in descendant_nids:
             if nid in media:
                 for media_file in media[nid]:
-                    F.copyfile(media_file, deck_media_dir, media_file.name)
+                    path: NoFile = F.test(deck_media_dir / media_file.name)
+                    F.symlink(path, media_file)
 
 
 @beartype

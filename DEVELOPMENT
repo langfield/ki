@@ -195,6 +195,7 @@ TODO
   https://github.com/ankitects/anki/issues/1018#issuecomment-1153998635
 - Try to see if there is a way to test if non-notetype changes result in a
   syncable database.
+- Test that media is deduplicated.
 
 16-April-2022
 -------------
@@ -251,6 +252,32 @@ Pulling in remote changes in submodules without losing review data
 Generating HTML
 Media (DONE)
 
+
+Media deduplication
+-------------------
+Currently, a copy of every media file is put in each ancestor of each deck
+containing a card where that note appears. It turns out that this is very
+wasteful, and really, we should symlink all the descendant media files to the
+`_media/` directory in the top-level, i.e. the root of the repository. The only
+reason why these copies in each deck exist is so that you can turn a deck into
+a git submodule and then push it to GitHub without having to manually mess
+around with making sure the right media is included. Unfortunately, Git will
+not follow symlinks, and we'd need a pre-commit hook to make it do that (and it
+will be difficult to write one that is cross-platform).
+
+Alternatively, we can use hard links. These can be created on all platforms
+with `os.link()`. And Git will follow hard links, which is good.
+
+On second thought, the above will not work, because we don't want a ton of hard
+links in submodules, because we will still get duplicate files. So what we
+really want is hard links in the root of whatever submodule we're pushing, and
+symlinks in all its descendants. The only way is to symlink all media to the
+media directory of that deck's immediate parent, and then have these nested
+symlinks point all the way up the tree to the root media directory. Then we
+will need a way to `harden` a deck directory to prepare convert it into a
+submodule/collaborative deck. This will just convert all the symlinks in the
+root directory of that deck into hardlinks, preserving all the lower symlinks.
+This may need to be another command, called `ki harden`.
 
 
 Mapping database changes to submodules
