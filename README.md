@@ -11,7 +11,7 @@ tool for converting Anki collections and decks into
 * [Demo video](https://asciinema.org/a/500300)
 
 <p align="center">
-  <img src="./docs/ki-pull-request.svg" width="25%" height="25%">
+  <img src="./docs/ki-pull-request.svg" width="100%" height="100%">
 </p>
 
 ### Installation
