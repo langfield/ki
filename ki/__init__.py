@@ -74,6 +74,7 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
     GitChangeType,
     Patch,
     Delta,
@@ -1265,6 +1266,7 @@ def write_decks(
         did: int = node.deck_id
         fullname = col.decks.name(did)
         logger.debug(f"Parent for decknode '{fullname}' is '{parents[fullname].name}'")
+        logger.debug(f"Level for decknode '{fullname}' is '{node.level}'")
         deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
         media_dirs[fullname] = deck_media_dir
@@ -1276,8 +1278,14 @@ def write_decks(
         for nid in descendant_nids:
             if nid in media:
                 for media_file in media[nid]:
+                    parent: DeckTreeNode = parents[fullname]
+                    if parent.name != "":
+                        parent_media_dir = media_dirs[fullname]
+                        target: Symlink = F.test(parent_media_dir / media_file.name)
+                    else:
+                        target: ExtantFile = media_file
                     path: NoFile = F.test(deck_media_dir / media_file.name)
-                    F.symlink(path, media_file)
+                    F.symlink(path, target)
 
 
 @beartype
