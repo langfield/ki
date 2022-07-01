@@ -75,7 +75,7 @@ It also supports:
 * Manually adding new notes. You can write a markdown file in the ki note
   format and push the new note to Anki, or you can copy an existing note to
   make a variant of it.
-* **Granular merge conflict resolution.** AnkiSync forces you to either
+* **Granular merge conflict resolution.** Anki's sync forces you to either
   overwrite *everything* with the sever-side version, or your local version
   when it doesn't know how to automatically sync your decks. With ki, you can
   pick and choose which things you want from the server, and which things you
