@@ -56,6 +56,7 @@ class ExtantStrangePath(type(Path())):
     when it was resolved.
     """
 
+
 class Symlink(type(Path())):
     """UNSAFE: Indicates that this path was a symlink when tested."""
 
@@ -270,9 +271,6 @@ def errwrap(msg: str) -> str:
     return out
 
 
-# TODO: Refactor the rest of the error messages so that they look like this,
-# with the empty line between the header and the body, and making use of
-# `errwrap()`.
 class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = ""):

@@ -298,20 +298,14 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
 
     UNSAFE: git.rm() calls.
     """
-    # TODO: Is there any point in making commits within this function, if we
-    # are just going to annihilate the .git/ directory immediately afterwards?
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
 
-        # Path guaranteed to exist by gitpython.
-        #
-        # TODO: Catch runtime exceptions likely caused by removing the
-        # `sm.update()` call that used to be here. May have to check for
-        # existence of submodule via gitpython, or something else.
+        # The submodule path is guaranteed to exist by gitpython.
         sm_path = Path(sm.module().working_tree_dir)
         repo.git.rm(sm_path, cached=True)
 
-        # May not exist.
+        # Annihilate `.gitmodules` file.
         if gitmodules_path.is_file:
             repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
@@ -321,13 +315,13 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
         else:
             (sm_path / GIT).unlink(missing_ok=True)
 
-        # Should still exist after git.rm().
+        # Directory should still exist after `git.rm()`.
         repo.git.add(sm_path)
-        _ = repo.index.commit(f"Add submodule {sm.name} as ordinary directory.")
+        _ = repo.index.commit(f"Add submodule `{sm.name}` as ordinary directory.")
 
     if gitmodules_path.exists():
         repo.git.rm(gitmodules_path)
-        _ = repo.index.commit("Remove '.gitmodules' file.")
+        _ = repo.index.commit("Remove `.gitmodules` file.")
     return repo
 
 
@@ -528,23 +522,27 @@ def get_models_recursively(kirepo: KiRepo, silent: bool) -> Dict[str, Notetype]:
     return all_models
 
 
-# TODO: Consider making this function return warnings instead of logging them.
 @beartype
 def display_fields_health_warning(note: Note) -> int:
     """Display warnings when Anki's fields health check fails."""
     health = note.fields_check()
     if health == 1:
-        logger.warning(f"Found empty note:\n {note}")
-        logger.warning(f"Fields health check code: {health}")
+        warn(f"Found empty note '{note.id}'")
+        warn(f"Fields health check code: {health}")
     elif health == 2:
-        logger.warning(f"\nFound duplicate note when adding new note w/ nid {note.id}.")
-        logger.warning(f"Notetype/fields of note {note.id} match existing note.")
-        logger.warning("Note was not added to collection!")
-        logger.warning(f"First field: {note.fields[0]}")
-        logger.warning(f"Fields health check code: {health}")
+        duplication = (
+            "Failed to add note to collection. Notetype/fields of "
+            + f"note '{note.id}' are duplicate of existing note."
+        )
+        warn(duplication)
+        warn(f"First field:\n{html_to_screen(note.fields[0])}")
+        warn(f"Fields health check code: {health}")
     elif health != 0:
-        logger.error(f"Failed to process note '{note.id}'.")
-        logger.error(f"Note failed fields check with unknown error code: {health}")
+        death = (
+            f"fatal: Note '{note.id}' failed fields check with unknown "
+            + f"error code: {health}"
+        )
+        logger.error(death)
     return health
 
 
@@ -614,7 +612,9 @@ def update_note(
 
     # Change notetype (also clears all fields).
     if old_notetype.id != new_notetype.id:
-        note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
+        note.col.models.change(
+            old_notetype.dict, [note.id], new_notetype.dict, fmap, None
+        )
         note.load()
 
     # Validate field keys against notetype.
@@ -690,7 +690,8 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
         slug = secrets.token_hex(10)
-        logger.warning(f"Slug for {name} is empty. Using {slug} as filename")
+        msg = f"Slug for '{sort_field_text}' is empty. Using '{slug}' as filename"
+        logger.warning(msg)
 
     filename: str = f"{slug}{MD}"
     note_path = F.test(deck_dir / filename, resolve=False)
@@ -1362,6 +1363,12 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
+def warn(string: str) -> None:
+    """Call `click.secho()` with formatting (yellow)."""
+    click.secho(f"WARNING: {string}", bold=True, fg="yellow")
+
+
+@beartype
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
@@ -1629,7 +1636,6 @@ def _clone(
     md5sum : str
         The hash of the Anki collection file.
     """
-    # TODO: On errors, we should close `col` with save=False.
     echo(f"Found .anki2 file at '{col_file}'", silent=silent)
 
     # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
@@ -1742,7 +1748,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
-    msg = f"Fetch changes from DB at '{kirepo.col_file}' with md5sum '{md5sum}'"
+    msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
     remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
 
     # Create git remote pointing to `remote_repo`, which represents the current
@@ -1862,7 +1868,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text = patch_text.replace(str(patch.a), str(a_relpath))
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
-                msg += f"  '{patch.a}'\n"
+                msg += f"  `{patch.a}`\n"
 
                 # Note that it is unnecessary to use `--3way` here, because
                 # this submodule is supposed to represent a fast-forward from
@@ -2031,7 +2037,7 @@ def push() -> PushResult:
     with F.halo(f"Committing stage repository contents in '{remote_root}'..."):
         remote_repo: git.Repo = M.repo(remote_root)
         remote_repo.git.add(all=True)
-        remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
+        remote_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.
