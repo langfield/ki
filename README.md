@@ -22,6 +22,7 @@ Install the following dependencies:
 
 * [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 * [Python](https://www.python.org/downloads/)
+* [Tidy](https://www.html-tidy.org/)
 
 Then open a terminal or command-line window, and install with the following
 command:
