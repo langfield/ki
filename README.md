@@ -75,17 +75,17 @@ It also supports:
 * Manually adding new notes. You can write a markdown file in the ki note
   format and push the new note to Anki, or you can copy an existing note to
   make a variant of it.
-* **Granular merge conflict resolution.** AnkiSync forces you to either
-  overwrite *everything* with the sever-side version, or your local version
-  when it doesn't know how to automatically sync your decks. With ki, you can
-  pick and choose which things you want from the server, and which things you
-  want to keep from your device.
+* **Granular merge conflict resolution.** The usual sync process forces you to
+  either overwrite *everything* with the sever-side version, or your local
+  version when it doesn't know how to automatically sync your decks. With ki,
+  you can pick and choose which things you want from the server, and which
+  things you want to keep from your device.
 * Collision-free reads and writes to the `collection.anki2` database file via
   SQLite3 lock acquisition (no errors from editing the collection at the same
   time as the Anki desktop client).
 * Atomic database writes (we edit a copy of the collection in a temporary
   directory, and then replace the existing collection in a single
-  `shutil.copyfile()` call.
+  `shutil.copyfile()` call).
 * Changes are only pulled when the hash of the database has changed.
 * Warnings for duplicate notes, unhealthy notes, etc.
 * Cards for a single note split across multiple decks (these are represented
