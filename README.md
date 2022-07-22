@@ -101,8 +101,8 @@ It also supports:
 
 ### Note grammar
 
-The following is an example a markdown file automatically generated in the ki
-note format.
+The following is an example of a markdown file automatically generated in the
+ki note format.
 
 ```markdown
 ## Note
