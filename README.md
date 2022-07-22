@@ -73,9 +73,9 @@ It also supports:
   the card is deleted from your collection (but only if you *commit* the
   deletion, and because everything is version-controlled, you can always get it
   back).
-* Manually adding new notes. You can write a markdown file in the ki note
-  format and push the new note to Anki, or you can copy an existing note to
-  make a variant of it.
+* Manually adding new notes. You can write a markdown file in the [ki note format](#note-grammar)
+  and push the new note to Anki, or you can copy an existing note to make a
+  variant of it.
 * **Granular merge conflict resolution.** The usual sync process forces you to
   either overwrite *everything* with the sever-side version, or your local
   version when it doesn't know how to automatically sync your decks. With ki,
@@ -97,3 +97,45 @@ It also supports:
   amount of development effort.
 * Unicode (`UTF-8`), foreign language characters, and symbols in all fields.
 * Properly-escaped `LaTeX` and `MathJaX`.
+
+
+### Note grammar
+
+The following is an example a markdown file automatically generated in the ki
+note format.
+
+```markdown
+## Note
+nid: 1655372139959
+model: iKnow! Sentences
+tags: 
+markdown: false
+
+### Expression
+あなたが来るのを<b>待っています</b>。
+
+### Meaning
+I am waiting for you to come.
+待つ -- wait, wait for
+
+### Reading
+あなた が くる の を <b>まって います</b>
+
+### Audio
+[sound:93014972e589032cfbeb9fba06bdecc6.mp3]
+
+### Image_URI
+<img src="346bb608be872c9066e8235cbf362327.jpg">
+
+### iKnowID
+sentence:247167
+
+### iKnowType
+sentence
+```
+
+
+### Credits
+
+Thanks to @husarcik for productive discussions about the architecture of this
+project!
