@@ -58,7 +58,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_too_many_hashes_for_title():
     """Do too many hashes in title cause parse error?"""
     note = TOO_MANY_HASHES_TITLE
@@ -88,7 +87,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_too_few_hashes_for_title():
     """Do too few hashes in title cause parse error?"""
     note = TOO_FEW_HASHES_TITLE
@@ -117,7 +115,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_too_few_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_FEW_HASHES_FIELDNAME
@@ -148,7 +145,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_too_many_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_MANY_HASHES_FIELDNAME
@@ -179,7 +175,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_missing_fieldname():
     """Does a missing fieldname raise a parse error?"""
     note = MISSING_FIELDNAME
@@ -210,7 +205,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_missing_title():
     """Does a missing title raise a parse error?"""
     note = MISSING_TITLE
@@ -241,7 +235,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_missing_model():
     """Does a missing model raise a parse error?"""
     note = MISSING_MODEL
@@ -272,7 +265,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_whitespace_model():
     """Does a whitespace model raise a parse error?"""
     note = WHITESPACE_MODEL
@@ -305,7 +297,6 @@ s
 BAD_FIELDNAME_CHARS = [":", "{", "}", '"'] + BAD_ASCII_CONTROLS
 
 
-@pytest.mark.skip
 def test_bad_field_single_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -328,7 +319,6 @@ def test_bad_field_single_char_name_validation():
             assert err.char == char
 
 
-@pytest.mark.skip
 def test_bad_field_multi_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -346,7 +336,7 @@ def test_bad_field_multi_char_name_validation():
         assert str(prev) == fieldname[:2]
         if isinstance(err, UnexpectedToken):
             assert err.token in fieldname[2:] + "\n"
-            assert err.expected == set(["NEWLINE"])
+            assert err.expected == set(["HEADERBUFFER"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 
@@ -354,7 +344,6 @@ def test_bad_field_multi_char_name_validation():
 BAD_START_FIELDNAME_CHARS = ["#", "/", "^"] + BAD_FIELDNAME_CHARS
 
 
-@pytest.mark.skip
 def test_fieldname_start_validation():
     """Do bad start characters in fieldnames raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -391,7 +380,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_field_content_validation():
     """Do ascii control characters in fields raise an error?"""
     template = FIELD_CONTENT_VALIDATION
@@ -473,8 +461,8 @@ def test_header_needs_two_trailing_newlines():
     err = exc.value
     assert err.line == 5
     assert err.column == 1
-    assert err.token == "markdown: false### a\n"
-    assert err.expected == {"NEWLINE", "MARKDOWN"}
+    assert err.token == "markdown"
+    assert err.expected == {'NID', 'MARKDOWN', 'HEADERBUFFER'}
 
     note = ONE_POST_HEADER_NEWLINE
     with pytest.raises(UnexpectedToken) as exc:
@@ -483,7 +471,7 @@ def test_header_needs_two_trailing_newlines():
     assert err.line == 6
     assert err.column == 1
     assert err.token == "###"
-    assert err.expected == {"NEWLINE"}
+    assert err.expected == {"HEADERBUFFER"}
 
     note = TWO_POST_HEADER_NEWLINES
 
@@ -534,7 +522,7 @@ def test_non_terminating_field_needs_at_least_two_trailing_newlines():
     with pytest.raises(VisitError) as exc:
         transformer.transform(tree)
     err = exc.value.orig_exc
-    assert str(err) == "Nonterminating fields must have two trailing newlines:\nr\n"
+    assert "Nonterminating fields" in str(err)
 
     tree = parser.parse(TWO_POST_NON_TERMINATING_FIELD_NEWLINES)
     transformer.transform(tree)
@@ -581,14 +569,29 @@ def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
     transformer = NoteTransformer()
 
-    with pytest.raises(UnexpectedToken):
+    with pytest.raises(UnexpectedToken) as exc:
         tree = parser.parse(EMPTY_FIELD_ONE_NEWLINE)
+    err = exc.value
+    assert err.line == 8
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
 
     tree = parser.parse(EMPTY_FIELD_TWO_NEWLINES)
     transformer.transform(tree)
 
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     transformer.transform(tree)
+
+
+@pytest.mark.xfail
+def test_empty_field_preserves_extra_newlines():
+    raise NotImplementedError
+
+
+@pytest.mark.xfail
+def test_last_field_only_needs_one_trailing_newline():
+    raise NotImplementedError
 
 
 TAG_VALIDATION = r"""## a
@@ -607,7 +610,6 @@ s
 BAD_TAG_CHARS = ['"', "\u3000", " "] + BAD_ASCII_CONTROLS
 
 
-@pytest.mark.skip
 def test_tag_validation():
     """Do ascii control characters and quotes in tag names raise an error?"""
     template = TAG_VALIDATION
@@ -631,7 +633,6 @@ def test_tag_validation():
             assert err.char == char
 
 
-@pytest.mark.skip
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
@@ -644,7 +645,6 @@ def test_parser_goods():
             raise err
 
 
-@pytest.mark.skip
 def test_transformer():
     """Try out transformer."""
     parser = get_parser()
@@ -654,7 +654,6 @@ def test_transformer():
     transformer.transform(tree)
 
 
-@pytest.mark.skip
 def test_transformer_goods():
     """Try all good note examples."""
     parser = get_parser()

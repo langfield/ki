@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass
 
+from loguru import logger
+
 from lark import Transformer
 from lark.lexer import Token
 
@@ -122,11 +124,11 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         from loguru import logger
         import prettyprinter as pp
-        logger.debug(pp.pformat(lines))
+        logger.debug(pp.pformat(f))
+        string = "".join(f)
+        if string[-2:] != "\n\n":
+            raise RuntimeError(f"Nonterminating fields must have >= 1 trailing empty line:\n{string}")
         content = "".join(lines)
-        if content[-2:] != "\n\n":
-            logger.debug(f)
-            raise RuntimeError(f"Nonterminating fields must have two trailing newlines:\n{content}")
         return Field(fheader, content)
 
     @beartype
@@ -136,17 +138,16 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         from loguru import logger
         import prettyprinter as pp
-        logger.debug(pp.pformat(lines))
+        logger.debug(pp.pformat(f))
         content = "".join(lines)
-        if content[-1:] != "\n":
-            raise RuntimeError(f"The last field in a note must have a trailing newline:\n{content}")
         return Field(fheader, content)
 
     @beartype
     def fieldheader(self, f: List[str]) -> str:
         """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
-        assert len(f) == 2
-        return f[1]
+        logger.debug(f"Field header: {f}")
+        assert len(f) == 3
+        return "".join(f[1:])
 
     @beartype
     def NID(self, t: Token) -> int:
@@ -170,8 +171,17 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
-        from loguru import logger
         logger.debug(f"Fieldline: {t}")
+        return str(t)
+
+    @beartype
+    def EMPTYFIELD(self, t: Token) -> str:
+        logger.debug(f"Emptyfield: {list(t)}")
+        return str(t)
+
+    @beartype
+    def HEADERBUFFER(self, t: Token) -> str:
+        logger.debug(f"headerbuffer: {list(t)}")
         return str(t)
 
     @beartype
