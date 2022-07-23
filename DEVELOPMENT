@@ -195,6 +195,7 @@ TODO
   https://github.com/ankitects/anki/issues/1018#issuecomment-1153998635
 - Try to see if there is a way to test if non-notetype changes result in a
   syncable database.
+- Test that media is deduplicated.
 
 16-April-2022
 -------------
@@ -251,6 +252,68 @@ Pulling in remote changes in submodules without losing review data
 Generating HTML
 Media (DONE)
 
+
+Hardening media symlinks
+------------------------
+Do this in the relevant `_media/` directory:
+
+  shopt -s globstar && sed -i '' **/*
+
+
+Media deduplication
+-------------------
+Currently, a copy of every media file is put in each ancestor of each deck
+containing a card where that note appears. It turns out that this is very
+wasteful, and really, we should symlink all the descendant media files to the
+`_media/` directory in the top-level, i.e. the root of the repository. The only
+reason why these copies in each deck exist is so that you can turn a deck into
+a git submodule and then push it to GitHub without having to manually mess
+around with making sure the right media is included. Unfortunately, Git will
+not follow symlinks, and we'd need a pre-commit hook to make it do that (and it
+will be difficult to write one that is cross-platform).
+
+Alternatively, we can use hard links. These can be created on all platforms
+with `os.link()`. And Git will follow hard links, which is good.
+
+On second thought, the above will not work, because we don't want a ton of hard
+links in submodules, because we will still get duplicate files. So what we
+really want is hard links in the root of whatever submodule we're pushing, and
+symlinks in all its descendants. The only way is to symlink all media to the
+media directory of that deck's immediate parent, and then have these nested
+symlinks point all the way up the tree to the root media directory. Then we
+will need a way to `harden` a deck directory to prepare convert it into a
+submodule/collaborative deck. This will just convert all the symlinks in the
+root directory of that deck into hardlinks, preserving all the lower symlinks.
+This may need to be another command, called `ki harden`.
+
+
+Symlink naming
+--------------
+Only one symlink should be created per deck. Also, the card name should have
+the ordinal tacked-on if it's a cloze-type notetype. Observe in the output
+below that this is not what happens:
+
+  (anki) user@computer:~$ ki clone ~/.local/share/Anki2/User\ 2/collection.anki2
+  Cloning.
+  Found .anki2 file at /home/user/.local/share/Anki2/User 2/collection.anki2
+  Computed md5sum: ea94e3fbbfa8a239f8131e8965492f2c
+  Cloning into /home/user/collection...
+  Notes: 100%|█████████████████████████████████████| 1/1 [00:00<00:00, 446.35it/s]
+  HTML: 100%|██████████████████████████████████████| 1/1 [00:00<00:00, 275.71it/s]
+  Media: 100%|█████████████████████████████████████| 1/1 [00:00<00:00, 538.70it/s]
+  Decks:   0%|                                              | 0/5 [00:00<?, ?it/s]2022-06-15 07:38:31.207 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/B/sample_cloze-ol.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.208 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/B/sample_cloze-ol_1.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.209 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/C/sample_cloze-ol.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.209 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/C/sample_cloze-ol_1.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.209 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/C/sample_cloze-ol_2.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.210 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/C/sample_cloze-ol_3.md -> ../../Default/A/sample.md
+  2022-06-15 07:38:31.210 | DEBUG    | ki:write_decks:1237 - Pointing link /home/user/collection/Default/C/sample_cloze-ol_4.md -> ../../Default/A/sample.md
+  Decks: 100%|█████████████████████████████████████| 5/5 [00:00<00:00, 685.57it/s]
+  Wrote md5sum to /home/user/collection/.ki/hashes
+  Done.
+
+The collection cloned above has been adding for testing purposes. See
+`tests/data/collections/symlinks.anki2`.
 
 
 Mapping database changes to submodules
