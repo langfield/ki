@@ -90,6 +90,7 @@ def shallow_walk(
     return ExtantDir(root), dirs, files
 
 
+# TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
 @beartype
 def test(
     path: Path,
