@@ -128,7 +128,7 @@ def test_too_few_hashes_for_fieldname():
     assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "markdown: false\n\n"
+    assert str(prev) == "\n"
 
 
 TOO_MANY_HASHES_FIELDNAME = r"""## Note
@@ -396,6 +396,156 @@ def test_field_content_validation():
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
         assert str(prev) == "\n"
+
+
+NO_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false### a
+r
+
+### b
+s
+"""
+
+ONE_POST_HEADER_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+### a
+r
+
+### b
+s
+"""
+
+TWO_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+THREE_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_header_needs_two_trailing_newlines():
+    """
+    Does parser raise an error if there are not exactly 2 newlines after note
+    header?
+    """
+    parser = get_parser()
+    note = NO_POST_HEADER_NEWLINES
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 5
+    assert err.column == 1
+    assert err.token == "markdown: false### a\n"
+    assert err.expected == {"NEWLINE", "MARKDOWN"}
+
+    note = ONE_POST_HEADER_NEWLINE
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 6
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.expected == {"NEWLINE"}
+
+    note = TWO_POST_HEADER_NEWLINES
+
+    note = THREE_POST_HEADER_NEWLINES
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 7
+    assert err.column == 1
+    assert err.token == "\n"
+    assert err.expected == {"FIELDSENTINEL"}
+
+
+NO_POST_NON_TERMINATING_FIELD_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r### b
+s
+"""
+
+ONE_POST_NON_TERMINATING_FIELD_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+### b
+s
+"""
+
+TWO_POST_NON_TERMINATING_FIELD_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+def test_non_terminating_field_needs_at_least_two_trailing_newlines():
+    """
+    Does parser raise an error if there are not at least 2 newlines after the
+    content of a nonterminating field?
+    """
+    parser = get_parser()
+    note = NO_POST_NON_TERMINATING_FIELD_NEWLINES
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 5
+    assert err.column == 1
+    assert err.token == "markdown: false### a\n"
+    assert err.expected == {"NEWLINE", "MARKDOWN"}
+
+    note = ONE_POST_NON_TERMINATING_FIELD_NEWLINE
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 6
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.expected == {"NEWLINE"}
+
+    note = TWO_POST_NON_TERMINATING_FIELD_NEWLINES
 
 
 TAG_VALIDATION = r"""## a
