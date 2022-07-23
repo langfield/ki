@@ -49,8 +49,6 @@ from anki.errors import NotFoundError
 from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
 
-from apy.convert import markdown_to_html, plain_to_html, html_to_markdown
-
 from beartype import beartype
 from beartype.typing import (
     Set,
@@ -568,6 +566,25 @@ def parse_markdown_note(
 
 
 @beartype
+def plain_to_html(plain: str) -> str:
+    """Convert plain text to html"""
+    # Minor clean up
+    plain = plain.replace(r"&lt;", "<")
+    plain = plain.replace(r"&gt;", ">")
+    plain = plain.replace(r"&amp;", "&")
+    plain = plain.replace(r"&nbsp;", " ")
+    plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
+    plain = re.sub(r"\<i\>\s*\<\/i\>", "", plain)
+    plain = re.sub(r"\<div\>\s*\<\/div\>", "", plain)
+
+    # Convert newlines to `<br>` tags.
+    if not re.search(HTML_REGEX, plain):
+        plain = plain.replace("\n", "<br>")
+
+    return plain.strip()
+
+
+@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> Tuple[Note, List[Warning]]:
@@ -632,9 +649,8 @@ def update_note(
             warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
             continue
         if decknote.markdown:
-            note[key] = markdown_to_html(field)
-        else:
-            note[key] = plain_to_html(field)
+            logger.warning(f"The 'markdown' flag is deprecated. Should be 'false'.")
+        note[key] = plain_to_html(field)
 
     # Flush fields to collection object.
     note.flush()
@@ -670,7 +686,9 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 # should use other fields when there is not enough content in the first field
 # to get a unique filename, if they exist.
 @beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
+def get_note_path(
+    sort_field_text: str, deck_dir: ExtantDir, card_name: str = ""
+) -> NoFile:
     """Get note path from sort field text."""
     field_text = sort_field_text
 
@@ -985,7 +1003,9 @@ def copy_media_files(
                     # obtained from an `os.listdir()` call.
                     media_file = F.test(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
-                        copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                        copied_file = F.copyfile(
+                            media_file, media_target_dir, media_file.name
+                        )
                         notetype_media = media.get(NOTETYPE_NID, set())
                         media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
@@ -1291,7 +1311,9 @@ def write_decks(
                         parent_did: int = parent.deck_id
                         parent_fullname: str = col.decks.name(parent_did)
                         parent_media_dir = media_dirs[parent_fullname]
-                        abs_target: Symlink = F.test(parent_media_dir / media_file.name, resolve=False)
+                        abs_target: Symlink = F.test(
+                            parent_media_dir / media_file.name, resolve=False
+                        )
                     else:
                         abs_target: ExtantFile = media_file
                     path = F.test(deck_media_dir / media_file.name, resolve=False)
@@ -1454,6 +1476,10 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
             "--tidy-mark",
             "no",
             "--show-body-only",
+            "yes",
+            "--wrap",
+            "68",
+            "--wrap-attributes",
             "yes",
         ]
         command += batch
