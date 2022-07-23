@@ -120,7 +120,26 @@ class NoteTransformer(Transformer):
         assert len(f) >= 1
         fheader = f[0]
         lines = f[1:]
+        from loguru import logger
+        import prettyprinter as pp
+        logger.debug(pp.pformat(lines))
         content = "".join(lines)
+        if content[-2:] != "\n\n":
+            logger.debug(f)
+            raise RuntimeError(f"Nonterminating fields must have two trailing newlines:\n{content}")
+        return Field(fheader, content)
+
+    @beartype
+    def terminalfield(self, f: List[str]) -> Field:
+        assert len(f) >= 1
+        fheader = f[0]
+        lines = f[1:]
+        from loguru import logger
+        import prettyprinter as pp
+        logger.debug(pp.pformat(lines))
+        content = "".join(lines)
+        if content[-1:] != "\n":
+            raise RuntimeError(f"The last field in a note must have a trailing newline:\n{content}")
         return Field(fheader, content)
 
     @beartype
@@ -151,6 +170,8 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
+        from loguru import logger
+        logger.debug(f"Fieldline: {t}")
         return str(t)
 
     @beartype
