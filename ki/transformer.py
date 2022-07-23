@@ -122,32 +122,24 @@ class NoteTransformer(Transformer):
         assert len(f) >= 1
         fheader = f[0]
         lines = f[1:]
-        from loguru import logger
-        import prettyprinter as pp
-        logger.debug(pp.pformat(f))
-        string = "".join(f)
-        if string[-2:] != "\n\n":
-            raise RuntimeError(f"Nonterminating fields must have >= 1 trailing empty line:\n{string}")
         content = "".join(lines)
-        return Field(fheader, content)
+        if content[-2:] != "\n\n":
+            raise RuntimeError(f"Nonterminating fields must have >= 1 trailing empty line:\n{content}")
+        return Field(fheader, content[:-2])
 
     @beartype
     def terminalfield(self, f: List[str]) -> Field:
         assert len(f) >= 1
         fheader = f[0]
         lines = f[1:]
-        from loguru import logger
-        import prettyprinter as pp
-        logger.debug(pp.pformat(f))
         content = "".join(lines)
-        return Field(fheader, content)
+        return Field(fheader, content[:-1])
 
     @beartype
     def fieldheader(self, f: List[str]) -> str:
         """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
-        logger.debug(f"Field header: {f}")
-        assert len(f) == 3
-        return "".join(f[1:])
+        assert len(f) == 2
+        return f[1]
 
     @beartype
     def NID(self, t: Token) -> int:
@@ -171,17 +163,10 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
-        logger.debug(f"Fieldline: {t}")
         return str(t)
 
     @beartype
     def EMPTYFIELD(self, t: Token) -> str:
-        logger.debug(f"Emptyfield: {list(t)}")
-        return str(t)
-
-    @beartype
-    def HEADERBUFFER(self, t: Token) -> str:
-        logger.debug(f"headerbuffer: {list(t)}")
         return str(t)
 
     @beartype

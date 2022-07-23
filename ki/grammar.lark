@@ -11,10 +11,9 @@ note: header "\n" field* terminalfield
 // it, and fields can be empty.
 field: fieldheader (EMPTYFIELD | FIELDLINE+)
 terminalfield: fieldheader (EMPTYFIELD | FIELDLINE+)
-fieldheader: FIELDSENTINEL " "* ANKINAME HEADERBUFFER
+fieldheader: FIELDSENTINEL " "* ANKINAME "\n"
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 FIELDSENTINEL: "###"
-HEADERBUFFER: "\n"
 EMPTYFIELD: "\n"+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

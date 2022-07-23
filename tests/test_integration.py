@@ -1458,7 +1458,7 @@ def test_push_handles_submodules(tmp_path):
         file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
         logger.debug(f"Adding 'z' to file '{file}'")
         with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
+            note_f.write("\nz\n\n")
 
         # Copy a new note into the submodule.
         shutil.copyfile(
