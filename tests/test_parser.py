@@ -652,7 +652,7 @@ s
 """
 
 
-def test_last_field_only_needs_no_trailing_empty_lines():
+def test_last_field_only_needs_one_trailing_empty_line():
     parser = get_parser()
     transformer = NoteTransformer()
     tree = parser.parse(LAST_FIELD_SINGLE_TRAILING_NEWLINE)
