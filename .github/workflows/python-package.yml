@@ -38,4 +38,4 @@ jobs:
           pip install .
       - name: Test with pytest
         run: |
-          pytest -v --timeout=15
+          pytest -v --timeout=15 tests/test_slow_windows_ci.py
