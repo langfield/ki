@@ -139,7 +139,7 @@ REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 80
-MAX_FIELNAME_LEN = 30
+MAX_FILENAME_LEN = 30
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
@@ -682,7 +682,7 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
     if len(field_text) == 0:
         field_text = sort_field_text
 
-    name = field_text[:MAX_FIELNAME_LEN]
+    name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
