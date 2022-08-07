@@ -29,7 +29,7 @@ def test_version():
     expected_version = version("ki")
     result = invoke(ki.ki, ["--version"])
 
-    assert result.stdout == f"ki, version {expected_version}{os.linesep}"
+    assert result.stdout.rstrip() == f"ki, version {expected_version}"
     assert result.exit_code == 0
 
 
@@ -38,5 +38,5 @@ def test_version_clickless():
     expected_version = version("ki")
     p = capture(["ki", "--version"])
 
-    assert p.stdout == f"ki, version {expected_version}{os.linesep}"
+    assert p.stdout.rstrip() == f"ki, version {expected_version}"
     assert p.returncode == 0
