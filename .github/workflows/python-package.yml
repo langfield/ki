@@ -32,6 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
           pip install -r requirements.txt
+          pip install -r dev-requirements.txt
       - name: Install ki
         run: |
           pip install .

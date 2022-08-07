@@ -1,0 +1,4 @@
+pytest
+pytest-mock
+checksumdir==1.2.0
+bitstring==3.1.9
