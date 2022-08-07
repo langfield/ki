@@ -1239,7 +1239,7 @@ def test_maybe_emptydir(tmp_path):
         with pytest.raises(ExpectedEmptyDirectoryButGotNonEmptyDirectoryError) as error:
             M.emptydir(F.cwd())
         assert "but it is nonempty" in str(error.exconly())
-        assert str(Path.cwd()) in str(error.exconly())
+        assert str(Path.cwd()) in str(error.exconly()).replace("\n", "")
 
 
 def test_maybe_emptydir_handles_non_directories(tmp_path):
@@ -1250,7 +1250,7 @@ def test_maybe_emptydir_handles_non_directories(tmp_path):
         file.touch()
         with pytest.raises(ExpectedDirectoryButGotFileError) as error:
             M.emptydir(file)
-        assert str(file) in str(error.exconly())
+        assert str(file) in str(error.exconly()).replace("\n", "")
 
 
 def test_maybe_xdir(tmp_path):
