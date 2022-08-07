@@ -1477,7 +1477,7 @@ def test_push_handles_submodules(tmp_path):
         colnotes = get_notes(col_file)
         notes: List[Note] = [colnote.n for colnote in colnotes]
         assert len(notes) == 3
-        assert "<br />z<br />" in notes[0]["Back"]
+        assert "<br>z<br>" in notes[0]["Back"]
 
 
 def test_push_writes_media(tmp_path):

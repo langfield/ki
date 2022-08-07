@@ -649,8 +649,7 @@ def test_update_note_sets_field_contents():
     notetype: Notetype = parse_notetype_dict(note.note_type())
     update_note(note, decknote, notetype, notetype)
 
-    assert "TITLE" in note.fields[0]
-    assert "</p>" in note.fields[0]
+    assert note.fields[0] == "TITLE<br>data"
 
 
 def test_update_note_removes_field_contents():
@@ -759,22 +758,6 @@ def test_get_note_path_produces_nonempty_filenames():
         path: ExtantFile = get_note_path("", deck_dir)
         assert ".md" in str(path)
         assert "/a/" in str(path)
-
-
-def test_update_note_converts_markdown_formatting_to_html():
-    col = open_collection(get_col_file())
-    note = col.get_note(set(col.find_notes("")).pop())
-
-    # We MUST pass markdown=True to the DeckNote constructor, or else this will
-    # not work.
-    field = "*hello*"
-    fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], True, fields)
-
-    assert "a" in note.fields[0]
-    notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, decknote, notetype, notetype)
-    assert "<em>hello</em>" in note.fields[0]
 
 
 @beartype
