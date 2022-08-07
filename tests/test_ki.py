@@ -681,7 +681,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
         update_note(note, decknote, notetype, notetype)
 
 
-def test_display_fields_health_warning_catches_missing_clozes(capfd):
+def test_display_fields_health_warning_catches_missing_clozes():
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -697,8 +697,8 @@ def test_display_fields_health_warning_catches_missing_clozes(capfd):
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
 
-    captured = capfd.readouterr()
-    assert "unknown error code" in captured.err
+    msg = "Warning: Note '1645010162168' failed fields check with error code '3'"
+    assert str(warning) == msg
 
 
 def test_update_note_changes_notetype():

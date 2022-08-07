@@ -642,7 +642,7 @@ def update_note(
     health = display_fields_health_warning(note)
     if health != 0:
         note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(str(note.id)))
+        warnings.append(UnhealthyNoteWarning(note.id, health))
 
     return note, warnings
 

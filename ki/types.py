@@ -546,7 +546,10 @@ class InconsistentFieldNamesWarning(Warning):
 
 
 class UnhealthyNoteWarning(Warning):
-    pass
+    @beartype
+    def __init__(self, nid: int, code: int):
+        top = f"Warning: Note '{nid}' failed fields check with error code '{code}'"
+        super().__init__(top)
 
 
 class UnPushedPathWarning(Warning):
