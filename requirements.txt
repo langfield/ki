@@ -1,3 +1,4 @@
+click
 anki==2.1.51
 loguru==0.6.0
 gitpython==3.1.27
