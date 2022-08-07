@@ -31,7 +31,6 @@ from dataclasses import dataclass
 import git
 import click
 import blake3
-import markdownify
 import whatthepatch
 import prettyprinter as pp
 from tqdm import tqdm
