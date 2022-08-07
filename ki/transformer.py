@@ -3,6 +3,8 @@
 import re
 from dataclasses import dataclass
 
+from loguru import logger
+
 from lark import Transformer
 from lark.lexer import Token
 
@@ -121,7 +123,19 @@ class NoteTransformer(Transformer):
         fheader = f[0]
         lines = f[1:]
         content = "".join(lines)
-        return Field(fheader, content)
+        if content[-2:] != "\n\n":
+            raise RuntimeError(
+                f"Nonterminating fields must have >= 1 trailing empty line:\n{content}"
+            )
+        return Field(fheader, content[:-2])
+
+    @beartype
+    def terminalfield(self, f: List[str]) -> Field:
+        assert len(f) >= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = "".join(lines)
+        return Field(fheader, content[:-1])
 
     @beartype
     def fieldheader(self, f: List[str]) -> str:
@@ -151,6 +165,10 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def EMPTYFIELD(self, t: Token) -> str:
         return str(t)
 
     @beartype

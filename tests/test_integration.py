@@ -622,12 +622,13 @@ def test_clone_writes_media_files():
         assert audio_path.is_file()
 
 
-def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
+def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path):
     col_file = get_split_col_file()
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
-        assert os.path.islink(Path(SPLIT_REPODIR) / "top" / "b" / "a.md")
+        logger.debug(os.path.abspath(SPLIT_REPODIR))
+        assert os.path.islink(Path(SPLIT_REPODIR) / "top" / "b" / "a_Card 2.md")
         assert os.path.isfile(Path(SPLIT_REPODIR) / "top" / "a" / "a.md")
 
 
@@ -1457,7 +1458,7 @@ def test_push_handles_submodules(tmp_path):
         file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
         logger.debug(f"Adding 'z' to file '{file}'")
         with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
+            note_f.write("\nz\n\n")
 
         # Copy a new note into the submodule.
         shutil.copyfile(
@@ -1476,7 +1477,7 @@ def test_push_handles_submodules(tmp_path):
         colnotes = get_notes(col_file)
         notes: List[Note] = [colnote.n for colnote in colnotes]
         assert len(notes) == 3
-        assert "<br />z<br />" in notes[0]["Back"]
+        assert "<br>z<br>" in notes[0]["Back"]
 
 
 def test_push_writes_media(tmp_path):

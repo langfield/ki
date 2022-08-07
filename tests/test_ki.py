@@ -76,7 +76,7 @@ from ki import (
     push_decknote_to_anki,
     get_models_recursively,
     append_md5sum,
-    get_media_files,
+    copy_media_files,
     diff2,
     _clone,
 )
@@ -649,8 +649,7 @@ def test_update_note_sets_field_contents():
     notetype: Notetype = parse_notetype_dict(note.note_type())
     update_note(note, decknote, notetype, notetype)
 
-    assert "TITLE" in note.fields[0]
-    assert "</p>" in note.fields[0]
+    assert note.fields[0] == "TITLE<br>data"
 
 
 def test_update_note_removes_field_contents():
@@ -759,22 +758,6 @@ def test_get_note_path_produces_nonempty_filenames():
         path: ExtantFile = get_note_path("", deck_dir)
         assert ".md" in str(path)
         assert "/a/" in str(path)
-
-
-def test_update_note_converts_markdown_formatting_to_html():
-    col = open_collection(get_col_file())
-    note = col.get_note(set(col.find_notes("")).pop())
-
-    # We MUST pass markdown=True to the DeckNote constructor, or else this will
-    # not work.
-    field = "*hello*"
-    fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], True, fields)
-
-    assert "a" in note.fields[0]
-    notetype: Notetype = parse_notetype_dict(note.note_type())
-    update_note(note, decknote, notetype, notetype)
-    assert "<em>hello</em>" in note.fields[0]
 
 
 @beartype
@@ -1556,8 +1539,8 @@ def test_fmkleaves_handles_collisions(tmp_path):
         assert len(os.listdir(".")) == 0
 
 
-def test_get_media_files_returns_nice_errors():
-    """Does `get_media_files()` handle case where media directory doesn't exist?"""
+def test_copy_media_files_returns_nice_errors():
+    """Does `copy_media_files()` handle case where media directory doesn't exist?"""
     col_file: ExtantFile = get_media_col_file()
     col: Collection = open_collection(col_file)
     runner = CliRunner()
@@ -1568,7 +1551,7 @@ def test_get_media_files_returns_nice_errors():
         shutil.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
-            get_media_files(col, silent=True)
+            copy_media_files(col, F.mkdtemp(), silent=True)
         assert "media.media" in str(error.exconly())
         assert "bad Anki collection media directory" in str(error.exconly())
 
@@ -1602,14 +1585,14 @@ def test_write_repository_displays_missing_media_warnings(capfd):
         assert "media.media/1sec.mp3" in captured.out
 
 
-def test_get_media_files_finds_notetype_media():
-    """Does `get_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
+def test_copy_media_files_finds_notetype_media():
+    """Does `copy_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
     col_file: ExtantFile = get_media_col_file()
     col: Collection = open_collection(col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        media, warnings = get_media_files(col, silent=True)
+        media, warnings = copy_media_files(col, F.mkdtemp(), silent=True)
         media_files: Set[ExtantFile] = set()
         for media_set in media.values():
             media_files = media_files | media_set
