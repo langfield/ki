@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Type-safe, non Anki-specific functions."""
 
-# pylint: disable=import-self
+# pylint: disable=import-self, too-many-return-statements
 
 import os
 import re

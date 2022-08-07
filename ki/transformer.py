@@ -3,8 +3,6 @@
 import re
 from dataclasses import dataclass
 
-from loguru import logger
-
 from lark import Transformer
 from lark.lexer import Token
 

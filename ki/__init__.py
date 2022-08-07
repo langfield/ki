@@ -14,6 +14,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 import os
 import re
+import io
 import json
 import copy
 import shutil
@@ -26,6 +27,7 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 
 import git
@@ -121,8 +123,6 @@ from ki.maybes import (
     LAST_PUSH_FILE,
 )
 from ki.transformer import NoteTransformer, FlatNote
-
-from pyinstrument import Profiler
 
 logging.basicConfig(level=logging.INFO)
 
@@ -332,7 +332,9 @@ def diff2(
     """Diff `repo` from `HEAD~1` to `HEAD`."""
     with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
         head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+        # pylint: disable=consider-using-f-string
         uuid = "%4x" % random.randrange(16**4)
+        # pylint: enable=consider-using-f-string
         head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
@@ -642,13 +644,12 @@ def update_note(
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
-    # TODO: Check if these apy methods can raise exceptions.
     for key, field in decknote.fields.items():
         if key not in note:
             warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
             continue
         if decknote.markdown:
-            logger.warning(f"The 'markdown' flag is deprecated. Should be 'false'.")
+            logger.warning("The 'markdown' flag is deprecated (now always 'False').")
         note[key] = plain_to_html(field)
 
     # Flush fields to collection object.
@@ -1362,6 +1363,7 @@ def html_to_screen(html: str) -> str:
 
 @beartype
 def get_colnote_as_str(colnote: ColNote) -> str:
+    """Return string representation of a `ColNote`."""
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append("### " + field_name)
@@ -1675,6 +1677,9 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -1763,6 +1768,9 @@ def pull() -> None:
     repository.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -1878,8 +1886,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         return path
 
     patches: List[Patch] = []
-    import io
-    from contextlib import redirect_stdout
 
     f = io.StringIO()
     with F.halo(text="Generating submodule patches..."):
@@ -2085,6 +2091,9 @@ def push() -> PushResult:
         If the user needs to pull remote changes first.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -2249,12 +2258,6 @@ def push_deltas(
 
         # Commit in all submodules (doesn't support recursing yet).
         for sm in kirepo.repo.submodules:
-
-            # TODO: Remove submodule update calls, and use the gitpython
-            # API to check if the submodules exist instead. The update
-            # calls make a remote fetch which takes an extremely long time,
-            # and the user should have run `git submodule update`
-            # themselves anyway.
             subrepo: git.Repo = sm.module()
             subrepo.git.add(all=True)
             subrepo.index.commit(msg)

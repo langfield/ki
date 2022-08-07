@@ -14,7 +14,7 @@ from anki.collection import Note
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
 
-# pylint: disable=too-many-lines, missing-class-docstring
+# pylint: disable=too-many-lines, missing-class-docstring, too-many-instance-attributes
 
 NotetypeDict = Dict[str, Any]
 MODELS_FILE = "models.json"
@@ -265,6 +265,7 @@ class NoteDBRow:
 
 @beartype
 def errwrap(msg: str) -> str:
+    """Wrap an error message to a fixed width."""
     out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
     out = out.lstrip()
     out = out.rstrip()
@@ -390,7 +391,7 @@ class MissingNotetypeError(Exception):
         super().__init__(errwrap(msg))
 
 
-# TODO: Should we also print which field ordinals *are* valid?
+# TODO: We should also print which field ordinals *are* valid.
 class MissingFieldOrdinalError(Exception):
 
     # pylint: disable=redefined-builtin
