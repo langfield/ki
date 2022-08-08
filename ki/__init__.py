@@ -1776,7 +1776,7 @@ def pull() -> None:
 
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    # con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -1785,7 +1785,7 @@ def pull() -> None:
         return
 
     _pull(kirepo, silent=False)
-    unlock(con)
+    # unlock(con)
 
     if PROFILE:
         profiler.stop()
@@ -2102,7 +2102,7 @@ def push() -> PushResult:
     # Check that we are inside a ki repository, and load collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    # con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
@@ -2161,7 +2161,7 @@ def push() -> PushResult:
         parser,
         transformer,
         head_kirepo,
-        con,
+        None,
     )
 
     if PROFILE:
@@ -2181,7 +2181,7 @@ def push_deltas(
     parser: Lark,
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
-    con: sqlite3.Connection,
+    con: Any,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
@@ -2297,5 +2297,5 @@ def push_deltas(
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
-    unlock(con)
+    # unlock(con)
     return PushResult.NONTRIVIAL
