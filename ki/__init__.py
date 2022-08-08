@@ -1983,7 +1983,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # this submodule is supposed to represent a fast-forward from
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
-                sm_repo.git.apply(patch_path, p=str(num_components + 1))
+                sm_repo.git.apply(patch_path, p=str(num_components + 1), verbose=True)
 
     echo(f"Applied {len(patched_submodules)} patches within submodules.")
     for sm_rel_root in patched_submodules:
