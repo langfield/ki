@@ -8,7 +8,12 @@ from loguru import logger
 from beartype import beartype
 
 from lark import Lark
-from lark.exceptions import UnexpectedToken, UnexpectedInput, UnexpectedCharacters
+from lark.exceptions import (
+    UnexpectedToken,
+    UnexpectedInput,
+    UnexpectedCharacters,
+    VisitError,
+)
 
 import ki
 from ki import NoteTransformer
@@ -128,7 +133,7 @@ def test_too_few_hashes_for_fieldname():
     assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "markdown: false\n\n"
+    assert str(prev) == "\n"
 
 
 TOO_MANY_HASHES_FIELDNAME = r"""## Note
@@ -398,6 +403,313 @@ def test_field_content_validation():
         assert str(prev) == "\n"
 
 
+NO_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false### a
+r
+
+### b
+s
+"""
+
+ONE_POST_HEADER_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+### a
+r
+
+### b
+s
+"""
+
+TWO_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+THREE_POST_HEADER_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_header_needs_two_trailing_newlines():
+    """
+    Does parser raise an error if there are not exactly 2 newlines after note
+    header?
+    """
+    parser = get_parser()
+    note = NO_POST_HEADER_NEWLINES
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 5
+    assert err.column == 1
+    assert err.token == "markdown"
+    assert err.expected == {"NID", "MARKDOWN", "NEWLINE"}
+
+    note = ONE_POST_HEADER_NEWLINE
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 6
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.expected == {"NEWLINE"}
+
+    note = TWO_POST_HEADER_NEWLINES
+
+    note = THREE_POST_HEADER_NEWLINES
+    with pytest.raises(UnexpectedToken) as exc:
+        parser.parse(note)
+    err = exc.value
+    assert err.line == 7
+    assert err.column == 1
+    assert err.token == "\n"
+    assert err.expected == {"FIELDSENTINEL"}
+
+
+ONE_POST_NON_TERMINATING_FIELD_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+### b
+s
+"""
+
+TWO_POST_NON_TERMINATING_FIELD_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_non_terminating_field_needs_at_least_two_trailing_newlines():
+    """
+    Does transformer raise an error if there are not at least 2 newlines after
+    the content of a nonterminating field?
+    """
+    parser = get_parser()
+    transformer = NoteTransformer()
+
+    tree = parser.parse(ONE_POST_NON_TERMINATING_FIELD_NEWLINE)
+    with pytest.raises(VisitError) as exc:
+        transformer.transform(tree)
+    err = exc.value.orig_exc
+    assert "Nonterminating fields" in str(err)
+
+    tree = parser.parse(TWO_POST_NON_TERMINATING_FIELD_NEWLINES)
+    transformer.transform(tree)
+
+
+EMPTY_FIELD_ZERO_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+### b
+s
+"""
+
+
+def test_empty_field_is_still_checked_for_newline_count():
+    parser = get_parser()
+    transformer = NoteTransformer()
+
+    with pytest.raises(UnexpectedToken) as exc:
+        tree = parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
+    err = exc.value
+    assert err.line == 8
+    assert err.column == 1
+    assert err.token == "###"
+    assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
+
+
+EMPTY_FIELD_ONE_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+
+### b
+s
+"""
+
+
+def test_empty_field_with_only_one_newline_raises_error():
+    parser = get_parser()
+    transformer = NoteTransformer()
+
+    tree = parser.parse(EMPTY_FIELD_ONE_NEWLINE)
+    with pytest.raises(VisitError) as exc:
+        transformer.transform(tree)
+    err = exc.value.orig_exc
+    assert "Nonterminating fields" in str(err)
+
+
+EMPTY_FIELD_TWO_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+
+
+### b
+s
+"""
+
+EMPTY_FIELD_THREE_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+
+
+
+### b
+s
+"""
+
+
+def test_empty_field_with_at_least_two_newlines_parse():
+    """
+    Do empty fields with at least two newlines get parsed and transformed OK?
+    """
+    parser = get_parser()
+    transformer = NoteTransformer()
+
+    tree = parser.parse(EMPTY_FIELD_TWO_NEWLINES)
+    transformer.transform(tree)
+
+    tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
+    transformer.transform(tree)
+
+
+def test_empty_field_preserves_extra_newlines():
+    """
+    Are newlines beyond the 2 needed for padding preserved in otherwise-empty
+    fields?
+    """
+    parser = get_parser()
+    transformer = NoteTransformer()
+    tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
+    flatnote = transformer.transform(tree)
+    logger.debug(flatnote)
+    assert flatnote.fields["a"] == "\n"
+
+
+LAST_FIELD_SINGLE_TRAILING_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+"""
+
+
+def test_last_field_only_needs_one_trailing_empty_line():
+    parser = get_parser()
+    transformer = NoteTransformer()
+    tree = parser.parse(LAST_FIELD_SINGLE_TRAILING_NEWLINE)
+    flatnote = transformer.transform(tree)
+
+
+LAST_FIELD_NO_TRAILING_NEWLINE = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s"""
+
+
+def test_last_field_needs_one_trailing_newline():
+    parser = get_parser()
+    transformer = NoteTransformer()
+    with pytest.raises(UnexpectedToken) as exc:
+        tree = parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
+    err = exc.value
+    assert err.line == 11
+    assert err.column == 1
+    assert err.token == "s"
+    assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
+
+
+LAST_FIELD_FIVE_TRAILING_NEWLINES = r"""## a
+nid: 123412341234
+model: a
+tags:
+markdown: false
+
+### a
+r
+
+### b
+s
+
+
+
+
+"""
+
+
+def test_last_field_newlines_are_preserved():
+    parser = get_parser()
+    transformer = NoteTransformer()
+    tree = parser.parse(LAST_FIELD_FIVE_TRAILING_NEWLINES)
+    flatnote = transformer.transform(tree)
+    assert flatnote.fields["b"] == "s\n\n\n\n"
+
+
 TAG_VALIDATION = r"""## a
 nid: 123412341234
 model: 0a
@@ -467,7 +779,7 @@ def test_transformer_goods():
         try:
             tree = parser.parse(good)
             transformer.transform(tree)
-        except UnexpectedToken as err:
+        except (UnexpectedToken, VisitError) as err:
             logger.error(f"\n{good}")
             raise err
 

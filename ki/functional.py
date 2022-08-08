@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Type-safe, non Anki-specific functions."""
 
-# pylint: disable=import-self
+# pylint: disable=import-self, too-many-return-statements
 
 import os
 import re
@@ -96,6 +96,7 @@ def shallow_walk(
     return ExtantDir(root), dirs, files
 
 
+# TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
 @beartype
 def test(
     path: Path,

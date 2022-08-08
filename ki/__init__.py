@@ -14,6 +14,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 import os
 import re
+import io
 import json
 import copy
 import shutil
@@ -26,12 +27,12 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 
 import git
 import click
 import blake3
-import markdownify
 import whatthepatch
 import prettyprinter as pp
 from tqdm import tqdm
@@ -41,15 +42,13 @@ from loguru import logger
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, CardId
+from anki.cards import Card, CardId, TemplateDict
 from anki.decks import DeckTreeNode
 from anki.utils import ids2str
 from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
 from anki.errors import NotFoundError
 from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
-
-from apy.convert import markdown_to_html, plain_to_html, html_to_markdown
 
 from beartype import beartype
 from beartype.typing import (
@@ -74,6 +73,7 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
     GitChangeType,
     Patch,
     Delta,
@@ -124,8 +124,6 @@ from ki.maybes import (
 )
 from ki.transformer import NoteTransformer, FlatNote
 
-from pyinstrument import Profiler
-
 logging.basicConfig(level=logging.INFO)
 
 T = TypeVar("T")
@@ -133,13 +131,13 @@ T = TypeVar("T")
 # TODO: What if there is a deck called `_media`?
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
-BATCH_SIZE = 500
+BATCH_SIZE = 499
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 80
-MAX_FILENAME_LEN = 30
+MAX_FILENAME_LEN = 40
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
@@ -334,7 +332,9 @@ def diff2(
     """Diff `repo` from `HEAD~1` to `HEAD`."""
     with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
         head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+        # pylint: disable=consider-using-f-string
         uuid = "%4x" % random.randrange(16**4)
+        # pylint: enable=consider-using-f-string
         head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
@@ -567,6 +567,25 @@ def parse_markdown_note(
 
 
 @beartype
+def plain_to_html(plain: str) -> str:
+    """Convert plain text to html"""
+    # Minor clean up
+    plain = plain.replace(r"&lt;", "<")
+    plain = plain.replace(r"&gt;", ">")
+    plain = plain.replace(r"&amp;", "&")
+    plain = plain.replace(r"&nbsp;", " ")
+    plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
+    plain = re.sub(r"\<i\>\s*\<\/i\>", "", plain)
+    plain = re.sub(r"\<div\>\s*\<\/div\>", "", plain)
+
+    # Convert newlines to `<br>` tags.
+    if not re.search(HTML_REGEX, plain):
+        plain = plain.replace("\n", "<br>")
+
+    return plain.strip()
+
+
+@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> Tuple[Note, List[Warning]]:
@@ -625,15 +644,13 @@ def update_note(
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
-    # TODO: Check if these apy methods can raise exceptions.
     for key, field in decknote.fields.items():
         if key not in note:
             warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
             continue
         if decknote.markdown:
-            note[key] = markdown_to_html(field)
-        else:
-            note[key] = plain_to_html(field)
+            logger.warning("The 'markdown' flag is deprecated (now always 'False').")
+        note[key] = plain_to_html(field)
 
     # Flush fields to collection object.
     note.flush()
@@ -642,7 +659,7 @@ def update_note(
     health = display_fields_health_warning(note)
     if health != 0:
         note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(str(note.id)))
+        warnings.append(UnhealthyNoteWarning(note.id, health))
 
     return note, warnings
 
@@ -669,7 +686,9 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 # should use other fields when there is not enough content in the first field
 # to get a unique filename, if they exist.
 @beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
+def get_note_path(
+    sort_field_text: str, deck_dir: ExtantDir, card_name: str = ""
+) -> NoFile:
     """Get note path from sort field text."""
     field_text = sort_field_text
 
@@ -693,6 +712,8 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -> NoFile:
         msg = f"Slug for '{sort_field_text}' is empty. Using '{slug}' as filename"
         logger.warning(msg)
 
+    if card_name != "":
+        slug = f"{slug}_{card_name}"
     filename: str = f"{slug}{MD}"
     note_path = F.test(deck_dir / filename, resolve=False)
 
@@ -883,12 +904,15 @@ def files_in_str(
 
 
 @beartype
-def get_media_files(
+def copy_media_files(
     col: Collection,
+    media_target_dir: EmptyDir,
     silent: bool,
 ) -> Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
     """
-    Get a list of extant media files used in notes and notetypes.
+    Get a list of extant media files used in notes and notetypes, copy those
+    media files to the top-level `_media/` directory in the repository root,
+    and return a map sending note ids to sets of copied media files.
 
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
@@ -955,7 +979,8 @@ def get_media_files(
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                media[row.nid] = media.get(row.nid, set()) | set([media_file])
+                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
             else:
                 warnings.add(MissingMediaFileWarning(col.path, media_file))
 
@@ -978,8 +1003,11 @@ def get_media_files(
                     # obtained from an `os.listdir()` call.
                     media_file = F.test(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
+                        copied_file = F.copyfile(
+                            media_file, media_target_dir, media_file.name
+                        )
                         notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([media_file])
+                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
 
     return media, warnings
@@ -1009,7 +1037,7 @@ def write_repository(
     col_file: ExtantFile,
     targetdir: ExtantDir,
     leaves: Leaves,
-    media_dir: EmptyDir,
+    media_target_dir: EmptyDir,
     silent: bool,
 ) -> None:
     """Write notes to appropriate directories in `targetdir`."""
@@ -1056,7 +1084,7 @@ def write_repository(
     tidy_html_recursively(root, silent)
 
     media: Dict[int, Set[ExtantFile]]
-    media, warnings = get_media_files(col, silent=silent)
+    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
@@ -1064,11 +1092,6 @@ def write_repository(
     for warning in warnings:
         if type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
-
-    with F.halo("Copying media..."):
-        for note_media in media.values():
-            for media_file in note_media:
-                F.copyfile(media_file, media_dir, media_file.name)
 
     F.rmtree(root)
     col.close(save=False)
@@ -1137,6 +1160,28 @@ def write_decks(
             traversal += postorder(child)
         traversal += [node]
         return traversal
+
+    @beartype
+    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+        """
+        Pre-order traversal. Guarantees that we won't process a node until
+        we've processed all its ancestors.
+        """
+        traversal: List[DeckTreeNode] = [node]
+        for child in node.children:
+            traversal += preorder(child)
+        return traversal
+
+    @beartype
+    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
+        parents: Dict[str, DeckTreeNode] = {}
+        for child in node.children:
+            did: int = child.deck_id
+            name: str = col.decks.name(did)
+            parents[name] = node
+            subparents = map_parents(child, col)
+            parents.update(subparents)
+        return parents
 
     # All card ids we've already processed.
     written_cids: Set[int] = set()
@@ -1223,9 +1268,16 @@ def write_decks(
                 if card.did == written.did:
                     continue
 
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
+                # Get card template name.
+                template: TemplateDict = card.template()
+                name: str = template["name"]
+
+                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir, name)
                 abs_target: ExtantFile = written_notes[card.nid].file
-                target: Path = abs_target.relative_to(targetdir)
+                distance = len(note_path.parent.relative_to(targetdir).parts)
+                up_path = Path("../" * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
                 F.symlink(note_path, target)
 
         # Write `models.json` for current deck.
@@ -1233,12 +1285,45 @@ def write_decks(
         with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
             json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-        # Write media files for this deck.
+    # TODO: This should be in its own function to make sure loop variables aren't being reused.
+
+    # Chain symlinks up the deck tree into `<repo_root>/_media/`.
+    media_dirs: Dict[str, ExtantDir] = {}
+    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
+    for node in preorder(root):
+        if node.name == "":
+            continue
+        did: int = node.deck_id
+        fullname = col.decks.name(did)
+        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        media_dirs[fullname] = deck_media_dir
+        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
         for nid in descendant_nids:
             if nid in media:
                 for media_file in media[nid]:
-                    F.copyfile(media_file, deck_media_dir, media_file.name)
+                    parent: DeckTreeNode = parents[fullname]
+                    if parent.name != "":
+                        parent_did: int = parent.deck_id
+                        parent_fullname: str = col.decks.name(parent_did)
+                        parent_media_dir = media_dirs[parent_fullname]
+                        abs_target: Symlink = F.test(
+                            parent_media_dir / media_file.name, resolve=False
+                        )
+                    else:
+                        abs_target: ExtantFile = media_file
+                    path = F.test(deck_media_dir / media_file.name, resolve=False)
+                    if not isinstance(path, NoFile):
+                        continue
+                    distance = len(path.parent.relative_to(targetdir).parts)
+                    up_path = Path("../" * distance)
+                    relative: Path = abs_target.relative_to(targetdir)
+                    target: Path = up_path / relative
+                    F.symlink(path, target)
 
 
 @beartype
@@ -1278,6 +1363,7 @@ def html_to_screen(html: str) -> str:
 
 @beartype
 def get_colnote_as_str(colnote: ColNote) -> str:
+    """Return string representation of a `ColNote`."""
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append("### " + field_name)
@@ -1391,6 +1477,10 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
             "--tidy-mark",
             "no",
             "--show-body-only",
+            "yes",
+            "--wrap",
+            "68",
+            "--wrap-attributes",
             "yes",
         ]
         command += batch
@@ -1587,6 +1677,9 @@ def clone(collection: str, directory: str = "") -> None:
         Note: we check that this directory does not yet exist.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -1675,6 +1768,9 @@ def pull() -> None:
     repository.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -1790,8 +1886,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         return path
 
     patches: List[Patch] = []
-    import io
-    from contextlib import redirect_stdout
 
     f = io.StringIO()
     with F.halo(text="Generating submodule patches..."):
@@ -1997,6 +2091,9 @@ def push() -> PushResult:
         If the user needs to pull remote changes first.
     """
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -2161,12 +2258,6 @@ def push_deltas(
 
         # Commit in all submodules (doesn't support recursing yet).
         for sm in kirepo.repo.submodules:
-
-            # TODO: Remove submodule update calls, and use the gitpython
-            # API to check if the submodules exist instead. The update
-            # calls make a remote fetch which takes an extremely long time,
-            # and the user should have run `git submodule update`
-            # themselves anyway.
             subrepo: git.Repo = sm.module()
             subrepo.git.add(all=True)
             subrepo.index.commit(msg)

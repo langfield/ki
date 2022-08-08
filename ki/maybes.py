@@ -228,6 +228,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
 
 @beartype
 def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
+    """Validate a commit SHA against a repository and return a `RepoRef`."""
     if not F.ref_exists(repository, sha):
         raise GitRefNotFoundError(repository, sha)
     return RepoRef(repository, sha)
@@ -235,6 +236,7 @@ def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
 
 @beartype
 def head_repo_ref(repository: git.Repo) -> RepoRef:
+    """Return a `RepoRef` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = RepoRef(repository, repository.head.commit.hexsha)
@@ -245,6 +247,7 @@ def head_repo_ref(repository: git.Repo) -> RepoRef:
 
 @beartype
 def head_kirepo_ref(kirepository: KiRepo) -> KiRepoRef:
+    """Return a `KiRepoRef` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
@@ -255,6 +258,7 @@ def head_kirepo_ref(kirepository: KiRepo) -> KiRepoRef:
 
 @beartype
 def collection(col_file: ExtantFile) -> Collection:
+    """Open a collection or raise a pretty exception."""
     try:
         col = Collection(col_file)
     except anki.errors.DBError as err:
