@@ -27,7 +27,7 @@ def get_parser():
     """Return a parser."""
     # Read grammar.
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text()
+    grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.
     parser = Lark(grammar, start="note", parser="lalr")
@@ -793,11 +793,11 @@ def parse_collection():
     """Parse all notes in a collection."""
     transformer = NoteTransformer()
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text()
+    grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start="file", parser="lalr", transformer=transformer)
     for path in tqdm(set((Path.home() / "collection").iterdir())):
         if path.suffix == ".md":
-            note = path.read_text()
+            note = path.read_text(encoding="UTF-8")
             parser.parse(note)
 
 

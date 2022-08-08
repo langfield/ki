@@ -1096,7 +1096,7 @@ def test_write_repository_handles_html():
         write_repository(col_file, targetdir, leaves, media_dir, silent=False)
 
         note_file = targetdir / "Default" / "あだ名.md"
-        contents: str = note_file.read_text()
+        contents: str = note_file.read_text(encoding="UTF-8")
         logger.debug(contents)
 
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents

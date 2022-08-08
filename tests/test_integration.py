@@ -372,7 +372,7 @@ def test_clone_handles_html():
         assert os.path.isdir(HTML_REPODIR)
 
         path = Path(".") / "html" / "Default" / "あだ名.md"
-        contents = path.read_text()
+        contents = path.read_text(encoding="UTF-8")
         logger.debug(contents)
         assert (
             """<table class="kanji-match">\n    <tbody>\n      <tr class="match-row-kanji" lang="ja">\n"""
@@ -391,7 +391,7 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
         assert os.path.isdir(HTML_REPODIR)
 
         path = Path(".") / "html" / "Default" / "on-evil.md"
-        contents = path.read_text()
+        contents = path.read_text(encoding="UTF-8")
 
         # This line should not be broken.
         assert "and I doubt that punishment should be relevant to criminal justice." in contents

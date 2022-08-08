@@ -1398,7 +1398,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
             # HTML5-tidy adds a newline after `<br>` in indent mode, so we
             # remove these, because `html_to_screen()` converts `<br>` tags to
             # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text()
+            tidied_field_text: str = tidy_field_files[fid].read_text(encoding="UTF-8")
             tidied_field_text = tidied_field_text.replace("<br>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br/>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br />\n", "\n")
@@ -1837,7 +1837,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Copy `repo` into a temp directory and `reset --hard` at ref of last
     # successful `push()`.
-    sha: str = kirepo.last_push_file.read_text()
+    sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
     with F.halo(text=f"Checking out repo at '{sha}'..."):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
         last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
