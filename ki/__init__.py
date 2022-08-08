@@ -2121,6 +2121,7 @@ def push() -> PushResult:
 
     with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
         git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
+        remote_repo.close()
         remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
         del remote_repo
         remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
