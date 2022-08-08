@@ -5,6 +5,7 @@
 
 import os
 import re
+import stat
 import shutil
 import hashlib
 import tempfile
@@ -59,8 +60,16 @@ SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS 
 
 @beartype
 def rmtree(target: ExtantDir) -> NoFile:
-    """Call shutil.rmtree()."""
-    shutil.rmtree(target)
+    """Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows."""
+    for root, dirs, files in os.walk(target, topdown=False):
+        for name in files:
+            filename = os.path.join(root, name)
+            os.chmod(filename, stat.S_IWUSR)
+            os.remove(filename)
+        for name in dirs:
+            os.rmdir(os.path.join(root, name))
+    os.rmdir(target)
+
     return NoFile(target)
 
 
