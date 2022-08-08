@@ -510,6 +510,14 @@ class AnkiAlreadyOpenError(Exception):
         super().__init__(f"fatal: {msg}")
 
 
+class MissingTidyExecutableError(FileNotFoundError):
+    @beartype
+    def __init__(self, err: FileNotFoundError):
+        top = f"Command not found: 'tidy' (Is 'html5-tidy' installed?)"
+        msg = f"Original exception: {err}"
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
 # WARNINGS
 
 

@@ -111,6 +111,7 @@ from ki.types import (
     ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
+    MissingTidyExecutableError,
 )
 from ki.maybes import (
     GIT,
@@ -1486,8 +1487,8 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
         command += batch
         try:
             subprocess.run(command, check=False, capture_output=True)
-        except Exception as err:
-            raise err
+        except FileNotFoundError as err:
+            raise MissingTidyExecutableError(err) from err
 
 
 @beartype
