@@ -1962,6 +1962,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text: str = patch.diff.text
                 patch_text = patch_text.replace(str(patch.a), str(a_relpath))
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
+                logger.debug(f"Patch text:\n{patch_text}")
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  `{patch.a}`\n"
 
