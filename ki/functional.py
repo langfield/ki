@@ -64,9 +64,14 @@ def rmtree(target: ExtantDir) -> NoFile:
     for root, dirs, files in os.walk(target, topdown=False):
         for name in files:
             filename = os.path.join(root, name)
-            if os.path.lexists(filename):
+
+            # Handle broken symlinks.
+            if os.path.islink(filename) and not os.path.exists(filename):
+                os.unlink(filename)
+            else:
                 os.chmod(filename, stat.S_IWUSR)
                 os.remove(filename)
+
         for name in dirs:
             os.rmdir(os.path.join(root, name))
     os.rmdir(target)
