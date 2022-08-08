@@ -40,4 +40,4 @@ jobs:
           pip install .
       - name: Test with pytest
         run: |
-          pytest -vv --timeout=30 tests/
+          pytest -vv --timeout=40 tests/
