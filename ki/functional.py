@@ -78,7 +78,7 @@ def cwd() -> ExtantDir:
 
 
 @beartype
-def is_root(path: ExtantDir) -> bool:
+def is_root(path: Union[ExtantFile, ExtantDir]) -> bool:
     """Check if 'path' is a root directory (e.g., '/' on Unix or 'C:\' on Windows)."""
     # Symlinks and `~`s are resolved before checking.
     path = path.resolve()
