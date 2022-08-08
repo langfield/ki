@@ -64,8 +64,9 @@ def rmtree(target: ExtantDir) -> NoFile:
     for root, dirs, files in os.walk(target, topdown=False):
         for name in files:
             filename = os.path.join(root, name)
-            os.chmod(filename, stat.S_IWUSR)
-            os.remove(filename)
+            if os.path.lexists(filename):
+                os.chmod(filename, stat.S_IWUSR)
+                os.remove(filename)
         for name in dirs:
             os.rmdir(os.path.join(root, name))
     os.rmdir(target)
