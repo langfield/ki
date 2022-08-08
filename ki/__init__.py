@@ -1967,13 +1967,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_text: str = patch.diff.text
 
                 # DEBUG
+
+                num_components: int = len(sm_rel_root.parts)
+                logger.debug(f"{sm_rel_root = }")
+                logger.debug(f"{num_components = }")
                 logger.debug(f"{patch.a = }")
                 logger.debug(f"{patch.b = }")
                 first_lines = patch_text.split("\n")[:4]
                 logger.debug(f"{first_lines = }")
 
-                patch_text = patch_text.replace(str(patch.a), str(a_relpath))
-                patch_text = patch_text.replace(str(patch.b), str(b_relpath))
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  `{patch.a}`\n"
 
@@ -1981,7 +1983,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # this submodule is supposed to represent a fast-forward from
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
-                sm_repo.git.apply(patch_path)
+                sm_repo.git.apply(patch_path, p=str(num_components + 1))
 
     echo(f"Applied {len(patched_submodules)} patches within submodules.")
     for sm_rel_root in patched_submodules:
