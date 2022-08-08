@@ -368,10 +368,10 @@ def test_clone_handles_html():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        clone(runner, col_file, directory="html")
+        clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
 
-        path = Path(".") / "html" / "Default" / "あだ名.md"
+        path = Path(".") / HTML_REPODIR / "Default" / "あだ名.md"
         contents = path.read_text(encoding="UTF-8")
         logger.debug(contents)
         assert (
@@ -387,10 +387,10 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        clone(runner, col_file, directory="html")
+        clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
 
-        path = Path(".") / "html" / "Default" / "on-evil.md"
+        path = Path(".") / HTML_REPODIR / "Default" / "on-evil.md"
         contents = path.read_text(encoding="UTF-8")
 
         # This line should not be broken.
