@@ -77,10 +77,11 @@ def cwd() -> ExtantDir:
     return ExtantDir(Path.cwd().resolve())
 
 
-def is_root(path: ExtantDir):
-    # Check if 'path' is a root directory (e.g., '/' on Unix or 'C:\' on Windows).
-    # Symlinks are resolved before checking.
-    path = path.resolve() # Resolve symlinks.
+@beartype
+def is_root(path: ExtantDir) -> bool:
+    """Check if 'path' is a root directory (e.g., '/' on Unix or 'C:\' on Windows)."""
+    # Symlinks and `~`s are resolved before checking.
+    path = path.resolve()
     return len(path.parents) == 0
 
 
