@@ -128,7 +128,7 @@ def test_version():
     expected_version = version("ki")
     result = invoke(ki.ki, ["--version"])
 
-    assert result.stdout == f"ki, version {expected_version}{os.linesep}"
+    assert result.stdout.rstrip() == f"ki, version {expected_version}"
     assert result.exit_code == 0
 
 
@@ -423,7 +423,7 @@ def test_clone_cleans_up_on_error():
 
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
-        shutil.rmtree(HTML_REPODIR)
+        git.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
         try:
             with pytest.raises(FileNotFoundError):
@@ -450,7 +450,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
-        shutil.rmtree(HTML_REPODIR)
+        git.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
 
         # In case where nothing is installed, we expect to fail on `tidy`
@@ -884,7 +884,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         os.chdir("../")
 
         sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
-        shutil.rmtree(sm_dir)
+        git.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -1498,7 +1498,7 @@ def test_push_writes_media(tmp_path):
         out = push(runner)
         logger.debug(out)
         os.chdir("../")
-        shutil.rmtree(MEDIA_REPODIR)
+        git.rmtree(MEDIA_REPODIR)
         out = clone(runner, col_file)
         logger.debug(out)
 
@@ -1771,7 +1771,7 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path):
 
         # Delete a directory.
         sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
-        shutil.rmtree(sm_dir)
+        git.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")

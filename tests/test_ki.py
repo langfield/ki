@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import sys
 import json
 import random
 import shutil
@@ -120,6 +121,12 @@ EDITED_COLLECTION_FILENAME = "edited.anki2"
 DELETED_COLLECTION_FILENAME = "deleted.anki2"
 MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
 HTML_COLLECTION_FILENAME = "html.anki2"
+
+# Handle restricted valid path character set on Win32.
+if sys.platform == "win32":
+    MULTIDECK_COLLECTION_FILENAME = "win32_multideck.anki2"
+    HTML_COLLECTION_FILENAME = "win32_html.anki2"
+
 UNCOMMITTED_SM_ERROR_FILENAME = "uncommitted_submodule_commits.anki2"
 UNCOMMITTED_SM_ERROR_EDITED_FILENAME = "uncommitted_submodule_commits_edited.anki2"
 MEDIA_COLLECTION_FILENAME = "media.anki2"
@@ -422,7 +429,7 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    shutil.rmtree(os.path.join(repodir, ".git/"))
+    git.rmtree(os.path.join(repodir, ".git/"))
     checksum = checksumdir.dirhash(repodir)
     shutil.rmtree(tempdir)
     return checksum
