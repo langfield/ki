@@ -431,7 +431,7 @@ def checksum_git_repository(path: str) -> str:
     shutil.copytree(path, repodir)
     git.rmtree(os.path.join(repodir, ".git/"))
     checksum = checksumdir.dirhash(repodir)
-    shutil.rmtree(tempdir)
+    git.rmtree(tempdir)
     return checksum
 
 
@@ -764,7 +764,7 @@ def test_get_note_path_produces_nonempty_filenames():
         # Check that it even works if the field is empty.
         path: ExtantFile = get_note_path("", deck_dir)
         assert ".md" in str(path)
-        assert "/a/" in str(path)
+        assert f"{os.sep}a{os.sep}" in str(path)
 
 
 @beartype
@@ -914,7 +914,7 @@ def test_diff2_handles_submodules():
         push(runner)
 
         # Remove submodule.
-        shutil.rmtree(SUBMODULE_DIRNAME)
+        git.rmtree(SUBMODULE_DIRNAME)
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
@@ -1134,42 +1134,42 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         # Case where `.ki/` directory doesn't exist.
         clone(runner, col_file)
         targetdir: ExtantDir = F.test(Path(REPODIR))
-        shutil.rmtree(targetdir / KI)
+        git.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/` is a file instead of a directory.
         clone(runner, col_file)
         targetdir: ExtantDir = F.test(Path(REPODIR))
-        shutil.rmtree(targetdir / KI)
+        git.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/backups` directory doesn't exist.
         clone(runner, col_file)
         targetdir: ExtantDir = F.test(Path(REPODIR))
-        shutil.rmtree(targetdir / KI / BACKUPS_DIR)
+        git.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "Directory not found" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/backups` is a file instead of a directory.
         clone(runner, col_file)
         targetdir: ExtantDir = F.test(Path(REPODIR))
-        shutil.rmtree(targetdir / KI / BACKUPS_DIR)
+        git.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
         clone(runner, col_file)
@@ -1179,7 +1179,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/config` is a directory instead of a file.
         clone(runner, col_file)
@@ -1190,7 +1190,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A file was expected" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/hashes` file doesn't exist.
         clone(runner, col_file)
@@ -1200,7 +1200,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/hashes'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where `.ki/models` file doesn't exist.
         clone(runner, col_file)
@@ -1210,7 +1210,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert f"'{MODELS_FILE}'" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
         clone(runner, col_file)
@@ -1222,7 +1222,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         assert "'.anki2'" in str(error.exconly())
         assert "database" in str(error.exconly())
         assert "collection.anki2" in str(error.exconly())
-        shutil.rmtree(targetdir)
+        git.rmtree(targetdir)
 
 
 def test_get_target(tmp_path):
@@ -1260,6 +1260,7 @@ def test_maybe_emptydir_handles_non_directories(tmp_path):
         assert str(file) in str(error.exconly()).replace("\n", "")
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
 def test_maybe_xdir(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
@@ -1271,6 +1272,7 @@ def test_maybe_xdir(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
 def test_maybe_xfile(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
@@ -1445,7 +1447,7 @@ def test_filter_note_path(tmp_path):
         )
         assert isinstance(warning, Warning)
         assert isinstance(warning, UnPushedPathWarning)
-        assert "directory/file" in str(warning)
+        assert str(Path("directory") / "file") in str(warning)
 
 
 def test_get_models_recursively(tmp_path):
@@ -1511,6 +1513,7 @@ def test_copy_repo_handles_submodules(tmp_path):
         kirepo = copy_kirepo(head, suffix="suffix-md5")
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
 def test_ftest_handles_strange_paths(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
@@ -1521,9 +1524,10 @@ def test_ftest_handles_strange_paths(tmp_path):
 
 
 def test_fparent_handles_fs_root():
-    parent = F.parent(F.test(Path("/")))
+    root: str = os.path.abspath(os.sep)
+    parent = F.parent(F.test(Path(root)))
     assert isinstance(parent, ExtantDir)
-    assert str(parent) == "/"
+    assert str(parent) == root
 
 
 def test_fmkleaves_handles_collisions(tmp_path):
@@ -1555,7 +1559,7 @@ def test_copy_media_files_returns_nice_errors():
 
         # Remove the media directory.
         media_dir = col_file.parent / (str(col_file.stem) + ".media")
-        shutil.rmtree(media_dir)
+        git.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
             copy_media_files(col, F.mkdtemp(), silent=True)
