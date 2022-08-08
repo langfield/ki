@@ -37,7 +37,6 @@ from ki.types import (
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
 )
-from ki.functional import FS_ROOT
 
 KI = ".ki"
 GIT = ".git"
@@ -188,16 +187,13 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     """Get the containing ki repository of `path`."""
     current = cwd
 
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
+    while not F.is_root(current):
         ki_dir = F.test(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = F.parent(current)
 
-    if current == FS_ROOT:
+    if F.is_root(current):
         raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.

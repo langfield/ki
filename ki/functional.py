@@ -42,7 +42,6 @@ from ki.types import (
     PathCreationCollisionError,
 )
 
-FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
 HALO_ENABLED = True
 if "KITEST" in os.environ and os.environ["KITEST"] == "1":
@@ -76,6 +75,13 @@ def copytree(source: ExtantDir, target: NoFile) -> ExtantDir:
 def cwd() -> ExtantDir:
     """Call Path.cwd()."""
     return ExtantDir(Path.cwd().resolve())
+
+
+def is_root(path: ExtantDir):
+    # Check if 'path' is a root directory (e.g., '/' on Unix or 'C:\' on Windows).
+    # Symlinks are resolved before checking.
+    path = path.resolve() # Resolve symlinks.
+    return len(path.parents) == 0
 
 
 @functools.cache
@@ -176,8 +182,8 @@ def parent(path: Union[ExtantFile, ExtantDir]) -> ExtantDir:
     Get the parent of a path that exists.  If the path points to the filesystem
     root, we return itself.
     """
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
+    if is_root(path):
+        return ExtantDir(path.resolve())
     return ExtantDir(path.parent)
 
 
