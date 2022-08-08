@@ -1874,7 +1874,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         anki_remote.fetch()
         unsub_remote.fetch()
     with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in '{unsub_root}'..."):
-        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True, no_ext_diff=True)
 
     @beartype
     def unquote_diff_path(path: str) -> str:
