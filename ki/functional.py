@@ -61,21 +61,27 @@ SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS 
 @beartype
 def rmtree(target: ExtantDir) -> NoFile:
     """Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows."""
-    for root, dirs, files in os.walk(target, topdown=False):
-        for name in files:
-            filename = os.path.join(root, name)
 
-            # Handle broken symlinks.
-            if os.path.islink(filename) and not os.path.exists(filename):
-                os.unlink(filename)
-            else:
-                os.chmod(filename, stat.S_IWUSR)
-                os.remove(filename)
+    # TODO: Type hint this handler.
+    def onerror(func, path, exc_info):
+        """
+        Error handler for ``shutil.rmtree``.
 
-        for name in dirs:
-            os.rmdir(os.path.join(root, name))
-    os.rmdir(target)
+        If the error is due to an access error (read only file)
+        it attempts to add write permission and then retries.
 
+        If the error is for another reason it re-raises the error.
+
+        Usage : ``shutil.rmtree(path, onerror=onerror)``
+        """
+        # Is the error an access error?
+        if not os.access(path, os.W_OK):
+            os.chmod(path, stat.S_IWUSR)
+            func(path)
+        else:
+            raise
+
+    shutil.rmtree(target, onerror=onerror)
     return NoFile(target)
 
 
