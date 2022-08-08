@@ -1893,8 +1893,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         with redirect_stdout(f):
             for diff in whatthepatch.parse_patch(raw_unified_patch):
 
+                logger.debug(f"old raw path: {diff.header.old_path}")
+                logger.debug(f"new raw path: {diff.header.new_path}")
                 a_path = unquote_diff_path(diff.header.old_path)
                 b_path = unquote_diff_path(diff.header.new_path)
+                logger.debug(f"{a_path = }")
+                logger.debug(f"{b_path = }")
+                logger.debug(f"{os.sep = }")
 
                 if a_path == DEV_NULL:
                     a_path = b_path
@@ -1960,9 +1965,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # call is not flaky. In particular, we must treat new and
                 # deleted files.
                 patch_text: str = patch.diff.text
+
+                # DEBUG
+                logger.debug(f"{patch.a = }")
+                logger.debug(f"{patch.b = }")
+                first_lines = patch_text.split("\n")[:4]
+                logger.debug(f"{first_lines = }")
+
                 patch_text = patch_text.replace(str(patch.a), str(a_relpath))
                 patch_text = patch_text.replace(str(patch.b), str(b_relpath))
-                logger.debug(f"Patch text:\n{patch_text}")
                 patch_path: ExtantFile = F.write(patch_path, patch_text)
                 msg += f"  `{patch.a}`\n"
 

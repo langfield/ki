@@ -27,9 +27,6 @@ jobs:
         run: |
           git config --global user.email "ki@example.com"
           git config --global user.name "Ki GithubActions"
-
-          # Make sure diff/patch format is universal.
-          git config --global diff.noprefix true
       - name: Install dependencies
         run: |
           pip install pytest wheel
