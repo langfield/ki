@@ -15,6 +15,7 @@ decks in exactly the same way they work on large, complex software projects.
 import os
 import re
 import io
+import sys
 import json
 import copy
 import shutil
@@ -1966,6 +1967,14 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
                 assert os.path.isfile(patch_path)
                 msg += f"  `{patch.a}`\n"
+
+                # Strip trailing linefeeds from each line so that `git apply`
+                # is happy on Windows (equivalent to running `dos2unix`).
+                if sys.platform == "win32":
+                    with open(patch_path, "w", encoding="UTF-8") as f_out:
+                        with open(patch_path, "r", encoding="UTF-8") as f_in:
+                            for line in f_in:
+                                f_out.write(line.replace("\r\n", "\n"))
 
                 # DEBUG
                 lines = patch.diff.text.split("\n")
