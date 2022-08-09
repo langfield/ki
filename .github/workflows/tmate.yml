@@ -1,6 +1,6 @@
 name: Debug
 
-on: [push]
+on:
   workflow_dispatch:
     inputs:
       tmate:
