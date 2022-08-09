@@ -1,6 +1,12 @@
 name: Python package
 
 on: [push]
+  workflow_dispatch:
+    inputs:
+      tmate:
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
 
 jobs:
   build:
@@ -39,5 +45,5 @@ jobs:
         run: |
           pytest -vv --timeout=120 tests/test_integration.py
       - name: Setup tmate session
-        if: ${{ failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate }}
         uses: mxschmitt/action-tmate@v3
