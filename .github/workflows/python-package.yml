@@ -39,4 +39,5 @@ jobs:
         run: |
           pytest -vv --timeout=120 tests/test_integration.py
       - name: Setup tmate session
+        if: ${{ failure() }}
         uses: mxschmitt/action-tmate@v3
