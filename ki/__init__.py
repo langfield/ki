@@ -166,19 +166,24 @@ PROFILE = False
 
 @beartype
 def lock(col_file: ExtantFile) -> sqlite3.Connection:
-    """Acquire a lock on a SQLite3 database given a path."""
+    """Check that lock can be acquired on a SQLite3 database given a path."""
     try:
         con = sqlite3.connect(col_file, timeout=0.1)
         con.isolation_level = "EXCLUSIVE"
         con.execute("BEGIN EXCLUSIVE")
     except sqlite3.DatabaseError as err:
         raise SQLiteLockError(col_file, err) from err
+    if sys.platform == "win32":
+        con.commit()
+        con.close()
     return con
 
 
 @beartype
-def unlock(con: sqlite3.Connection) -> None:
+def unlock(con: Optional[sqlite3.Connection]) -> None:
     """Unlock a SQLite3 database."""
+    if con is None:
+        return
     con.commit()
     con.close()
 
@@ -1780,7 +1785,7 @@ def pull() -> None:
 
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
-    # con: sqlite3.Connection = lock(kirepo.col_file)
+    con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -1789,7 +1794,7 @@ def pull() -> None:
         return
 
     _pull(kirepo, silent=False)
-    # unlock(con)
+    unlock(con)
 
     if PROFILE:
         profiler.stop()
@@ -2117,7 +2122,7 @@ def push() -> PushResult:
     # Check that we are inside a ki repository, and load collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    # con: sqlite3.Connection = lock(kirepo.col_file)
+    con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
@@ -2313,5 +2318,5 @@ def push_deltas(
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
-    # unlock(con)
+    unlock(con)
     return PushResult.NONTRIVIAL

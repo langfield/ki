@@ -795,8 +795,7 @@ def get_diff2_args() -> DiffReposArgs:
     """
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    # TODO: Uncomment once DB locking is fixed.
-    # con: sqlite3.Connection = lock(kirepo.col_file)
+    con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
     head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")

@@ -657,8 +657,6 @@ def test_pull_fails_if_collection_no_longer_exists():
             pull(runner)
 
 
-# TODO: The locking logic must be refactored to accommodate Windows.
-@pytest.mark.xfail
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
     col_file = get_col_file()
@@ -1541,8 +1539,6 @@ def test_push_handles_foreign_models(tmp_path):
         logger.debug(out)
 
 
-# TODO: The locking logic must be refactored to accommodate Windows.
-@pytest.mark.xfail
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     col_file = get_col_file()
