@@ -1964,6 +1964,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 num_parts = len(sm_rel_root.parts) + 1
 
                 patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
+                assert os.path.isfile(patch_path)
                 msg += f"  `{patch.a}`\n"
 
                 # DEBUG
