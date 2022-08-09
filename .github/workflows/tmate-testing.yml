@@ -48,3 +48,5 @@ jobs:
       - name: Setup tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate }}
         uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
