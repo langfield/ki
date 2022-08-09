@@ -180,9 +180,9 @@ def lock(col_file: ExtantFile) -> sqlite3.Connection:
 
 
 @beartype
-def unlock(con: Optional[sqlite3.Connection]) -> None:
+def unlock(con: sqlite3.Connection) -> None:
     """Unlock a SQLite3 database."""
-    if con is None:
+    if sys.platform == "win32":
         return
     con.commit()
     con.close()
@@ -2182,7 +2182,7 @@ def push() -> PushResult:
         parser,
         transformer,
         head_kirepo,
-        None,
+        con,
     )
 
     if PROFILE:
@@ -2202,7 +2202,7 @@ def push_deltas(
     parser: Lark,
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
-    con: Any,
+    con: sqlite3.Connection,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
