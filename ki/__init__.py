@@ -1970,6 +1970,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # DEBUG
                 lines = patch.diff.text.split("\n")
                 logger.debug(f"Patch path: {patch_path}")
+                logger.debug(f"Submodule working directory: {sm_repo.working_dir}")
                 logger.debug("PATCH:\n" + "\n".join(lines[:10]))
 
                 # TODO: More tests are needed to make sure that the `git apply`
