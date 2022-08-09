@@ -85,9 +85,10 @@ def shallow_walk(
 ) -> Tuple[ExtantDir, List[ExtantDir], List[ExtantFile]]:
     """Walk only the top-level directory with `os.walk()`."""
     root, dirs, files = next(os.walk(directory))
-    dirs = [ExtantDir(d) for d in dirs]
-    files = [ExtantFile(f) for f in files]
-    return ExtantDir(root), dirs, files
+    root = ExtantDir(root)
+    dirs = [ExtantDir(root / d) for d in dirs]
+    files = [ExtantFile(root / f) for f in files]
+    return root, dirs, files
 
 
 @beartype
