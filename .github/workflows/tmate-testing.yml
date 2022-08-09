@@ -43,9 +43,8 @@ jobs:
       - name: Install ki
         run: |
           pip install .
-      - name: Test with pytest
-        run: |
-          pytest -vv --timeout=120 tests/test_integration.py
+      - name: Setup vim
+        uses: rhysd/action-setup-vim@v1
       - name: Setup tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate }}
         uses: mxschmitt/action-tmate@v3
