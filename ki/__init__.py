@@ -1971,10 +1971,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # Strip trailing linefeeds from each line so that `git apply`
                 # is happy on Windows (equivalent to running `dos2unix`).
                 if sys.platform == "win32":
-                    with open(patch_path, "w", encoding="UTF-8") as f_out:
-                        with open(patch_path, "r", encoding="UTF-8") as f_in:
-                            for line in f_in:
-                                f_out.write(line.replace("\r\n", "\n"))
+                    text = open(patch_path, 'rb').read().replace('\r\n', '\n')
+                    open(patch_path, 'wb').write(text)
 
                 # DEBUG
                 lines = patch.diff.text.split("\n")
