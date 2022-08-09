@@ -19,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
@@ -30,6 +32,9 @@ jobs:
         run: |
           git config --global user.email "ki@example.com"
           git config --global user.name "Ki GithubActions"
+      - name: Checkout a different branch
+        run: |
+          git checkout github-actions
       - name: Install dependencies
         run: |
           pip install pytest wheel
