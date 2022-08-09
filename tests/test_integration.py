@@ -411,7 +411,10 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
         contents = path.read_text(encoding="UTF-8")
 
         # This line should not be broken.
-        assert "and I doubt that punishment should be relevant to criminal justice." in contents
+        assert (
+            "and I doubt that punishment should be relevant to criminal justice."
+            in contents
+        )
 
 
 @pytest.mark.skip
@@ -917,7 +920,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         logger.debug(f"\n{out}")
 
         os.chdir(UNCOMMITTED_SM_ERROR_REPODIR)
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
+        ) as f:
             note_text = f.read()
             expected = "that, that one\nthat, that one\nthis, this one"
             logger.debug(f"SM note text:\n{note_text}")
@@ -950,7 +955,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         out = push(runner)
         logger.debug(out)
 
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a", encoding="UTF-8") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a", encoding="UTF-8"
+        ) as f:
             f.write("A new line at the bottom.")
         sm.git.add(all=True)
         _ = sm.index.commit("Added a new line.")
@@ -962,7 +969,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         logger.debug(out)
         assert "fatal: remote error: " not in out
 
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
+        ) as f:
             note_text = f.read()
         logger.debug(f"SM note text:\n{note_text}")
         expected_mackerel = "\nholy mackerel\n"

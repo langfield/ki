@@ -1680,6 +1680,7 @@ def clone(collection: str, directory: str = "") -> None:
     if PROFILE:
         # pylint: disable=import-outside-toplevel
         from pyinstrument import Profiler
+
         # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
@@ -1771,6 +1772,7 @@ def pull() -> None:
     if PROFILE:
         # pylint: disable=import-outside-toplevel
         from pyinstrument import Profiler
+
         # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
@@ -2101,6 +2103,7 @@ def push() -> PushResult:
     if PROFILE:
         # pylint: disable=import-outside-toplevel
         from pyinstrument import Profiler
+
         # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()

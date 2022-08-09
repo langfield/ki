@@ -1261,7 +1261,9 @@ def test_maybe_emptydir_handles_non_directories(tmp_path):
         assert str(file) in str(error.exconly()).replace("\n", "")
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
+)
 def test_maybe_xdir(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
@@ -1273,7 +1275,9 @@ def test_maybe_xdir(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
+)
 def test_maybe_xfile(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
@@ -1514,7 +1518,9 @@ def test_copy_repo_handles_submodules(tmp_path):
         kirepo = copy_kirepo(head, suffix="suffix-md5")
 
 
-@pytest.mark.skipif(sys.platform == 'win32', reason="Windows does not have `os.mkfifo()`.")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
+)
 def test_ftest_handles_strange_paths(tmp_path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
