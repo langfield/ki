@@ -100,6 +100,9 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint:disable=unnecessary-pass, too-many-lines
 
 
+logger.add("tests.log")
+
+
 # CLI
 
 
