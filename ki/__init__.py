@@ -963,7 +963,8 @@ def get_media_files(
 
     # Faster version.
     _, _, files = F.shallow_walk(media_dir)
-    for fname in files:
+    fnames: List[Path] = [Path(file.name) for file in files]
+    for fname in fnames:
 
         # Notetype template media files are *always* prefixed by underscores.
         if str(fname).startswith("_"):
