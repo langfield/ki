@@ -1874,7 +1874,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         anki_remote.fetch()
         unsub_remote.fetch()
     with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in '{unsub_root}'..."):
-        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True, no_ext_diff=True)
+        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
 
     @beartype
     def unquote_diff_path(path: str) -> str:
@@ -1892,15 +1892,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     with F.halo(text="Generating submodule patches..."):
         with redirect_stdout(f):
             for diff in whatthepatch.parse_patch(raw_unified_patch):
-
-                logger.debug(f"old raw path: {diff.header.old_path}")
-                logger.debug(f"new raw path: {diff.header.new_path}")
                 a_path = unquote_diff_path(diff.header.old_path)
                 b_path = unquote_diff_path(diff.header.new_path)
-                logger.debug(f"{a_path = }")
-                logger.debug(f"{b_path = }")
-                logger.debug(f"{os.sep = }")
-
                 if a_path == DEV_NULL:
                     a_path = b_path
                 if b_path == DEV_NULL:
@@ -1939,19 +1932,23 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             # of a submodule, but we just do this for now. In this case, we may
             # have `patch.a` not be relative to the submodule root (if we moved
             # a file into the sm dir), or vice-versa.
-            a_is_relative: bool = patch.a.is_relative_to(sm_rel_root)
-            b_is_relative: bool = patch.b.is_relative_to(sm_rel_root)
+            a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
+            b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
 
-            if a_is_relative and b_is_relative:
+            if a_in_submodule and b_in_submodule:
                 patched_submodules.add(sm_rel_root)
                 patch_bytes: bytes = patch.diff.text.encode()
 
+                # TODO: Use a less-fancy hashing algorithm or a UUID.
                 # pylint: disable=not-callable
                 patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
 
                 # pylint: enable=not-callable
                 patch_path: NoFile = F.test(patches_dir / patch_hash)
 
+                # TODO: Can we do this with `sm_rel_root in (patch.a, patch.b)`
+                # instead?
+                #
                 # Replace paths relative to `last_push_root` with paths
                 # relative to `sm_root`.
                 a_relpath = patch.a.relative_to(sm_rel_root)
@@ -1961,29 +1958,25 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 if a_relpath == Path(".") or b_relpath == Path("."):
                     continue
 
+                # Number of leading path components to drop from diff paths.
+                num_parts = len(sm_rel_root.parts) + 1
+
+                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
+                msg += f"  `{patch.a}`\n"
+
+                # DEBUG
+                lines = patch.diff.text.split("\n")
+                logger.debug("PATCH:\n" + "\n".join(lines[:10]))
+
                 # TODO: More tests are needed to make sure that the `git apply`
                 # call is not flaky. In particular, we must treat new and
                 # deleted files.
-                patch_text: str = patch.diff.text
-
-                # DEBUG
-
-                num_components: int = len(sm_rel_root.parts)
-                logger.debug(f"{sm_rel_root = }")
-                logger.debug(f"{num_components = }")
-                logger.debug(f"{patch.a = }")
-                logger.debug(f"{patch.b = }")
-                first_lines = patch_text.split("\n")[:4]
-                logger.debug(f"{first_lines = }")
-
-                patch_path: ExtantFile = F.write(patch_path, patch_text)
-                msg += f"  `{patch.a}`\n"
-
+                #
                 # Note that it is unnecessary to use `--3way` here, because
                 # this submodule is supposed to represent a fast-forward from
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
-                sm_repo.git.apply(patch_path, p=str(num_components + 1), verbose=True)
+                sm_repo.git.apply(patch_path, p=str(num_parts), verbose=True)
 
     echo(f"Applied {len(patched_submodules)} patches within submodules.")
     for sm_rel_root in patched_submodules:
