@@ -5,7 +5,6 @@
 
 import os
 import re
-import stat
 import shutil
 import hashlib
 import tempfile

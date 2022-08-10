@@ -1976,8 +1976,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # Strip trailing linefeeds from each line so that `git apply`
                 # is happy on Windows (equivalent to running `dos2unix`).
                 if sys.platform == "win32":
-                    text = open(patch_path, 'rb').read().replace(b'\r\n', b'\n')
-                    open(patch_path, 'wb').write(text)
+                    text = open(patch_path, "rb").read().replace(b"\r\n", b"\n")
+                    open(patch_path, "wb").write(text)
 
                 # TODO: More tests are needed to make sure that the `git apply`
                 # call is not flaky. In particular, we must treat new and

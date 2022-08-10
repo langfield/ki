@@ -342,19 +342,19 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
         os.chdir("A")
         clone(runner, col_file)
         os.chdir("..")
-        A_kirepo = M.kirepo(F.test(Path("A") / REPODIR))
+        M.kirepo(F.test(Path("A") / REPODIR))
 
         os.mkdir("B")
         os.chdir("B")
         clone(runner, col_file)
         os.chdir("..")
-        B_kirepo = M.kirepo(F.test(Path("B") / REPODIR))
+        M.kirepo(F.test(Path("B") / REPODIR))
 
         os.mkdir("C")
         os.chdir("C")
         clone(runner, col_file)
         os.chdir("..")
-        C_kirepo = M.kirepo(F.test(Path("C") / REPODIR))
+        M.kirepo(F.test(Path("C") / REPODIR))
 
         mocker.patch(
             "ki.M.kirepo",
@@ -818,7 +818,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        repo = git.Repo.init(Path(REPODIR))
+        git.Repo.init(Path(REPODIR))
         effects = [git.InvalidGitRepositoryError()]
         mocker.patch("ki.M.repo", side_effect=effects)
 
