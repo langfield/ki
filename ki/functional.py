@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Type-safe, non Anki-specific functions."""
 
-# pylint: disable=import-self
+# pylint: disable=import-self, too-many-return-statements
 
 import os
 import re
@@ -42,7 +42,6 @@ from ki.types import (
     PathCreationCollisionError,
 )
 
-FS_ROOT = Path("/")
 SPINNER = "bouncingBall"
 HALO_ENABLED = True
 if "KITEST" in os.environ and os.environ["KITEST"] == "1":
@@ -60,8 +59,8 @@ SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS 
 
 @beartype
 def rmtree(target: ExtantDir) -> NoFile:
-    """Call shutil.rmtree()."""
-    shutil.rmtree(target)
+    """Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows."""
+    git.rmtree(target)
     return NoFile(target)
 
 
@@ -78,6 +77,14 @@ def cwd() -> ExtantDir:
     return ExtantDir(Path.cwd().resolve())
 
 
+@beartype
+def is_root(path: Union[ExtantFile, ExtantDir]) -> bool:
+    """Check if 'path' is a root directory (e.g., '/' on Unix or 'C:\' on Windows)."""
+    # Symlinks and `~`s are resolved before checking.
+    path = path.resolve()
+    return len(path.parents) == 0
+
+
 @functools.cache
 @beartype
 def shallow_walk(
@@ -91,6 +98,7 @@ def shallow_walk(
     return root, dirs, files
 
 
+# TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
 @beartype
 def test(
     path: Path,
@@ -177,8 +185,8 @@ def parent(path: Union[ExtantFile, ExtantDir]) -> ExtantDir:
     Get the parent of a path that exists.  If the path points to the filesystem
     root, we return itself.
     """
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
+    if is_root(path):
+        return ExtantDir(path.resolve())
     return ExtantDir(path.parent)
 
 

@@ -37,7 +37,6 @@ from ki.types import (
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
 )
-from ki.functional import FS_ROOT
 
 KI = ".ki"
 GIT = ".git"
@@ -188,16 +187,13 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     """Get the containing ki repository of `path`."""
     current = cwd
 
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
+    while not F.is_root(current):
         ki_dir = F.test(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = F.parent(current)
 
-    if current == FS_ROOT:
+    if F.is_root(current):
         raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.
@@ -232,6 +228,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
 
 @beartype
 def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
+    """Validate a commit SHA against a repository and return a `RepoRef`."""
     if not F.ref_exists(repository, sha):
         raise GitRefNotFoundError(repository, sha)
     return RepoRef(repository, sha)
@@ -239,6 +236,7 @@ def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
 
 @beartype
 def head_repo_ref(repository: git.Repo) -> RepoRef:
+    """Return a `RepoRef` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = RepoRef(repository, repository.head.commit.hexsha)
@@ -249,6 +247,7 @@ def head_repo_ref(repository: git.Repo) -> RepoRef:
 
 @beartype
 def head_kirepo_ref(kirepository: KiRepo) -> KiRepoRef:
+    """Return a `KiRepoRef` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
         ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
@@ -259,6 +258,7 @@ def head_kirepo_ref(kirepository: KiRepo) -> KiRepoRef:
 
 @beartype
 def collection(col_file: ExtantFile) -> Collection:
+    """Open a collection or raise a pretty exception."""
     try:
         col = Collection(col_file)
     except anki.errors.DBError as err:

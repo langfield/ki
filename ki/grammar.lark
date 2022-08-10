@@ -2,17 +2,19 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NOTE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: header field+
+note: header "\n" field* terminalfield
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ FIELD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // Only allow one newline after a field, but it can have many newlines within
 // it, and fields can be empty.
-field: fieldheader FIELDLINE*
-fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+
+field: fieldheader (EMPTYFIELD | FIELDLINE+)
+terminalfield: fieldheader (EMPTYFIELD | FIELDLINE+)
+fieldheader: FIELDSENTINEL " "* ANKINAME "\n"
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 FIELDSENTINEL: "###"
+EMPTYFIELD: "\n"+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -48,7 +50,7 @@ MODEL: "model:" " "* ANKINAME "\n"+
 // difficult.
 tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
 TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
-MARKDOWN: "markdown:" " "* ("true" | "false") "\n"+
+MARKDOWN: "markdown:" " "* ("true" | "false") "\n"
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ COMMON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -100,6 +100,9 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint:disable=unnecessary-pass, too-many-lines
 
 
+logger.add("tests.log")
+
+
 # CLI
 
 
@@ -128,7 +131,7 @@ def test_version():
     expected_version = version("ki")
     result = invoke(ki.ki, ["--version"])
 
-    assert result.stdout == f"ki, version {expected_version}{os.linesep}"
+    assert result.stdout.rstrip() == f"ki, version {expected_version}"
     assert result.exit_code == 0
 
 
@@ -339,19 +342,19 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
         os.chdir("A")
         clone(runner, col_file)
         os.chdir("..")
-        A_kirepo = M.kirepo(F.test(Path("A") / REPODIR))
+        M.kirepo(F.test(Path("A") / REPODIR))
 
         os.mkdir("B")
         os.chdir("B")
         clone(runner, col_file)
         os.chdir("..")
-        B_kirepo = M.kirepo(F.test(Path("B") / REPODIR))
+        M.kirepo(F.test(Path("B") / REPODIR))
 
         os.mkdir("C")
         os.chdir("C")
         clone(runner, col_file)
         os.chdir("..")
-        C_kirepo = M.kirepo(F.test(Path("C") / REPODIR))
+        M.kirepo(F.test(Path("C") / REPODIR))
 
         mocker.patch(
             "ki.M.kirepo",
@@ -371,8 +374,8 @@ def test_clone_handles_html():
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
 
-        path = Path(".") / "html" / "Default" / "あだ名.md"
-        contents = path.read_text()
+        path = Path(".") / HTML_REPODIR / "Default" / "あだ名.md"
+        contents = path.read_text(encoding="UTF-8")
         logger.debug(contents)
         assert (
             """<table class="kanji-match">\n    <tbody>\n      <tr class="match-row-kanji" lang="ja">\n"""
@@ -390,11 +393,14 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
 
-        path = Path(".") / "html" / "Default" / "on-evil.md"
-        contents = path.read_text()
+        path = Path(".") / HTML_REPODIR / "Default" / "on-evil.md"
+        contents = path.read_text(encoding="UTF-8")
 
         # This line should not be broken.
-        assert "and I doubt that punishment should be relevant to criminal justice." in contents
+        assert (
+            "and I doubt that punishment should be relevant to criminal justice."
+            in contents
+        )
 
 
 def test_clone_errors_when_directory_is_populated():
@@ -421,7 +427,7 @@ def test_clone_cleans_up_on_error():
 
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
-        shutil.rmtree(HTML_REPODIR)
+        git.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
         try:
             with pytest.raises(FileNotFoundError) as err:
@@ -464,7 +470,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
         clone(runner, col_file)
         assert os.path.isdir(HTML_REPODIR)
-        shutil.rmtree(HTML_REPODIR)
+        git.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
 
         # In case where nothing is installed, we expect to fail on `tidy`
@@ -636,12 +642,13 @@ def test_clone_writes_media_files():
         assert audio_path.is_file()
 
 
-def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
+def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path):
     col_file = get_split_col_file()
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, col_file)
-        assert os.path.islink(Path(SPLIT_REPODIR) / "top" / "b" / "a.md")
+        logger.debug(os.path.abspath(SPLIT_REPODIR))
+        assert os.path.islink(Path(SPLIT_REPODIR) / "top" / "b" / "a_Card 2.md")
         assert os.path.isfile(Path(SPLIT_REPODIR) / "top" / "a" / "a.md")
 
 
@@ -825,7 +832,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         # Edit collection.
         shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
 
-        repo = git.Repo.init(Path(REPODIR))
+        git.Repo.init(Path(REPODIR))
         effects = [git.InvalidGitRepositoryError()]
         mocker.patch("ki.M.repo", side_effect=effects)
 
@@ -888,7 +895,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         logger.debug(f"\n{out}")
 
         os.chdir(UNCOMMITTED_SM_ERROR_REPODIR)
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
+        ) as f:
             note_text = f.read()
             expected = "that, that one\nthat, that one\nthis, this one"
             logger.debug(f"SM note text:\n{note_text}")
@@ -896,7 +905,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         os.chdir("../")
 
         sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
-        shutil.rmtree(sm_dir)
+        git.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -921,7 +930,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         out = push(runner)
         logger.debug(out)
 
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a", encoding="UTF-8"
+        ) as f:
             f.write("A new line at the bottom.")
         sm.git.add(all=True)
         _ = sm.index.commit("Added a new line.")
@@ -933,7 +944,9 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         logger.debug(out)
         assert "fatal: remote error: " not in out
 
-        with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r") as f:
+        with open(
+            Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
+        ) as f:
             note_text = f.read()
         logger.debug(f"SM note text:\n{note_text}")
         expected_mackerel = "\nholy mackerel\n"
@@ -1471,7 +1484,7 @@ def test_push_handles_submodules(tmp_path):
         file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
         logger.debug(f"Adding 'z' to file '{file}'")
         with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
+            note_f.write("\nz\n\n")
 
         # Copy a new note into the submodule.
         shutil.copyfile(
@@ -1490,7 +1503,7 @@ def test_push_handles_submodules(tmp_path):
         colnotes = get_notes(col_file)
         notes: List[Note] = [colnote.n for colnote in colnotes]
         assert len(notes) == 3
-        assert "<br />z<br />" in notes[0]["Back"]
+        assert "<br>z<br>" in notes[0]["Back"]
 
 
 def test_push_writes_media(tmp_path):
@@ -1510,7 +1523,7 @@ def test_push_writes_media(tmp_path):
         out = push(runner)
         logger.debug(out)
         os.chdir("../")
-        shutil.rmtree(MEDIA_REPODIR)
+        git.rmtree(MEDIA_REPODIR)
         out = clone(runner, col_file)
         logger.debug(out)
 
@@ -1782,7 +1795,7 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path):
 
         # Delete a directory.
         sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
-        shutil.rmtree(sm_dir)
+        git.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
