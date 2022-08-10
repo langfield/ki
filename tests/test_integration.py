@@ -419,8 +419,6 @@ def test_clone_errors_when_directory_is_populated():
             clone(runner, col_file)
 
 
-# TODO: This must be re-implemented.
-@pytest.mark.xfail
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
     col_file = get_html_col_file()
@@ -432,10 +430,31 @@ def test_clone_cleans_up_on_error():
         git.rmtree(HTML_REPODIR)
         old_path = os.environ["PATH"]
         try:
-            with pytest.raises(FileNotFoundError):
+            with pytest.raises(FileNotFoundError) as err:
                 os.environ["PATH"] = ""
                 clone(runner, col_file)
+            logger.debug(err)
             assert not os.path.isdir(HTML_REPODIR)
+        finally:
+            os.environ["PATH"] = old_path
+
+
+def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
+    """Does clone not delete targetdirs that already existed?"""
+    col_file = get_html_col_file()
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        os.mkdir(HTML_REPODIR)
+        assert os.path.isdir(HTML_REPODIR)
+        old_path = os.environ["PATH"]
+        try:
+            with pytest.raises(FileNotFoundError) as err:
+                os.environ["PATH"] = ""
+                clone(runner, col_file)
+            logger.debug(err)
+            assert os.path.isdir(HTML_REPODIR)
+            assert len(os.listdir(HTML_REPODIR)) == 0
         finally:
             os.environ["PATH"] = old_path
 
@@ -443,11 +462,6 @@ def test_clone_cleans_up_on_error():
 # TODO: Consider writing new `Exception` subclasses that print a slightly
 # prettier message, informing the user of how to install the relevant missing
 # dependency.
-#
-# TODO: This test now fails, which we expect, since the code that does
-# auto-cleanup on clone fail has been removed. This must be added back in when
-# we do error-handling.
-@pytest.mark.xfail
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
     col_file = get_html_col_file()

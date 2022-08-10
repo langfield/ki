@@ -1617,3 +1617,16 @@ def test_copy_media_files_finds_notetype_media():
         media_files = sorted(list(media_files))
         von_neumann: ExtantFile = media_files[1]
         assert "_vonNeumann" in str(von_neumann)
+
+
+def test_shallow_walk_returns_extant_paths():
+    """Shallow walk should only return paths that actually exist."""
+    tmpdir = F.mkdtemp()
+    (tmpdir / "file").touch()
+    (tmpdir / "directory").mkdir()
+    root, dirs, files = F.shallow_walk(tmpdir)
+    assert os.path.isdir(root)
+    for d in dirs:
+        assert os.path.isdir(d)
+    for file in files:
+        assert os.path.isfile(file)
