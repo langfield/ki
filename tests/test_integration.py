@@ -100,9 +100,6 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint:disable=unnecessary-pass, too-many-lines
 
 
-logger.add("tests.log")
-
-
 # CLI
 
 
@@ -875,36 +872,28 @@ def test_pull_preserves_reassigned_note_ids(tmp_path):
         repo: git.Repo = get_repo_with_submodules(runner, col_file)
         os.chdir(repo.working_dir)
 
-        # Edit a file within the submodule.
-        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'z' to file '{file}'")
-        with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
-
         # Copy a new note into the submodule.
-        shutil.copyfile(
-            NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
-        )
+        note_path = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        shutil.copyfile(NOTE_2_PATH, note_path)
 
         # Get a reference to the submodule repo.
         subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
 
-        # Clone the submodule repo into another directory.
-        sm_remote_repo = git.Repo.clone_from(subrepo.working_dir, "sm_remote")
-
+        # Commit changes in submodule and parent repo.
         subrepo.git.add(all=True)
-        subrepo.index.commit("Add `z` to `submodule/Default/a.md`")
+        subrepo.index.commit("Add a new note.")
         repo.git.add(all=True)
         repo.index.commit("Update submodule.")
 
-        out = push(runner)
+        out = push(runner, verbose=True)
         logger.debug(out)
 
-        colnotes = get_notes(col_file)
-        notes: List[Note] = [colnote.n for colnote in colnotes]
-        assert len(notes) == 3
-        assert "<br><br>z" in notes[0]["Back"]
-        raise NotImplementedError
+        # Edit collection (implicitly removes submodule).
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        out = pull(runner)
+        logger.debug(out)
+
 
 
 @pytest.mark.skip
@@ -1383,7 +1372,9 @@ def test_push_honors_ignore_patterns():
         repo.git.add(all=True)
         repo.index.commit(".")
 
-        out = push(runner)
+        out = push(runner, verbose=True)
+        logger.debug("PUSH 1:")
+        logger.debug(out)
         assert "Warning: ignoring" in out
         assert "matching ignore pattern '.gitignore'" in out
 
@@ -1398,6 +1389,7 @@ def test_push_honors_ignore_patterns():
         # for every such file. In the future, these warnings should only be
         # displayed if a verbosity flag is set.
         out = push(runner, verbose=True)
+        logger.debug("PUSH 2:")
         logger.debug(out)
         assert "Warning: not Anki note" in out
 

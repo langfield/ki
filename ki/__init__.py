@@ -2234,6 +2234,12 @@ def push_deltas(
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
 
+    # Display warnings from diff procedure.
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
+    warnings = []
+
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
@@ -2292,6 +2298,10 @@ def push_deltas(
         colnote, note_warnings = push_decknote_to_anki(col, decknote)
         log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
         warnings += note_warnings
+
+    if verbose:
+        for msg in log:
+            click.secho(str(msg), fg="yellow")
 
     num_displayed: int = 0
     for warning in warnings:
