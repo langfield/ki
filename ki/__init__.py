@@ -1229,64 +1229,70 @@ def write_decks(
         deck_dir: ExtantDir = create_deck_dir(name, targetdir)
         children: Set[CardId] = set(col.decks.cids(did=did, children=False))
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendant_nids: Set[int] = {NOTETYPE_NID}
         descendant_mids: Set[int] = set()
         for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-            descendant_mids.add(card.note().mid)
+            # TODO: The code in this loop would be better placed in it's own function.
+            try:
 
-            # Card writes should not be cumulative, so we only perform them if
-            # `cid` is the card id of a card that is in the deck corresponding
-            # to `node`, but not in any of its children.
-            if cid not in children:
-                continue
+                card: Card = col.get_card(cid)
+                descendant_nids.add(card.nid)
+                descendant_mids.add(card.note().mid)
 
-            # We only even consider writing *anything* (file or symlink) to
-            # disk after checking that we haven't already processed this
-            # particular card id. If we have, then we only need to bother with
-            # the cumulative stuff above (nids and mids, which we keep track of
-            # in order to write out models and media).
-            #
-            # TODO: This fixes a very serious bug. Write a test to capture the
-            # issue. Use the Japanese Core 2000 deck as a template if needed.
-            if cid in written_cids:
-                continue
-            written_cids.add(cid)
+                # Card writes should not be cumulative, so we only perform them if
+                # `cid` is the card id of a card that is in the deck corresponding
+                # to `node`, but not in any of its children.
+                if cid not in children:
+                    continue
 
-            # We only write the payload if we haven't seen this note before.
-            # Otherwise, this must be a different card generated from the same
-            # note, so we symlink to the location where we've already written
-            # it to disk.
-            colnote: ColNote = colnotes[card.nid]
-
-            if card.nid not in written_notes:
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                payload: str = get_note_payload(colnote, tidy_field_files)
-                note_path: ExtantFile = F.write(note_path, payload)
-                written_notes[card.nid] = WrittenNoteFile(did, note_path)
-            else:
-                # If `card` is in the same deck as the card we wrote `written`
-                # for, then there is no need to create a symlink, because the
-                # note file is already there, in the correct deck directory.
+                # We only even consider writing *anything* (file or symlink) to
+                # disk after checking that we haven't already processed this
+                # particular card id. If we have, then we only need to bother with
+                # the cumulative stuff above (nids and mids, which we keep track of
+                # in order to write out models and media).
                 #
                 # TODO: This fixes a very serious bug. Write a test to capture the
                 # issue. Use the Japanese Core 2000 deck as a template if needed.
-                written: WrittenNoteFile = written_notes[card.nid]
-                if card.did == written.did:
+                if cid in written_cids:
                     continue
+                written_cids.add(cid)
 
-                # Get card template name.
-                template: TemplateDict = card.template()
-                name: str = template["name"]
+                # We only write the payload if we haven't seen this note before.
+                # Otherwise, this must be a different card generated from the same
+                # note, so we symlink to the location where we've already written
+                # it to disk.
+                colnote: ColNote = colnotes[card.nid]
 
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir, name)
-                abs_target: ExtantFile = written_notes[card.nid].file
-                distance = len(note_path.parent.relative_to(targetdir).parts)
-                up_path = Path("../" * distance)
-                relative: Path = abs_target.relative_to(targetdir)
-                target: Path = up_path / relative
-                F.symlink(note_path, target)
+                if card.nid not in written_notes:
+                    note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
+                    payload: str = get_note_payload(colnote, tidy_field_files)
+                    note_path: ExtantFile = F.write(note_path, payload)
+                    written_notes[card.nid] = WrittenNoteFile(did, note_path)
+                else:
+                    # If `card` is in the same deck as the card we wrote `written`
+                    # for, then there is no need to create a symlink, because the
+                    # note file is already there, in the correct deck directory.
+                    #
+                    # TODO: This fixes a very serious bug. Write a test to capture the
+                    # issue. Use the Japanese Core 2000 deck as a template if needed.
+                    written: WrittenNoteFile = written_notes[card.nid]
+                    if card.did == written.did:
+                        continue
+
+                    # Get card template name.
+                    template: TemplateDict = card.template()
+                    name: str = template["name"]
+
+                    note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir, name)
+                    abs_target: ExtantFile = written_notes[card.nid].file
+                    distance = len(note_path.parent.relative_to(targetdir).parts)
+                    up_path = Path("../" * distance)
+                    relative: Path = abs_target.relative_to(targetdir)
+                    target: Path = up_path / relative
+                    F.symlink(note_path, target)
+
+            except Exception as e:
+                logger.warning(f'Failed to write card with cid:{cid}. Error: {repr(e)}')
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
@@ -1306,7 +1312,7 @@ def write_decks(
         deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
         media_dirs[fullname] = deck_media_dir
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendant_nids: Set[int] = {NOTETYPE_NID}
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
         for cid in descendants:
             card: Card = col.get_card(cid)
@@ -1314,24 +1320,28 @@ def write_decks(
         for nid in descendant_nids:
             if nid in media:
                 for media_file in media[nid]:
-                    parent: DeckTreeNode = parents[fullname]
-                    if parent.name != "":
-                        parent_did: int = parent.deck_id
-                        parent_fullname: str = col.decks.name(parent_did)
-                        parent_media_dir = media_dirs[parent_fullname]
-                        abs_target: Symlink = F.test(
-                            parent_media_dir / media_file.name, resolve=False
-                        )
-                    else:
-                        abs_target: ExtantFile = media_file
-                    path = F.test(deck_media_dir / media_file.name, resolve=False)
-                    if not isinstance(path, NoFile):
-                        continue
-                    distance = len(path.parent.relative_to(targetdir).parts)
-                    up_path = Path("../" * distance)
-                    relative: Path = abs_target.relative_to(targetdir)
-                    target: Path = up_path / relative
-                    F.symlink(path, target)
+                    try:
+                        parent: DeckTreeNode = parents[fullname]
+                        if parent.name != "":
+                            parent_did: int = parent.deck_id
+                            parent_fullname: str = col.decks.name(parent_did)
+                            parent_media_dir = media_dirs[parent_fullname]
+                            abs_target: Symlink = F.test(
+                                parent_media_dir / media_file.name, resolve=False
+                            )
+                        else:
+                            abs_target: ExtantFile = media_file
+                        path = F.test(deck_media_dir / media_file.name, resolve=False)
+                        if isinstance(path, NoFile):
+                            continue
+                        distance = len(path.parent.relative_to(targetdir).parts)
+                        up_path = Path("../" * distance)
+                        relative: Path = abs_target.relative_to(targetdir)
+                        target: Path = up_path / relative
+                        F.symlink(path, target)
+
+                    except Exception as e:
+                        logger.warning(f'Failed to create symlink to media: {repr(e)}')
 
 
 @beartype
