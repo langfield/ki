@@ -1046,6 +1046,7 @@ def write_repository(
     leaves: Leaves,
     media_target_dir: EmptyDir,
     silent: bool,
+    verbose: bool,
 ) -> None:
     """Write notes to appropriate directories in `targetdir`."""
 
@@ -1095,10 +1096,13 @@ def write_repository(
 
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
-    # TODO: Maybe print how many warnings are ignored of each type.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     F.rmtree(root)
     col.close(save=False)
@@ -1671,7 +1675,8 @@ def ki() -> None:
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-def clone(collection: str, directory: str = "") -> None:
+@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
+def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     """
     Clone an Anki collection into a directory.
 
@@ -1696,7 +1701,7 @@ def clone(collection: str, directory: str = "") -> None:
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
-    _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+    _clone(col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose)
     kirepo: KiRepo = M.kirepo(targetdir)
     F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
     echo("Done.")
@@ -1709,7 +1714,11 @@ def clone(collection: str, directory: str = "") -> None:
 
 @beartype
 def _clone(
-    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
+    col_file: ExtantFile,
+    targetdir: EmptyDir,
+    msg: str,
+    silent: bool,
+    verbose: bool,
 ) -> Tuple[git.Repo, str]:
     """
     Clone an Anki collection into a directory.
@@ -1754,7 +1763,9 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    write_repository(col_file, targetdir, leaves, directories.dirs[MEDIA], silent)
+    write_repository(
+        col_file, targetdir, leaves, directories.dirs[MEDIA], silent, verbose
+    )
 
     # Initialize the main repository.
     with F.halo("Initializing repository and committing contents..."):
@@ -1854,7 +1865,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        anki_remote_root,
+        msg,
+        silent=silent,
+        verbose=False,
+    )
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
@@ -2084,8 +2101,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
 
 @ki.command()
+@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
 @beartype
-def push() -> PushResult:
+def push(verbose: bool = False) -> PushResult:
     """
     Push a ki repository into a .anki2 file.
 
@@ -2137,7 +2155,13 @@ def push() -> PushResult:
         remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        remote_root,
+        msg,
+        silent=True,
+        verbose=verbose,
+    )
 
     with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
         git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
@@ -2183,6 +2207,7 @@ def push() -> PushResult:
         transformer,
         head_kirepo,
         con,
+        verbose,
     )
 
     if PROFILE:
@@ -2203,6 +2228,7 @@ def push_deltas(
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
+    verbose: bool,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
@@ -2267,10 +2293,13 @@ def push_deltas(
         log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
         warnings += note_warnings
 
-    # Display all warnings.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     # Commit nid reassignments.
     echo(f"Reassigned {len(log)} nids.")
