@@ -1932,13 +1932,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_root: ExtantDir = F.working_dir(sm_repo)
+
+            # Get submodule root relative to ki repository root.
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
             halotext = f"Removing submodule directory '{sm_rel_root}' from remote..."
-            with F.halo(text=halotext):
-                remote_repo.git.rm(["-r", str(sm_rel_root)])
+            if os.path.isdir(anki_remote_root / sm_rel_root):
+                with F.halo(text=halotext):
+                    remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     if len(last_push_repo.submodules) > 0:
         with F.halo(text="Committing submodule directory removals..."):
