@@ -1047,6 +1047,7 @@ def write_repository(
     leaves: Leaves,
     media_target_dir: EmptyDir,
     silent: bool,
+    verbose: bool,
 ) -> None:
     """Write notes to appropriate directories in `targetdir`."""
 
@@ -1096,10 +1097,13 @@ def write_repository(
 
     write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
 
-    # TODO: Maybe print how many warnings are ignored of each type.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     F.rmtree(root)
     col.close(save=False)
@@ -1674,7 +1678,8 @@ def ki() -> None:
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-def clone(collection: str, directory: str = "") -> None:
+@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
+def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     """
     Clone an Anki collection into a directory.
 
@@ -1714,7 +1719,7 @@ def clone(collection: str, directory: str = "") -> None:
     new: bool
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose)
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
         echo("Done.")
@@ -1730,7 +1735,11 @@ def clone(collection: str, directory: str = "") -> None:
 
 @beartype
 def _clone(
-    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
+    col_file: ExtantFile,
+    targetdir: EmptyDir,
+    msg: str,
+    silent: bool,
+    verbose: bool,
 ) -> Tuple[git.Repo, str]:
     """
     Clone an Anki collection into a directory.
@@ -1775,7 +1784,9 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    write_repository(col_file, targetdir, leaves, directories.dirs[MEDIA], silent)
+    write_repository(
+        col_file, targetdir, leaves, directories.dirs[MEDIA], silent, verbose
+    )
 
     # Initialize the main repository.
     with F.halo("Initializing repository and committing contents..."):
@@ -1875,7 +1886,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        anki_remote_root,
+        msg,
+        silent=silent,
+        verbose=False,
+    )
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
@@ -1936,13 +1953,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_root: ExtantDir = F.working_dir(sm_repo)
+
+            # Get submodule root relative to ki repository root.
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
             halotext = f"Removing submodule directory '{sm_rel_root}' from remote..."
-            with F.halo(text=halotext):
-                remote_repo.git.rm(["-r", str(sm_rel_root)])
+            if os.path.isdir(anki_remote_root / sm_rel_root):
+                with F.halo(text=halotext):
+                    remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     if len(last_push_repo.submodules) > 0:
         with F.halo(text="Committing submodule directory removals..."):
@@ -2021,23 +2041,31 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo.index.commit(msg)
 
     # TODO: What if a submodule was deleted (or added) entirely?
-
-    # TODO: New commits in submodules within `last_push_repo` must be pulled
-    # into the submodules within `kirepo.repo`. This can be done by adding a
-    # remote pointing to the patched submodule in each corresponding submodule
-    # in the main repository, and then pulling from that remote. Then the
-    # remote should be deleted.
+    #
+    # New commits in submodules within `last_push_repo` are be pulled into the
+    # submodules within `kirepo.repo`. This is done by adding a remote pointing
+    # to the patched submodule in each corresponding submodule in the main
+    # repository, and then pulling from that remote. Then the remote is
+    # deleted.
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
+
+            # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
 
-                # Put detached HEAD back on `main` in the remote submodule.
-                remote_sm.git.branch("temp")
+                # TODO: What is contained in this branch that isn't already in
+                # `BRANCH_NAME`?
+                remote_sm.git.branch("upstream")
+
+                # Simulate a `git merge --strategy=theirs upstream`.
+                remote_sm.git.checkout(["-b", "tmp", "upstream"])
+                remote_sm.git.merge(["-s", "ours", BRANCH_NAME])
                 remote_sm.git.checkout(BRANCH_NAME)
-                echo(remote_sm.git.merge(["--strategy-option", "theirs", "temp"]))
+                remote_sm.git.merge("tmp")
+                remote_sm.git.branch(["-D", "tmp"])
 
                 remote_target: ExtantDir = F.git_dir(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
@@ -2105,8 +2133,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
 
 @ki.command()
+@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
 @beartype
-def push() -> PushResult:
+def push(verbose: bool = False) -> PushResult:
     """
     Push a ki repository into a .anki2 file.
 
@@ -2158,7 +2187,13 @@ def push() -> PushResult:
         remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        remote_root,
+        msg,
+        silent=True,
+        verbose=verbose,
+    )
 
     with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
         git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
@@ -2204,6 +2239,7 @@ def push() -> PushResult:
         transformer,
         head_kirepo,
         con,
+        verbose,
     )
 
     if PROFILE:
@@ -2224,10 +2260,17 @@ def push_deltas(
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
+    verbose: bool,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+
+    # Display warnings from diff procedure.
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
+    warnings = []
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -2288,10 +2331,17 @@ def push_deltas(
         log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
         warnings += note_warnings
 
-    # Display all warnings.
+    if verbose:
+        for msg in log:
+            click.secho(str(msg), fg="yellow")
+
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     # Commit nid reassignments.
     echo(f"Reassigned {len(log)} nids.")

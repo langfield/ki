@@ -100,9 +100,6 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint:disable=unnecessary-pass, too-many-lines
 
 
-logger.add("tests.log")
-
-
 # CLI
 
 
@@ -841,7 +838,6 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
             pull(runner)
 
 
-@pytest.mark.xfail
 def test_pull_preserves_reassigned_note_ids(tmp_path):
     """UNFINISHED!"""
     col_file = get_col_file()
@@ -850,36 +846,27 @@ def test_pull_preserves_reassigned_note_ids(tmp_path):
         repo: git.Repo = get_repo_with_submodules(runner, col_file)
         os.chdir(repo.working_dir)
 
-        # Edit a file within the submodule.
-        file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'z' to file '{file}'")
-        with open(file, "a", encoding="UTF-8") as note_f:
-            note_f.write("\nz\n")
-
         # Copy a new note into the submodule.
-        shutil.copyfile(
-            NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
-        )
+        note_path = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        shutil.copyfile(NOTE_2_PATH, note_path)
 
         # Get a reference to the submodule repo.
         subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
 
-        # Clone the submodule repo into another directory.
-        sm_remote_repo = git.Repo.clone_from(subrepo.working_dir, "sm_remote")
-
+        # Commit changes in submodule and parent repo.
         subrepo.git.add(all=True)
-        subrepo.index.commit("Add `z` to `submodule/Default/a.md`")
+        subrepo.index.commit("Add a new note.")
         repo.git.add(all=True)
         repo.index.commit("Update submodule.")
 
-        out = push(runner)
+        out = push(runner, verbose=True)
         logger.debug(out)
 
-        colnotes = get_notes(col_file)
-        notes: List[Note] = [colnote.n for colnote in colnotes]
-        assert len(notes) == 3
-        assert "<br />z<br />" in notes[0]["Back"]
-        raise NotImplementedError
+        # Edit collection (implicitly removes submodule).
+        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
+
+        out = pull(runner)
+        logger.debug(out)
 
 
 def test_pull_handles_uncommitted_submodule_commits(tmp_path):
@@ -890,10 +877,11 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
 
         JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
-        # Clone collection in cwd.
+        # Clone collection.
         out = clone(runner, col_file)
         logger.debug(f"\n{out}")
 
+        # Check that the content of a note in the collection is correct.
         os.chdir(UNCOMMITTED_SM_ERROR_REPODIR)
         with open(
             Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
@@ -904,17 +892,20 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
             assert expected in note_text
         os.chdir("../")
 
+        # Delete `japanese-core-2000/` subdirectory, and commit.
         sm_dir = Path(UNCOMMITTED_SM_ERROR_REPODIR) / JAPANESE_SUBMODULE_DIRNAME
         git.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM_ERROR_REPODIR)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
 
+        # Push the deletion.
         os.chdir(UNCOMMITTED_SM_ERROR_REPODIR)
         out = push(runner)
         logger.debug(out)
 
-        # Create submodule out of GITREPO_PATH.
+        # Copy a new directory of notes to `japanese-core-2000/` subdirectory,
+        # and initialize it as a git repository.
         submodule_name = JAPANESE_SUBMODULE_DIRNAME
         shutil.copytree(japanese_gitrepo_path, submodule_name)
         git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
@@ -927,9 +918,11 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         repo.git.add(all=True)
         _ = repo.index.commit("Add submodule.")
 
+        # Push changes.
         out = push(runner)
         logger.debug(out)
 
+        # Add a new line to a note, and commit the addition in the submodule.
         with open(
             Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a", encoding="UTF-8"
         ) as f:
@@ -940,6 +933,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
         # Edit collection.
         shutil.copyfile(UNCOMMITTED_SM_ERROR_EDITED_PATH, col_file)
 
+        # Pull changes from collection to root ki repository.
         out = pull(runner)
         logger.debug(out)
         assert "fatal: remote error: " not in out
@@ -1328,7 +1322,6 @@ def test_push_displays_informative_error_when_last_push_file_is_missing():
             push(runner)
 
 
-@pytest.mark.xfail
 def test_push_honors_ignore_patterns():
     col_file = get_col_file()
     runner = CliRunner()
@@ -1346,7 +1339,9 @@ def test_push_honors_ignore_patterns():
         repo.git.add(all=True)
         repo.index.commit(".")
 
-        out = push(runner)
+        out = push(runner, verbose=True)
+        logger.debug("PUSH 1:")
+        logger.debug(out)
         assert "Warning: ignoring" in out
         assert "matching ignore pattern '.gitignore'" in out
 
@@ -1360,8 +1355,9 @@ def test_push_honors_ignore_patterns():
         # Since the output is currently very verbose, we should print a warning
         # for every such file. In the future, these warnings should only be
         # displayed if a verbosity flag is set.
-        # TODO: Implement this verbosity flag.
-        out = push(runner)
+        out = push(runner, verbose=True)
+        logger.debug("PUSH 2:")
+        logger.debug(out)
         assert "Warning: not Anki note" in out
 
 

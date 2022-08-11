@@ -300,11 +300,16 @@ def invoke(*args, **kwargs):
 
 
 @beartype
-def clone(runner: CliRunner, collection: ExtantFile, directory: str = "") -> str:
+def clone(
+    runner: CliRunner,
+    collection: ExtantFile,
+    directory: str = "",
+    verbose: bool = False,
+) -> str:
     """Make a test `ki clone` call."""
     res = runner.invoke(
         ki.ki,
-        ["clone", str(collection), str(directory)],
+        ["clone", str(collection), str(directory)] + (["-v"] if verbose else []),
         standalone_mode=False,
         catch_exceptions=False,
     )
@@ -319,9 +324,14 @@ def pull(runner: CliRunner) -> str:
 
 
 @beartype
-def push(runner: CliRunner) -> str:
+def push(runner: CliRunner, verbose: bool = False) -> str:
     """Make a test `ki push` call."""
-    res = runner.invoke(ki.ki, ["push"], standalone_mode=False, catch_exceptions=False)
+    res = runner.invoke(
+        ki.ki,
+        ["push"] + (["-v"] if verbose else []),
+        standalone_mode=False,
+        catch_exceptions=False,
+    )
     return res.output
 
 
@@ -801,7 +811,7 @@ def get_diff2_args() -> DiffReposArgs:
     head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True, verbose=False)
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
@@ -1064,7 +1074,9 @@ def test_write_repository_generates_deck_tree_correctly():
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
 
-        write_repository(col_file, targetdir, leaves, media_dir, silent=False)
+        write_repository(
+            col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+        )
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
@@ -1092,7 +1104,9 @@ def test_write_repository_handles_html():
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
-        write_repository(col_file, targetdir, leaves, media_dir, silent=False)
+        write_repository(
+            col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+        )
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
@@ -1121,7 +1135,9 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
             "ki.get_colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
-            write_repository(col_file, targetdir, leaves, media_dir, silent=False)
+            write_repository(
+                col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+            )
         assert "'bad_field_key'" in str(error.exconly())
 
 
@@ -1329,7 +1345,7 @@ def test_maybe_head_kirepo_ref():
         md5sum = F.md5(col_file)
         ignore_path = targetdir / GITIGNORE_FILE
         ignore_path.write_text(".ki/\n")
-        write_repository(col_file, targetdir, leaves, media_dir, silent)
+        write_repository(col_file, targetdir, leaves, media_dir, silent, verbose=False)
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
         append_md5sum(ki_dir, col_file.name, md5sum, silent)
 
@@ -1573,7 +1589,6 @@ def test_copy_media_files_returns_nice_errors():
         assert "bad Anki collection media directory" in str(error.exconly())
 
 
-@pytest.mark.xfail
 def test_write_repository_displays_missing_media_warnings(capfd):
     col_file: ExtantFile = get_media_col_file()
     runner = CliRunner()
@@ -1595,7 +1610,9 @@ def test_write_repository_displays_missing_media_warnings(capfd):
             if path.is_file():
                 os.remove(path)
 
-        write_repository(col_file, targetdir, leaves, media_dir, silent=False)
+        write_repository(
+            col_file, targetdir, leaves, media_dir, silent=False, verbose=True
+        )
 
         captured = capfd.readouterr()
         assert "Missing or bad media file" in captured.out
