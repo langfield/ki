@@ -27,6 +27,7 @@ import functools
 import subprocess
 import dataclasses
 import configparser
+import traceback
 from pathlib import Path
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -1233,9 +1234,11 @@ def write_decks(
         deck_dir: ExtantDir = create_deck_dir(name, targetdir)
         children: Set[CardId] = set(col.decks.cids(did=did, children=False))
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendant_nids: Set[int] = {NOTETYPE_NID}
         descendant_mids: Set[int] = set()
         for cid in descendants:
+            # TODO: The code in this loop would be better placed in it's own function.
+
             card: Card = col.get_card(cid)
             descendant_nids.add(card.nid)
             descendant_mids.add(card.note().mid)
@@ -1290,7 +1293,11 @@ def write_decks(
                 up_path = Path("../" * distance)
                 relative: Path = abs_target.relative_to(targetdir)
                 target: Path = up_path / relative
-                F.symlink(note_path, target)
+
+                try:
+                    F.symlink(note_path, target)
+                except OSError as e:
+                    logger.warning(f'Failed to write card with cid:{cid}.\n{traceback.format_exc(limit=3)}')
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
@@ -1310,7 +1317,7 @@ def write_decks(
         deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
         deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
         media_dirs[fullname] = deck_media_dir
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
+        descendant_nids: Set[int] = {NOTETYPE_NID}
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
         for cid in descendants:
             card: Card = col.get_card(cid)
@@ -1335,7 +1342,11 @@ def write_decks(
                     up_path = Path("../" * distance)
                     relative: Path = abs_target.relative_to(targetdir)
                     target: Path = up_path / relative
-                    F.symlink(path, target)
+
+                    try:
+                        F.symlink(path, target)
+                    except OSError as e:
+                        logger.warning(f'Failed to create symlink to media.\n{traceback.format_exc(limit=3)}')
 
 
 @beartype
