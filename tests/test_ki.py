@@ -752,22 +752,40 @@ def test_slugify_handles_html_tags():
     assert result == "img-srccard11frontjpg"
 
 
-def test_get_note_path_produces_nonempty_filenames():
+@beartype
+def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
     col = open_collection(get_col_file())
     note = col.get_note(set(col.find_notes("")).pop())
-    colnote: ColNote = get_colnote(col, note.id)
 
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    deck = col.decks.name(note.cards()[0].did)
+    return ColNote(
+        n=note,
+        new=False,
+        deck=deck,
+        title="",
+        old_nid=note.id,
+        markdown=False,
+        notetype=notetype,
+        sortf_text=sortf_text,
+    )
+
+
+def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
+    colnote = get_colnote_with_sortf_text(field_text)
+
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir: ExtantDir = F.force_mkdir(Path("a"))
 
 
-        path: ExtantFile = get_note_path(field_text, deck_dir)
+        path: ExtantFile = get_note_path(colnote, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
-        path: ExtantFile = get_note_path("", deck_dir)
+        empty_colnote = get_colnote_with_sortf_text("")
+        path: ExtantFile = get_note_path(empty_colnote, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
 
@@ -978,11 +996,12 @@ def test_git_pull():
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     runner = CliRunner()
+    colnote = get_colnote_with_sortf_text("a")
     with runner.isolated_filesystem():
         deck_dir = F.cwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        note_path = get_note_path("a", deck_dir)
+        note_path = get_note_path(colnote, deck_dir)
         assert str(note_path.name) == "a_1.md"
 
 
