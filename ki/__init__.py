@@ -694,9 +694,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 # first field to get a unique filename, if they exist. Note that we must still
 # treat the case where all fields are images!
 @beartype
-def get_note_path(
-    colnote: ColNote, deck_dir: ExtantDir, card_name: str = ""
-) -> NoFile:
+def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = colnote.sortf_text
 
@@ -1296,8 +1294,9 @@ def write_decks(
 
                 try:
                     F.symlink(note_path, target)
-                except OSError as e:
-                    logger.warning(f'Failed to write card with cid:{cid}.\n{traceback.format_exc(limit=3)}')
+                except OSError as _:
+                    trace = traceback.format_exc(limit=3)
+                    logger.warning(f"Failed to create symlink for cid '{cid}'\n{trace}")
 
         # Write `models.json` for current deck.
         deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
@@ -1345,8 +1344,9 @@ def write_decks(
 
                     try:
                         F.symlink(path, target)
-                    except OSError as e:
-                        logger.warning(f'Failed to create symlink to media.\n{traceback.format_exc(limit=3)}')
+                    except OSError as _:
+                        trace = traceback.format_exc(limit=3)
+                        logger.warning(f"Failed to create symlink to media\n{trace}")
 
 
 @beartype
@@ -1514,7 +1514,9 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 
 @beartype
-def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> Tuple[EmptyDir, bool]:
+def get_target(
+    cwd: ExtantDir, col_file: ExtantFile, directory: str
+) -> Tuple[EmptyDir, bool]:
     """Create default target directory."""
     path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
     new: bool = True
@@ -1730,7 +1732,9 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     new: bool
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose)
+        _, _ = _clone(
+            col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose
+        )
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
         echo("Done.")
