@@ -133,7 +133,7 @@ T = TypeVar("T")
 # TODO: What if there is a deck called `_media`?
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
-BATCH_SIZE = 50
+BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
