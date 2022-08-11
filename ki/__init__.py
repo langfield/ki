@@ -2020,23 +2020,31 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo.index.commit(msg)
 
     # TODO: What if a submodule was deleted (or added) entirely?
-
-    # TODO: New commits in submodules within `last_push_repo` must be pulled
-    # into the submodules within `kirepo.repo`. This can be done by adding a
-    # remote pointing to the patched submodule in each corresponding submodule
-    # in the main repository, and then pulling from that remote. Then the
-    # remote should be deleted.
+    #
+    # New commits in submodules within `last_push_repo` are be pulled into the
+    # submodules within `kirepo.repo`. This is done by adding a remote pointing
+    # to the patched submodule in each corresponding submodule in the main
+    # repository, and then pulling from that remote. Then the remote is
+    # deleted.
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
+
+            # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
 
-                # Put detached HEAD back on `main` in the remote submodule.
-                remote_sm.git.branch("temp")
+                # TODO: What is contained in this branch that isn't already in
+                # `BRANCH_NAME`?
+                remote_sm.git.branch("upstream")
+
+                # Simulate a `git merge --strategy=theirs upstream`.
+                remote_sm.git.checkout(["-b", "tmp", "upstream"])
+                remote_sm.git.merge(["-s", "ours", BRANCH_NAME])
                 remote_sm.git.checkout(BRANCH_NAME)
-                echo(remote_sm.git.merge(["--strategy-option", "theirs", "temp"]))
+                remote_sm.git.merge("tmp")
+                remote_sm.git.branch(["-D", "tmp"])
 
                 remote_target: ExtantDir = F.git_dir(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
