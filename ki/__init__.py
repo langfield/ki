@@ -23,11 +23,11 @@ import random
 import logging
 import secrets
 import sqlite3
+import traceback
 import functools
 import subprocess
 import dataclasses
 import configparser
-import traceback
 from pathlib import Path
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -1185,6 +1185,7 @@ def write_decks(
 
     @beartype
     def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
+        """Map deck names to parent `DeckTreeNode`s."""
         parents: Dict[str, DeckTreeNode] = {}
         for child in node.children:
             did: int = child.deck_id
@@ -1205,7 +1206,6 @@ def write_decks(
     # the symlinks should point.
     written_notes: Dict[int, WrittenNoteFile] = {}
 
-    # TODO: This block is littered with unsafe code. Fix.
     nodes: List[DeckTreeNode] = postorder(root)
 
     bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
@@ -1234,9 +1234,9 @@ def write_decks(
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
         descendant_nids: Set[int] = {NOTETYPE_NID}
         descendant_mids: Set[int] = set()
-        for cid in descendants:
-            # TODO: The code in this loop would be better placed in it's own function.
 
+        # TODO: The code in this loop would be better placed in its own function.
+        for cid in descendants:
             card: Card = col.get_card(cid)
             descendant_nids.add(card.nid)
             descendant_mids.add(card.note().mid)
