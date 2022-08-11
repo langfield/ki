@@ -689,15 +689,15 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
     return warnings
 
 
-# TODO: This should take a `colnote` as a parameter instead of the text, and it
-# should use other fields when there is not enough content in the first field
-# to get a unique filename, if they exist.
+# TODO: This should use other fields when there is not enough content in the
+# first field to get a unique filename, if they exist. Note that we must still
+# treat the case where all fields are images!
 @beartype
 def get_note_path(
-    sort_field_text: str, deck_dir: ExtantDir, card_name: str = ""
+    colnote: ColNote, deck_dir: ExtantDir, card_name: str = ""
 ) -> NoFile:
     """Get note path from sort field text."""
-    field_text = sort_field_text
+    field_text = colnote.sortf_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -706,7 +706,7 @@ def get_note_path(
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = sort_field_text
+        field_text = colnote.sortf_text
 
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
@@ -715,8 +715,8 @@ def get_note_path(
     # a `Path('.')` which is a bug, and causes a runtime exception.  If all
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
-        slug = secrets.token_hex(10)
-        msg = f"Slug for '{sort_field_text}' is empty. Using '{slug}' as filename"
+        slug = str(colnote.n.id)
+        msg = f"Slug for '{colnote.n.id}' is empty. Using nid as filename"
         logger.warning(msg)
 
     if card_name != "":
@@ -1261,7 +1261,7 @@ def write_decks(
             colnote: ColNote = colnotes[card.nid]
 
             if card.nid not in written_notes:
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
+                note_path: NoFile = get_note_path(colnote, deck_dir)
                 payload: str = get_note_payload(colnote, tidy_field_files)
                 note_path: ExtantFile = F.write(note_path, payload)
                 written_notes[card.nid] = WrittenNoteFile(did, note_path)
@@ -1280,7 +1280,7 @@ def write_decks(
                 template: TemplateDict = card.template()
                 name: str = template["name"]
 
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir, name)
+                note_path: NoFile = get_note_path(colnote, deck_dir, name)
                 abs_target: ExtantFile = written_notes[card.nid].file
                 distance = len(note_path.parent.relative_to(targetdir).parts)
                 up_path = Path("../" * distance)
@@ -1544,7 +1544,7 @@ def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> Li
         repo_note_path.unlink()
 
     parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
+    new_note_path: NoFile = get_note_path(colnote, parent)
     F.write(new_note_path, get_colnote_as_str(colnote))
 
     # Construct a nice commit message line.

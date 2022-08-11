@@ -753,10 +753,15 @@ def test_slugify_handles_html_tags():
 
 
 def test_get_note_path_produces_nonempty_filenames():
+    col = open_collection(get_col_file())
+    note = col.get_note(set(col.find_notes("")).pop())
+    colnote: ColNote = get_colnote(col, note.id)
+
     field_text = '<img src="card11front.jpg" />'
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir: ExtantDir = F.force_mkdir(Path("a"))
+
 
         path: ExtantFile = get_note_path(field_text, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
