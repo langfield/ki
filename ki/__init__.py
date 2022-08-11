@@ -995,7 +995,8 @@ def copy_media_files(
 
     # Faster version.
     _, _, files = F.shallow_walk(media_dir)
-    for fname in files:
+    fnames: List[Path] = [Path(file.name) for file in files]
+    for fname in fnames:
 
         # Notetype template media files are *always* prefixed by underscores.
         if str(fname).startswith("_"):
@@ -1502,14 +1503,16 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 
 @beartype
-def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> EmptyDir:
+def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -> Tuple[EmptyDir, bool]:
     """Create default target directory."""
     path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
+    new: bool = True
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M.emptydir(path)
+        return M.emptydir(path), new
     if isinstance(path, EmptyDir):
-        return path
+        new = False
+        return path, new
     raise TargetExistsError(path)
 
 
@@ -1699,12 +1702,30 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
+    @beartype
+    def cleanup(targetdir: ExtantDir, new: bool) -> Union[EmptyDir, NoPath]:
+        """Cleans up after failed clone operations."""
+        if new:
+            return F.rmtree(targetdir)
+        _, dirs, files = F.shallow_walk(targetdir)
+        for directory in dirs:
+            F.rmtree(directory)
+        for file in files:
+            os.remove(file)
+        return F.test(targetdir)
+
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
-    targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
-    _clone(col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose)
-    kirepo: KiRepo = M.kirepo(targetdir)
-    F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
-    echo("Done.")
+    targetdir: EmptyDir
+    new: bool
+    targetdir, new = get_target(F.cwd(), col_file, directory)
+    try:
+        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose)
+        kirepo: KiRepo = M.kirepo(targetdir)
+        F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        echo("Done.")
+    except Exception as err:
+        cleanup(targetdir, new)
+        raise err
 
     if PROFILE:
         profiler.stop()
