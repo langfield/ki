@@ -112,6 +112,7 @@ from ki.transformer import NoteTransformer
 @dataclass(frozen=True)
 class TestCollection:
     """A test collection with all names and paths constructed."""
+
     col_file: ExtantFile
     path: Path
     stem: str
@@ -128,6 +129,7 @@ class TestCollection:
 @dataclass(frozen=True)
 class DiffReposArgs:
     """Arguments for `diff2()`."""
+
     repo: git.Repo
     parser: Lark
     transformer: NoteTransformer
