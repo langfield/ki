@@ -23,6 +23,7 @@ import random
 import logging
 import secrets
 import sqlite3
+import hashlib
 import traceback
 import functools
 import subprocess
@@ -1804,7 +1805,11 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
         _, _ = _clone(
-            col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose
+            col_file,
+            targetdir,
+            msg="Initial commit",
+            silent=False,
+            verbose=verbose,
         )
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
@@ -1883,10 +1888,21 @@ def _clone(
     with F.halo("Initializing repository and committing contents..."):
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
 
-        # TODO: Use `git update-index` to set 120000 file mode on each latent
-        # symlink in `latent_links`.
+        # Use `git update-index` to set 120000 file mode on each latent symlink
+        # in `latent_links`.
+        relative_links: Set[Path] = set()
+        for link in latent_links:
+            sha1 = hashlib.sha1()
+            with open(link, "rb") as f:
+                sha1.update(f.read())
+            root = Path(repo.working_dir)
+            link = link.relative_to(root)
+            relative_links.add(link)
+            repo.git.update_index(f"120000,{sha1.hexdigest()},{link}", add=True, cacheinfo=True)
 
         repo.git.add(all=True)
+        for link in relative_links:
+            repo.git.reset(link)
         _ = repo.index.commit(msg)
 
     # Store a checksum of the Anki collection file in the hashes file.

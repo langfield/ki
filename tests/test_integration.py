@@ -707,6 +707,7 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows(
         repo = git.Repo(SYMLINKS.repodir)
         for entry in repo.commit().tree.traverse():
             path = entry.path
+            logger.debug(path)
             if isinstance(entry, git.Blob) and path in winlinks:
                 mode = oct(entry.mode)
                 logger.debug(f"mode : {type(mode)} = {mode}")
