@@ -1198,9 +1198,9 @@ def write_decks(
 
     nodes: List[DeckTreeNode] = postorder(root)
 
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Decks")
-    for node in bar:
+    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
+    nodes_bar.set_description("Decks")
+    for node in nodes_bar:
         node_cids: Set[int]
         node_notes: Dict[int, WrittenNoteFile]
         node_latent_links: Set[LatentSymlink]
@@ -1343,7 +1343,6 @@ def write_deck_node_cards(
     descendant_nids: Set[int] = {NOTETYPE_NID}
     descendant_mids: Set[int] = set()
 
-    # TODO: The code in this loop would be better placed in its own function.
     for cid in descendants:
         card: Card = col.get_card(cid)
         descendant_nids.add(card.nid)
