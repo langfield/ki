@@ -5,6 +5,7 @@
 
 import os
 import re
+import sys
 import shutil
 import hashlib
 import tempfile
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import git
 from halo import Halo
+from loguru import logger
 
 from beartype import beartype
 from beartype.typing import (
@@ -147,7 +149,7 @@ def symlink(path: NoFile, target: Path) -> Union[Symlink, LatentSymlink]:
         with open(path, "w", encoding="UTF-8") as f:
             f.write(str(target))
             return LatentSymlink(path)
-    
+
     # Treat POSIX systems.
     os.symlink(target, path)
     return Symlink(path)
