@@ -1898,7 +1898,8 @@ def _clone(
             root = Path(repo.working_dir)
             link = link.relative_to(root)
             relative_links.add(link)
-            repo.git.update_index(f"120000,{sha1.hexdigest()},{link}", add=True, cacheinfo=True)
+            hexsha1 = sha1.hexdigest()
+            repo.git.update_index(f"120000,{hexsha1},{link}", add=True, cacheinfo=True)
 
         repo.git.add(all=True)
         for link in relative_links:
