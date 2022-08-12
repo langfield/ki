@@ -1048,7 +1048,7 @@ def write_repository(
     media_target_dir: EmptyDir,
     silent: bool,
     verbose: bool,
-) -> None:
+) -> Set[LatentSymlink]:
     """Write notes to appropriate directories in `targetdir`."""
 
     # Create config file.
@@ -1095,7 +1095,14 @@ def write_repository(
     media: Dict[int, Set[ExtantFile]]
     media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
-    write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
+    latent_links: Set[LatentSymlink] = write_decks(
+        col,
+        targetdir,
+        colnotes,
+        media,
+        tidy_field_files,
+        silent,
+    )
 
     num_displayed: int = 0
     for warning in warnings:
@@ -1108,6 +1115,8 @@ def write_repository(
     F.rmtree(root)
     col.close(save=False)
 
+    return latent_links
+
 
 @beartype
 def write_decks(
@@ -1117,7 +1126,7 @@ def write_decks(
     media: Dict[int, Set[ExtantFile]],
     tidy_field_files: Dict[str, ExtantFile],
     silent: bool,
-) -> None:
+) -> Set[LatentSymlink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1173,6 +1182,54 @@ def write_decks(
         traversal += [node]
         return traversal
 
+    # All card ids we've already processed.
+    written_cids: Set[int] = set()
+
+    # Map nids we've already written files for to a dataclass containing:
+    # - the corresponding `ExtantFile`
+    # - the deck id of the card for which we wrote it
+    #
+    # This deck id identifies the deck corresponding to the location where all
+    # the symlinks should point.
+    written_notes: Dict[int, WrittenNoteFile] = {}
+
+    # All latent symlinks created on Windows whose file modes we must set.
+    latent_links: Set[LatentSymlink] = set()
+
+    nodes: List[DeckTreeNode] = postorder(root)
+
+    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
+    bar.set_description("Decks")
+    for node in bar:
+        node_cids: Set[int]
+        node_notes: Dict[int, WrittenNoteFile]
+        node_latent_links: Set[LatentSymlink]
+        node_cids, node_notes, node_latent_links = write_deck_node_cards(
+            node,
+            col,
+            targetdir,
+            colnotes,
+            tidy_field_files,
+            models_map,
+        )
+        written_cids |= node_cids
+        written_notes.update(node_notes)
+        latent_links |= node_latent_links
+
+    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
+    latent_links |= media_links
+    return latent_links
+
+
+@beartype
+def chain_media_symlinks(
+    root: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    media: Dict[int, Set[ExtantFile]],
+) -> Set[LatentSymlink]:
+    """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
+
     @beartype
     def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
         """
@@ -1196,47 +1253,6 @@ def write_decks(
             parents.update(subparents)
         return parents
 
-    # All card ids we've already processed.
-    written_cids: Set[int] = set()
-
-    # Map nids we've already written files for to a dataclass containing:
-    # - the corresponding `ExtantFile`
-    # - the deck id of the card for which we wrote it
-    #
-    # This deck id identifies the deck corresponding to the location where all
-    # the symlinks should point.
-    written_notes: Dict[int, WrittenNoteFile] = {}
-
-    # All latent symlinks created on Windows whose file modes we must set.
-    latent_links: Set[LatentSymlink]
-
-    nodes: List[DeckTreeNode] = postorder(root)
-
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Decks")
-    for node in bar:
-        node_cids: Set[int]
-        node_notes: Dict[int, WrittenNoteFile]
-        node_latent_links: Set[LatentSymlink]
-        node_cids, node_notes, node_latent_links = write_deck_node_cards(
-            node,
-            col,
-            targetdir,
-            colnotes,
-            tidy_field_files,
-            models_map,
-        )
-        written_cids |= node_cids
-        written_notes.update(node_notes)
-
-    # TODO: This should be in its own function to make sure loop variables aren't being reused.
-
-    media_links: Set[LatentSymlink] = chain_media_symlinks()
-
-
-@beartype
-def chain_media_symlinks() -> Set[LatentSymlink]:
-    """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
     media_latent_links: Set[LatentSymlink] = set()
     media_dirs: Dict[str, ExtantDir] = {}
     parents: Dict[str, DeckTreeNode] = map_parents(root, col)
@@ -1280,7 +1296,7 @@ def chain_media_symlinks() -> Set[LatentSymlink]:
                 target: Path = up_path / relative
 
                 try:
-                    link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
+                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
                     if isinstance(link, LatentSymlink):
                         media_latent_links.add(link)
                 except OSError as _:
@@ -1851,13 +1867,22 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    write_repository(
-        col_file, targetdir, leaves, directories.dirs[MEDIA], silent, verbose
+    latent_links: Set[LatentSymlink] = write_repository(
+        col_file,
+        targetdir,
+        leaves,
+        directories.dirs[MEDIA],
+        silent,
+        verbose,
     )
 
     # Initialize the main repository.
     with F.halo("Initializing repository and committing contents..."):
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+
+        # TODO: Use `git update-index` to set 120000 file mode on each latent
+        # symlink in `latent_links`.
+
         repo.git.add(all=True)
         _ = repo.index.commit(msg)
 
