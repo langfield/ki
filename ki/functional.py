@@ -34,6 +34,7 @@ from ki.types import (
     NoPath,
     NoFile,
     Symlink,
+    LatentSymlink,
     Singleton,
     ExtantStrangePath,
     KiRepoRef,
@@ -138,14 +139,18 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
     return ExtantFile(path)
 
 
-# TODO: This should really take a `RelativeFile`, which would be a dataclass of
-# an `ExtantFile` and an `ExtantDir` with the constraint that the directory is
-# an ancestor of the file.
 @beartype
-def symlink(path: NoFile, target: Path) -> ExtantFile:
+def symlink(path: NoFile, target: Path) -> Union[Symlink, LatentSymlink]:
     """Symlink `path` to `target`."""
+    if sys.platform == "win32":
+        logger.warning("WINDOWS")
+        with open(path, "w", encoding="UTF-8") as f:
+            f.write(str(target))
+            return LatentSymlink(path)
+    
+    # Treat POSIX systems.
     os.symlink(target, path)
-    return ExtantFile(path)
+    return Symlink(path)
 
 
 @beartype

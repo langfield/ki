@@ -61,6 +61,10 @@ class Symlink(type(Path())):
     """UNSAFE: Indicates that this path was a symlink when tested."""
 
 
+class LatentSymlink(type(Path())):
+    """UNSAFE: A POSIX-style symlink created on Windows with mode 100644."""
+
+
 class NoFile(NoPath):
     """A nonexistent file in an extant directory."""
 
