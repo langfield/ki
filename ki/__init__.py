@@ -1211,6 +1211,8 @@ def write_decks(
             colnotes,
             tidy_field_files,
             models_map,
+            written_cids,
+            written_notes,
         )
         written_cids |= node_cids
         written_notes.update(node_notes)
@@ -1222,91 +1224,6 @@ def write_decks(
 
 
 @beartype
-def chain_media_symlinks(
-    root: DeckTreeNode,
-    col: Collection,
-    targetdir: ExtantDir,
-    media: Dict[int, Set[ExtantFile]],
-) -> Set[LatentSymlink]:
-    """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
-
-    @beartype
-    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
-        """
-        Pre-order traversal. Guarantees that we won't process a node until
-        we've processed all its ancestors.
-        """
-        traversal: List[DeckTreeNode] = [node]
-        for child in node.children:
-            traversal += preorder(child)
-        return traversal
-
-    @beartype
-    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
-        """Map deck names to parent `DeckTreeNode`s."""
-        parents: Dict[str, DeckTreeNode] = {}
-        for child in node.children:
-            did: int = child.deck_id
-            name: str = col.decks.name(did)
-            parents[name] = node
-            subparents = map_parents(child, col)
-            parents.update(subparents)
-        return parents
-
-    media_latent_links: Set[LatentSymlink] = set()
-    media_dirs: Dict[str, ExtantDir] = {}
-    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
-    for node in preorder(root):
-        if node.name == "":
-            continue
-        did: int = node.deck_id
-        fullname = col.decks.name(did)
-        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
-        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
-        media_dirs[fullname] = deck_media_dir
-        descendant_nids: Set[int] = {NOTETYPE_NID}
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-
-        for nid in descendant_nids:
-            if nid not in media:
-                continue
-
-            for media_file in media[nid]:
-                parent: DeckTreeNode = parents[fullname]
-                if parent.name != "":
-                    parent_did: int = parent.deck_id
-                    parent_fullname: str = col.decks.name(parent_did)
-                    parent_media_dir = media_dirs[parent_fullname]
-                    abs_target: Symlink = F.test(
-                        parent_media_dir / media_file.name, resolve=False
-                    )
-                else:
-                    abs_target: ExtantFile = media_file
-
-                path = F.test(deck_media_dir / media_file.name, resolve=False)
-                if not isinstance(path, NoFile):
-                    continue
-
-                distance = len(path.parent.relative_to(targetdir).parts)
-                up_path = Path("../" * distance)
-                relative: Path = abs_target.relative_to(targetdir)
-                target: Path = up_path / relative
-
-                try:
-                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
-                    if isinstance(link, LatentSymlink):
-                        media_latent_links.add(link)
-                except OSError as _:
-                    trace = traceback.format_exc(limit=3)
-                    logger.warning(f"Failed to create symlink to media\n{trace}")
-
-    return media_latent_links
-
-
-@beartype
 def write_deck_node_cards(
     node: DeckTreeNode,
     col: Collection,
@@ -1314,10 +1231,12 @@ def write_deck_node_cards(
     colnotes: Dict[int, ColNote],
     tidy_field_files: Dict[str, ExtantFile],
     models_map: Dict[int, NotetypeDict],
+    written_cids: Set[int],
+    written_notes: Dict[int, WrittenNoteFile],
 ) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
     """Write all the cards to disk for a single `DeckTreeNode`."""
-    written_cids: Set[int] = set()
-    written_notes: Dict[int, WrittenNoteFile] = {}
+    written_cids = copy.deepcopy(written_cids)
+    written_notes = copy.deepcopy(written_notes)
     latent_links: Set[LatentSymlink] = set()
 
     # The name stored in a `DeckTreeNode` object is not the full name of
@@ -1414,6 +1333,91 @@ def write_deck_node_cards(
         json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
     return written_cids, written_notes, latent_links
+
+
+@beartype
+def chain_media_symlinks(
+    root: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    media: Dict[int, Set[ExtantFile]],
+) -> Set[LatentSymlink]:
+    """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
+
+    @beartype
+    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+        """
+        Pre-order traversal. Guarantees that we won't process a node until
+        we've processed all its ancestors.
+        """
+        traversal: List[DeckTreeNode] = [node]
+        for child in node.children:
+            traversal += preorder(child)
+        return traversal
+
+    @beartype
+    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
+        """Map deck names to parent `DeckTreeNode`s."""
+        parents: Dict[str, DeckTreeNode] = {}
+        for child in node.children:
+            did: int = child.deck_id
+            name: str = col.decks.name(did)
+            parents[name] = node
+            subparents = map_parents(child, col)
+            parents.update(subparents)
+        return parents
+
+    media_latent_links: Set[LatentSymlink] = set()
+    media_dirs: Dict[str, ExtantDir] = {}
+    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
+    for node in preorder(root):
+        if node.name == "":
+            continue
+        did: int = node.deck_id
+        fullname = col.decks.name(did)
+        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
+        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        media_dirs[fullname] = deck_media_dir
+        descendant_nids: Set[int] = {NOTETYPE_NID}
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
+
+        for nid in descendant_nids:
+            if nid not in media:
+                continue
+
+            for media_file in media[nid]:
+                parent: DeckTreeNode = parents[fullname]
+                if parent.name != "":
+                    parent_did: int = parent.deck_id
+                    parent_fullname: str = col.decks.name(parent_did)
+                    parent_media_dir = media_dirs[parent_fullname]
+                    abs_target: Symlink = F.test(
+                        parent_media_dir / media_file.name, resolve=False
+                    )
+                else:
+                    abs_target: ExtantFile = media_file
+
+                path = F.test(deck_media_dir / media_file.name, resolve=False)
+                if not isinstance(path, NoFile):
+                    continue
+
+                distance = len(path.parent.relative_to(targetdir).parts)
+                up_path = Path("../" * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
+
+                try:
+                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
+                    if isinstance(link, LatentSymlink):
+                        media_latent_links.add(link)
+                except OSError as _:
+                    trace = traceback.format_exc(limit=3)
+                    logger.warning(f"Failed to create symlink to media\n{trace}")
+
+    return media_latent_links
 
 
 @beartype
