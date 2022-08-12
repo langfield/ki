@@ -110,7 +110,7 @@ from ki.transformer import NoteTransformer
 
 @beartype
 @dataclass(frozen=True)
-class TestCollection:
+class SampleCollection:
     """A test collection with all names and paths constructed."""
 
     col_file: ExtantFile
@@ -136,7 +136,7 @@ class DiffReposArgs:
 
 
 @beartype
-def get_test_collection(stem: str) -> TestCollection:
+def get_test_collection(stem: str) -> SampleCollection:
     collections_path = Path(__file__).parent / "data" / "collections"
 
     # Handle restricted valid path character set on Win32.
@@ -162,7 +162,7 @@ def get_test_collection(stem: str) -> TestCollection:
     if media_directory_path.exists():
         shutil.copytree(media_directory_path, tempdir / media_directory_name)
 
-    return TestCollection(
+    return SampleCollection(
         F.test(Path(col_file)),
         path,
         stem,
@@ -499,7 +499,7 @@ def open_collection(col_file: ExtantFile) -> Collection:
 
 def test_update_note_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
@@ -516,7 +516,7 @@ def test_update_note_raises_error_on_too_few_fields():
 
 def test_update_note_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
@@ -535,7 +535,7 @@ def test_update_note_raises_error_on_too_many_fields():
 
 def test_update_note_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
@@ -556,7 +556,7 @@ def test_update_note_raises_error_wrong_field_name():
 
 def test_update_note_sets_tags():
     """Do we update tags of anki note?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
@@ -571,7 +571,7 @@ def test_update_note_sets_tags():
 
 
 def test_update_note_sets_deck():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
@@ -590,7 +590,7 @@ def test_update_note_sets_deck():
 
 
 def test_update_note_sets_field_contents():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -607,7 +607,7 @@ def test_update_note_sets_field_contents():
 
 
 def test_update_note_removes_field_contents():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -622,7 +622,7 @@ def test_update_note_removes_field_contents():
 
 
 def test_update_note_raises_error_on_nonexistent_notetype_name():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -637,7 +637,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
 
 
 def test_display_fields_health_warning_catches_missing_clozes():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -658,7 +658,7 @@ def test_display_fields_health_warning_catches_missing_clozes():
 
 
 def test_update_note_changes_notetype():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -675,7 +675,7 @@ def test_update_note_changes_notetype():
 
 
 def test_display_fields_health_warning_catches_empty_notes():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -706,7 +706,7 @@ def test_slugify_handles_html_tags():
 
 @beartype
 def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -990,7 +990,7 @@ def test_create_deck_dir_strips_leading_periods():
 
 
 def test_get_note_payload():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     colnote: ColNote = get_colnote(col, note.id)
@@ -1020,7 +1020,7 @@ def test_get_note_payload():
 
 def test_write_repository_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
-    MULTIDECK: TestCollection = get_test_collection("multideck")
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
@@ -1059,8 +1059,8 @@ def test_write_repository_generates_deck_tree_correctly():
 
 def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
-    MULTIDECK: TestCollection = get_test_collection("multideck")
-    HTML: TestCollection = get_test_collection("html")
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1086,8 +1086,8 @@ def test_write_repository_handles_html():
 @beartype
 def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixture):
     """Do errors get forwarded nicdely?"""
-    MULTIDECK: TestCollection = get_test_collection("multideck")
-    HTML: TestCollection = get_test_collection("html")
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1275,7 +1275,7 @@ def test_maybe_xfile(tmp_path):
 
 def test_push_decknote_to_anki():
     """Do we print a nice error when a notetype is missing?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
@@ -1297,7 +1297,7 @@ def test_maybe_head_repo_ref():
 
 
 def test_maybe_head_kirepo_ref():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1332,7 +1332,7 @@ def test_maybe_head_kirepo_ref():
 @beartype
 def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     """Do we print a nice error when a KeyError is raised on note[]?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
@@ -1356,7 +1356,7 @@ def test_parse_notetype_dict():
 
 
 def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     nid = 44444444444444444
     with pytest.raises(MissingNoteIdError) as error:
@@ -1366,7 +1366,7 @@ def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
 
 @beartype
 def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
@@ -1381,7 +1381,7 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(
     mocker: MockerFixture,
 ):
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     with pytest.raises(NoteFieldKeyError) as error:
@@ -1550,7 +1550,7 @@ def test_fmkleaves_handles_collisions(tmp_path):
 
 def test_copy_media_files_returns_nice_errors():
     """Does `copy_media_files()` handle case where media directory doesn't exist?"""
-    MEDIACOL: TestCollection = get_test_collection("media")
+    MEDIACOL: SampleCollection = get_test_collection("media")
     col: Collection = open_collection(MEDIACOL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1566,7 +1566,7 @@ def test_copy_media_files_returns_nice_errors():
 
 
 def test_write_repository_displays_missing_media_warnings(capfd):
-    MEDIACOL: TestCollection = get_test_collection("media")
+    MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1597,7 +1597,7 @@ def test_write_repository_displays_missing_media_warnings(capfd):
 
 def test_copy_media_files_finds_notetype_media():
     """Does `copy_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
-    MEDIACOL: TestCollection = get_test_collection("media")
+    MEDIACOL: SampleCollection = get_test_collection("media")
     col: Collection = open_collection(MEDIACOL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():

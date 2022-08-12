@@ -75,7 +75,7 @@ from tests.test_ki import (
     JAPANESE_GITREPO_PATH,
     BRANCH_NAME,
     get_test_collection,
-    TestCollection,
+    SampleCollection,
 )
 
 
@@ -85,7 +85,7 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint: disable=missing-function-docstring, too-many-locals
 
 
-EDITED: TestCollection = get_test_collection("edited")
+EDITED: SampleCollection = get_test_collection("edited")
 
 
 # CLI
@@ -157,7 +157,7 @@ def test_fails_without_ki_subdirectory(tmp_path: Path):
 @beartype
 def test_computes_and_stores_md5sum(tmp_path: Path):
     """Does ki add new hash to `.ki/hashes`?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         # Clone collection in cwd.
@@ -194,7 +194,7 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
 
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -219,7 +219,7 @@ def test_no_op_pull_push_cycle_is_idempotent():
 
 def test_output():
     """Does it print nice things?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
         out = clone(runner, ORIGINAL.col_file)
@@ -258,7 +258,7 @@ def test_output():
 
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     os.remove(ORIGINAL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -271,7 +271,7 @@ def test_clone_fails_if_collection_doesnt_exist():
 
 def test_clone_fails_if_collection_is_already_open():
     """Does ki print a nice error message when Anki is accidentally left open?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     os.remove(ORIGINAL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -282,7 +282,7 @@ def test_clone_fails_if_collection_is_already_open():
 
 def test_clone_creates_directory():
     """Does it create the directory?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -295,7 +295,7 @@ def test_clone_creates_directory():
 @beartype
 def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
     """Do errors get displayed nicely?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -310,7 +310,7 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
 @beartype
 def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
     """Do errors get propagated in the places we expect?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -357,7 +357,7 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
 
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
-    HTML: TestCollection = get_test_collection("html")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -376,7 +376,7 @@ def test_clone_handles_html():
 
 def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
     """Does it tidy html and stuff?"""
-    HTML: TestCollection = get_test_collection("html")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -396,7 +396,7 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
 
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -414,7 +414,7 @@ def test_clone_errors_when_directory_is_populated():
 
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
-    HTML: TestCollection = get_test_collection("html")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -434,7 +434,7 @@ def test_clone_cleans_up_on_error():
 
 def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
     """Does clone not delete targetdirs that already existed?"""
-    HTML: TestCollection = get_test_collection("html")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -454,7 +454,7 @@ def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
 
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
-    HTML: TestCollection = get_test_collection("html")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -489,7 +489,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -500,7 +500,7 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
     cloned_note_path = os.path.join(ORIGINAL.repodir, NOTE_0)
     runner = CliRunner()
@@ -521,7 +521,7 @@ def test_clone_generates_expected_notes():
 
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
-    MULTIDECK: TestCollection = get_test_collection("multideck")
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
@@ -545,7 +545,7 @@ def test_clone_generates_deck_tree_correctly():
 
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -559,7 +559,7 @@ def test_clone_generates_ki_subdirectory():
 
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -571,7 +571,7 @@ def test_cloned_collection_is_git_repository():
 
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -592,7 +592,7 @@ def test_clone_commits_directory_contents():
 
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     original_md5 = F.md5(ORIGINAL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -606,7 +606,7 @@ def test_clone_leaves_collection_file_unchanged():
 
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -622,7 +622,7 @@ def test_clone_directory_argument_works():
 
 def test_clone_writes_media_files():
     """Does clone copy media files from the media directory into 'MEDIA'?"""
-    MEDIACOL: TestCollection = get_test_collection("media")
+    MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, MEDIACOL.col_file)
@@ -633,7 +633,7 @@ def test_clone_writes_media_files():
 
 
 def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path):
-    SPLIT: TestCollection = get_test_collection("split")
+    SPLIT: SampleCollection = get_test_collection("split")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, SPLIT.col_file)
@@ -647,7 +647,7 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path):
 
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -663,7 +663,7 @@ def test_pull_fails_if_collection_no_longer_exists():
 
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -680,7 +680,7 @@ def test_pull_fails_if_collection_file_is_corrupted():
 
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -699,7 +699,7 @@ def test_pull_writes_changes_correctly():
 
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -718,7 +718,7 @@ def test_pull_unchanged_collection_is_no_op():
 
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -737,7 +737,7 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -755,7 +755,7 @@ def test_pull_still_works_from_subdirectories():
 
 def test_pull_displays_errors_from_repo_ref():
     """Does 'pull()' return early when the last push commit ref is bad?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -774,7 +774,7 @@ def test_pull_displays_errors_from_repo_ref():
 
 
 def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -794,7 +794,7 @@ def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
 
 
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -812,7 +812,7 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
 
 
 def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -833,7 +833,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
 
 def test_pull_preserves_reassigned_note_ids(tmp_path):
     """UNFINISHED!"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
@@ -863,10 +863,10 @@ def test_pull_preserves_reassigned_note_ids(tmp_path):
 
 
 def test_pull_handles_uncommitted_submodule_commits(tmp_path):
-    UNCOMMITTED_SM: TestCollection = get_test_collection(
+    UNCOMMITTED_SM: SampleCollection = get_test_collection(
         "uncommitted_submodule_commits"
     )
-    UNCOMMITTED_SM_EDITED: TestCollection = get_test_collection(
+    UNCOMMITTED_SM_EDITED: SampleCollection = get_test_collection(
         "uncommitted_submodule_commits_edited"
     )
     runner = CliRunner()
@@ -948,8 +948,8 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path):
 
 
 def test_pull_removes_files_deleted_in_remote(tmp_path):
-    ORIGINAL: TestCollection = get_test_collection("original")
-    DELETED: TestCollection = get_test_collection("deleted")
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    DELETED: SampleCollection = get_test_collection("deleted")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
@@ -969,7 +969,7 @@ def test_pull_removes_files_deleted_in_remote(tmp_path):
 
 def test_push_writes_changes_correctly(tmp_path: Path):
     """If there are committed changes, does push change the collection file?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     old_notes = get_notes(ORIGINAL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1027,7 +1027,7 @@ def test_push_writes_changes_correctly(tmp_path: Path):
 
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1045,7 +1045,7 @@ def test_push_verifies_md5sum():
 
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     old_hash = F.md5(ORIGINAL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1080,7 +1080,7 @@ def test_push_generates_correct_backup():
 
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1101,7 +1101,7 @@ def test_push_doesnt_write_uncommitted_changes():
 
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1140,7 +1140,7 @@ def test_push_doesnt_fail_after_pull():
 
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1159,7 +1159,7 @@ def test_no_op_push_is_idempotent():
 
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1190,7 +1190,7 @@ def test_push_deletes_notes():
 
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1215,7 +1215,7 @@ def test_push_still_works_from_subdirectories():
 
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1275,7 +1275,7 @@ def test_push_deletes_added_notes():
 
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1304,7 +1304,7 @@ def test_push_generates_correct_title_for_notes():
 
 
 def test_push_displays_informative_error_when_last_push_file_is_missing():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1322,7 +1322,7 @@ def test_push_displays_informative_error_when_last_push_file_is_missing():
 
 
 def test_push_honors_ignore_patterns():
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1361,7 +1361,7 @@ def test_push_honors_ignore_patterns():
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1382,7 +1382,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
 
 
 def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1407,7 +1407,7 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
 def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
     mocker: MockerFixture,
 ):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1438,7 +1438,7 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
 def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1469,7 +1469,7 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
 
 
 def test_push_handles_submodules(tmp_path):
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
@@ -1502,7 +1502,7 @@ def test_push_handles_submodules(tmp_path):
 
 
 def test_push_writes_media(tmp_path):
-    MEDIACOL: TestCollection = get_test_collection("media")
+    MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, MEDIACOL.col_file)
@@ -1533,7 +1533,7 @@ def test_push_writes_media(tmp_path):
 
 def test_push_handles_foreign_models(tmp_path):
     """Just check that we don't return an exception from `push()`."""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1550,7 +1550,7 @@ def test_push_handles_foreign_models(tmp_path):
 
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     with runner.isolated_filesystem():
@@ -1573,8 +1573,8 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path):
     within the ki repo, then push again, the push should *not* be a no-op. The
     changes are currently applied in Anki, and the push should undo them.
     """
-    ORIGINAL: TestCollection = get_test_collection("original")
-    COPY: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    COPY: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
@@ -1631,8 +1631,8 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     Does push refrain from adding a new notetype if the requested notetype
     already exists in the collection?
     """
-    ORIGINAL: TestCollection = get_test_collection("original")
-    COPY: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    COPY: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1701,7 +1701,7 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
 
     The last push, in particular, should add the note back in.
     """
-    ORIGINAL: TestCollection = get_test_collection("original")
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1742,7 +1742,7 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
 
 
 def test_push_changes_deck_for_moved_notes():
-    MULTIDECK: TestCollection = get_test_collection("multideck")
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1777,7 +1777,7 @@ def test_push_changes_deck_for_moved_notes():
 
 
 def test_push_is_trivial_for_committed_submodule_contents(tmp_path):
-    UNCOMMITTED_SM: TestCollection = get_test_collection(
+    UNCOMMITTED_SM: SampleCollection = get_test_collection(
         "uncommitted_submodule_commits"
     )
     runner = CliRunner()
