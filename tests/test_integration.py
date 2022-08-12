@@ -1014,9 +1014,22 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
     runner = CliRunner()
     logger.debug(f"tmp_path : {type(tmp_path)} = {tmp_path}")
     with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone.
         clone(runner, BEFORE.col_file)
+        logger.debug(os.listdir(BEFORE.repodir))
+
+        # Edit collection.
         shutil.copyfile(AFTER.path, BEFORE.col_file)
-        assert not (Path(BEFORE.repodir) / "onlydeck").exists()
+
+        # Pull.
+        os.chdir(BEFORE.repodir)
+        out = pull(runner)
+        logger.debug(out)
+        logger.debug(os.listdir())
+
+        # Check.
+        assert not Path("onlydeck").exists()
 
 
 
