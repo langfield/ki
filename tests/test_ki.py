@@ -1204,7 +1204,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         assert "File not found" in str(error.exconly())
         assert "'.anki2'" in str(error.exconly())
         assert "database" in str(error.exconly())
-        assert "collection.anki2" in str(error.exconly())
+        assert ORIGINAL.filename in str(error.exconly())
         git.rmtree(targetdir)
 
 
