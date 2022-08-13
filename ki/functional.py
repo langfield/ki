@@ -63,11 +63,9 @@ FLAGS = "\U0001F1E0-\U0001F1FF"
 SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
 
 
-@beartype
 def rmtree2(path: str) -> None:
     """On windows, rmtree fails for readonly dirs."""
 
-    @beartype
     def handle_remove_readonly(
         func: Callable[..., Any],
         path: str,
