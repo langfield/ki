@@ -1146,8 +1146,8 @@ def test_push_doesnt_fail_after_pull():
         assert os.path.isfile(NOTE_1)
 
         # Modify local file.
-        assert os.path.isfile(NOTE_0)
-        with open(NOTE_0, "a", encoding="UTF-8") as note_file:
+        assert os.path.isfile(NOTE_7)
+        with open(NOTE_7, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
 
         # Add new file.
