@@ -1454,6 +1454,7 @@ def git_pull(
             args += ["--allow-unrelated-histories"]
         if theirs:
             args += ["--strategy-option=theirs"]
+        args += ["--verbose"]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
@@ -2124,17 +2125,49 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    old_cwd: ExtantDir = F.chdir(last_push_root)
-    last_push_repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
-    last_push_repo.delete_remote(anki_remote)
-    F.chdir(old_cwd)
+    echo(f"Copying blobs at HEAD='{sha}' to stage in '{last_push_root}'...")
+    git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
+    last_push_repo.close()
+    last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
+    del last_push_repo
+    remote_root: ExtantDir = F.working_dir(remote_repo)
+    last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
+
+    echo(f"Copying git history from '{sha}' to stage...")
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
+    del last_push_repo
+    F.copytree(git_copy, F.test(git_dir))
+
+    echo(f"Committing stage repository contents in '{last_push_root}'...")
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    last_push_repo.git.add(all=True)
+    last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
 
     # Create remote pointing to `last_push_repo` and pull into `repo`.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
+
+    # TODO: Move these functions into `ki/functional.py`.
+    @beartype
+    def rmdir(path: str) -> None:
+        """Remove `path` only if it is an empty directory."""
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass
+
+    @beartype
+    def prune(path: ExtantDir) -> None:
+        """Prune empty directories from `path`."""
+        for root, dirnames, filenames in os.walk(path, topdown=False):
+            for dirname in dirnames:
+                rmdir(os.path.realpath(os.path.join(root, dirname)))
+
+    # Prune empty directories.
+    # prune(F.working_dir(kirepo.repo))
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
