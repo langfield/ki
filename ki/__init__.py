@@ -18,6 +18,7 @@ import io
 import gc
 import sys
 import json
+import time
 import copy
 import shutil
 import random
@@ -2324,11 +2325,12 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
+    time.sleep(2)
+
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
 
-    # sha = kirepo.repo.head.commit.hexsha
-    sha = "DEBUG"
+    sha = kirepo.repo.head.commit.hexsha
 
     echo(f"Generating local .anki2 file from latest commit: {sha}")
     echo(f"Writing changes to '{new_col_file}'...")
