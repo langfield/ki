@@ -908,7 +908,7 @@ def test_diff2_handles_submodules():
         assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
         # Push changes.
-        # push(runner)
+        push(runner)
 
         # Remove submodule.
 
