@@ -900,7 +900,7 @@ def test_diff2_handles_submodules():
         assert len(deltas) == 1
         delta = deltas[0]
         assert delta.status == GitChangeType.ADDED
-        assert "submodule/Default/a.md" in str(delta.path)
+        assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
         # Push changes.
         push(runner)
