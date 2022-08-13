@@ -15,6 +15,7 @@ decks in exactly the same way they work on large, complex software projects.
 import os
 import re
 import io
+import gc
 import sys
 import json
 import copy
@@ -2323,12 +2324,17 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    head: RepoRef = M.head_repo_ref(kirepo.repo)
-
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
 
-    echo(f"Generating local .anki2 file from latest commit: {head.sha}")
+    head: RepoRef = M.head_repo_ref(kirepo.repo)
+    sha = head.sha
+    head.repo.close()
+    del head
+    gc.collect()
+
+
+    echo(f"Generating local .anki2 file from latest commit: {sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
@@ -2427,7 +2433,7 @@ def push_deltas(
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
-    kirepo.last_push_file.write_text(head.sha)
+    kirepo.last_push_file.write_text(sha)
 
     # Close `git.Repo` object to avoid `PermissionError` on Windows.
     kirepo.repo.close()
@@ -2436,7 +2442,6 @@ def push_deltas(
     del head.repo
     del kirepo
     del head
-    import gc
     gc.collect()
 
     # Unlock Anki SQLite DB.
