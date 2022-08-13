@@ -2325,7 +2325,11 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
-    sha = kirepo.repo.head.commit.hexsha
+    head = kirepo.repo.head
+    commit = head.commit
+    sha = commit.hexsha
+    del head
+    del commit
 
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
