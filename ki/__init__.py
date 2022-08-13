@@ -2424,6 +2424,9 @@ def push_deltas(
     # Update the commit SHA of most recent successful PUSH.
     kirepo.last_push_file.write_text(head.sha)
 
+    # Close `git.Repo` object to avoid `PermissionError` on Windows.
+    kirepo.repo.close()
+
     # Unlock Anki SQLite DB.
     unlock(con)
     return PushResult.NONTRIVIAL
