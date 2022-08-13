@@ -916,11 +916,11 @@ def test_diff2_handles_submodules():
 
         F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
 
-        """
         repo = git.Repo(repo_root)
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
+        """
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
             args.repo,
