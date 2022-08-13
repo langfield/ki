@@ -918,6 +918,8 @@ def test_diff2_handles_submodules():
                 os.chmod(os.path.join(root, dir), stat.S_IRWXU)
             for file in files:
                 os.chmod(os.path.join(root, file), stat.S_IRWXU)
+        sm = git.Repo(sm_path)
+        sm.close()
 
         F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
 
