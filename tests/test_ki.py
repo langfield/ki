@@ -370,9 +370,9 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    F.rmtree(os.path.join(repodir, ".git/"))
+    F.rmtree(F.test(Path(os.path.join(repodir, ".git/"))))
     checksum = checksumdir.dirhash(repodir)
-    F.rmtree(tempdir)
+    F.rmtree(F.test(Path(tempdir)))
     return checksum
 
 
