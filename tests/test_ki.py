@@ -920,7 +920,6 @@ def test_diff2_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        """
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
             args.repo,
@@ -932,7 +931,6 @@ def test_diff2_handles_submodules():
         assert len(deltas) > 0
         for delta in deltas:
             assert delta.path.is_file()
-        """
 
 
 @pytest.mark.skip
