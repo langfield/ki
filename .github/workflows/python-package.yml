@@ -37,4 +37,5 @@ jobs:
           pip install .
       - name: Test with pytest
         run: |
+          echo $PYTEST_ADDOPTS
           pytest -vv --timeout=120 tests/test_integration.py
