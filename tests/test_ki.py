@@ -921,10 +921,6 @@ def test_diff2_handles_submodules():
         sm = git.Repo(sm_path)
         sm.close()
 
-        import psutil
-        for proc in psutil.process_iter():
-            logger.debug(proc.open_files())
-
         if sys.platform == "win32":
             os.system(f'taskkill /IM "git.exe" /F')
 
