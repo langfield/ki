@@ -2428,6 +2428,9 @@ def push_deltas(
     # Close `git.Repo` object to avoid `PermissionError` on Windows.
     kirepo.repo.close()
 
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
+
     # Unlock Anki SQLite DB.
     unlock(con)
     return PushResult.NONTRIVIAL

@@ -921,9 +921,6 @@ def test_diff2_handles_submodules():
         sm = git.Repo(sm_path)
         sm.close()
 
-        if sys.platform == "win32":
-            os.system(f'taskkill /IM "git.exe" /F')
-
         F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
 
         repo = git.Repo(repo_root)
