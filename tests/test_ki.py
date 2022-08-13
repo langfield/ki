@@ -847,10 +847,10 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
         repo.close()
-        """
 
         args: DiffReposArgs = get_diff2_args()
 
+        """
         os.remove(Path(args.repo.working_dir) / NOTE_2)
 
         deltas: List[Union[Delta, Warning]] = diff2(
