@@ -833,7 +833,6 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
         assert "last_push" not in captured.err
 
 
-@pytest.mark.skip
 def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
