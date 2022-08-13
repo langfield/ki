@@ -1738,6 +1738,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         )
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        kirepo.repo.close()
         echo("Done.")
     except Exception as err:
         cleanup(targetdir, new)
