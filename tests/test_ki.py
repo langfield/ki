@@ -810,6 +810,7 @@ def get_diff2_args() -> DiffReposArgs:
     return DiffReposArgs(remote_repo, parser, transformer)
 
 
+@pytest.mark.skip
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
