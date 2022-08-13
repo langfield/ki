@@ -2041,7 +2041,12 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # Then -p<n> flag tells `git apply` to drop the first n leading
                 # path components from both diff paths. So if n is 2, we map
                 # `a/dog/cat` -> `cat`.
-                sm_repo.git.apply(patch_path, p=str(num_parts), verbose=True)
+                sm_repo.git.apply(
+                    patch_path,
+                    p=str(num_parts),
+                    allow_empty=True,
+                    verbose=True,
+                )
                 patched_submodules.add(sm_rel_root)
                 msg += f"  `{patch.a}`\n"
 
