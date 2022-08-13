@@ -54,6 +54,7 @@ from tests.test_ki import (
     NOTE_2,
     NOTE_3,
     NOTE_4,
+    NOTE_7,
     NOTE_2_PATH,
     NOTE_3_PATH,
     NOTE_0_ID,
@@ -217,11 +218,11 @@ def test_no_op_pull_push_cycle_is_idempotent():
         push(runner)
 
 
-def test_output():
+def test_output(tmp_path: Path):
     """Does it print nice things?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         out = clone(runner, ORIGINAL.col_file)
         logger.debug(f"\nCLONE:\n{out}")
 
@@ -234,8 +235,8 @@ def test_output():
         logger.debug(f"\nPULL:\n{out}")
 
         # Modify local repository.
-        assert os.path.isfile(NOTE_0)
-        with open(NOTE_0, "a", encoding="UTF-8") as note_file:
+        assert os.path.isfile(NOTE_7)
+        with open(NOTE_7, "a", encoding="UTF-8") as note_file:
             note_file.write("e\n")
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         shutil.copyfile(NOTE_3_PATH, NOTE_3)

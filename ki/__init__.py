@@ -2144,7 +2144,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     last_push_repo.git.add(all=True)
     last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
 
-    # Create remote pointing to `last_push_repo` and pull into `repo`.
+    # Create remote pointing to `last_push_repo` and pull into `repo`. Note
+    # that this `git pull` may not always create a merge commit, because a
+    # fast-forward only updates the branch pointer.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)

@@ -200,6 +200,7 @@ NOTE_3 = "note 3.md"
 NOTE_4 = "Default/c.md"
 NOTE_5 = "alpha_nid.md"
 NOTE_6 = "no_nid.md"
+NOTE_7 = "Default/aa.md"
 MEDIA_NOTE = "air.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
