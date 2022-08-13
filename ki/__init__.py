@@ -2266,6 +2266,9 @@ def push(verbose: bool = False) -> PushResult:
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
 
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
+
     result: PushResult = push_deltas(
         deltas,
         models,
@@ -2326,11 +2329,6 @@ def push_deltas(
     head: RepoRef = M.head_repo_ref(kirepo.repo)
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
-
-    """
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
-    """
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
