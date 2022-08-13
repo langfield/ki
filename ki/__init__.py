@@ -2266,6 +2266,9 @@ def push(verbose: bool = False) -> PushResult:
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
 
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
+
     result: PushResult = push_deltas(
         deltas,
         models,
@@ -2378,9 +2381,6 @@ def push_deltas(
             num_displayed += 1
     num_suppressed: int = len(warnings) - num_displayed
     echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
-
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
 
     # Commit nid reassignments.
     echo(f"Reassigned {len(log)} nids.")
