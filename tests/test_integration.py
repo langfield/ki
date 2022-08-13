@@ -1029,7 +1029,9 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
         logger.debug(os.listdir())
 
         # Check.
-        assert not Path("onlydeck").exists()
+        # assert not Path("onlydeck").exists()
+        for root, dirnames, filenames in os.walk("onlydeck"):
+            assert len(filenames) == 0
 
 
 
