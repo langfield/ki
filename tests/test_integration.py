@@ -1012,7 +1012,9 @@ def test_pull_removes_files_deleted_in_remote(tmp_path: Path):
 
 
 @pytest.mark.skip
-def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks(tmp_path: Path):
+def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks(
+    tmp_path: Path,
+):
     BEFORE: SampleCollection = get_test_collection("duplicated_subdeck_before")
     AFTER: SampleCollection = get_test_collection("duplicated_subdeck_after")
     runner = CliRunner()
@@ -1036,7 +1038,6 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
         if os.path.isdir("onlydeck"):
             for root, dirnames, filenames in os.walk("onlydeck"):
                 assert len(filenames) == 0
-
 
 
 # PUSH

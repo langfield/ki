@@ -906,10 +906,22 @@ def test_diff2_handles_submodules():
         push(runner)
 
         # Remove submodule.
-        root = F.working_dir(repo)
+        repo_root = F.working_dir(repo)
         repo.close()
+
+        import subprocess
+        import stat
+
+        sm_path = Path(SUBMODULE_DIRNAME)
+        for root, dirs, files in os.walk(sm_path):
+            for dir in dirs:
+                os.chmod(os.path.join(root, dir), stat.S_IRWXU)
+            for file in files:
+                os.chmod(os.path.join(root, file), stat.S_IRWXU)
+
         F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
-        repo = git.Repo(root)
+
+        repo = git.Repo(repo_root)
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
