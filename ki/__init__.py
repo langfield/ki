@@ -2317,14 +2317,14 @@ def push_deltas(
     echo(f"Computed md5sum: {md5sum}")
     echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
 
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
-
     # Copy collection to a temp directory.
     temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
+
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
 
     head: RepoRef = M.head_repo_ref(kirepo.repo)
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
