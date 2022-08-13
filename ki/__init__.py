@@ -2266,9 +2266,6 @@ def push(verbose: bool = False) -> PushResult:
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
 
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
-
     result: PushResult = push_deltas(
         deltas,
         models,
@@ -2304,6 +2301,9 @@ def push_deltas(
     """Push a list of `Delta`s to an Anki collection."""
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
 
     # Display warnings from diff procedure.
     for warning in warnings:
