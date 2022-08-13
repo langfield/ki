@@ -5,6 +5,7 @@
 
 import os
 import re
+import stat
 import shutil
 import hashlib
 import tempfile
@@ -57,10 +58,34 @@ FLAGS = "\U0001F1E0-\U0001F1FF"
 SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
 
 
+def rmtree2(path: str) -> None:
+    """On windows, rmtree fails for readonly dirs."""
+    def handle_remove_readonly(
+            func: Callable[..., Any],
+            path: str,
+            exc: Tuple[Type[OSError], OSError, TracebackType],
+    ) -> None:
+        excvalue = exc[1]
+        if (
+                func in (os.rmdir, os.remove, os.unlink) and
+                excvalue.errno == errno.EACCES
+        ):
+            for p in (path, os.path.dirname(path)):
+                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
+            func(path)
+        else:
+            raise
+    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
+
+
 @beartype
 def rmtree(target: ExtantDir) -> NoFile:
     """Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows."""
-    git.rmtree(target)
+    try:
+        shutil.rmtree(target)
+    except PermissionError:
+        os.chmod(target, stat.S_IWUSR)
+        shutil.rmtree(target)
     return NoFile(target)
 
 

@@ -424,7 +424,7 @@ def test_clone_cleans_up_on_error():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        git.rmtree(HTML.repodir)
+        F.rmtree(HTML.repodir)
         old_path = os.environ["PATH"]
         try:
             with pytest.raises(FileNotFoundError) as err:
@@ -464,7 +464,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        git.rmtree(HTML.repodir)
+        F.rmtree(HTML.repodir)
         old_path = os.environ["PATH"]
 
         # In case where nothing is installed, we expect to fail on `tidy`
@@ -896,7 +896,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
 
         # Delete `japanese-core-2000/` subdirectory, and commit.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        git.rmtree(sm_dir)
+        F.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -1549,7 +1549,7 @@ def test_push_writes_media(tmp_path: Path):
         out = push(runner)
         logger.debug(out)
         os.chdir("../")
-        git.rmtree(MEDIACOL.repodir)
+        F.rmtree(MEDIACOL.repodir)
         out = clone(runner, MEDIACOL.col_file)
         logger.debug(out)
 
@@ -1823,7 +1823,7 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
 
         # Delete a directory.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        git.rmtree(sm_dir)
+        F.rmtree(sm_dir)
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")

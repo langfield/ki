@@ -370,9 +370,9 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    git.rmtree(os.path.join(repodir, ".git/"))
+    F.rmtree(os.path.join(repodir, ".git/"))
     checksum = checksumdir.dirhash(repodir)
-    git.rmtree(tempdir)
+    F.rmtree(tempdir)
     return checksum
 
 
@@ -884,7 +884,7 @@ def test_diff2_handles_submodules():
         push(runner)
 
         # Remove submodule.
-        git.rmtree(SUBMODULE_DIRNAME)
+        F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
@@ -1120,42 +1120,42 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         # Case where `.ki/` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI)
+        F.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI)
+        F.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "Directory not found" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1165,7 +1165,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` is a directory instead of a file.
         clone(runner, ORIGINAL.col_file)
@@ -1176,7 +1176,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A file was expected" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/hashes` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1186,7 +1186,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/hashes'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/models` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1196,7 +1196,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert f"'{MODELS_FILE}'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1208,7 +1208,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         assert "'.anki2'" in str(error.exconly())
         assert "database" in str(error.exconly())
         assert ORIGINAL.filename in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
 
 def test_get_target(tmp_path):
@@ -1557,8 +1557,8 @@ def test_copy_media_files_returns_nice_errors():
     with runner.isolated_filesystem():
 
         # Remove the media directory.
-        media_dir = MEDIACOL.col_file.parent / MEDIACOL.media_directory_name
-        git.rmtree(media_dir)
+        media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
+        F.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
             copy_media_files(col, F.mkdtemp(), silent=True)
