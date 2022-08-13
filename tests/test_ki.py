@@ -921,7 +921,10 @@ def test_diff2_handles_submodules():
         sm = git.Repo(sm_path)
         sm.close()
 
-        F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
+        rmtree = lambda path: subprocess.check_call(['cmd', '/c', 'rd', '/s', '/q', path])
+        rmtree(SUBMODULE_DIRNAME)
+
+        # F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
 
         repo = git.Repo(repo_root)
         repo.git.add(all=True)

@@ -2326,10 +2326,11 @@ def push_deltas(
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
 
     sha = kirepo.repo.head.commit.hexsha
-    kirepo.repo.close()
 
+    """
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
+    """
 
     echo(f"Generating local .anki2 file from latest commit: {sha}")
     echo(f"Writing changes to '{new_col_file}'...")
