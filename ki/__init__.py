@@ -2317,6 +2317,9 @@ def push_deltas(
     echo(f"Computed md5sum: {md5sum}")
     echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
 
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
+
     # Copy collection to a temp directory.
     temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
@@ -2326,9 +2329,6 @@ def push_deltas(
     head: RepoRef = M.head_repo_ref(kirepo.repo)
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
-
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
