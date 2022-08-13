@@ -77,7 +77,7 @@ def rmtree2(path: str) -> None:
                 os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
             func(path)
         else:
-            raise
+            raise excvalue
 
     shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
 
