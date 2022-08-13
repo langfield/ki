@@ -2302,9 +2302,6 @@ def push_deltas(
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
 
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
-
     # Display warnings from diff procedure.
     for warning in warnings:
         if verbose or type(warning) not in WARNING_IGNORE_LIST:
@@ -2344,6 +2341,9 @@ def push_deltas(
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset("HEAD", hard=True)
+
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
 
     # Display table of note change type counts.
     echo_note_change_types(deltas)
