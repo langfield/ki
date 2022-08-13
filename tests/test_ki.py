@@ -890,14 +890,13 @@ def test_diff2_handles_submodules():
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
-        # repo.__del__()
         repo.close()
 
 
         os.chdir(ORIGINAL.repodir)
 
-        """
         args: DiffReposArgs = get_diff2_args()
+        """
         deltas: List[Delta] = diff2(
             args.repo,
             args.parser,
