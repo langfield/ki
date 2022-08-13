@@ -2389,6 +2389,7 @@ def push_deltas(
             subrepo: git.Repo = sm.module()
             subrepo.git.add(all=True)
             subrepo.index.commit(msg)
+            subrepo.close()
 
         # Commit in main repository.
         kirepo.repo.git.add(all=True)
