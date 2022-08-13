@@ -838,11 +838,11 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
-        """
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
 
+        """
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         repo = git.Repo(".")
         repo.git.add(all=True)
