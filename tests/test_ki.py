@@ -890,7 +890,7 @@ def test_diff2_handles_submodules():
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
-        repo.__del__()
+        # repo.__del__()
 
 
         os.chdir(ORIGINAL.repodir)
