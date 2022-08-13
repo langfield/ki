@@ -2436,6 +2436,8 @@ def push_deltas(
     # Close `git.Repo` object to avoid `PermissionError` on Windows.
     kirepo.repo.__del__()
     kirepo.repo.close()
+    gc.collect()
+    kirepo.repo.git.clear_cache()
 
     # Unlock Anki SQLite DB.
     unlock(con)
