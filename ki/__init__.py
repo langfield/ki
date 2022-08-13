@@ -2379,6 +2379,9 @@ def push_deltas(
     num_suppressed: int = len(warnings) - num_displayed
     echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
+    if sys.platform == "win32":
+        os.system(f'taskkill /IM "git.exe" /F')
+
     # Commit nid reassignments.
     echo(f"Reassigned {len(log)} nids.")
     if len(log) > 0:
@@ -2427,9 +2430,6 @@ def push_deltas(
 
     # Close `git.Repo` object to avoid `PermissionError` on Windows.
     kirepo.repo.close()
-
-    if sys.platform == "win32":
-        os.system(f'taskkill /IM "git.exe" /F')
 
     # Unlock Anki SQLite DB.
     unlock(con)
