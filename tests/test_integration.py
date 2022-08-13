@@ -334,19 +334,22 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
         os.chdir("A")
         clone(runner, ORIGINAL.col_file)
         os.chdir("..")
-        M.kirepo(F.test(Path("A") / ORIGINAL.repodir))
+        kirepo = M.kirepo(F.test(Path("A") / ORIGINAL.repodir))
+        kirepo.repo.close()
 
         os.mkdir("B")
         os.chdir("B")
         clone(runner, ORIGINAL.col_file)
         os.chdir("..")
-        M.kirepo(F.test(Path("B") / ORIGINAL.repodir))
+        kirepo = M.kirepo(F.test(Path("B") / ORIGINAL.repodir))
+        kirepo.repo.close()
 
         os.mkdir("C")
         os.chdir("C")
         clone(runner, ORIGINAL.col_file)
         os.chdir("..")
-        M.kirepo(F.test(Path("C") / ORIGINAL.repodir))
+        kirepo = M.kirepo(F.test(Path("C") / ORIGINAL.repodir))
+        kirepo.repo.close()
 
         mocker.patch(
             "ki.M.kirepo",
