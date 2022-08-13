@@ -842,12 +842,12 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
 
-        """
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         repo = git.Repo(".")
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
         repo.close()
+        """
 
         args: DiffReposArgs = get_diff2_args()
 
