@@ -2327,7 +2327,8 @@ def push_deltas(
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
 
-    sha = kirepo.repo.head.commit.hexsha
+    # sha = kirepo.repo.head.commit.hexsha
+    sha = "DEBUG"
 
     echo(f"Generating local .anki2 file from latest commit: {sha}")
     echo(f"Writing changes to '{new_col_file}'...")
