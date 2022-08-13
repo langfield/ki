@@ -2014,8 +2014,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
                 # Hash the patch to use as a filename.
                 blake2 = hashlib.blake2s()
-                patch_bytes: bytes = patch.diff.text.encode()
-                patch_hash: str = blake2.update(patch_bytes).hexdigest()
+                blake2.update(patch.diff.text.encode())
+                patch_hash: str = blake2.hexdigest()
                 patch_path: NoFile = F.test(patches_dir / patch_hash)
 
                 # Strip trailing linefeeds from each line so that `git apply`
@@ -2149,25 +2149,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
     kirepo.repo.delete_remote(last_push_remote)
-
-    # TODO: Move these functions into `ki/functional.py`.
-    @beartype
-    def rmdir(path: str) -> None:
-        """Remove `path` only if it is an empty directory."""
-        try:
-            os.rmdir(path)
-        except OSError:
-            pass
-
-    @beartype
-    def prune(path: ExtantDir) -> None:
-        """Prune empty directories from `path`."""
-        for root, dirnames, filenames in os.walk(path, topdown=False):
-            for dirname in dirnames:
-                rmdir(os.path.realpath(os.path.join(root, dirname)))
-
-    # Prune empty directories.
-    # prune(F.working_dir(kirepo.repo))
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
