@@ -2327,8 +2327,10 @@ def push_deltas(
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
     echo(f"Writing changes to '{new_col_file}'...")
 
+    """
     if sys.platform == "win32":
         os.system(f'taskkill /IM "git.exe" /F')
+    """
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
@@ -2430,6 +2432,7 @@ def push_deltas(
 
     # Close `git.Repo` object to avoid `PermissionError` on Windows.
     kirepo.repo.close()
+    head.repo.close()
 
     # Unlock Anki SQLite DB.
     unlock(con)
