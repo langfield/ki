@@ -914,24 +914,6 @@ def test_diff2_handles_submodules():
         repo_root = F.working_dir(repo)
         repo.close()
 
-        """
-
-        import subprocess
-        import stat
-
-        sm_path = Path(SUBMODULE_DIRNAME)
-        for root, dirs, files in os.walk(sm_path):
-            for dir in dirs:
-                os.chmod(os.path.join(root, dir), stat.S_IRWXU)
-            for file in files:
-                os.chmod(os.path.join(root, file), stat.S_IRWXU)
-
-        import gc
-        gc.collect()
-        repo.git.clear_cache()
-        del repo
-        """
-
         F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
 
         """
