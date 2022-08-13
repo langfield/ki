@@ -1643,9 +1643,10 @@ def test_write_repository_displays_missing_media_warnings(capfd):
             MEDIACOL.col_file, targetdir, leaves, media_dir, silent=False, verbose=True
         )
 
+        missing = Path(MEDIACOL.media_directory_name) / "1sec.mp3"
         captured = capfd.readouterr()
         assert "Missing or bad media file" in captured.out
-        assert "media.media/1sec.mp3" in captured.out
+        assert str(missing) in captured.out
 
 
 @pytest.mark.skip
