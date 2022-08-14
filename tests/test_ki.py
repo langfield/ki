@@ -907,7 +907,7 @@ def test_diff2_handles_submodules():
 
         os.chdir(ORIGINAL.repodir)
 
-        args: DiffReposArgs = get_diff2_args()
+        # args: DiffReposArgs = get_diff2_args()
 
         """
         deltas: List[Delta] = diff2(
