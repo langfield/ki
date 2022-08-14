@@ -866,6 +866,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.close()
 
         args: DiffReposArgs = get_diff2_args()
+        del args
+        gc.collect()
         # args.repo.close()
 
         """
