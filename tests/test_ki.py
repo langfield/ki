@@ -800,9 +800,9 @@ def get_diff2_args() -> DiffReposArgs:
 
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
-    remote_repo2: git.Repo = M.repo(remote_root)
-    remote_repo: git.Repo = unsubmodule_repo(remote_repo2)
-    remote_repo2.close()
+    deep_remote_repo: git.Repo = M.repo(remote_root)
+    remote_repo: git.Repo = unsubmodule_repo(deep_remote_repo)
+    deep_remote_repo.close()
     remote_repo.close()
 
     git_dir: ExtantDir = F.git_dir(remote_repo)
@@ -811,8 +811,8 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
     remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
-    remote_repo.close()
 
+    remote_repo.close()
     kirepo.repo.close()
     head_kirepo.repo.close()
 
