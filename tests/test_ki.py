@@ -787,6 +787,8 @@ def get_diff2_args() -> DiffReposArgs:
     head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
+
+    """
     remote_repo, _ = _clone(
         kirepo.col_file, remote_root, msg, silent=True, verbose=False,
     )
@@ -795,6 +797,7 @@ def get_diff2_args() -> DiffReposArgs:
 
     gc.collect()
     remote_repo.close()
+    """
 
     """
     remote_root: NoFile = F.rmtree(remote_root)
@@ -821,7 +824,7 @@ def get_diff2_args() -> DiffReposArgs:
     parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
 
-    return DiffReposArgs(remote_repo, parser, transformer)
+    return DiffReposArgs(kirepo.repo, parser, transformer)
 
 
 @pytest.mark.skip
