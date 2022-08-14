@@ -822,12 +822,14 @@ def get_diff2_args() -> DiffReposArgs:
     # kirepo.repo.close()
     # head_kirepo.repo.close()
 
+    """
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
+    """
 
-    return DiffReposArgs(None, parser, transformer)
+    return DiffReposArgs(None, None, None)
 
 
 @pytest.mark.skip
