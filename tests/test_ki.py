@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import gc
 import sys
 import json
 import random
@@ -825,6 +826,8 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
@@ -855,6 +858,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         warnings = [d for d in deltas if isinstance(d, DiffTargetFileNotFoundWarning)]
         assert len(warnings) == 1
         warning = warnings.pop()
@@ -896,6 +901,8 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         assert len(deltas) == 1
         delta = deltas[0]
@@ -916,6 +923,8 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
 
         assert len(deltas) > 0
