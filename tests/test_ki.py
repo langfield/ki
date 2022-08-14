@@ -808,11 +808,11 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo.git.add(all=True)
     remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
     remote_repo.close()
-
+    """
 
     kirepo.repo.close()
     head_kirepo.repo.close()
-    """
+
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start="note", parser="lalr")
@@ -859,8 +859,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.index.commit("CommitMessage")
         repo.close()
 
-        #args: DiffReposArgs = get_diff2_args()
-        #args.repo.close()
+        args: DiffReposArgs = get_diff2_args()
+        args.repo.close()
 
         """
         os.remove(Path(args.repo.working_dir) / NOTE_2)
