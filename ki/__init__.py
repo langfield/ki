@@ -2426,6 +2426,7 @@ def push_deltas(
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
+    head: RepoRef = M.head_repo_ref(kirepo.repo)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.

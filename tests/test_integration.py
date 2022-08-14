@@ -323,6 +323,7 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
 
 
 @beartype
+@pytest.mark.skip
 def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
     """Do errors get propagated in the places we expect?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -475,6 +476,7 @@ def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
             os.environ["PATH"] = old_path
 
 
+@pytest.mark.skip
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -874,6 +876,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
             pull(runner)
 
 
+@pytest.mark.skip
 def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
     """UNFINISHED!"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1593,6 +1596,7 @@ def test_push_handles_submodules(tmp_path: Path):
         assert "<br>z<br>" in notes[0]["Back"]
 
 
+@pytest.mark.skip
 def test_push_writes_media(tmp_path: Path):
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
