@@ -278,6 +278,9 @@ contents of the staging repository, which is checked-out at revision of last
 repo. Then we commit those. These will simply look like edits to `git`, and it
 cannot cause a merge conflict because we are not merging anything.
 
+The resulting process leak seems to be caused by running `get_diff2_args()`
+twice, in two different tests, on windows.
+
 
 Hardening media symlinks
 ------------------------

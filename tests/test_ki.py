@@ -787,25 +787,33 @@ def get_diff2_args() -> DiffReposArgs:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(
-        kirepo.col_file, remote_root, msg, silent=True, verbose=False
+        kirepo.col_file, remote_root, msg, silent=True, verbose=False,
     )
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_root: ExtantDir = F.working_dir(remote_repo)
     remote_repo.close()
+
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: ExtantDir = F.git_dir(remote_repo)
     remote_repo.close()
+
+
+    git_dir: ExtantDir = F.git_dir(remote_repo)
     git_dir: NoPath = F.rmtree(git_dir)
     F.copytree(git_copy, F.test(git_dir))
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
     remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
+    remote_repo.close()
+
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
+
+    kirepo.repo.close()
+    head_kirepo.repo.close()
 
     return DiffReposArgs(remote_repo, parser, transformer)
 
