@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import gc
 import sys
 import json
 import random
@@ -791,6 +792,8 @@ def get_diff2_args() -> DiffReposArgs:
     )
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_root: ExtantDir = F.working_dir(remote_repo)
+
+    gc.collect()
     remote_repo.close()
 
     """
