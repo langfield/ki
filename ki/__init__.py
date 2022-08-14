@@ -15,6 +15,7 @@ decks in exactly the same way they work on large, complex software projects.
 import os
 import re
 import io
+import gc
 import sys
 import json
 import copy
@@ -1737,10 +1738,9 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
             col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose
         )
         kirepo: KiRepo = M.kirepo(targetdir)
-        head = kirepo.repo.head
-        F.write(kirepo.last_push_file, head.commit.hexsha)
-        head.close()
+        F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
         kirepo.repo.close()
+        gc.collect()
         echo("Done.")
     except Exception as err:
         cleanup(targetdir, new)
