@@ -827,7 +827,6 @@ def get_diff2_args() -> DiffReposArgs:
     return DiffReposArgs(remote_repo, parser, transformer)
 
 
-@pytest.mark.skip
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
@@ -868,7 +867,6 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.close()
 
         args: DiffReposArgs = get_diff2_args()
-
         os.remove(Path(args.repo.working_dir) / NOTE_2)
 
         deltas: List[Union[Delta, Warning]] = diff2(
@@ -911,11 +909,8 @@ def test_diff2_handles_submodules():
     with runner.isolated_filesystem():
         repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
 
-
         os.chdir(ORIGINAL.repodir)
-
         args: DiffReposArgs = get_diff2_args()
-
         deltas: List[Delta] = diff2(
             args.repo,
             args.parser,
