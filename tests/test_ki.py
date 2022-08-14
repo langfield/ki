@@ -817,7 +817,8 @@ def get_diff2_args() -> DiffReposArgs:
     head_kirepo.repo.close()
 
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
+    with open(grammar_path, "r", encoding="UTF-8") as grammar_file:
+        grammar = grammar_file.read()
     parser = Lark(grammar, start="note", parser="lalr")
     """
     transformer = NoteTransformer()
