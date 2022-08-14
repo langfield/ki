@@ -1604,6 +1604,7 @@ def test_push_writes_media(tmp_path: Path):
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)
         repo.index.commit("Add air.md")
+        repo.close()
         out = push(runner)
         logger.debug(out)
         os.chdir("../")
