@@ -913,6 +913,7 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        args.repo.close()
 
         #assert len(deltas) == 1
         delta = deltas[0]
