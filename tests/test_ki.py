@@ -859,8 +859,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.index.commit("CommitMessage")
         repo.close()
 
-        args: DiffReposArgs = get_diff2_args()
-        args.repo.close()
+        #args: DiffReposArgs = get_diff2_args()
+        #args.repo.close()
 
         """
         os.remove(Path(args.repo.working_dir) / NOTE_2)
