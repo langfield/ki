@@ -2100,6 +2100,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                     silent,
                 )
                 sm_repo.delete_remote(sm_remote)
+                remote_sm.close()
+            sm_repo.close()
 
     # Commit new submodules commits in `last_push_repo`.
     if len(patched_submodules) > 0:
