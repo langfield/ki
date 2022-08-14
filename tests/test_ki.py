@@ -779,12 +779,9 @@ def get_diff2_args() -> DiffReposArgs:
     before calling this function.
     """
 
-    """
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    """
 
-    """
     lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
@@ -800,9 +797,7 @@ def get_diff2_args() -> DiffReposArgs:
 
     gc.collect()
     remote_repo.close()
-    """
 
-    """
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
     remote_repo2: git.Repo = M.repo(remote_root)
@@ -817,10 +812,9 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo.git.add(all=True)
     remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
     remote_repo.close()
-    """
 
-    # kirepo.repo.close()
-    # head_kirepo.repo.close()
+    kirepo.repo.close()
+    head_kirepo.repo.close()
 
     """
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
@@ -829,7 +823,7 @@ def get_diff2_args() -> DiffReposArgs:
     transformer = NoteTransformer()
     """
 
-    return DiffReposArgs(None, None, None)
+    return DiffReposArgs(remote_repo, None, None)
 
 
 @pytest.mark.skip
