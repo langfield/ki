@@ -781,6 +781,8 @@ def get_diff2_args() -> DiffReposArgs:
     """
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
+
+    """
     lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
@@ -788,7 +790,6 @@ def get_diff2_args() -> DiffReposArgs:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
 
-    """
     remote_repo, _ = _clone(
         kirepo.col_file, remote_root, msg, silent=True, verbose=False,
     )
@@ -817,7 +818,7 @@ def get_diff2_args() -> DiffReposArgs:
     """
 
     kirepo.repo.close()
-    head_kirepo.repo.close()
+    # head_kirepo.repo.close()
 
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
