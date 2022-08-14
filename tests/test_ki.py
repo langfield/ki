@@ -820,11 +820,9 @@ def get_diff2_args() -> DiffReposArgs:
     with open(grammar_path, "r", encoding="UTF-8") as grammar_file:
         grammar = grammar_file.read()
     parser = Lark(grammar, start="note", parser="lalr")
-    """
     transformer = NoteTransformer()
-    """
 
-    return DiffReposArgs(remote_repo, parser, None)
+    return DiffReposArgs(remote_repo, parser, transformer)
 
 
 @pytest.mark.skip
@@ -843,6 +841,8 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
@@ -866,11 +866,7 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.close()
 
         args: DiffReposArgs = get_diff2_args()
-        del args
-        gc.collect()
-        # args.repo.close()
 
-        """
         os.remove(Path(args.repo.working_dir) / NOTE_2)
 
         deltas: List[Union[Delta, Warning]] = diff2(
@@ -878,11 +874,12 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         warnings = [d for d in deltas if isinstance(d, DiffTargetFileNotFoundWarning)]
         assert len(warnings) == 1
         warning = warnings.pop()
         assert "note123412341234.md" in str(warning)
-        """
 
 
 @pytest.mark.skip
@@ -915,21 +912,21 @@ def test_diff2_handles_submodules():
 
         os.chdir(ORIGINAL.repodir)
 
-        # args: DiffReposArgs = get_diff2_args()
+        args: DiffReposArgs = get_diff2_args()
 
-        """
         deltas: List[Delta] = diff2(
             args.repo,
             args.parser,
             args.transformer,
         )
         args.repo.close()
+        del args
+        gc.collect()
 
         #assert len(deltas) == 1
         delta = deltas[0]
         #assert delta.status == GitChangeType.ADDED
         #asert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
-        """
 
         # Push changes.
         push(runner)
