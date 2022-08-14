@@ -816,6 +816,8 @@ def get_diff2_args() -> DiffReposArgs:
     kirepo.repo.close()
     head_kirepo.repo.close()
 
+    # WARNING: ``Lark`` parser *must* be destroyed in order to avoid process
+    # leaks/permissions errors on Windows. Use `del parser; gc.collect()`.
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     with open(grammar_path, "r", encoding="UTF-8") as grammar_file:
         grammar = grammar_file.read()
@@ -923,16 +925,15 @@ def test_diff2_handles_submodules():
         del args
         gc.collect()
 
-        #assert len(deltas) == 1
+        assert len(deltas) == 1
         delta = deltas[0]
-        #assert delta.status == GitChangeType.ADDED
-        #asert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
+        assert delta.status == GitChangeType.ADDED
+        assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
         # Push changes.
         push(runner)
 
         # Remove submodule.
-
         repo_root = F.working_dir(repo)
         repo.close()
 
@@ -942,20 +943,19 @@ def test_diff2_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        """
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
             args.repo,
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
 
-        #assert len(deltas) > 0
+        assert len(deltas) > 0
         for delta in deltas:
-            pass
-            #assert delta.path.is_file()
-        """
+            assert delta.path.is_file()
 
 
 @pytest.mark.skip
