@@ -939,6 +939,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
+        repo.close()
 
         # Push the deletion.
         os.chdir(UNCOMMITTED_SM.repodir)
@@ -958,6 +959,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
         repo.git.submodule("add", Path(submodule_name).resolve())
         repo.git.add(all=True)
         _ = repo.index.commit("Add submodule.")
+        repo.close()
 
         # Push changes.
         out = push(runner)
@@ -970,6 +972,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
             f.write("A new line at the bottom.")
         sm.git.add(all=True)
         _ = sm.index.commit("Added a new line.")
+        sm.close()
 
         # Edit collection.
         shutil.copyfile(UNCOMMITTED_SM_EDITED.col_file, UNCOMMITTED_SM.col_file)
