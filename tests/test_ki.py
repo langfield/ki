@@ -126,7 +126,6 @@ class SampleCollection:
     media_directory_name: str
 
 
-@beartype
 @dataclass(frozen=True)
 class DiffReposArgs:
     """Arguments for `diff2()`."""
@@ -779,8 +778,11 @@ def get_diff2_args() -> DiffReposArgs:
     a `GitChangeType.ADDED`, then we should do that in `ORIGINAL.repodir`
     before calling this function.
     """
+
+    """
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
+    """
 
     """
     lock(kirepo.col_file)
@@ -817,7 +819,7 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo.close()
     """
 
-    kirepo.repo.close()
+    # kirepo.repo.close()
     # head_kirepo.repo.close()
 
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
@@ -825,7 +827,7 @@ def get_diff2_args() -> DiffReposArgs:
     parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
 
-    return DiffReposArgs(kirepo.repo, parser, transformer)
+    return DiffReposArgs(None, parser, transformer)
 
 
 @pytest.mark.skip
@@ -867,7 +869,7 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         repo.close()
 
         args: DiffReposArgs = get_diff2_args()
-        args.repo.close()
+        # args.repo.close()
 
         """
         os.remove(Path(args.repo.working_dir) / NOTE_2)
