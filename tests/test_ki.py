@@ -793,14 +793,14 @@ def get_diff2_args() -> DiffReposArgs:
     remote_root: ExtantDir = F.working_dir(remote_repo)
     remote_repo.close()
 
+    """
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
-    remote_repo: git.Repo = M.repo(remote_root)
-    remote_repo2: git.Repo = unsubmodule_repo(remote_repo)
-    remote_repo.close()
+    remote_repo2: git.Repo = M.repo(remote_root)
+    remote_repo: git.Repo = unsubmodule_repo(remote_repo2)
     remote_repo2.close()
+    remote_repo.close()
 
-    """
     git_dir: ExtantDir = F.git_dir(remote_repo)
     git_dir: NoPath = F.rmtree(git_dir)
     F.copytree(git_copy, F.test(git_dir))
@@ -818,7 +818,7 @@ def get_diff2_args() -> DiffReposArgs:
     parser = Lark(grammar, start="note", parser="lalr")
     transformer = NoteTransformer()
 
-    return DiffReposArgs(remote_repo2, parser, transformer)
+    return DiffReposArgs(remote_repo, parser, transformer)
 
 
 @pytest.mark.skip
@@ -908,6 +908,8 @@ def test_diff2_handles_submodules():
         os.chdir(ORIGINAL.repodir)
 
         args: DiffReposArgs = get_diff2_args()
+
+        """
         deltas: List[Delta] = diff2(
             args.repo,
             args.parser,
@@ -918,7 +920,8 @@ def test_diff2_handles_submodules():
         #assert len(deltas) == 1
         delta = deltas[0]
         #assert delta.status == GitChangeType.ADDED
-        #assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
+        #asert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
+        """
 
         # Push changes.
         push(runner)
@@ -934,6 +937,7 @@ def test_diff2_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
+        """
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
             args.repo,
@@ -946,6 +950,7 @@ def test_diff2_handles_submodules():
         for delta in deltas:
             pass
             #assert delta.path.is_file()
+        """
 
 
 @pytest.mark.skip
