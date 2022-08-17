@@ -163,9 +163,6 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
     return ExtantFile(path)
 
 
-# TODO: This should really take a `RelativeFile`, which would be a dataclass of
-# an `ExtantFile` and an `ExtantDir` with the constraint that the directory is
-# an ancestor of the file.
 @beartype
 def symlink(path: NoFile, target: Path) -> ExtantFile:
     """Symlink `path` to `target`."""
