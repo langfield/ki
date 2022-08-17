@@ -70,7 +70,7 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    push_decknote_to_anki,
+    push_note,
     get_models_recursively,
     append_md5sum,
     copy_media_files,
@@ -1287,7 +1287,7 @@ def test_maybe_xfile(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
-def test_push_decknote_to_anki():
+def test_push_note():
     """Do we print a nice error when a notetype is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -1296,7 +1296,7 @@ def test_push_decknote_to_anki():
     fields = {"Front": field, "Back": field}
     decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
     with pytest.raises(MissingNotetypeError) as error:
-        push_decknote_to_anki(col, decknote)
+        push_note(col, decknote)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1344,7 +1344,7 @@ def test_maybe_head_kirepo_ref():
 
 
 @beartype
-def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
+def test_push_note_handles_note_key_errors(mocker: MockerFixture):
     """Do we print a nice error when a KeyError is raised on note[]?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -1354,7 +1354,7 @@ def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     with pytest.raises(NoteFieldKeyError) as error:
-        push_decknote_to_anki(col, decknote)
+        push_note(col, decknote)
     assert "Expected field" in str(error.exconly())
     assert "'bad_field_key'" in str(error.exconly())
 

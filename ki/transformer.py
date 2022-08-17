@@ -32,7 +32,7 @@ class FlatNote:
     """Flat (as possible) representation of a note."""
 
     title: str
-    nid: int
+    guid: str
     model: str
     tags: List[str]
     markdown: bool
@@ -45,7 +45,7 @@ class Header:
     """Note metadata."""
 
     title: str
-    nid: int
+    guid: str
     model: str
     tags: List[str]
     markdown: bool
@@ -56,12 +56,11 @@ class NoteTransformer(Transformer):
     note
       header
         title     Note
-        nid: 123412341234
+        guid: 123412341234
 
         model: Basic
 
         tags      None
-        markdown: false
 
 
       field
@@ -93,12 +92,12 @@ class NoteTransformer(Transformer):
             fieldmap[field.title] = field.content
 
         return FlatNote(
-            header.title,
-            header.nid,
-            header.model,
-            header.tags,
-            header.markdown,
-            fieldmap,
+            title=header.title,
+            guid=header.guid,
+            model=header.model,
+            tags=header.tags,
+            markdown=header.markdown,
+            fields=fieldmap,
         )
 
     @beartype
@@ -142,13 +141,9 @@ class NoteTransformer(Transformer):
         return f[1]
 
     @beartype
-    def NID(self, t: Token) -> int:
-        """Return ``-1`` if empty."""
-        nid = re.sub(r"^nid:", "", str(t)).strip()
-        try:
-            return int(nid)
-        except ValueError:
-            return -1
+    def GUID(self, t: Token) -> str:
+        """Possibly empty for new markdown notes."""
+        return re.sub(r"^guid:", "", str(t)).strip()
 
     @beartype
     def MODEL(self, t: Token) -> str:

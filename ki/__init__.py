@@ -17,6 +17,7 @@ import re
 import io
 import gc
 import sys
+import time
 import json
 import copy
 import shutil
@@ -25,6 +26,7 @@ import logging
 import secrets
 import sqlite3
 import hashlib
+import itertools
 import traceback
 import functools
 import subprocess
@@ -65,6 +67,7 @@ from beartype.typing import (
     TypeVar,
     Sequence,
     Tuple,
+    Iterator,
 )
 
 import ki.maybes as M
@@ -90,6 +93,7 @@ from ki.types import (
     Leaves,
     NoteDBRow,
     DeckNote,
+    NoteMetadata,
     PushResult,
     WrittenNoteFile,
     UpdatesRejectedError,
@@ -164,6 +168,100 @@ WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFile
 SPINNER = "bouncingBall"
 VERBOSE = False
 PROFILE = False
+
+BASE91_TABLE = [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "U",
+    "V",
+    "W",
+    "X",
+    "Y",
+    "Z",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "!",
+    "#",
+    "$",
+    "%",
+    "&",
+    "(",
+    ")",
+    "*",
+    "+",
+    ",",
+    "-",
+    ".",
+    "/",
+    ":",
+    ";",
+    "<",
+    "=",
+    ">",
+    "?",
+    "@",
+    "[",
+    "]",
+    "^",
+    "_",
+    "`",
+    "{",
+    "|",
+    "}",
+    "~",
+]
 
 
 @beartype
@@ -245,7 +343,7 @@ def is_anki_note(path: ExtantFile) -> bool:
     path = str(path)
 
     # Ought to have markdown file extension.
-    if path[-3:] != ".md":
+    if path.suffix != ".md":
         return False
     with open(path, "r", encoding="UTF-8") as md_f:
         lines = md_f.readlines()
@@ -253,7 +351,7 @@ def is_anki_note(path: ExtantFile) -> bool:
         return False
     if lines[0] != "## Note\n":
         return False
-    if not re.match(r"^nid: [0-9]+$", lines[1]):
+    if not re.match(r"^guid: ", lines[1]):
         return False
     return True
 
@@ -419,7 +517,7 @@ def diff2(
                 b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
                 a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
                 b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
-                if a_decknote.nid != b_decknote.nid:
+                if a_decknote.guid != b_decknote.guid:
                     deltas.append(a_delta)
                     deltas.append(b_delta)
                     continue
@@ -556,6 +654,29 @@ def display_fields_health_warning(note: Note) -> int:
 
 
 @beartype
+def get_guid(fields: List[str]) -> str:
+    """Construct a new GUID for a note. Adapted from genanki's `guid_for()`."""
+    contents = "__".join(fields)
+
+    # Get the first 8 bytes of the SHA256 of `contents` as an int.
+    m = hashlib.sha256()
+    m.update(contents.encode("utf-8"))
+    hash_bytes = m.digest()[:8]
+    hash_int = 0
+    for b in hash_bytes:
+        hash_int <<= 8
+        hash_int += b
+
+    # convert to the weird base91 format that Anki uses
+    rv_reversed = []
+    while hash_int > 0:
+        rv_reversed.append(BASE91_TABLE[hash_int % len(BASE91_TABLE)])
+        hash_int //= len(BASE91_TABLE)
+
+    return "".join(reversed(rv_reversed))
+
+
+@beartype
 def parse_markdown_note(
     parser: Lark, transformer: NoteTransformer, delta: Delta
 ) -> DeckNote:
@@ -564,9 +685,14 @@ def parse_markdown_note(
     flatnote: FlatNote = transformer.transform(tree)
     parts: Tuple[str, ...] = delta.relpath.parent.parts
     deck: str = "::".join(parts)
+
+    # Generate a GUID from the hash of the field contents if the `guid` field
+    # in the note file was left blank.
+    guid = flatnote.guid if flatnote.guid != "" else get_guid(flatnote.fields)
+
     return DeckNote(
         title=flatnote.title,
-        nid=flatnote.nid,
+        guid=guid,
         deck=deck,
         model=flatnote.model,
         tags=flatnote.tags,
@@ -715,8 +841,8 @@ def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") ->
     # a `Path('.')` which is a bug, and causes a runtime exception.  If all
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
-        slug = str(colnote.n.id)
-        msg = f"Slug for '{colnote.n.id}' is empty. Using nid as filename"
+        slug = str(colnote.n.guid)
+        msg = f"Slug for '{colnote.n.guid}' is empty. Using guid as filename"
         logger.warning(msg)
 
     if card_name != "":
@@ -785,9 +911,49 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
     return f"{nid}{F.slugify(fieldname)}"
 
 
+# TODO: Use more refined types than `int`.
 @beartype
-def push_decknote_to_anki(
-    col: Collection, decknote: DeckNote
+def add_db_note(
+    col: Collection,
+    nid: int,
+    guid: int,
+    mid: int,
+    mod: int,
+    usn: int,
+    tags: List[str],
+    fields: List[str],
+    sfld: str,
+    csum: int,
+    flags: int,
+    data: str,
+) -> Note:
+    """Add a note to the database directly, with a SQL INSERT."""
+    col.db.execute(
+        "INSERT INTO notes VALUES(?,?,?,?,?,?,?,?,?,?,?);",
+        (
+            nid,
+            guid,
+            mid,
+            mod,
+            usn,
+            " " + " ".join(tags) + " ",
+            "\x1f".join(fields),
+            sfld,
+            csum,
+            flags,
+            data,
+        ),
+    )
+    return col.get_note(nid)
+
+
+@beartype
+def push_note(
+    col: Collection,
+    decknote: DeckNote,
+    timestamp_ns: int,
+    guids: Dict[str, NoteMetadata],
+    new_nids: Iterator[int],
 ) -> Tuple[ColNote, List[Warning]]:
     """
     Update the Anki `Note` object in `col` corresponding to `decknote`,
@@ -808,12 +974,25 @@ def push_decknote_to_anki(
         raise MissingNotetypeError(decknote.model)
 
     new = False
-    note: Note
-    try:
-        note = col.get_note(decknote.nid)
-    except NotFoundError:
-        note = col.new_note(model_id)
-        col.add_note(note, col.decks.id(decknote.deck, create=True))
+    if decknote.guid in guids:
+        nid: int = guids[decknote.guid].nid
+        note: Note = col.get_note(nid)
+    else:
+        nid: int = next(new_nids)
+        note: Note = add_db_note(
+            col,
+            nid,
+            decknote.guid,
+            model_id,
+            mod=timestamp_ns // 1e9,
+            usn=-1,
+            tags=decknote.tags,
+            fields=[],
+            sfld="",
+            csum=0,
+            flags=0,
+            data="",
+        )
         new = True
 
     # If we are updating an existing note, we need to know the old and new
@@ -852,7 +1031,7 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
-    # `push_decknote_to_anki()`.
+    # `push_note()`.
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
@@ -879,18 +1058,10 @@ def get_header_lines(colnote) -> List[str]:
     """Get header of markdown representation of note."""
     lines = [
         "## Note",
-        f"nid: {colnote.n.id}",
+        f"guid: {colnote.n.guid}",
         f"model: {colnote.notetype.name}",
     ]
     lines += [f"tags: {', '.join(colnote.n.tags)}"]
-
-    # TODO: There is almost certainly a bug here, since when the sentinel
-    # *does* appear, we don't add a `markdown` field at all, but it is required
-    # in the note grammar, so we'll get a parsing error when we try to push. A
-    # test must be written for this case.
-    if not any(GENERATED_HTML_SENTINEL in field for field in colnote.n.values()):
-        lines += ["markdown: false"]
-
     lines += [""]
     return lines
 
@@ -1529,47 +1700,6 @@ def get_target(
         new = False
         return path, new
     raise TargetExistsError(path)
-
-
-@beartype
-def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -> List[str]:
-    """
-    Construct the contents of a note corresponding to the arguments `colnote`,
-    which itself was created from `decknote`, and then write it to disk.
-
-    Returns a list of lines to add to the commit message (either an empty list,
-    or a list containing a single line).
-
-    This function is intended to be used when we are adding *completely* new
-    notes, in which case the caller generates a new note with a newly generated
-    nid, which can be accessed at `colnote.n.id`. In general, this is the
-    branch taken whenever Anki fails to recognize the nid given in the note
-    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
-    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
-    newly assigned nid for this note, yielded by the Anki runtime, and the
-    latter has whatever was written in the file.
-    """
-    # If this is not a new note, then we didn't reassign its nid, and we don't
-    # need to regenerate the file. So we don't add a line to the commit
-    # message.
-    if not colnote.new:
-        return []
-
-    # Get paths to note in local repo, as distinct from staging repo.
-    repo_note_path: Path = root / relpath
-
-    # If this is not an entirely new file, remove it.
-    if repo_note_path.is_file():
-        repo_note_path.unlink()
-
-    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: NoFile = get_note_path(colnote, parent)
-    F.write(new_note_path, get_colnote_as_str(colnote))
-
-    # Construct a nice commit message line.
-    msg = f"Reassigned nid: '{colnote.old_nid}' -> "
-    msg += f"'{colnote.n.id}' in '{os.path.relpath(new_note_path, root)}'"
-    return [msg]
 
 
 @beartype
@@ -2339,15 +2469,23 @@ def push_deltas(
     # Add new models to the collection.
     add_models(col, models)
 
-    # Gather logging statements to display.
-    log: List[str] = []
-
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset("HEAD", hard=True)
 
     # Display table of note change type counts.
     echo_note_change_types(deltas)
+
+    # Construct a map from guid -> (nid, mod, mid), adapted from
+    # `Anki2Importer._import_notes()`. Note that `mod` is the modification
+    # timestamp, in epoch seconds (timestamp of when the note was last
+    # modified).
+    guids: Dict[str, NoteMetadata] = {}
+    for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
+        guids[guid] = NoteMetadata(nid, mod, mid)
+
+    timestamp_ns: int = time.time_ns()
+    new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
 
@@ -2360,20 +2498,16 @@ def push_deltas(
         decknote = parse_markdown_note(parser, transformer, delta)
 
         if is_delete(delta):
-            col.remove_notes([decknote.nid])
+            if decknote.guid in guids:
+                col.remove_notes([guids[decknote.guid].nid])
             continue
 
         # TODO: If relevant prefix of sort field has changed, we should
         # regenerate the file. Recall that the sort field is used to determine
         # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote, note_warnings = push_decknote_to_anki(col, decknote)
-        log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
+        colnote, note_warnings = push_note(col, decknote, timestamp_ns, guids, new_nids)
         warnings += note_warnings
-
-    if verbose:
-        for msg in log:
-            click.secho(str(msg), fg="yellow")
 
     num_displayed: int = 0
     for warning in warnings:
@@ -2382,21 +2516,6 @@ def push_deltas(
             num_displayed += 1
     num_suppressed: int = len(warnings) - num_displayed
     echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
-
-    # Commit nid reassignments.
-    echo(f"Reassigned {len(log)} nids.")
-    if len(log) > 0:
-        msg = "Generated new nid(s).\n\n" + "\n".join(log)
-
-        # Commit in all submodules (doesn't support recursing yet).
-        for sm in kirepo.repo.submodules:
-            subrepo: git.Repo = sm.module()
-            subrepo.git.add(all=True)
-            subrepo.index.commit(msg)
-
-        # Commit in main repository.
-        kirepo.repo.git.add(all=True)
-        _ = kirepo.repo.index.commit(msg)
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)

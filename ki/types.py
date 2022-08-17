@@ -108,12 +108,22 @@ class DeckNote:
     """Flat (as possible) representation of a note, but with deck."""
 
     title: str
-    nid: int
+    guid: int
     deck: str
     model: str
     tags: List[str]
     markdown: bool
     fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
+class NoteMetadata:
+    """The nid, mod, and mid of a note."""
+
+    nid: int
+    mod: int
+    mid: int
 
 
 @beartype
@@ -197,7 +207,6 @@ class ColNote:
     new: bool
     deck: str
     title: str
-    old_nid: int
     markdown: bool
     notetype: Notetype
     sortf_text: str

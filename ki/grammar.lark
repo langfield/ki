@@ -20,7 +20,7 @@ EMPTYFIELD: "\n"+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (title NID MODEL tags MARKDOWN)
+header: (title GUID MODEL tags)
 
 
 // === TITLE ===
@@ -32,10 +32,10 @@ TITLENAME: TITLECHAR (" " | TITLECHAR)*
 TITLECHAR: /[a-zA-Z0-9_-]/
 
 
-// === NID =====
+// === GUID ====
 
-// NID field is allowed to be empty.
-NID: "nid:" " "* INT? "\n"+
+// GUID field is allowed to be empty.
+GUID: "guid:" " "* INT? "\n"+
 
 
 // === MODEL ===
@@ -50,7 +50,6 @@ MODEL: "model:" " "* ANKINAME "\n"+
 // difficult.
 tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
 TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
-MARKDOWN: "markdown:" " "* ("true" | "false") "\n"
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ COMMON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
