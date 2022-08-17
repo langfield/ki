@@ -37,6 +37,4 @@ jobs:
           pip install .
       - name: Test with pytest
         run: |
-          echo %HIDE_WINDOWS_KNOWN_ERRORS%
-          set HIDE_WINDOWS_KNOWN_ERRORS=false
           pytest -vv --timeout=120 tests/

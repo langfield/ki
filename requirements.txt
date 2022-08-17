@@ -7,5 +7,4 @@ lark==1.1.2
 prettyprinter==0.18.0
 beartype==0.10.4
 halo==0.0.31
-blake3==0.3.1
 whatthepatch==1.0.2
