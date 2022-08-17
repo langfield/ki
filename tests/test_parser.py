@@ -18,7 +18,7 @@ from lark.exceptions import (
 import ki
 from ki import NoteTransformer
 
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines, missing-function-docstring
 
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
@@ -548,10 +548,8 @@ s
 
 def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
-    transformer = NoteTransformer()
-
     with pytest.raises(UnexpectedToken) as exc:
-        tree = parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
+        parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
     err = exc.value
     assert err.line == 8
     assert err.column == 1
@@ -656,7 +654,7 @@ def test_last_field_only_needs_one_trailing_empty_line():
     parser = get_parser()
     transformer = NoteTransformer()
     tree = parser.parse(LAST_FIELD_SINGLE_TRAILING_NEWLINE)
-    flatnote = transformer.transform(tree)
+    transformer.transform(tree)
 
 
 LAST_FIELD_NO_TRAILING_NEWLINE = r"""## a
@@ -674,9 +672,9 @@ s"""
 
 def test_last_field_needs_one_trailing_newline():
     parser = get_parser()
-    transformer = NoteTransformer()
+    NoteTransformer()
     with pytest.raises(UnexpectedToken) as exc:
-        tree = parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
+        parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
     err = exc.value
     assert err.line == 11
     assert err.column == 1

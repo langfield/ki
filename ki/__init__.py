@@ -15,6 +15,7 @@ decks in exactly the same way they work on large, complex software projects.
 import os
 import re
 import io
+import gc
 import sys
 import json
 import copy
@@ -23,6 +24,7 @@ import random
 import logging
 import secrets
 import sqlite3
+import hashlib
 import traceback
 import functools
 import subprocess
@@ -34,7 +36,6 @@ from dataclasses import dataclass
 
 import git
 import click
-import blake3
 import whatthepatch
 import prettyprinter as pp
 from tqdm import tqdm
@@ -1454,6 +1455,7 @@ def git_pull(
             args += ["--allow-unrelated-histories"]
         if theirs:
             args += ["--strategy-option=theirs"]
+        args += ["--verbose"]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
@@ -1737,6 +1739,8 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         )
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        kirepo.repo.close()
+        gc.collect()
         echo("Done.")
     except Exception as err:
         cleanup(targetdir, new)
@@ -1947,8 +1951,12 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             path = path[2:]
         return path
 
+    # Construct patches for every file in the flattenened/unsubmoduled checkout
+    # of the revision of the last successful `ki push`. Each patch is the diff
+    # between the relevant file in the flattened (all submodules converted to
+    # ordinary directories) repository and the same file in the Anki remote (a
+    # fresh `ki clone` of the current database).
     patches: List[Patch] = []
-
     f = io.StringIO()
     with F.halo(text="Generating submodule patches..."):
         with redirect_stdout(f):
@@ -1962,7 +1970,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch = Patch(Path(a_path), Path(b_path), diff)
                 patches.append(patch)
 
-    # Get paths to submodules.
+    # Construct a map that sends submodule relative roots, that is, the
+    # relative path of a submodule root directory to the top-level root
+    # directory of the ki repository, to `git.Repo` objects for each submodule.
     subrepos: Dict[Path, git.Repo] = {}
     for sm in last_push_repo.submodules:
         if sm.exists() and sm.module_exists():
@@ -1986,10 +1996,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
-    bar = tqdm(patches, ncols=TQDM_NUM_COLS)
-    bar.set_description("Patches")
+    patches_bar = tqdm(patches, ncols=TQDM_NUM_COLS)
+    patches_bar.set_description("Patches")
     patched_submodules: Set[Path] = set()
-    for patch in bar:
+    for patch in patches_bar:
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
@@ -2000,40 +2010,27 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
 
             if a_in_submodule and b_in_submodule:
-                patched_submodules.add(sm_rel_root)
-                patch_bytes: bytes = patch.diff.text.encode()
-
-                # TODO: Use a less-fancy hashing algorithm or a UUID.
-                # pylint: disable=not-callable
-                patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
-
-                # pylint: enable=not-callable
-                patch_path: NoFile = F.test(patches_dir / patch_hash)
-
-                # TODO: Can we do this with `sm_rel_root in (patch.a, patch.b)`
-                # instead?
-                #
-                # Replace paths relative to `last_push_root` with paths
-                # relative to `sm_root`.
-                a_relpath = patch.a.relative_to(sm_rel_root)
-                b_relpath = patch.b.relative_to(sm_rel_root)
 
                 # Ignore the submodule 'file' itself.
-                if a_relpath == Path(".") or b_relpath == Path("."):
+                if sm_rel_root in (patch.a, patch.b):
                     continue
 
-                # Number of leading path components to drop from diff paths.
-                num_parts = len(sm_rel_root.parts) + 1
-
-                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
-                assert os.path.isfile(patch_path)
-                msg += f"  `{patch.a}`\n"
+                # Hash the patch to use as a filename.
+                blake2 = hashlib.blake2s()
+                blake2.update(patch.diff.text.encode())
+                patch_hash: str = blake2.hexdigest()
+                patch_path: NoFile = F.test(patches_dir / patch_hash)
 
                 # Strip trailing linefeeds from each line so that `git apply`
                 # is happy on Windows (equivalent to running `dos2unix`).
+                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
                 if sys.platform == "win32":
-                    text = open(patch_path, "rb").read().replace(b"\r\n", b"\n")
-                    open(patch_path, "wb").write(text)
+                    with open(patch_path, "rb") as f:
+                        with open(patch_path, "wb") as g:
+                            g.write(f.read().replace(b"\r\n", b"\n"))
+
+                # Number of leading path components to drop from diff paths.
+                num_parts = len(sm_rel_root.parts) + 1
 
                 # TODO: More tests are needed to make sure that the `git apply`
                 # call is not flaky. In particular, we must treat new and
@@ -2043,7 +2040,18 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 # this submodule is supposed to represent a fast-forward from
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
-                sm_repo.git.apply(patch_path, p=str(num_parts), verbose=True)
+                #
+                # Then -p<n> flag tells `git apply` to drop the first n leading
+                # path components from both diff paths. So if n is 2, we map
+                # `a/dog/cat` -> `cat`.
+                sm_repo.git.apply(
+                    patch_path,
+                    p=str(num_parts),
+                    allow_empty=True,
+                    verbose=True,
+                )
+                patched_submodules.add(sm_rel_root)
+                msg += f"  `{patch.a}`\n"
 
     echo(f"Applied {len(patched_submodules)} patches within submodules.")
     for sm_rel_root in patched_submodules:
@@ -2094,6 +2102,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                     silent,
                 )
                 sm_repo.delete_remote(sm_remote)
+                remote_sm.close()
+            sm_repo.close()
 
     # Commit new submodules commits in `last_push_repo`.
     if len(patched_submodules) > 0:
@@ -2125,13 +2135,28 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    old_cwd: ExtantDir = F.chdir(last_push_root)
-    last_push_repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
-    last_push_repo.delete_remote(anki_remote)
-    F.chdir(old_cwd)
+    echo(f"Copying blobs at HEAD='{sha}' to stage in '{last_push_root}'...")
+    git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
+    last_push_repo.close()
+    last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
+    del last_push_repo
+    remote_root: ExtantDir = F.working_dir(remote_repo)
+    last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
 
-    # Create remote pointing to `last_push_repo` and pull into `repo`.
+    echo(f"Copying git history from '{sha}' to stage...")
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
+    del last_push_repo
+    F.copytree(git_copy, F.test(git_dir))
+
+    echo(f"Committing stage repository contents in '{last_push_root}'...")
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    last_push_repo.git.add(all=True)
+    last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+
+    # Create remote pointing to `last_push_repo` and pull into `repo`. Note
+    # that this `git pull` may not always create a merge commit, because a
+    # fast-forward only updates the branch pointer.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
@@ -2401,6 +2426,7 @@ def push_deltas(
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
+    head: RepoRef = M.head_repo_ref(kirepo.repo)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.

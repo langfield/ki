@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import gc
 import sys
 import json
 import random
 import shutil
-import sqlite3
 import tempfile
 from pathlib import Path
 from dataclasses import dataclass
@@ -14,7 +14,6 @@ import git
 import pytest
 import bitstring
 import checksumdir
-import prettyprinter as pp
 from lark import Lark
 from lark.exceptions import UnexpectedToken
 from loguru import logger
@@ -22,7 +21,7 @@ from pytest_mock import MockerFixture
 from click.testing import CliRunner
 from anki.collection import Collection
 
-from beartype import beartype, roar
+from beartype import beartype
 from beartype.typing import List, Union, Set
 
 import ki
@@ -51,10 +50,8 @@ from ki import (
     EmptyDir,
     NotetypeMismatchError,
     UnhealthyNoteWarning,
-    NoteFieldValidationWarning,
     KiRepo,
     KiRepoRef,
-    RepoRef,
     get_note_warnings,
     copy_kirepo,
     get_note_payload,
@@ -64,7 +61,6 @@ from ki import (
     git_pull,
     get_colnote,
     backup,
-    copy_repo,
     update_note,
     parse_notetype_dict,
     display_fields_health_warning,
@@ -93,7 +89,6 @@ from ki.types import (
     MissingNoteIdError,
     ExpectedNonexistentPathError,
     UnPushedPathWarning,
-    DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
@@ -102,90 +97,94 @@ from ki.types import (
     ExpectedDirectoryButGotFileError,
     GitHeadRefNotFoundError,
     MissingMediaDirectoryError,
-    MissingMediaFileWarning,
     TargetExistsError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
 )
-from ki.transformer import FlatNote, NoteTransformer
+from ki.transformer import NoteTransformer
 
 
-# pylint:disable=unnecessary-pass, too-many-lines
+# pylint: disable=unnecessary-pass, too-many-lines, invalid-name
+# pylint: disable=missing-function-docstring, too-many-instance-attributes
+# pylint: disable=too-many-statements
+
+
+@beartype
+@dataclass(frozen=True)
+class SampleCollection:
+    """A test collection with all names and paths constructed."""
+
+    col_file: ExtantFile
+    path: Path
+    stem: str
+    suffix: str
+    repodir: str
+    filename: str
+    media_db_path: Path
+    media_db_filename: str
+    media_directory_path: Path
+    media_directory_name: str
+
+
+@beartype
+@dataclass(frozen=True)
+class DiffReposArgs:
+    """Arguments for `diff2()`."""
+
+    repo: git.Repo
+    parser: Lark
+    transformer: NoteTransformer
+
+
+@beartype
+def get_test_collection(stem: str) -> SampleCollection:
+    collections_path = Path(__file__).parent / "data" / "collections"
+
+    # Handle restricted valid path character set on Win32.
+    if stem in ("multideck", "html") and sys.platform == "win32":
+        stem = f"win32_{stem}"
+
+    repodir = stem
+    suffix = ".anki2"
+    filename = stem + suffix
+    path = (collections_path / filename).resolve()
+    media_db_filename = stem + ".media.db2"
+    media_db_path = collections_path / media_db_filename
+    media_directory_name = stem + ".media"
+    media_directory_path = collections_path / media_directory_name
+
+    # Get col file.
+    tempdir = Path(tempfile.mkdtemp())
+    col_file = tempdir / filename
+    shutil.copyfile(path, col_file)
+
+    if media_db_path.exists():
+        shutil.copyfile(media_db_path, tempdir / media_db_filename)
+    if media_directory_path.exists():
+        shutil.copytree(media_directory_path, tempdir / media_directory_name)
+
+    return SampleCollection(
+        F.test(Path(col_file)),
+        path,
+        stem,
+        suffix,
+        repodir,
+        filename,
+        media_db_path,
+        media_db_filename,
+        media_directory_path,
+        media_directory_name,
+    )
 
 
 TEST_DATA_PATH = "tests/data/"
 COLLECTIONS_PATH = os.path.join(TEST_DATA_PATH, "collections/")
-COLLECTION_FILENAME = "collection.anki2"
-ORIG_COLLECTION_FILENAME = "original.anki2"
-EDITED_COLLECTION_FILENAME = "edited.anki2"
-DELETED_COLLECTION_FILENAME = "deleted.anki2"
-MULTIDECK_COLLECTION_FILENAME = "multideck.anki2"
-HTML_COLLECTION_FILENAME = "html.anki2"
 
-# Handle restricted valid path character set on Win32.
-if sys.platform == "win32":
-    MULTIDECK_COLLECTION_FILENAME = "win32_multideck.anki2"
-    HTML_COLLECTION_FILENAME = "win32_html.anki2"
-
-UNCOMMITTED_SM_ERROR_FILENAME = "uncommitted_submodule_commits.anki2"
-UNCOMMITTED_SM_ERROR_EDITED_FILENAME = "uncommitted_submodule_commits_edited.anki2"
-MEDIA_COLLECTION_FILENAME = "media.anki2"
-MEDIA_MEDIA_DIRNAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media"
-MEDIA_MEDIA_DB_FILENAME = MEDIA_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
-SPLIT_COLLECTION_FILENAME = "split.anki2"
-SPLIT_MEDIA_DIRNAME = SPLIT_COLLECTION_FILENAME.split(".")[0] + ".media"
-SPLIT_MEDIA_DB_FILENAME = SPLIT_COLLECTION_FILENAME.split(".")[0] + ".media.db2"
-
-
-COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, ORIG_COLLECTION_FILENAME)
-)
-EDITED_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, EDITED_COLLECTION_FILENAME)
-)
-DELETED_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, DELETED_COLLECTION_FILENAME)
-)
-MULTIDECK_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, MULTIDECK_COLLECTION_FILENAME)
-)
-HTML_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, HTML_COLLECTION_FILENAME)
-)
-UNCOMMITTED_SM_ERROR_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, UNCOMMITTED_SM_ERROR_FILENAME)
-)
-UNCOMMITTED_SM_ERROR_EDITED_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, UNCOMMITTED_SM_ERROR_EDITED_FILENAME)
-)
-MEDIA_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, MEDIA_COLLECTION_FILENAME)
-)
-MEDIA_MEDIA_DIRECTORY_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DIRNAME)
-)
-MEDIA_MEDIA_DB_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, MEDIA_MEDIA_DB_FILENAME)
-)
-SPLIT_COLLECTION_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, SPLIT_COLLECTION_FILENAME)
-)
-SPLIT_MEDIA_DIRECTORY_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, SPLIT_MEDIA_DIRNAME)
-)
-SPLIT_MEDIA_DB_PATH = os.path.abspath(
-    os.path.join(COLLECTIONS_PATH, SPLIT_MEDIA_DB_FILENAME)
-)
 
 GITREPO_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "repos/", "original/"))
 MULTI_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "multideck/")
 JAPANESE_GITREPO_PATH = os.path.join(TEST_DATA_PATH, "repos/", "japanese-core-2000/")
-REPODIR = os.path.splitext(COLLECTION_FILENAME)[0]
-MULTIDECK_REPODIR = os.path.splitext(MULTIDECK_COLLECTION_FILENAME)[0]
-HTML_REPODIR = os.path.splitext(HTML_COLLECTION_FILENAME)[0]
-UNCOMMITTED_SM_ERROR_REPODIR = os.path.splitext(UNCOMMITTED_SM_ERROR_FILENAME)[0]
-MEDIA_REPODIR = os.path.splitext(MEDIA_COLLECTION_FILENAME)[0]
-SPLIT_REPODIR = os.path.splitext(SPLIT_COLLECTION_FILENAME)[0]
+
 MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
@@ -202,6 +201,7 @@ NOTE_3 = "note 3.md"
 NOTE_4 = "Default/c.md"
 NOTE_5 = "alpha_nid.md"
 NOTE_6 = "no_nid.md"
+NOTE_7 = "Default/aa.md"
 MEDIA_NOTE = "air.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
@@ -336,74 +336,6 @@ def push(runner: CliRunner, verbose: bool = False) -> str:
 
 
 @beartype
-def get_col_file() -> ExtantFile:
-    """Put `collection.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, COLLECTION_FILENAME))
-    shutil.copyfile(COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_uncommitted_sm_pull_exception_col_file() -> ExtantFile:
-    """Put `uncommitted_submodule_commits.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, UNCOMMITTED_SM_ERROR_FILENAME))
-    shutil.copyfile(UNCOMMITTED_SM_ERROR_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_multideck_col_file() -> ExtantFile:
-    """Put `multideck.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, MULTIDECK_COLLECTION_FILENAME))
-    shutil.copyfile(MULTIDECK_COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_html_col_file() -> ExtantFile:
-    """Put `html.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, HTML_COLLECTION_FILENAME))
-    shutil.copyfile(HTML_COLLECTION_PATH, col_file)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_media_col_file() -> ExtantFile:
-    """Put `media.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, MEDIA_COLLECTION_FILENAME))
-    media_dir = os.path.abspath(os.path.join(tempdir, MEDIA_MEDIA_DIRNAME))
-    media_db = os.path.abspath(os.path.join(tempdir, MEDIA_MEDIA_DB_FILENAME))
-    shutil.copyfile(MEDIA_COLLECTION_PATH, col_file)
-    shutil.copytree(MEDIA_MEDIA_DIRECTORY_PATH, media_dir)
-    shutil.copyfile(MEDIA_MEDIA_DB_PATH, media_db)
-    return F.test(Path(col_file))
-
-
-@beartype
-def get_split_col_file() -> ExtantFile:
-    """Put `split.anki2` in a tempdir and return its abspath."""
-    # Copy collection to tempdir.
-    tempdir = tempfile.mkdtemp()
-    col_file = os.path.abspath(os.path.join(tempdir, SPLIT_COLLECTION_FILENAME))
-    media_dir = os.path.abspath(os.path.join(tempdir, SPLIT_MEDIA_DIRNAME))
-    media_db = os.path.abspath(os.path.join(tempdir, SPLIT_MEDIA_DB_FILENAME))
-    shutil.copyfile(SPLIT_COLLECTION_PATH, col_file)
-    shutil.copytree(SPLIT_MEDIA_DIRECTORY_PATH, media_dir)
-    shutil.copyfile(SPLIT_MEDIA_DB_PATH, media_db)
-    return F.test(Path(col_file))
-
-
-@beartype
 def is_git_repo(path: str) -> bool:
     """Check if path is git repository."""
     if not os.path.isdir(path):
@@ -439,9 +371,9 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    git.rmtree(os.path.join(repodir, ".git/"))
+    F.rmtree(F.test(Path(os.path.join(repodir, ".git/"))))
     checksum = checksumdir.dirhash(repodir)
-    git.rmtree(tempdir)
+    F.rmtree(F.test(Path(tempdir)))
     return checksum
 
 
@@ -464,10 +396,11 @@ def get_notes(collection: ExtantFile) -> List[ColNote]:
 def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Repo:
     """Return repo with committed submodule."""
     # Clone collection in cwd.
+    ORIGINAL = get_test_collection("original")
     clone(runner, col_file)
-    repo = git.Repo(REPODIR)
+    repo = git.Repo(ORIGINAL.repodir)
     cwd = F.cwd()
-    os.chdir(REPODIR)
+    os.chdir(ORIGINAL.repodir)
 
     # Create submodule out of GITREPO_PATH.
     submodule_name = SUBMODULE_DIRNAME
@@ -568,7 +501,8 @@ def open_collection(col_file: ExtantFile) -> Collection:
 
 def test_update_note_raises_error_on_too_few_fields():
     """Do we raise an error when the field names don't match up?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
@@ -584,7 +518,8 @@ def test_update_note_raises_error_on_too_few_fields():
 
 def test_update_note_raises_error_on_too_many_fields():
     """Do we raise an error when the field names don't match up?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
@@ -602,7 +537,8 @@ def test_update_note_raises_error_on_too_many_fields():
 
 def test_update_note_raises_error_wrong_field_name():
     """Do we raise an error when the field names don't match up?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
@@ -622,7 +558,8 @@ def test_update_note_raises_error_wrong_field_name():
 
 def test_update_note_sets_tags():
     """Do we update tags of anki note?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
@@ -636,7 +573,8 @@ def test_update_note_sets_tags():
 
 
 def test_update_note_sets_deck():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     field = "data"
 
@@ -654,7 +592,8 @@ def test_update_note_sets_deck():
 
 
 def test_update_note_sets_field_contents():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "TITLE\ndata"
@@ -670,7 +609,8 @@ def test_update_note_sets_field_contents():
 
 
 def test_update_note_removes_field_contents():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "y"
@@ -684,7 +624,8 @@ def test_update_note_removes_field_contents():
 
 
 def test_update_note_raises_error_on_nonexistent_notetype_name():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "data"
@@ -693,12 +634,13 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
-    with pytest.raises(NotetypeMismatchError) as error:
+    with pytest.raises(NotetypeMismatchError) as _:
         update_note(note, decknote, notetype, notetype)
 
 
 def test_display_fields_health_warning_catches_missing_clozes():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "data"
@@ -718,7 +660,8 @@ def test_display_fields_health_warning_catches_missing_clozes():
 
 
 def test_update_note_changes_notetype():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     field = "data"
@@ -734,7 +677,8 @@ def test_update_note_changes_notetype():
 
 
 def test_display_fields_health_warning_catches_empty_notes():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     note.fields = []
@@ -764,7 +708,8 @@ def test_slugify_handles_html_tags():
 
 @beartype
 def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
@@ -789,7 +734,6 @@ def test_get_note_path_produces_nonempty_filenames():
     with runner.isolated_filesystem():
         deck_dir: ExtantDir = F.force_mkdir(Path("a"))
 
-
         path: ExtantFile = get_note_path(colnote, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
@@ -798,14 +742,6 @@ def test_get_note_path_produces_nonempty_filenames():
         path: ExtantFile = get_note_path(empty_colnote, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
-
-
-@beartype
-@dataclass(frozen=True)
-class DiffReposArgs:
-    repo: git.Repo
-    parser: Lark
-    transformer: NoteTransformer
 
 
 @beartype
@@ -823,23 +759,29 @@ def get_diff2_args() -> DiffReposArgs:
     This makes ephemeral repositories, so we should make any changes we expect
     to see the results of in `deltas: List[Delta]` *before* calling this
     function. For example, if we wanted to add a note, and then expected to see
-    a `GitChangeType.ADDED`, then we should do that in `REPODIR` before calling
-    this function.
+    a `GitChangeType.ADDED`, then we should do that in `ORIGINAL.repodir`
+    before calling this function.
     """
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
     head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True, verbose=False)
+    remote_repo, _ = _clone(
+        kirepo.col_file, remote_root, msg, silent=True, verbose=False
+    )
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    remote_root: ExtantDir = F.working_dir(remote_repo)
+    remote_repo.close()
+    remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    git_dir: ExtantDir = F.git_dir(remote_repo)
+    remote_repo.close()
+    git_dir: NoPath = F.rmtree(git_dir)
     F.copytree(git_copy, F.test(git_dir))
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
@@ -853,13 +795,13 @@ def get_diff2_args() -> DiffReposArgs:
 
 
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
 
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
@@ -867,6 +809,8 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
@@ -875,13 +819,13 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
 
 
 def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
 
         shutil.copyfile(NOTE_2_PATH, NOTE_2)
         repo = git.Repo(".")
@@ -897,6 +841,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         warnings = [d for d in deltas if isinstance(d, DiffTargetFileNotFoundWarning)]
         assert len(warnings) == 1
         warning = warnings.pop()
@@ -909,10 +855,10 @@ def test_unsubmodule_repo_removes_gitmodules(tmp_path):
     `unsubmodule_repo()`on it remove them? We test this by checking if the
     `.gitmodules` file exists.
     """
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo = get_repo_with_submodules(runner, col_file)
+        repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
         gitmodules_path = Path(repo.working_dir) / ".gitmodules"
         assert gitmodules_path.exists()
         unsubmodule_repo(repo)
@@ -924,12 +870,12 @@ def test_diff2_handles_submodules():
     Does 'diff2()' correctly generate deltas
     when adding submodules and when removing submodules?
     """
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
-        repo = get_repo_with_submodules(runner, col_file)
+        repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
 
-        os.chdir(REPODIR)
+        os.chdir(ORIGINAL.repodir)
 
         args: DiffReposArgs = get_diff2_args()
         deltas: List[Delta] = diff2(
@@ -937,17 +883,19 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         assert len(deltas) == 1
         delta = deltas[0]
         assert delta.status == GitChangeType.ADDED
-        assert "submodule/Default/a.md" in str(delta.path)
+        assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
         # Push changes.
         push(runner)
 
         # Remove submodule.
-        git.rmtree(SUBMODULE_DIRNAME)
+        F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
@@ -957,6 +905,8 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
 
         assert len(deltas) > 0
@@ -966,11 +916,11 @@ def test_diff2_handles_submodules():
 
 def test_backup_is_no_op_when_backup_already_exists(capfd):
     """Do we print a nice message when we backup an already-backed-up file?"""
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
         kirepo: KiRepo = M.kirepo(F.cwd())
         backup(kirepo)
         backup(kirepo)
@@ -979,16 +929,17 @@ def test_backup_is_no_op_when_backup_already_exists(capfd):
 
 
 def test_git_pull():
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
+    EDITED = get_test_collection("edited")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Clone collection in cwd.
-        clone(runner, col_file)
+        clone(runner, ORIGINAL.col_file)
 
         # Edit collection.
-        shutil.copyfile(EDITED_COLLECTION_PATH, col_file)
-        os.chdir(REPODIR)
+        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
 
         # Pull, poorly.
         with pytest.raises(RuntimeError):
@@ -1053,7 +1004,8 @@ def test_create_deck_dir_strips_leading_periods():
 
 
 def test_get_note_payload():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     colnote: ColNote = get_colnote(col, note.id)
     runner = CliRunner()
@@ -1082,16 +1034,16 @@ def test_get_note_payload():
 
 def test_write_repository_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
-    cloned_note_path = os.path.join(MULTIDECK_REPODIR, MULTI_NOTE_PATH)
-    col_file = get_multideck_col_file()
+    cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.test(Path(MULTIDECK_REPODIR))
+        targetdir = F.test(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
-        ki_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
+        ki_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1099,13 +1051,18 @@ def test_write_repository_generates_deck_tree_correctly():
         )
 
         write_repository(
-            col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+            MULTIDECK.col_file,
+            targetdir,
+            leaves,
+            media_dir,
+            silent=False,
+            verbose=False,
         )
 
         # Check that deck directory is created and all subdirectories.
-        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "Default"))
-        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/bb/cc"))
-        assert os.path.isdir(os.path.join(MULTIDECK_REPODIR, "aa/dd"))
+        assert os.path.isdir(os.path.join(MULTIDECK.repodir, "Default"))
+        assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/bb/cc"))
+        assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
 
         # Compute hashes.
         cloned_md5 = F.md5(ExtantFile(cloned_note_path))
@@ -1116,20 +1073,21 @@ def test_write_repository_generates_deck_tree_correctly():
 
 def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
-    col_file = get_html_col_file()
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
-        ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
+        targetdir = F.mkdir(F.test(Path(HTML.repodir)))
+        ki_dir = F.mkdir(F.test(Path(HTML.repodir) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
         write_repository(
-            col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+            HTML.col_file, targetdir, leaves, media_dir, silent=False, verbose=False
         )
 
         note_file = targetdir / "Default" / "あだ名.md"
@@ -1142,13 +1100,14 @@ def test_write_repository_handles_html():
 @beartype
 def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixture):
     """Do errors get forwarded nicdely?"""
-    col_file = get_html_col_file()
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
+    HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.mkdir(F.test(Path(HTML_REPODIR)))
-        ki_dir = F.mkdir(F.test(Path(HTML_REPODIR) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK_REPODIR) / MEDIA))
+        targetdir = F.mkdir(F.test(Path(HTML.repodir)))
+        ki_dir = F.mkdir(F.test(Path(HTML.repodir) / KI))
+        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1160,109 +1119,109 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         )
         with pytest.raises(NoteFieldKeyError) as error:
             write_repository(
-                col_file, targetdir, leaves, media_dir, silent=False, verbose=False
+                HTML.col_file, targetdir, leaves, media_dir, silent=False, verbose=False
             )
         assert "'bad_field_key'" in str(error.exconly())
 
 
 def test_maybe_kirepo_displays_nice_errors(tmp_path):
     """Does a nice error get printed when kirepo metadata is missing?"""
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Case where `.ki/` directory doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
-        git.rmtree(targetdir / KI)
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        F.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/` is a file instead of a directory.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
-        git.rmtree(targetdir / KI)
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        F.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` directory doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "Directory not found" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` is a file instead of a directory.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` is a directory instead of a file.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         os.mkdir(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "A file was expected" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/hashes` file doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / HASHES_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/hashes'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/models` file doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
         os.remove(targetdir / MODELS_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert f"'{MODELS_FILE}'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
-        clone(runner, col_file)
-        targetdir: ExtantDir = F.test(Path(REPODIR))
-        os.remove(col_file)
+        clone(runner, ORIGINAL.col_file)
+        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        os.remove(ORIGINAL.col_file)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.anki2'" in str(error.exconly())
         assert "database" in str(error.exconly())
-        assert "collection.anki2" in str(error.exconly())
-        git.rmtree(targetdir)
+        assert ORIGINAL.filename in str(error.exconly())
+        F.rmtree(targetdir)
 
 
 def test_get_target(tmp_path):
@@ -1330,7 +1289,8 @@ def test_maybe_xfile(tmp_path):
 
 def test_push_decknote_to_anki():
     """Do we print a nice error when a notetype is missing?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
 
     field = "data"
     fields = {"Front": field, "Back": field}
@@ -1351,13 +1311,13 @@ def test_maybe_head_repo_ref():
 
 
 def test_maybe_head_kirepo_ref():
-    col_file = get_col_file()
+    ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Initialize the kirepo *without* committing.
-        os.mkdir("collection")
-        targetdir = F.test(Path("collection"))
+        os.mkdir("original")
+        targetdir = F.test(Path("original"))
         silent = False
         ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
         media_dir = F.mkdir(F.test(targetdir / MEDIA))
@@ -1366,12 +1326,14 @@ def test_maybe_head_kirepo_ref():
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
-        md5sum = F.md5(col_file)
+        md5sum = F.md5(ORIGINAL.col_file)
         ignore_path = targetdir / GITIGNORE_FILE
         ignore_path.write_text(".ki/\n")
-        write_repository(col_file, targetdir, leaves, media_dir, silent, verbose=False)
+        write_repository(
+            ORIGINAL.col_file, targetdir, leaves, media_dir, silent, verbose=False
+        )
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        append_md5sum(ki_dir, col_file.name, md5sum, silent)
+        append_md5sum(ki_dir, ORIGINAL.col_file.name, md5sum, silent)
 
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.test(Path(repo.working_dir)))
@@ -1384,7 +1346,8 @@ def test_maybe_head_kirepo_ref():
 @beartype
 def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
     """Do we print a nice error when a KeyError is raised on note[]?"""
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
 
     field = "data"
     fields = {"Front": field, "Back": field}
@@ -1407,7 +1370,8 @@ def test_parse_notetype_dict():
 
 
 def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     nid = 44444444444444444
     with pytest.raises(MissingNoteIdError) as error:
         get_colnote(col, nid)
@@ -1416,7 +1380,8 @@ def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
 
 @beartype
 def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFixture):
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     mocker.patch("ki.parse_notetype_dict", side_effect=UnnamedNotetypeError(NT))
@@ -1430,7 +1395,8 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(
     mocker: MockerFixture,
 ):
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
-    col = open_collection(get_col_file())
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     with pytest.raises(NoteFieldKeyError) as error:
         get_colnote(col, note.id)
@@ -1462,11 +1428,11 @@ def test_copy_kirepo(tmp_path):
     In this test function, we simulate this possibility by the deleting the
     `.gitignore` file and committing the `.ki` subdirectory.
     """
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
         os.remove(".gitignore")
         kirepo: KiRepo = M.kirepo(F.cwd())
         kirepo.repo.git.add(all=True)
@@ -1495,11 +1461,11 @@ def test_filter_note_path(tmp_path):
 
 
 def test_get_models_recursively(tmp_path):
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
         os.remove(MODELS_FILE)
         with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
             json.dump(MODELS_DICT, models_f, ensure_ascii=False, indent=4)
@@ -1514,11 +1480,11 @@ def test_get_models_recursively(tmp_path):
 def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(
     tmp_path,
 ):
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        clone(runner, col_file)
-        os.chdir(REPODIR)
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
         os.remove(MODELS_FILE)
         with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
             json.dump(NAMELESS_MODELS_DICT, models_f, ensure_ascii=False, indent=4)
@@ -1530,10 +1496,10 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
 
 
 def test_copy_repo_handles_submodules(tmp_path):
-    col_file = get_col_file()
+    ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, col_file)
+        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
 
         os.chdir(repo.working_dir)
 
@@ -1598,14 +1564,14 @@ def test_fmkleaves_handles_collisions(tmp_path):
 
 def test_copy_media_files_returns_nice_errors():
     """Does `copy_media_files()` handle case where media directory doesn't exist?"""
-    col_file: ExtantFile = get_media_col_file()
-    col: Collection = open_collection(col_file)
+    MEDIACOL: SampleCollection = get_test_collection("media")
+    col: Collection = open_collection(MEDIACOL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
         # Remove the media directory.
-        media_dir = col_file.parent / (str(col_file.stem) + ".media")
-        git.rmtree(media_dir)
+        media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
+        F.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
             copy_media_files(col, F.mkdtemp(), silent=True)
@@ -1614,14 +1580,14 @@ def test_copy_media_files_returns_nice_errors():
 
 
 def test_write_repository_displays_missing_media_warnings(capfd):
-    col_file: ExtantFile = get_media_col_file()
+    MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.test(Path(MEDIA_REPODIR))
+        targetdir = F.test(Path(MEDIACOL.repodir))
         targetdir = F.mkdir(targetdir)
-        ki_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / KI))
-        media_dir = F.mkdir(F.test(Path(MEDIA_REPODIR) / MEDIA))
+        ki_dir = F.mkdir(F.test(Path(MEDIACOL.repodir) / KI))
+        media_dir = F.mkdir(F.test(Path(MEDIACOL.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1629,28 +1595,29 @@ def test_write_repository_displays_missing_media_warnings(capfd):
         )
 
         # Remove the contents of the media directory.
-        col_media_dir = F.test(col_file.parent / (str(col_file.stem) + ".media"))
+        col_media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
         for path in col_media_dir.iterdir():
             if path.is_file():
                 os.remove(path)
 
         write_repository(
-            col_file, targetdir, leaves, media_dir, silent=False, verbose=True
+            MEDIACOL.col_file, targetdir, leaves, media_dir, silent=False, verbose=True
         )
 
+        missing = Path(MEDIACOL.media_directory_name) / "1sec.mp3"
         captured = capfd.readouterr()
         assert "Missing or bad media file" in captured.out
-        assert "media.media/1sec.mp3" in captured.out
+        assert str(missing) in captured.out
 
 
 def test_copy_media_files_finds_notetype_media():
     """Does `copy_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
-    col_file: ExtantFile = get_media_col_file()
-    col: Collection = open_collection(col_file)
+    MEDIACOL: SampleCollection = get_test_collection("media")
+    col: Collection = open_collection(MEDIACOL.col_file)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        media, warnings = copy_media_files(col, F.mkdtemp(), silent=True)
+        media, _ = copy_media_files(col, F.mkdtemp(), silent=True)
         media_files: Set[ExtantFile] = set()
         for media_set in media.values():
             media_files = media_files | media_set

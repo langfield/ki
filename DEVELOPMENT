@@ -253,6 +253,32 @@ Generating HTML
 Media (DONE)
 
 
+Subdeck duplication
+-------------------
+Suppose we have a deck A. We clone our collection. Then, from inside Anki, we
+create a new deck B, and move A *inside* B. Then we pull.
+
+We expect to see A *moved* inside B, and only one top-level deck, which is B.
+
+Instead, we have a copy of A at the top-level, *and* a copy of A inside B.
+
+The current pull architecture, ignoring submodules, is that allowing unrelated
+histories, we merge a fresh clone of the database `remote_repo` into a checkout
+of the repository at the revision of the last successful `ki push`, resolving
+merge conflicts in favor of `theirs`, i.e. the remote.
+
+The issue with this is that because we have unrelated histories, `git` cannot
+'see' that the A deck at top-level that doesn't exist in the remote repo is the
+same deck that now appears inside B. It assumes these are distinct entities,
+and keeps them both during the merge.
+
+The solution is to not perform a merge at all. Instead, we annihilate all the
+contents of the staging repository, which is checked-out at revision of last
+`ki push`, and then replace those contents with the raw contents of the remote
+repo. Then we commit those. These will simply look like edits to `git`, and it
+cannot cause a merge conflict because we are not merging anything.
+
+
 Hardening media symlinks
 ------------------------
 Do this in the relevant `_media/` directory:
