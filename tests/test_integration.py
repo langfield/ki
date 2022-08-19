@@ -1853,3 +1853,26 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
         out = push(runner)
         logger.debug(out)
         assert "ki push: up to date." in out
+
+
+def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule():
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    runner = CliRunner()
+    japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
+    with runner.isolated_filesystem():
+
+        JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+        os.chdir(ORIGINAL.repodir)
+
+        # Add a *subrepo* (not submodule).
+        submodule_name = JAPANESE_SUBMODULE_DIRNAME
+        shutil.copytree(japanese_gitrepo_path, submodule_name)
+
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+
+        out = push(runner)
+        assert "'git submodule add'" in out
