@@ -1943,6 +1943,12 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
 
         repo = git.Repo(".")
         logger.debug(os.path.abspath("."))
+        p = subprocess.run(["git", "status"], capture_output=True, encoding="UTF-8")
+        logger.debug(p.stdout)
+        logger.debug(p.stderr)
+        p = subprocess.run(["git", "ls-tree", "HEAD"], capture_output=True, encoding="UTF-8")
+        logger.debug(p.stdout)
+        logger.debug(p.stderr)
         p = subprocess.run(["git", "add", "--all"], capture_output=True, encoding="UTF-8")
         logger.debug(p.stdout)
         logger.debug(p.stderr)
