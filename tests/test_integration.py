@@ -1925,11 +1925,11 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
         assert "ki push: up to date." in out
 
 
-def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule():
+def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
@@ -1942,7 +1942,14 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
         shutil.copytree(japanese_gitrepo_path, submodule_name)
 
         repo = git.Repo(".")
-        repo.git.add(all=True)
+        logger.debug(os.path.abspath("."))
+        p = subprocess.run(["git", "add", "--all"], capture_output=True, encoding="UTF-8")
+        logger.debug(p.stdout)
+        logger.debug(p.stderr)
+        assert "hint" in p.stderr
+        raise RuntimeError
+        out = repo.git.add(all=True)
+        logger.debug(out)
         repo.index.commit("Add subrepo.")
 
         out = push(runner)
