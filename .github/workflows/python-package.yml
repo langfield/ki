@@ -17,6 +17,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
       - if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get install tidy
