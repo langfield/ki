@@ -593,8 +593,15 @@ class DiffTargetFileNotFoundWarning(Warning):
     @beartype
     def __init__(self, path: Path):
         top = f"Diff target file not found: '{path}'"
-        msg = """
-        Unexpected: this may indicate a bug in ki. The caller prevents this
+        msg1 = """
+        Unexpected: this sometimes happens when a git repository is copied into
+        a subdirectory of a ki repository, and then added with 'git add'
+        instead of being added as a git submodule with 'git submodule add'. If
+        git displayed a warning on a recent 'git add' command, refer to the
+        hints within that warning.
+        """
+        msg2 = """
+        Otherwise, this may indicate a bug in ki.  The caller prevents this
         warning from being instantiated unless the git change type is one of
         'ADDED', 'MODIFIED', or 'RENAMED'. In all cases, the file being diffed
         should be extant in the target commit of the repository.  However, we
@@ -602,7 +609,7 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
         """
-        super().__init__(f"{top}\n{errwrap(msg)}")
+        super().__init__(f"{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}")
 
 
 class MissingMediaFileWarning(Warning):
