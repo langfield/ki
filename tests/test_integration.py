@@ -1877,3 +1877,26 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
             repo.index.commit("Add subrepo.")
             out = push(runner)
             assert "'git submodule add'" in out
+
+
+def test_push_handles_tags_containing_trailing_commas():
+    COMMAS: SampleCollection = get_test_collection("commas")
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, COMMAS.col_file)
+        os.chdir(COMMAS.repodir)
+
+        c_file = Path("Default") / "c.md"
+        with open(c_file, "r", encoding="UTF-8") as read_f:
+            contents = read_f.read().replace("tag2", "tag3")
+            with open(c_file, "w", encoding="UTF-8") as write_f:
+                write_f.write(contents)
+
+        repo = git.Repo(".")
+        repo.git.add(all=True)
+        repo.index.commit("e")
+        repo.close()
+
+        push(runner)

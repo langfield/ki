@@ -882,7 +882,8 @@ def get_header_lines(colnote) -> List[str]:
         f"nid: {colnote.n.id}",
         f"model: {colnote.notetype.name}",
     ]
-    lines += [f"tags: {', '.join(colnote.n.tags)}"]
+    tags = [tag.replace(",", "") for tag in colnote.n.tags]
+    lines += [f"tags: {', '.join(tags)}"]
 
     # TODO: There is almost certainly a bug here, since when the sentinel
     # *does* appear, we don't add a `markdown` field at all, but it is required
