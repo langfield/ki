@@ -323,10 +323,17 @@ class StrangeExtantPathError(Exception):
 class ExpectedNonexistentPathError(FileExistsError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
-        msg = f"""
+        top = f"""
         Expected this path not to exist, but it does: '{path}'{info.rstrip()}
         """
-        super().__init__(errwrap(msg))
+        msg = """
+        If the path is to the `.ki/` metadata directory, this error may have
+        been caused by a `.gitignore` file that does not include `.ki/` (this
+        metadata should not be tracked by git). Check if this pattern is
+        included in the `.gitignore` file, and if it is not included, try
+        adding it.
+        """
+        super().__init__(f"{top}\n\n{errwrap(msg)}")
 
 
 class NotKiRepoError(Exception):
