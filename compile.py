@@ -9,6 +9,7 @@ import argparse
 import unicodedata
 
 from beartype import beartype
+from beartype.typing import List, Dict
 
 # pylint: disable=unused-import
 import anki.collection
@@ -40,7 +41,7 @@ class AnkiPackageExporter(AnkiExporter):
 
     # pylint: disable=arguments-differ
     @beartype
-    def doExport(self, z: zipfile.ZipFile, path: str) -> dict[str, str]:
+    def doExport(self, z: zipfile.ZipFile, path: str) -> Dict[str, str]:
         """Actually do the exporting."""
         # Export into an anki2 file.
         colfile = path.replace(".apkg", ".anki2")
@@ -59,7 +60,8 @@ class AnkiPackageExporter(AnkiExporter):
 
 
 @beartype
-def export_media(z: zipfile.ZipFile, files: list[str], fdir: str) -> dict[str, str]:
+def export_media(z: zipfile.ZipFile, files: List[str], fdir: str) -> Dict[str, str]:
+    """Export media files to a given zipfile object."""
     media = {}
     for i, file in enumerate(files):
         file = hooks.media_file_filter(file)
@@ -83,10 +85,9 @@ def main() -> None:
     parser.add_argument("--collection")
     parser.add_argument("--deck")
     args: argparse.Namespace = parser.parse_args()
+
     col = Collection(args.collection)
-
     did = col.decks.id(args.deck)
-
     exporter = AnkiPackageExporter(col)
 
     # pylint: disable=invalid-name
@@ -98,8 +99,8 @@ def main() -> None:
     exporter.cids = None
     exporter.did = did
 
-    deck_name = re.sub('[\\\\/?<>:*|"^]', "_", args.deck)
-    filename = f"{deck_name}{exporter.ext}"
+    deckname = re.sub('[\\\\/?<>:*|"^]', "_", args.deck)
+    filename = f"{deckname}{exporter.ext}"
     file = os.path.normpath(filename)
     exporter.exportInto(file)
 
