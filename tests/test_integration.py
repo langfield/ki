@@ -1873,6 +1873,7 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
 
         repo = git.Repo(".")
         repo.git.add(all=True)
+        repo.index.commit("Add subrepo.")
 
         out = push(runner)
         assert "'git submodule add'" in out
