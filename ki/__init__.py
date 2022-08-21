@@ -587,6 +587,9 @@ def plain_to_html(plain: str) -> str:
     plain = re.sub(r"\<i\>\s*\<\/i\>", "", plain)
     plain = re.sub(r"\<div\>\s*\<\/div\>", "", plain)
 
+    # Strip double quotes from `src` attributes with newlines within HTML tags.
+    plain = re.sub('src=\n"(\\S+)"', "src=\n\\1", plain)
+
     # Convert newlines to `<br>` tags.
     if not re.search(HTML_REGEX, plain):
         plain = plain.replace("\n", "<br>")
