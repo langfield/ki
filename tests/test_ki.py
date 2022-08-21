@@ -1092,7 +1092,6 @@ def test_write_repository_handles_html():
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
-        logger.debug(contents)
 
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents
 
@@ -1505,7 +1504,6 @@ def test_copy_repo_handles_submodules(tmp_path):
 
         # Edit a file within the submodule.
         file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'z' to file '{file}'")
         with open(file, "a", encoding="UTF-8") as note_f:
             note_f.write("\nz\n")
 

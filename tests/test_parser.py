@@ -632,7 +632,6 @@ def test_empty_field_preserves_extra_newlines():
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     flatnote = transformer.transform(tree)
-    logger.debug(flatnote)
     assert flatnote.fields["a"] == "\n"
 
 
@@ -755,7 +754,6 @@ def test_parser_goods():
         try:
             parser.parse(good)
         except UnexpectedToken as err:
-            logger.error(f"\n{good}")
             raise err
 
 
@@ -778,7 +776,6 @@ def test_transformer_goods():
             tree = parser.parse(good)
             transformer.transform(tree)
         except (UnexpectedToken, VisitError) as err:
-            logger.error(f"\n{good}")
             raise err
 
 
