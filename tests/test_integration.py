@@ -825,6 +825,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
             pull(runner)
 
 
+@pytest.mark.xfail
 def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
     """UNFINISHED!"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -839,6 +840,36 @@ def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
 
         # Get a reference to the submodule repo.
         subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+
+        # Commit changes in submodule and parent repo.
+        subrepo.git.add(all=True)
+        subrepo.index.commit("Add a new note.")
+        repo.git.add(all=True)
+        repo.index.commit("Update submodule.")
+
+        out = push(runner, verbose=True)
+
+        # Edit collection (implicitly removes submodule).
+        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
+
+        out = pull(runner)
+        raise NotImplementedError
+
+
+def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        os.chdir(repo.working_dir)
+
+        # Copy a new note into the submodule.
+        note_path = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        shutil.copyfile(NOTE_2_PATH, note_path)
+
+        # Get a reference to the submodule repo.
+        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+        subrepo.git.branch(["-m", "main", "brain"])
 
         # Commit changes in submodule and parent repo.
         subrepo.git.add(all=True)
