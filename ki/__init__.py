@@ -588,7 +588,7 @@ def plain_to_html(plain: str) -> str:
     plain = re.sub(r"\<div\>\s*\<\/div\>", "", plain)
 
     # Strip double quotes from `src` attributes with newlines within HTML tags.
-    plain = re.sub('src=\n"(\\S+)"', "src=\n\\1", plain)
+    plain = re.sub('src= ?\n"(\\S+)"', "src=\n\\1", plain)
 
     # Convert newlines to `<br>` tags.
     if not re.search(HTML_REGEX, plain):
@@ -2067,6 +2067,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo.git.add(all=True)
             sm_repo.index.commit(msg)
 
+    # Get active branches of each submodule.
+    sm_branches: Dict[Path, str] = {}
+    for sm_rel_root, sm_repo in subrepos.items():
+        try:
+            sm_branches[sm_rel_root] = sm_repo.active_branch.name
+        except TypeError:
+            head: git.Head = next(iter(sm_repo.branches))
+            sm_branches[sm_rel_root] = head.name
+
     # TODO: What if a submodule was deleted (or added) entirely?
     #
     # New commits in submodules within `last_push_repo` are be pulled into the
@@ -2082,15 +2091,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
+                branch: str = sm_branches[sm_rel_root]
 
-                # TODO: What is contained in this branch that isn't already in
-                # `BRANCH_NAME`?
+                # TODO: What's in `upstream` that isn't already in `branch`?
                 remote_sm.git.branch("upstream")
 
                 # Simulate a `git merge --strategy=theirs upstream`.
                 remote_sm.git.checkout(["-b", "tmp", "upstream"])
-                remote_sm.git.merge(["-s", "ours", BRANCH_NAME])
-                remote_sm.git.checkout(BRANCH_NAME)
+                remote_sm.git.merge(["-s", "ours", branch])
+                remote_sm.git.checkout(branch)
                 remote_sm.git.merge("tmp")
                 remote_sm.git.branch(["-D", "tmp"])
 
@@ -2098,7 +2107,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,
-                    BRANCH_NAME,
+                    branch,
                     F.working_dir(sm_repo),
                     False,
                     False,
