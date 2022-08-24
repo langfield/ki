@@ -636,6 +636,19 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         assert os.path.isfile(Path(SPLIT.repodir) / "top" / "a" / "a.md")
 
 
+def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
+    DOUBLE: SampleCollection = get_test_collection("no_double_encodings")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        clone(runner, DOUBLE.col_file)
+
+        os.chdir(DOUBLE.repodir)
+        path = Path("DeepLearning for CV") / "list-some-pros-and-cons-of-dl.md"
+        with open(path, "r", encoding="UTF-8") as f:
+            contents: str = f.read()
+        assert "<img src=\"Screenshot 2019-05-01 at 14.40.56.png\">" in contents
+
+
 # PULL
 
 
@@ -1892,4 +1905,4 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         col = Collection(BROKEN.col_file)
         escaped: str = col.media.escape_media_filenames(back)
         col.close()
-        assert "<img src=%0Apaste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg>" in escaped
+        assert "<img src=\"paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg\">" in escaped
