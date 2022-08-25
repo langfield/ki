@@ -587,9 +587,6 @@ def plain_to_html(plain: str) -> str:
     plain = re.sub(r"\<i\>\s*\<\/i\>", "", plain)
     plain = re.sub(r"\<div\>\s*\<\/div\>", "", plain)
 
-    # Strip double quotes from `src` attributes with newlines within HTML tags.
-    plain = re.sub('src= ?\n"(\\S+)"', "src=\n\\1", plain)
-
     # Convert newlines to `<br>` tags.
     if not re.search(HTML_REGEX, plain):
         plain = plain.replace("\n", "<br>")
@@ -910,6 +907,8 @@ def files_in_str(
             fname = match.group("fname")
             is_local = not re.match("(https?|ftp)://", fname.lower())
             if is_local or include_remote:
+                fname = fname.strip()
+                fname = fname.replace('"', "")
                 files.append(fname)
     return files
 
@@ -1385,6 +1384,9 @@ def html_to_screen(html: str) -> str:
     plain = plain.replace("<br/>", "\n")
     plain = plain.replace("<br />", "\n")
 
+    # Unbreak lines within src attributes.
+    plain = re.sub("src= ?\n\"", "src=\"", plain)
+
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
 
@@ -1436,7 +1438,9 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
         lines.append("### " + field_name)
-        lines.append(html_to_screen(field_text))
+        screen_text = html_to_screen(field_text)
+        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
+        lines.append(text)
         lines.append("")
 
     return "\n".join(lines)
