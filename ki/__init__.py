@@ -907,6 +907,7 @@ def files_in_str(
             fname = match.group("fname")
             is_local = not re.match("(https?|ftp)://", fname.lower())
             if is_local or include_remote:
+                fname = fname.strip()
                 files.append(fname)
     return files
 
