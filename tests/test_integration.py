@@ -969,6 +969,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
         # Pull changes from collection to root ki repository.
         out = pull(runner)
         assert "fatal: remote error: " not in out
+        assert "CONFLICT" not in out
 
         with open(
             Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8"
