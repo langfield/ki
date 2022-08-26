@@ -340,8 +340,6 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
 @beartype
 def is_anki_note(path: ExtantFile) -> bool:
     """Check if file is an `apy`-style markdown anki note."""
-    path = str(path)
-
     # Ought to have markdown file extension.
     if path.suffix != ".md":
         return False
@@ -723,7 +721,7 @@ def plain_to_html(plain: str) -> str:
 @beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
-) -> Tuple[Note, List[Warning]]:
+) -> List[Warning]:
     """
     Change all the data of `note` to that given in `decknote`.
 
@@ -796,7 +794,7 @@ def update_note(
         note.col.remove_notes([note.id])
         warnings.append(UnhealthyNoteWarning(note.id, health))
 
-    return note, warnings
+    return warnings
 
 
 @beartype
@@ -954,7 +952,7 @@ def push_note(
     timestamp_ns: int,
     guids: Dict[str, NoteMetadata],
     new_nids: Iterator[int],
-) -> Tuple[ColNote, List[Warning]]:
+) -> List[Warning]:
     """
     Update the Anki `Note` object in `col` corresponding to `decknote`,
     creating it if it does not already exist.
@@ -973,7 +971,6 @@ def push_note(
     if model_id is None:
         raise MissingNotetypeError(decknote.model)
 
-    new = False
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
         note: Note = col.get_note(nid)
@@ -993,32 +990,15 @@ def push_note(
             flags=0,
             data="",
         )
-        new = True
 
     # If we are updating an existing note, we need to know the old and new
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
     old_notetype: Notetype = parse_notetype_dict(note.note_type())
     new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    note, warnings = update_note(note, decknote, old_notetype, new_notetype)
+    warnings = update_note(note, decknote, old_notetype, new_notetype)
 
-    # Get the text of the sort field for this note.
-    try:
-        sortf_text: str = note[new_notetype.sortf.name]
-    except KeyError as err:
-        raise NoteFieldKeyError(str(err), note.id) from err
-
-    colnote = ColNote(
-        n=note,
-        new=new,
-        deck=decknote.deck,
-        title=decknote.title,
-        old_nid=decknote.nid,
-        markdown=decknote.markdown,
-        notetype=new_notetype,
-        sortf_text=sortf_text,
-    )
-    return colnote, warnings
+    return warnings
 
 
 @beartype
@@ -1045,7 +1025,6 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
         new=False,
         deck=deck,
         title="",
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -2506,8 +2485,7 @@ def push_deltas(
         # regenerate the file. Recall that the sort field is used to determine
         # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote, note_warnings = push_note(col, decknote, timestamp_ns, guids, new_nids)
-        warnings += note_warnings
+        warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
 
     num_displayed: int = 0
     for warning in warnings:

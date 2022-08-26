@@ -4,9 +4,11 @@ import os
 import gc
 import sys
 import json
+import time
 import random
 import shutil
 import tempfile
+import itertools
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -22,7 +24,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype
-from beartype.typing import List, Union, Set
+from beartype.typing import List, Union, Set, Iterator
 
 import ki
 import ki.maybes as M
@@ -719,7 +721,6 @@ def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
         new=False,
         deck=deck,
         title="",
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -1295,8 +1296,9 @@ def test_push_note():
     field = "data"
     fields = {"Front": field, "Back": field}
     decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(MissingNotetypeError) as error:
-        push_note(col, decknote)
+        push_note(col, decknote, time.time_ns(), {}, new_nids)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1353,8 +1355,9 @@ def test_push_note_handles_note_key_errors(mocker: MockerFixture):
     fields = {"Front": field, "Back": field}
     decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(NoteFieldKeyError) as error:
-        push_note(col, decknote)
+        push_note(col, decknote, time.time_ns(), {}, new_nids)
     assert "Expected field" in str(error.exconly())
     assert "'bad_field_key'" in str(error.exconly())
 
