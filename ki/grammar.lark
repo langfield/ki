@@ -2,7 +2,7 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ NOTE ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``note`` is a group of exactly 1 ``header`` and at least 1 ``field``.
-note: header "\n" field* terminalfield
+note: header "\n" tags "\n" field* terminalfield
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ FIELD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -13,21 +13,21 @@ field: fieldheader (EMPTYFIELD | FIELDLINE+)
 terminalfield: fieldheader (EMPTYFIELD | FIELDLINE+)
 fieldheader: FIELDSENTINEL " "* ANKINAME "\n"
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
-FIELDSENTINEL: "###"
+FIELDSENTINEL: "##"
 EMPTYFIELD: "\n"+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // A ``header`` is sequence of metadata rules, all required.
-header: (title GUID MODEL tags)
+header: (title TRIPLEBACKTICKS GUID NOTETYPE TRIPLEBACKTICKS)
 
 
 // === TITLE ===
 
 // Titles are alphameric + some limited punctuation, and must start with a
 // nonspace char. Exactly 1 space between #s and start-of-title.
-title: "##" TITLENAME "\n"+
+title: "#" TITLENAME "\n"+
 TITLENAME: TITLECHAR (" " | TITLECHAR)*
 TITLECHAR: /[a-zA-Z0-9_-]/
 
@@ -35,12 +35,12 @@ TITLECHAR: /[a-zA-Z0-9_-]/
 // === GUID ====
 
 // GUID field is allowed to be empty.
-GUID: "guid:" " "* INT? "\n"+
+GUID: "guid:" " "* INT? "\n"
 
 
-// === MODEL ===
+// = NOTETYPE ==
 
-MODEL: "model:" " "* ANKINAME "\n"+
+NOTETYPE: "notetype:" " "* ANKINAME "\n"
 
 
 // === TAGS ====
@@ -48,8 +48,8 @@ MODEL: "model:" " "* ANKINAME "\n"+
 // A ``tags`` object is allowed to be empty.
 // We do NOT check that tags do not contain whitespace, because this is
 // difficult.
-tags: ("tags:" [TAGNAME ("," TAGNAME)*]) "\n"+
-TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
+tags: ("### Tags\n" TRIPLEBACKTICKS [TAGNAME ("\n" TAGNAME)* "\n"] TRIPLEBACKTICKS)
+TAGNAME: /[^\s\0\x07\x08\x0b\x0c`"]/+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ COMMON ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -61,6 +61,7 @@ TAGNAME: /[^\s\0\x07\x08\x0b\x0c",]/+
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
+TRIPLEBACKTICKS: "```\n"
 
 
 // === IMPORTS ===

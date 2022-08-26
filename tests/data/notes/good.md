@@ -113,7 +113,11 @@ s
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 r
@@ -126,7 +130,11 @@ s
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 r
@@ -139,7 +147,11 @@ s
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 r
@@ -152,7 +164,11 @@ s
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 
@@ -164,7 +180,11 @@ tags:
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 r
@@ -177,7 +197,11 @@ s
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## a
 
@@ -223,7 +247,11 @@ tags:
 ```
 guid:
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## a
 
@@ -269,7 +297,11 @@ tags:
 ```
 guid: 123412341234
 notetype: Basic
-tags:
+```
+
+### Tags
+```
+```
 
 ## Front
 <!doctype html>
