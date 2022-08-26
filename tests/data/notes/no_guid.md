@@ -1,6 +1,5 @@
 # Note
 ```
-guid: 1234123412341234
 notetype: Basic
 ```
 
@@ -9,7 +8,7 @@ notetype: Basic
 ```
 
 ## Front
-s
+r
 
 ## Back
-t
+s

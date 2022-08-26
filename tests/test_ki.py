@@ -1298,7 +1298,7 @@ def test_push_note():
     decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
     new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(MissingNotetypeError) as error:
-        push_note(col, decknote, time.time_ns(), {}, new_nids)
+        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1357,7 +1357,7 @@ def test_push_note_handles_note_key_errors(mocker: MockerFixture):
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(NoteFieldKeyError) as error:
-        push_note(col, decknote, time.time_ns(), {}, new_nids)
+        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
     assert "Expected field" in str(error.exconly())
     assert "'bad_field_key'" in str(error.exconly())
 

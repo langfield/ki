@@ -1,13 +1,17 @@
-## Note
-nid: 1651255816756
-model: Basic
-tags: 
-markdown: false
+# Note
+```
+guid: 1651255816756
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 air
 
-### Back
+## Back
 <!DOCTYPE html>
 <title></title>
 <img src="bullhorn-lg.png">

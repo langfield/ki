@@ -981,7 +981,7 @@ def push_note(
             nid,
             decknote.guid,
             model_id,
-            mod=timestamp_ns // 1e9,
+            mod=int(timestamp_ns // 1e9),
             usn=-1,
             tags=decknote.tags,
             fields=[],
