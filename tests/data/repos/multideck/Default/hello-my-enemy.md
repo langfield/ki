@@ -1,11 +1,15 @@
-## Note
+# Note
+```
 nid: 1645788806304
-model: Basic
-tags: 
-markdown: false
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 hello my enemy
 
-### Back
+## Back
 goodbye

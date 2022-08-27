@@ -339,17 +339,19 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
 
 @beartype
 def is_anki_note(path: ExtantFile) -> bool:
-    """Check if file is an `apy`-style markdown anki note."""
+    """Check if file is a `ki`-style markdown note."""
     # Ought to have markdown file extension.
     if path.suffix != ".md":
         return False
     with open(path, "r", encoding="UTF-8") as md_f:
         lines = md_f.readlines()
-    if len(lines) < 2:
+    if len(lines) < 8:
         return False
-    if lines[0] != "## Note\n":
+    if lines[0] != "# Note\n":
         return False
-    if not re.match(r"^guid: ", lines[1]):
+    if lines[1] != "```\n":
+        return False
+    if not re.match(r"^guid: ", lines[2]):
         return False
     return True
 
@@ -694,7 +696,6 @@ def parse_markdown_note(
         deck=deck,
         model=flatnote.model,
         tags=flatnote.tags,
-        markdown=flatnote.markdown,
         fields=flatnote.fields,
     )
 
@@ -772,7 +773,7 @@ def update_note(
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
     if len(warnings) > 0:
-        return note, warnings
+        return warnings
 
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
@@ -781,8 +782,6 @@ def update_note(
         if key not in note:
             warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
             continue
-        if decknote.markdown:
-            logger.warning("The 'markdown' flag is deprecated (now always 'False').")
         note[key] = plain_to_html(field)
 
     # Flush fields to collection object.
@@ -914,7 +913,7 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
 def add_db_note(
     col: Collection,
     nid: int,
-    guid: int,
+    guid: str,
     mid: int,
     mod: int,
     usn: int,

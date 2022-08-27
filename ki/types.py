@@ -108,11 +108,10 @@ class DeckNote:
     """Flat (as possible) representation of a note, but with deck."""
 
     title: str
-    guid: int
+    guid: str
     deck: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]
 
 
@@ -422,7 +421,7 @@ class NotetypeMismatchError(Exception):
     @beartype
     def __init__(self, decknote: DeckNote, new_notetype: Notetype):
         msg = f"Notetype '{decknote.model}' "
-        msg += f"specified in DeckNote with nid '{decknote.nid}' "
+        msg += f"specified in DeckNote with GUID '{decknote.guid}' "
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
@@ -547,7 +546,7 @@ class WrongFieldCountWarning(Warning):
         top = f"Warning: Wrong number of fields for model '{decknote.model}'"
         msg = f"""
         The notetype '{decknote.model}' takes '{len(names)}' fields, but got
-        '{len(decknote.fields.keys())}' for note '{decknote.nid}'.
+        '{len(decknote.fields.keys())}' for note with GUID '{decknote.guid}'.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
 
@@ -558,7 +557,7 @@ class InconsistentFieldNamesWarning(Warning):
         top = f"Warning: Inconsistent field names ('{x}' != '{y}')"
         msg = f"""
         Expected a field '{x}' for notetype '{decknote.model}', but got a field
-        '{y}' in note '{decknote.nid}'.
+        '{y}' in note with GUID '{decknote.guid}'.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
 

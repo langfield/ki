@@ -1,11 +1,15 @@
-## Note
+# Note
+```
 nid: 1645985891945
-model: Basic
-tags: 
-markdown: false
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 dd
 
-### Back
+## Back
 dd
