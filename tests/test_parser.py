@@ -614,15 +614,14 @@ s
 """
 
 
-@pytest.mark.skip
 def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
     err = exc.value
-    assert err.line == 8
+    assert err.line == 12
     assert err.column == 1
-    assert err.token == "###"
+    assert err.token == "##"
     assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
 
 
@@ -643,7 +642,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_empty_field_with_only_one_newline_raises_error():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -691,7 +689,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_empty_field_with_at_least_two_newlines_parse():
     """
     Do empty fields with at least two newlines get parsed and transformed OK?
@@ -706,7 +703,6 @@ def test_empty_field_with_at_least_two_newlines_parse():
     transformer.transform(tree)
 
 
-@pytest.mark.skip
 def test_empty_field_preserves_extra_newlines():
     """
     Are newlines beyond the 2 needed for padding preserved in otherwise-empty
@@ -716,7 +712,6 @@ def test_empty_field_preserves_extra_newlines():
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     flatnote = transformer.transform(tree)
-    logger.debug(flatnote)
     assert flatnote.fields["a"] == "\n"
 
 
@@ -738,7 +733,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_last_field_only_needs_one_trailing_empty_line():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -763,14 +757,13 @@ r
 s"""
 
 
-@pytest.mark.skip
 def test_last_field_needs_one_trailing_newline():
     parser = get_parser()
     NoteTransformer()
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
     err = exc.value
-    assert err.line == 11
+    assert err.line == 15
     assert err.column == 1
     assert err.token == "s"
     assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
@@ -798,7 +791,6 @@ s
 """
 
 
-@pytest.mark.skip
 def test_last_field_newlines_are_preserved():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -828,31 +820,29 @@ s
 BAD_TAG_CHARS = ['"', "\u3000", " "] + BAD_ASCII_CONTROLS
 
 
-@pytest.mark.skip
 def test_tag_validation():
     """Do ascii control characters and quotes in tag names raise an error?"""
     template = TAG_VALIDATION
     parser = get_parser()
     for char in BAD_TAG_CHARS:
-        tags = f"subtle, {char}, heimdall"
+        tags = f"subtle\n{char}\nheimdall"
         note = template.replace("@@@@@", tags)
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 4
-        assert err.column in (15, 16)
+        assert err.line == 10
+        assert err.column in (1, 2)
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
-        assert str(prev) == ","
+        assert str(prev) == "\n"
         if isinstance(err, UnexpectedToken):
-            remainder = ",".join(tags.split(",")[1:]) + "\n"
+            remainder = "\n".join(tags.split("\n")[1:]) + "\n"
             assert err.token in remainder
-            assert err.expected == set(["TAGNAME"])
+            assert err.expected == set(["TAGNAME", "TRIPLEBACKTICKS"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 
 
-@pytest.mark.skip
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
@@ -865,7 +855,6 @@ def test_parser_goods():
             raise err
 
 
-@pytest.mark.skip
 def test_transformer():
     """Try out transformer."""
     parser = get_parser()
@@ -875,7 +864,6 @@ def test_transformer():
     transformer.transform(tree)
 
 
-@pytest.mark.skip
 def test_transformer_goods():
     """Try all good note examples."""
     parser = get_parser()

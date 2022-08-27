@@ -16,6 +16,8 @@ from beartype.typing import (
 
 # pylint: disable=invalid-name, too-few-public-methods
 
+BACKTICKS = "```\n"
+
 
 @beartype
 @dataclass(frozen=True)
@@ -35,7 +37,6 @@ class FlatNote:
     guid: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]
 
 
@@ -47,8 +48,6 @@ class Header:
     title: str
     guid: str
     model: str
-    tags: List[str]
-    markdown: bool
 
 
 class NoteTransformer(Transformer):
@@ -58,7 +57,7 @@ class NoteTransformer(Transformer):
         title     Note
         guid: 123412341234
 
-        model: Basic
+        notetype: Basic
 
         tags      None
 
@@ -79,11 +78,12 @@ class NoteTransformer(Transformer):
     # pylint: disable=no-self-use, missing-function-docstring
 
     @beartype
-    def note(self, n: List[Union[Header, Field]]) -> FlatNote:
-        assert len(n) >= 2
+    def note(self, n: List[Union[Header, List[str], Field]]) -> FlatNote:
+        assert len(n) >= 3
 
         header = n[0]
-        fields = n[1:]
+        tags = n[1]
+        fields = n[2:]
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
@@ -95,13 +95,13 @@ class NoteTransformer(Transformer):
             title=header.title,
             guid=header.guid,
             model=header.model,
-            tags=header.tags,
-            markdown=header.markdown,
+            tags=tags,
             fields=fieldmap,
         )
 
     @beartype
-    def header(self, h: List[Union[str, int, bool, List[str]]]) -> Header:
+    def header(self, h: List[str]) -> Header:
+        h = filter(lambda s: s != BACKTICKS, h)
         return Header(*h)
 
     @beartype
@@ -112,6 +112,7 @@ class NoteTransformer(Transformer):
 
     @beartype
     def tags(self, tags: List[Optional[str]]) -> List[str]:
+        tags = filter(lambda t: t != BACKTICKS, tags)
         return [tag for tag in tags if tag is not None]
 
     @beartype
@@ -146,15 +147,9 @@ class NoteTransformer(Transformer):
         return re.sub(r"^guid:", "", str(t)).strip()
 
     @beartype
-    def MODEL(self, t: Token) -> str:
-        model = re.sub(r"^model:", "", str(t)).strip()
+    def NOTETYPE(self, t: Token) -> str:
+        model = re.sub(r"^notetype:", "", str(t)).strip()
         return model
-
-    @beartype
-    def MARKDOWN(self, t: Token) -> bool:
-        md = re.sub(r"^markdown:", "", str(t)).strip()
-        assert md in ("true", "false")
-        return md == "true"
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
@@ -174,4 +169,8 @@ class NoteTransformer(Transformer):
 
     @beartype
     def TAGNAME(self, t: Token) -> str:
+        return str(t)
+
+    @beartype
+    def TRIPLEBACKTICKS(self, t: Token) -> str:
         return str(t)
