@@ -526,6 +526,18 @@ class MissingTidyExecutableError(FileNotFoundError):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
+class AnkiDBNoteMissingFieldsError(RuntimeError):
+    @beartype
+    def __init__(self, decknote: DeckNote, nid: int, key: str):
+        top = f"fatal: Note with GUID '{decknote.guid}' missing DB field '{key}'"
+        msg = f"""
+        This is strange, should only happen if the `add_db_note()` call fails
+        or behaves strangely. This may indicate a bug in ki. Please report this
+        on GitHub at https://github.com/langfield/ki/issues. Note ID: '{nid}'.
+        """
+        super().__init__(f"{top}\n\n{errwrap(msg)}")
+
+
 # WARNINGS
 
 

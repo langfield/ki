@@ -54,6 +54,7 @@ from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
 from anki.errors import NotFoundError
 from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
+from anki.importing.noteimp import NoteImporter
 
 from beartype import beartype
 from beartype.typing import (
@@ -119,6 +120,7 @@ from ki.types import (
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
     MissingTidyExecutableError,
+    AnkiDBNoteMissingFieldsError,
 )
 from ki.maybes import (
     GIT,
@@ -782,7 +784,10 @@ def update_note(
         if key not in note:
             warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
             continue
-        note[key] = plain_to_html(field)
+        try:
+            note[key] = plain_to_html(field)
+        except IndexError as err:
+            raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
 
     # Flush fields to collection object.
     note.flush()
@@ -925,21 +930,23 @@ def add_db_note(
     data: str,
 ) -> Note:
     """Add a note to the database directly, with a SQL INSERT."""
-    col.db.execute(
-        "INSERT INTO notes VALUES(?,?,?,?,?,?,?,?,?,?,?);",
-        (
-            nid,
-            guid,
-            mid,
-            mod,
-            usn,
-            " " + " ".join(tags) + " ",
-            "\x1f".join(fields),
-            sfld,
-            csum,
-            flags,
-            data,
-        ),
+    importer = NoteImporter(col, "")
+    importer.addNew(
+        [
+            (
+                nid,
+                guid,
+                mid,
+                mod,
+                usn,
+                " " + " ".join(tags) + " ",
+                "\x1f".join(fields),
+                sfld,
+                csum,
+                flags,
+                data,
+            )
+        ]
     )
     return col.get_note(nid)
 
@@ -983,7 +990,7 @@ def push_note(
             mod=int(timestamp_ns // 1e9),
             usn=-1,
             tags=decknote.tags,
-            fields=[],
+            fields=list(decknote.fields.values()),
             sfld="",
             csum=0,
             flags=0,
