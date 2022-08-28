@@ -35,7 +35,7 @@ TITLECHAR: /[a-zA-Z0-9_-]/
 // === GUID ====
 
 // GUID field is allowed to be empty.
-GUID: "guid:" " "* INT? "\n"
+GUID: "guid:" " "* (ANKICHAR*)? "\n"
 
 
 // = NOTETYPE ==

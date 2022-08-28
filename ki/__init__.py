@@ -1039,12 +1039,17 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
 def get_header_lines(colnote) -> List[str]:
     """Get header of markdown representation of note."""
     lines = [
-        "## Note",
+        "# Note",
+        "```",
         f"guid: {colnote.n.guid}",
-        f"model: {colnote.notetype.name}",
+        f"notetype: {colnote.notetype.name}",
+        "```",
+        "",
+        "### Tags",
+        "```",
     ]
-    lines += [f"tags: {', '.join(colnote.n.tags)}"]
-    lines += [""]
+    lines += colnote.n.tags
+    lines += ["```", ""]
     return lines
 
 
@@ -1584,7 +1589,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
 
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
-        lines.append("### " + field_name)
+        lines.append("## " + field_name)
         lines.append(html_to_screen(field_text))
         lines.append("")
 

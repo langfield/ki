@@ -909,10 +909,11 @@ def test_diff2_handles_submodules():
         )
         del args
         gc.collect()
-        warnings = [d for d in deltas if isinstance(d, Warning)]
         deltas = [d for d in deltas if isinstance(d, Delta)]
 
-        logger.debug(warnings)
+        # We expect the following delta (GitChangeType.RENAMED):
+        #
+        # DEBUG    | ki:diff2:389 - submodule/Default/a.md -> Default/a.md
 
         assert len(deltas) > 0
         for delta in deltas:
@@ -1037,13 +1038,13 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
-def test_write_repository_generates_deck_tree_correctly():
+def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
     """Does generated FS tree match example collection?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         targetdir = F.test(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
