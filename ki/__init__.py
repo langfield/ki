@@ -967,9 +967,6 @@ def push_note(
     ------
     MissingNotetypeError
         If we can't find a notetype with the name provided in `decknote`.
-    NoteFieldKeyError
-        If the parsed sort field name from the notetype specified in `decknote`
-        does not exist.
     """
     # Notetype/model names are privileged in Anki, so if we don't find the
     # right name, we raise an error.

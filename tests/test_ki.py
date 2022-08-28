@@ -909,7 +909,10 @@ def test_diff2_handles_submodules():
         )
         del args
         gc.collect()
+        warnings = [d for d in deltas if isinstance(d, Warning)]
         deltas = [d for d in deltas if isinstance(d, Delta)]
+
+        logger.debug(warnings)
 
         assert len(deltas) > 0
         for delta in deltas:
@@ -1346,21 +1349,21 @@ def test_maybe_head_kirepo_ref():
         assert err_snippet in str(error.exconly())
 
 
-@beartype
-def test_push_note_handles_note_key_errors(mocker: MockerFixture):
-    """Do we print a nice error when a KeyError is raised on note[]?"""
+def test_push_note_handles_note_field_name_mismatches():
+    """Do we return a nice warning when note fields are missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
-    fields = {"Front": field, "Back": field}
+    fields = {"Front": field, "Backk": field}
     decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
-    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
     new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
-    with pytest.raises(NoteFieldKeyError) as error:
-        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
-    assert "Expected field" in str(error.exconly())
-    assert "'bad_field_key'" in str(error.exconly())
+    warnings = push_note(col, decknote, int(time.time_ns()), {}, new_nids)
+    assert len(warnings) == 1
+    warning = warnings.pop()
+    assert isinstance(warning, InconsistentFieldNamesWarning)
+    assert "Backk" in str(warning)
+    assert "Expected a field" in str(warning)
 
 
 def test_parse_notetype_dict():
