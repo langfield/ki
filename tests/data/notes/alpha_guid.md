@@ -1,4 +1,4 @@
-## Note
+# Note
 ```
 guid: a
 notetype: Basic
@@ -8,8 +8,8 @@ notetype: Basic
 ```
 ```
 
-### Front
+## Front
 r
 
-### Back
+## Back
 s
