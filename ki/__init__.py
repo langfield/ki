@@ -948,6 +948,7 @@ def add_db_note(
             )
         ]
     )
+    col.after_note_updates([nid], mark_modified=False)
     return col.get_note(nid)
 
 
@@ -1022,7 +1023,13 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
-    deck = col.decks.name(note.cards()[0].did)
+    try:
+        deck = col.decks.name(note.cards()[0].did)
+    except IndexError as err:
+        logger.error(f"{note.cards() = }")
+        logger.error(f"{note.guid = }")
+        logger.error(f"{note.id = }")
+        raise err
     colnote = ColNote(
         n=note,
         new=False,
