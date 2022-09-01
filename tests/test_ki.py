@@ -4,9 +4,11 @@ import os
 import gc
 import sys
 import json
+import time
 import random
 import shutil
 import tempfile
+import itertools
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -22,7 +24,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype
-from beartype.typing import List, Union, Set
+from beartype.typing import List, Union, Set, Iterator
 
 import ki
 import ki.maybes as M
@@ -70,7 +72,7 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    push_decknote_to_anki,
+    push_note,
     get_models_recursively,
     append_md5sum,
     copy_media_files,
@@ -199,8 +201,8 @@ NOTE_1 = "Default/f.md"
 NOTE_2 = "note123412341234.md"
 NOTE_3 = "note 3.md"
 NOTE_4 = "Default/c.md"
-NOTE_5 = "alpha_nid.md"
-NOTE_6 = "no_nid.md"
+NOTE_5 = "alpha_guid.md"
+NOTE_6 = "no_guid.md"
 NOTE_7 = "Default/aa.md"
 MEDIA_NOTE = "air.md"
 
@@ -438,9 +440,6 @@ def test_parse_markdown_note():
     transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_5_PATH)), Path("a/b"))
-        parse_markdown_note(parser, transformer, delta)
-    with pytest.raises(UnexpectedToken):
         delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_6_PATH)), Path("a/b"))
         parse_markdown_note(parser, transformer, delta)
 
@@ -481,13 +480,13 @@ def test_is_anki_note():
         note_file.write_text("one line", encoding="UTF-8")
         assert is_anki_note(note_file) is False
 
-        note_file.write_text("### Note\n## Note\n", encoding="UTF-8")
+        note_file.write_text("## Note\n# Note\n\n\n\n\n\n\n\n", encoding="UTF-8")
         assert is_anki_note(note_file) is False
 
-        note_file.write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
-        assert is_anki_note(note_file) is False
+        note_file.write_text("# Note\n```\nguid: 00a\n\n\n\n\n\n\n", encoding="UTF-8")
+        assert is_anki_note(note_file) is True
 
-        note_file.write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
+        note_file.write_text("# Note\n```\nguid: 00\n\n\n\n\n\n\n\n", encoding="UTF-8")
         assert is_anki_note(note_file) is True
 
 
@@ -507,9 +506,9 @@ def test_update_note_raises_error_on_too_few_fields():
     field = "data"
 
     # Note that "Back" field is missing.
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, {"Front": field})
+    decknote = DeckNote("title", "0", "Default", "Basic", [], {"Front": field})
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, WrongFieldCountWarning)
@@ -525,10 +524,10 @@ def test_update_note_raises_error_on_too_many_fields():
 
     # Note that "Left" field is extra.
     fields = {"Front": field, "Back": field, "Left": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, WrongFieldCountWarning)
@@ -544,10 +543,10 @@ def test_update_note_raises_error_wrong_field_name():
 
     # Field `Backus` has wrong name, should be `Back`.
     fields = {"Front": field, "Backus": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, InconsistentFieldNamesWarning)
@@ -564,7 +563,7 @@ def test_update_note_sets_tags():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("", 0, "Default", "Basic", ["tag"], False, fields)
+    decknote = DeckNote("", "0", "Default", "Basic", ["tag"], fields)
 
     assert note.tags == []
     notetype: Notetype = parse_notetype_dict(note.note_type())
@@ -579,7 +578,7 @@ def test_update_note_sets_deck():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "deck", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "deck", "Basic", [], fields)
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
@@ -598,7 +597,7 @@ def test_update_note_sets_field_contents():
 
     field = "TITLE\ndata"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], True, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     assert "TITLE" not in note.fields[0]
 
@@ -615,7 +614,7 @@ def test_update_note_removes_field_contents():
 
     field = "y"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
@@ -630,11 +629,11 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Nonexistent", "Default", [], False, fields)
+    decknote = DeckNote("title", "0", "Nonexistent", "Default", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
-    with pytest.raises(NotetypeMismatchError) as _:
+    with pytest.raises(NotetypeMismatchError):
         update_note(note, decknote, notetype, notetype)
 
 
@@ -645,12 +644,12 @@ def test_display_fields_health_warning_catches_missing_clozes():
 
     field = "data"
     fields = {"Text": field, "Back Extra": ""}
-    decknote = DeckNote("title", 0, "Default", "Cloze", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Cloze", [], fields)
 
     clz: NotetypeDict = col.models.by_name("Cloze")
     cloze: Notetype = parse_notetype_dict(clz)
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, cloze)
+    warnings = update_note(note, decknote, notetype, cloze)
     warning = warnings.pop()
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
@@ -667,7 +666,7 @@ def test_update_note_changes_notetype():
     field = "data"
     fields = {"Front": field, "Back": field}
     decknote = DeckNote(
-        "title", 0, "Default", "Basic (and reversed card)", [], False, fields
+        "title", "0", "Default", "Basic (and reversed card)", [], fields
     )
 
     rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
@@ -719,7 +718,6 @@ def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
         new=False,
         deck=deck,
         title="",
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -888,6 +886,7 @@ def test_diff2_handles_submodules():
 
         assert len(deltas) == 1
         delta = deltas[0]
+        assert isinstance(delta, Delta)
         assert delta.status == GitChangeType.ADDED
         assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
@@ -908,6 +907,10 @@ def test_diff2_handles_submodules():
         del args
         gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
+
+        # We expect the following delta (GitChangeType.RENAMED):
+        #
+        # DEBUG    | ki:diff2:389 - submodule/Default/a.md -> Default/a.md
 
         assert len(deltas) > 0
         for delta in deltas:
@@ -1032,13 +1035,13 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
-def test_write_repository_generates_deck_tree_correctly():
+def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
     """Does generated FS tree match example collection?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         targetdir = F.test(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
@@ -1286,16 +1289,17 @@ def test_maybe_xfile(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
-def test_push_decknote_to_anki():
+def test_push_note():
     """Do we print a nice error when a notetype is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "NonexistentModel", [], fields)
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(MissingNotetypeError) as error:
-        push_decknote_to_anki(col, decknote)
+        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1342,20 +1346,21 @@ def test_maybe_head_kirepo_ref():
         assert err_snippet in str(error.exconly())
 
 
-@beartype
-def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
-    """Do we print a nice error when a KeyError is raised on note[]?"""
+def test_push_note_handles_note_field_name_mismatches():
+    """Do we return a nice warning when note fields are missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
-    fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
-    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
-    with pytest.raises(NoteFieldKeyError) as error:
-        push_decknote_to_anki(col, decknote)
-    assert "Expected field" in str(error.exconly())
-    assert "'bad_field_key'" in str(error.exconly())
+    fields = {"Front": field, "Backk": field}
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
+    warnings = push_note(col, decknote, int(time.time_ns()), {}, new_nids)
+    assert len(warnings) == 1
+    warning = warnings.pop()
+    assert isinstance(warning, InconsistentFieldNamesWarning)
+    assert "Backk" in str(warning)
+    assert "Expected a field" in str(warning)
 
 
 def test_parse_notetype_dict():

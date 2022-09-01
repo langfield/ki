@@ -1,11 +1,15 @@
-## Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+# Note
+```
+guid: 0a7c32d41f9e8628dff6f56abb64123429f62ca2
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 r
 
-### Back
+## Back
 s

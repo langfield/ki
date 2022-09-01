@@ -1319,6 +1319,9 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
+# We expect this test not to work anymore, because it is not outside the scope
+# of `ki`.
+@pytest.mark.xfail
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1328,7 +1331,7 @@ def test_push_generates_correct_title_for_notes():
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
 
-        # Add new files.
+        # Add new note source files.
         os.chdir(ORIGINAL.repodir)
         shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
 
@@ -1345,6 +1348,8 @@ def test_push_generates_correct_title_for_notes():
         os.chdir("Default")
         post_push_contents = os.listdir()
         notes = [path for path in post_push_contents if path[-3:] == ".md"]
+
+        # Expect `['c.md', 'r.md', 'a.md']`.
         assert "r.md" in notes
 
 
