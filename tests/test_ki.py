@@ -440,9 +440,6 @@ def test_parse_markdown_note():
     transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_5_PATH)), Path("a/b"))
-        parse_markdown_note(parser, transformer, delta)
-    with pytest.raises(UnexpectedToken):
         delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_6_PATH)), Path("a/b"))
         parse_markdown_note(parser, transformer, delta)
 
