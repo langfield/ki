@@ -851,7 +851,6 @@ def test_parser_goods():
         try:
             parser.parse(good)
         except UnexpectedToken as err:
-            logger.error(f"\n{good}")
             raise err
 
 
@@ -874,7 +873,6 @@ def test_transformer_goods():
             tree = parser.parse(good)
             transformer.transform(tree)
         except (UnexpectedToken, VisitError) as err:
-            logger.error(f"\n{good}")
             raise err
 
 

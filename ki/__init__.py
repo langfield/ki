@@ -1071,6 +1071,8 @@ def files_in_str(
             fname = match.group("fname")
             is_local = not re.match("(https?|ftp)://", fname.lower())
             if is_local or include_remote:
+                fname = fname.strip()
+                fname = fname.replace('"', "")
                 files.append(fname)
     return files
 
@@ -1546,6 +1548,9 @@ def html_to_screen(html: str) -> str:
     plain = plain.replace("<br/>", "\n")
     plain = plain.replace("<br />", "\n")
 
+    # Unbreak lines within src attributes.
+    plain = re.sub("src= ?\n\"", "src=\"", plain)
+
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
 
@@ -1597,7 +1602,9 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
         lines.append("## " + field_name)
-        lines.append(html_to_screen(field_text))
+        screen_text = html_to_screen(field_text)
+        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
+        lines.append(text)
         lines.append("")
 
     return "\n".join(lines)
@@ -2187,6 +2194,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo.git.add(all=True)
             sm_repo.index.commit(msg)
 
+    # Get active branches of each submodule.
+    sm_branches: Dict[Path, str] = {}
+    for sm_rel_root, sm_repo in subrepos.items():
+        try:
+            sm_branches[sm_rel_root] = sm_repo.active_branch.name
+        except TypeError:
+            head: git.Head = next(iter(sm_repo.branches))
+            sm_branches[sm_rel_root] = head.name
+
     # TODO: What if a submodule was deleted (or added) entirely?
     #
     # New commits in submodules within `last_push_repo` are be pulled into the
@@ -2202,15 +2218,15 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
+                branch: str = sm_branches[sm_rel_root]
 
-                # TODO: What is contained in this branch that isn't already in
-                # `BRANCH_NAME`?
+                # TODO: What's in `upstream` that isn't already in `branch`?
                 remote_sm.git.branch("upstream")
 
                 # Simulate a `git merge --strategy=theirs upstream`.
                 remote_sm.git.checkout(["-b", "tmp", "upstream"])
-                remote_sm.git.merge(["-s", "ours", BRANCH_NAME])
-                remote_sm.git.checkout(BRANCH_NAME)
+                remote_sm.git.merge(["-s", "ours", branch])
+                remote_sm.git.checkout(branch)
                 remote_sm.git.merge("tmp")
                 remote_sm.git.branch(["-D", "tmp"])
 
@@ -2218,7 +2234,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,
-                    BRANCH_NAME,
+                    branch,
                     F.working_dir(sm_repo),
                     False,
                     False,
