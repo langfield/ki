@@ -843,6 +843,16 @@ def test_tag_validation():
             assert err.char == char
 
 
+def test_parser_handles_special_characters_in_guid():
+    """In particular, does it allow colons?"""
+    parser = get_parser()
+    good = Path("tests/data/notes/special_characters_in_guid.md").read_text(encoding="UTF-8")
+    try:
+        parser.parse(good)
+    except UnexpectedToken as err:
+        raise err
+
+
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
