@@ -35,7 +35,7 @@ TITLECHAR: /[a-zA-Z0-9_-]/
 // === GUID ====
 
 // GUID field is allowed to be empty.
-GUID: "guid:" " "* (ANKICHAR*)? "\n"
+GUID: "guid:" " "* (GUIDCHAR*)? "\n"
 
 
 // = NOTETYPE ==
@@ -60,6 +60,7 @@ TAGNAME: /[^\s\0\x07\x08\x0b\x0c`"]/+
 // in the desktop client).
 ANKINAME: STARTENDCHAR ANKICHAR* (/[\t ]/+ ANKICHAR+)*
 ANKICHAR: /[^\s:{}"\0\x07\x08]/
+GUIDCHAR: /[^\s{}"\0\x07\x08]/
 STARTENDCHAR: /[^#^\/\s:{}"\0\x07\x08]/
 TRIPLEBACKTICKS: "```\n"
 
