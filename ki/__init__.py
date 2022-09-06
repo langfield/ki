@@ -2610,6 +2610,23 @@ def push_deltas(
     bar.set_description("Media")
     for media_file in bar:
 
+        @beartype
+        def filemode(repo: git.Repo, file: ExtantFile) -> int:
+            """Get git file mode."""
+            try:
+                out: str = repo.git.ls_files(["-s", str(file)])
+                mode: int = int(out.split()[0])
+            except Exception as err:
+                raise RuntimeError(f"Failed to parse git file mode for media file '{file}'") from err
+            return mode
+
+        mode: int = filemode(head_kirepo.repo, media_file)
+        logger.debug(f"Mode: '{mode}'")
+        if mode == 120000:
+            logger.debug(f"File '{media_file}' is a git symlink!")
+        else:
+            logger.debug(f"File '{media_file}' is not a git symlink.")
+
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
             new: bytes = f.read()
