@@ -1549,7 +1549,7 @@ def html_to_screen(html: str) -> str:
     plain = plain.replace("<br />", "\n")
 
     # Unbreak lines within src attributes.
-    plain = re.sub("src= ?\n\"", "src=\"", plain)
+    plain = re.sub('src= ?\n"', 'src="', plain)
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
@@ -1807,6 +1807,71 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         nt: NotetypeDict = col.models.get(changes.id)
         model: Notetype = parse_notetype_dict(nt)
         echo(f"Added model '{model.name}'")
+
+
+@beartype
+def media_data(col: Collection, fname: str) -> bytes:
+    """Get media file content as bytes (empty if missing)."""
+    if not col.media.have(fname):
+        return b""
+    path = os.path.join(col.media.dir(), fname)
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
+@beartype
+def repl(m: re.Match) -> str:
+    """
+    Used by ``munge_media()`` as a ``repl`` function passed as the second
+    argument to a ``re.sub()`` call. We match on the media regular expressions
+    defined in ``anki.media.MediaManager``.
+
+    According to the documentation for the ``re`` module, it is called for
+    every non-overlapping occurrence of ``pattern``, the first argument to
+    ``re.sub()``. The function takes a single m object argument, and
+    returns the replacement string.
+    """
+    # Grab the media filename as a string.
+    fname: str = m.group("fname")
+
+    # Get the contents of this file as bytes from ``src`` and ``dst``.
+    srcData: bytes = self._srcMediaData(fname)
+    dstData: bytes = self._dstMediaData(fname)
+
+    # File was not in source, ignore (``m.group(0)`` is entire match).
+    if not srcData:
+        return m.group(0)
+
+    # If model-local file exists from a previous import, use that.
+    name, ext = os.path.splitext(fname)
+    lname = f"{name}_{mid}{ext}"
+    if self.dst.media.have(lname):
+        return m.group(0).replace(fname, lname)
+
+    # If missing in destination or source is same as destination, or the same,
+    # return the match string unmodified.
+    elif not dstData or srcData == dstData:
+
+        # Copy to destination if necessary.
+        if not dstData:
+            self._writeDstMedia(fname, srcData)
+        return m.group(0)
+
+    # exists but does not m, so we need to dedupe
+    self._writeDstMedia(lname, srcData)
+    return m.group(0).replace(fname, lname)
+
+
+def munge_media(self, mid: int, fieldsStr: str) -> str:
+    """Update media references in case of duplicates."""
+    # Split fields on ``\x1f``.
+    fields: List[str] = split_fields(fieldsStr)
+    for idx, field in enumerate(fields):
+        fields[idx] = self.dst.media.transform_names(field, repl)
+    return join_fields(fields)
 
 
 @click.group()
@@ -2544,10 +2609,21 @@ def push_deltas(
     bar.set_description("Media")
     for media_file in bar:
 
+        # Get bytes of new media file.
+        with open(media_file, "rb") as f:
+            new: bytes = f.read()
+
+        # Get bytes of existing media file (if it exists).
+        old: bytes = media_data(col, media_file.name)
+        if old and old == new:
+            continue
+
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
         if new_media_filename != media_file.name:
-            logger.warning(f"Media file '{media_file.name}' renamed to '{new_media_filename}'")
+            logger.warning(
+                f"Media file '{media_file.name}' renamed to '{new_media_filename}'"
+            )
 
     col.close(save=True)
 
