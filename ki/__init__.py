@@ -2613,13 +2613,16 @@ def push_deltas(
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
             new: bytes = f.read()
-        logger.debug(f"{new = }")
+        logger.debug(f"media_file (new): {media_file}")
+        logger.debug(f"new: {len(new)}")
 
         # Get bytes of existing media file (if it exists).
         old: bytes = media_data(col, media_file.name)
-        logger.debug(f"{old = }")
+        logger.debug(f"old: {len(old)}")
         if old and old == new:
             continue
+        else:
+            logger.warning(f"Old and new '{media_file.name}' are different bytestrings! :(")
 
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
