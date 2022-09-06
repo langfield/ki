@@ -1640,6 +1640,8 @@ def test_push_writes_media(tmp_path: Path):
         # Check that added note and media file exist.
         col = open_collection(MEDIACOL.col_file)
         check = col.media.check()
+        logger.debug(f"{check = }")
+        logger.debug(f"{MEDIACOL.col_file = }")
         assert os.path.isfile(Path(MEDIACOL.repodir) / "Default" / MEDIA_NOTE)
         assert col.media.have(MEDIA_FILENAME)
         assert len(check.missing) == 0
