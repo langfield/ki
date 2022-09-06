@@ -479,6 +479,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         assert os.path.isdir(HTML.repodir)
         F.rmtree(F.test(Path(HTML.repodir)))
         old_path = os.environ["PATH"]
+        logger.debug(f"{old_path = }")
 
         # In case where nothing is installed, we expect to fail on `tidy`
         # first.
