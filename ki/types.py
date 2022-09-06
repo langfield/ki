@@ -547,7 +547,7 @@ class AnkiDBNoteMissingFieldsError(RuntimeError):
 
 class GitFileModeParseError(RuntimeError):
     @beartype
-    def __init__(self, file: ExtantFile):
+    def __init__(self, file: ExtantFile, out: str):
         top = f"fatal: Failed to parse git file mode for media file '{file}'"
         msg = """
         A 'git ls-files' call is used to figure out the git file mode for
@@ -557,7 +557,8 @@ class GitFileModeParseError(RuntimeError):
         another, which for a symlink called 'filename', should look like this:
         """
         example = "120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename"
-        super().__init__(f"{top}\n\n{errwrap(msg)}\n\n{example}")
+        msg2 = f"Actual unparsed git command output:\n{out}"
+        super().__init__(f"{top}\n\n{errwrap(msg)}\n\n{example}\n\n{msg2}")
 
 
 # WARNINGS

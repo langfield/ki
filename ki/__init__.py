@@ -1825,13 +1825,15 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(repo: git.Repo, file: ExtantFile) -> int:
+def filemode(file: ExtantFile) -> int:
     """Get git file mode."""
     try:
-        out: str = repo.git.ls_files(["-s", str(file)])
+        # We must search from file upwards in case inside submodule.
+        repo = git.Repo(file, search_parent_directories=True)
+        out = repo.git.ls_files(["-s", str(file)])
         mode: int = int(out.split()[0])
     except Exception as err:
-        raise GitFileModeParseError(file) from err
+        raise GitFileModeParseError(file, out) from err
     return mode
 
 
@@ -2571,7 +2573,7 @@ def push_deltas(
     for media_file in bar:
 
         # Check file mode, and follow symlink if applicable.
-        mode: int = filemode(head_kirepo.repo, media_file)
+        mode: int = filemode(media_file)
         if mode == 120000:
             target: str = media_file.read_text(encoding="UTF-8")
             parent: ExtantDir = F.parent(media_file)
