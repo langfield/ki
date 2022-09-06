@@ -477,6 +477,8 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                 tmp = F.mkdtemp()
                 os.symlink("/usr/bin/tidy", tmp / "tidy")
                 os.environ["PATH"] = str(tmp)
+                if sys.platform == "win32":
+                    os.environ["PATH"] = r"C:\ProgramData\chocolatey\bin\tidy.exe"
                 clone(runner, HTML.col_file)
             error = raised.exconly()
         finally:
