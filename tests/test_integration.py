@@ -1615,6 +1615,7 @@ def test_push_writes_media(tmp_path: Path):
         check = col.media.check()
         assert len(check.missing) == 0
         assert len(check.unused) == 0
+        col.close(save=False)
 
         # Clone.
         clone(runner, MEDIACOL.col_file)
