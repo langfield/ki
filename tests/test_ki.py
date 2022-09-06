@@ -1704,4 +1704,4 @@ def test_shallow_walk_returns_extant_paths():
 def test_get_test_collection_copies_media():
     """Do media files get copied into the temp directory?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
-    assert MEDIACOL.media_directory_path / "1sec.mp3"
+    assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
