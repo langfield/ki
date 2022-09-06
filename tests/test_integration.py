@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import sys
 import shutil
 import sqlite3
 import tempfile
