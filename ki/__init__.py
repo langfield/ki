@@ -1815,7 +1815,6 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
 def media_data(col: Collection, fname: str) -> bytes:
     """Get media file content as bytes (empty if missing)."""
     if not col.media.have(fname):
-        logger.debug(f"Don't have '{fname}' in collection.")
         return b""
     path = os.path.join(col.media.dir(), fname)
     try:
