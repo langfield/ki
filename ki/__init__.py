@@ -2614,7 +2614,7 @@ def push_deltas(
         with open(media_file, "rb") as f:
             new: bytes = f.read()
         try:
-            logger.debug(f"{new.decode()}")
+            logger.debug(f"New media file content: {new.decode()}")
         except Exception:
             logger.warning(f"Couldn't decode '{media_file.name}' with UTF-8")
 
