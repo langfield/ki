@@ -2574,12 +2574,9 @@ def push_deltas(
         # Check file mode, and follow symlink if applicable.
         mode: int = filemode(head_kirepo.repo, media_file)
         if mode == 120000:
+            target: str = media_file.read_text(encoding="UTF-8")
             parent: ExtantDir = F.parent(media_file)
-            try:
-                media_file: ExtantFile = M.xfile(parent / new.decode(encoding="UTF-8"))
-            except UnicodeDecodeError as err:
-                logger.error(media_file)
-                raise err
+            media_file: ExtantFile = M.xfile(parent / target)
 
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
