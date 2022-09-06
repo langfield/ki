@@ -646,7 +646,7 @@ def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
         path = Path("DeepLearning for CV") / "list-some-pros-and-cons-of-dl.md"
         with open(path, "r", encoding="UTF-8") as f:
             contents: str = f.read()
-        assert "<img src=\"Screenshot 2019-05-01 at 14.40.56.png\">" in contents
+        assert '<img src="Screenshot 2019-05-01 at 14.40.56.png">' in contents
 
 
 # PULL
@@ -997,7 +997,9 @@ def test_pull_removes_files_deleted_in_remote(tmp_path: Path):
         out = pull(runner)
 
 
-def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks(tmp_path: Path):
+def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks(
+    tmp_path: Path,
+):
     BEFORE: SampleCollection = get_test_collection("duplicated_subdeck_before")
     AFTER: SampleCollection = get_test_collection("duplicated_subdeck_after")
     runner = CliRunner()
@@ -1017,7 +1019,6 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
         if os.path.isdir("onlydeck"):
             for _, _, filenames in os.walk("onlydeck"):
                 assert len(filenames) == 0
-
 
 
 # PUSH
@@ -1300,7 +1301,6 @@ def test_push_deletes_added_notes():
             if file not in contents:
                 os.remove(file)
 
-
         # Commit the deletions.
         os.chdir("../../")
         repo = git.Repo(ORIGINAL.repodir)
@@ -1319,7 +1319,7 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
-# We expect this test not to work anymore, because it is not outside the scope
+# We expect this test not to work anymore, because it is now outside the scope
 # of `ki`.
 @pytest.mark.xfail
 def test_push_generates_correct_title_for_notes():
@@ -1548,22 +1548,35 @@ def test_push_writes_media(tmp_path: Path):
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone.
         clone(runner, MEDIACOL.col_file)
+
+        # Add a new note file containing media, and the corresponding media file.
         root = F.cwd()
         media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
         media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
         shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
+
+        # Commit the additions.
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)
         repo.index.commit("Add air.md")
         repo.close()
+
+        # Push the commit.
         out = push(runner)
+
+        # Annihilate the repo root.
         os.chdir("../")
         F.rmtree(F.test(Path(MEDIACOL.repodir)))
+
+        # Re-clone the pushed collection.
         out = clone(runner, MEDIACOL.col_file)
 
+        # Check that added note and media file exist.
         col = open_collection(MEDIACOL.col_file)
         check = col.media.check()
         assert os.path.isfile(Path(MEDIACOL.repodir) / "Default" / MEDIA_NOTE)
@@ -1835,7 +1848,9 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
         assert "ki push: up to date." in out
 
 
-def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule(tmp_path: Path):
+def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule(
+    tmp_path: Path,
+):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
@@ -1852,7 +1867,9 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
         shutil.copytree(japanese_gitrepo_path, submodule_name)
 
         repo = git.Repo(".")
-        p = subprocess.run(["git", "add", "--all"], capture_output=True, encoding="UTF-8")
+        p = subprocess.run(
+            ["git", "add", "--all"], capture_output=True, encoding="UTF-8"
+        )
         if "warning" in p.stderr:
             repo.index.commit("Add subrepo.")
             repo.close()
@@ -1892,7 +1909,9 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         clone(runner, BROKEN.col_file)
         os.chdir(BROKEN.repodir)
 
-        note_file = Path("🧙‍Recommendersysteme") / "wie-sieht-die-linkstruktur-von-einem-hub.md"
+        note_file = (
+            Path("🧙‍Recommendersysteme") / "wie-sieht-die-linkstruktur-von-einem-hub.md"
+        )
         with open(note_file, "r", encoding="UTF-8") as read_f:
             contents = read_f.read().replace("guter", "guuter")
             with open(note_file, "w", encoding="UTF-8") as write_f:
@@ -1911,4 +1930,6 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         col = Collection(BROKEN.col_file)
         escaped: str = col.media.escape_media_filenames(back)
         col.close()
-        assert "<img src=\"paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg\">" in escaped
+        assert (
+            '<img src="paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg">' in escaped
+        )

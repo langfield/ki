@@ -121,6 +121,8 @@ from ki.types import (
     InconsistentFieldNamesWarning,
     MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
+    GitFileModeParseError,
+    RenamedMediaFileWarning,
 )
 from ki.maybes import (
     GIT,
@@ -1549,7 +1551,7 @@ def html_to_screen(html: str) -> str:
     plain = plain.replace("<br />", "\n")
 
     # Unbreak lines within src attributes.
-    plain = re.sub("src= ?\n\"", "src=\"", plain)
+    plain = re.sub('src= ?\n"', 'src="', plain)
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
@@ -1807,6 +1809,32 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         nt: NotetypeDict = col.models.get(changes.id)
         model: Notetype = parse_notetype_dict(nt)
         echo(f"Added model '{model.name}'")
+
+
+@beartype
+def media_data(col: Collection, fname: str) -> bytes:
+    """Get media file content as bytes (empty if missing)."""
+    if not col.media.have(fname):
+        return b""
+    path = os.path.join(col.media.dir(), fname)
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
+@beartype
+def filemode(file: ExtantFile) -> int:
+    """Get git file mode."""
+    try:
+        # We must search from file upwards in case inside submodule.
+        repo = git.Repo(file, search_parent_directories=True)
+        out = repo.git.ls_files(["-s", str(file)])
+        mode: int = int(out.split()[0])
+    except Exception as err:
+        raise GitFileModeParseError(file, out) from err
+    return mode
 
 
 @click.group()
@@ -2538,16 +2566,43 @@ def push_deltas(
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-    # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
-    # deduplication, and fixes fields for notes that reference that media.
+    warnings = []
+
     bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
     bar.set_description("Media")
     for media_file in bar:
 
+        # Check file mode, and follow symlink if applicable.
+        mode: int = filemode(media_file)
+        if mode == 120000:
+            target: str = media_file.read_text(encoding="UTF-8")
+            parent: ExtantDir = F.parent(media_file)
+            media_file: ExtantFile = M.xfile(parent / target)
+
+        # Get bytes of new media file.
+        with open(media_file, "rb") as f:
+            new: bytes = f.read()
+
+        # Get bytes of existing media file (if it exists).
+        old: bytes = media_data(col, media_file.name)
+        if old and old == new:
+            continue
+
         # Add (and possibly rename) media paths.
-        _: str = col.media.add_file(media_file)
+        new_media_filename: str = col.media.add_file(media_file)
+        if new_media_filename != media_file.name:
+            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
+            warnings.append(warning)
 
     col.close(save=True)
+
+    num_displayed: int = 0
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)

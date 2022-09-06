@@ -1641,3 +1641,9 @@ def test_shallow_walk_returns_extant_paths():
         assert os.path.isdir(d)
     for file in files:
         assert os.path.isfile(file)
+
+
+def test_get_test_collection_copies_media():
+    """Do media files get copied into the temp directory?"""
+    MEDIACOL: SampleCollection = get_test_collection("media")
+    assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
