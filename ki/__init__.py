@@ -2545,7 +2545,9 @@ def push_deltas(
     for media_file in bar:
 
         # Add (and possibly rename) media paths.
-        _: str = col.media.add_file(media_file)
+        new_media_filename: str = col.media.add_file(media_file)
+        if new_media_filename != media_file.name:
+            logger.warning(f"Media file '{media_file.name}' renamed to '{new_media_filename}'")
 
     col.close(save=True)
 
