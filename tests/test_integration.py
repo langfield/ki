@@ -318,6 +318,7 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
 
 
 @beartype
+@pytest.mark.skip
 def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
     """Do errors get propagated in the places we expect?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -467,6 +468,7 @@ def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
             os.environ["PATH"] = old_path
 
 
+@pytest.mark.skip
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -940,6 +942,7 @@ def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
         out = pull(runner)
 
 
+@pytest.mark.skip
 def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
     UNCOMMITTED_SM: SampleCollection = get_test_collection(
         "uncommitted_submodule_commits"
