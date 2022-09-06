@@ -499,7 +499,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                 tmp = F.mkdtemp()
 
                 if sys.platform == "win32":
-                    git_path = "C:\\Program Files\\Git\\cmd;" in os.environ["PATH"]
+                    git_path = "C:\\Program Files\\Git\\cmd;"
                     os.environ["PATH"] = os.environ["PATH"].replace(git_path, "")
                 else:
                     os.symlink("/usr/bin/tidy", tmp / "tidy")
