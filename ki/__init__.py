@@ -1813,6 +1813,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
 def media_data(col: Collection, fname: str) -> bytes:
     """Get media file content as bytes (empty if missing)."""
     if not col.media.have(fname):
+        logger.debug(f"Don't have '{fname}' in collection.")
         return b""
     path = os.path.join(col.media.dir(), fname)
     try:
@@ -2612,9 +2613,11 @@ def push_deltas(
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
             new: bytes = f.read()
+        logger.debug(f"{new = }")
 
         # Get bytes of existing media file (if it exists).
         old: bytes = media_data(col, media_file.name)
+        logger.debug(f"{old = }")
         if old and old == new:
             continue
 
