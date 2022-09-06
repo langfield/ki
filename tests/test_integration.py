@@ -1610,13 +1610,6 @@ def test_push_writes_media(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
-        # DEBUG
-        col = open_collection(MEDIACOL.col_file)
-        check = col.media.check()
-        assert len(check.missing) == 0
-        assert len(check.unused) == 0
-        col.close(save=False)
-
         # Clone.
         clone(runner, MEDIACOL.col_file)
 
