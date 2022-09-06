@@ -2635,6 +2635,14 @@ def push_deltas(
         except Exception:
             logger.warning(f"Couldn't decode '{media_file.name}' with UTF-8")
 
+        if mode == 120000:
+            parent: ExtantDir = F.parent(media_file)
+            target: Path = F.test(parent / new.decode(encoding="UTF-8"))
+            if not isinstance(target, ExtantFile):
+                raise RuntimeError(f"Failed to find symlink target '{target}' from media symlink at '{media_file}'")
+            with open(target, "rb") as f:
+                new: bytes = f.read()
+
         logger.debug(f"media_file (new): {media_file}")
         logger.debug(f"new length: {len(new)}")
 
