@@ -545,6 +545,21 @@ class AnkiDBNoteMissingFieldsError(RuntimeError):
         super().__init__(f"{top}\n\n{errwrap(msg)}")
 
 
+class GitFileModeParseError(RuntimeError):
+    @beartype
+    def __init__(self, file: ExtantFile):
+        top = f"fatal: Failed to parse git file mode for media file '{file}'"
+        msg = """
+        A 'git ls-files' call is used to figure out the git file mode for
+        cloned media files. This is done in order to detect symlinks on
+        Windows, and follow them manually. This error is raised when we are
+        unable to parse the output of 'git ls-files' for some reason or
+        another, which for a symlink called 'filename', should look like this:
+        """
+        example = "120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename"
+        super().__init__(f"{top}\n\n{errwrap(msg)}\n\n{example}")
+
+
 # WARNINGS
 
 
@@ -650,5 +665,17 @@ class MissingMediaFileWarning(Warning):
         all media filenames present in note fields should correspond to extant
         files within the media directory (usually called 'collection.media/'
         within the relevant Anki user profile directory).
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class RenamedMediaFileWarning(Warning):
+    @beartype
+    def __init__(self, src: str, dst: str):
+        top = f"Media file '{src}' renamed to '{dst}'"
+        msg = """
+        This happens when we push a media file to a collection that already
+        contains another media file with the same name. In this case, Anki does
+        some deduplication by renaming the new one.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")

@@ -121,6 +121,8 @@ from ki.types import (
     InconsistentFieldNamesWarning,
     MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
+    GitFileModeParseError,
+    RenamedMediaFileWarning,
 )
 from ki.maybes import (
     GIT,
@@ -1824,55 +1826,14 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def repl(m: re.Match) -> str:
-    """
-    Used by ``munge_media()`` as a ``repl`` function passed as the second
-    argument to a ``re.sub()`` call. We match on the media regular expressions
-    defined in ``anki.media.MediaManager``.
-
-    According to the documentation for the ``re`` module, it is called for
-    every non-overlapping occurrence of ``pattern``, the first argument to
-    ``re.sub()``. The function takes a single m object argument, and
-    returns the replacement string.
-    """
-    # Grab the media filename as a string.
-    fname: str = m.group("fname")
-
-    # Get the contents of this file as bytes from ``src`` and ``dst``.
-    srcData: bytes = self._srcMediaData(fname)
-    dstData: bytes = self._dstMediaData(fname)
-
-    # File was not in source, ignore (``m.group(0)`` is entire match).
-    if not srcData:
-        return m.group(0)
-
-    # If model-local file exists from a previous import, use that.
-    name, ext = os.path.splitext(fname)
-    lname = f"{name}_{mid}{ext}"
-    if self.dst.media.have(lname):
-        return m.group(0).replace(fname, lname)
-
-    # If missing in destination or source is same as destination, or the same,
-    # return the match string unmodified.
-    elif not dstData or srcData == dstData:
-
-        # Copy to destination if necessary.
-        if not dstData:
-            self._writeDstMedia(fname, srcData)
-        return m.group(0)
-
-    # exists but does not m, so we need to dedupe
-    self._writeDstMedia(lname, srcData)
-    return m.group(0).replace(fname, lname)
-
-
-def munge_media(self, mid: int, fieldsStr: str) -> str:
-    """Update media references in case of duplicates."""
-    # Split fields on ``\x1f``.
-    fields: List[str] = split_fields(fieldsStr)
-    for idx, field in enumerate(fields):
-        fields[idx] = self.dst.media.transform_names(field, repl)
-    return join_fields(fields)
+def filemode(repo: git.Repo, file: ExtantFile) -> int:
+    """Get git file mode."""
+    try:
+        out: str = repo.git.ls_files(["-s", str(file)])
+        mode: int = int(out.split()[0])
+    except Exception as err:
+        raise GitFileModeParseError(file) from err
+    return mode
 
 
 @click.group()
@@ -2604,64 +2565,42 @@ def push_deltas(
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-    # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
-    # deduplication, and fixes fields for notes that reference that media.
+    warnings = []
+
     bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
     bar.set_description("Media")
     for media_file in bar:
 
-        @beartype
-        def filemode(repo: git.Repo, file: ExtantFile) -> int:
-            """Get git file mode."""
-            try:
-                out: str = repo.git.ls_files(["-s", str(file)])
-                mode: int = int(out.split()[0])
-            except Exception as err:
-                raise RuntimeError(f"Failed to parse git file mode for media file '{file}'") from err
-            return mode
-
+        # Check file mode, and follow symlink if applicable.
         mode: int = filemode(head_kirepo.repo, media_file)
-        logger.debug(f"Mode: '{mode}'")
         if mode == 120000:
-            logger.debug(f"File '{media_file}' is a git symlink!")
-        else:
-            logger.debug(f"File '{media_file}' is not a git symlink.")
+            parent: ExtantDir = F.parent(media_file)
+            media_file: ExtantFile = M.xfile(parent / new.decode(encoding="UTF-8"))
 
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
             new: bytes = f.read()
-        try:
-            logger.debug(f"New media file content: {new.decode()}")
-        except Exception:
-            logger.warning(f"Couldn't decode '{media_file.name}' with UTF-8")
-
-        if mode == 120000:
-            parent: ExtantDir = F.parent(media_file)
-            target: Path = F.test(parent / new.decode(encoding="UTF-8"))
-            if not isinstance(target, ExtantFile):
-                raise RuntimeError(f"Failed to find symlink target '{target}' from media symlink at '{media_file}'")
-            with open(target, "rb") as f:
-                new: bytes = f.read()
-
-        logger.debug(f"media_file (new): {media_file}")
-        logger.debug(f"new length: {len(new)}")
 
         # Get bytes of existing media file (if it exists).
         old: bytes = media_data(col, media_file.name)
-        logger.debug(f"old length: {len(old)}")
         if old and old == new:
             continue
-        else:
-            logger.warning(f"Old and new '{media_file.name}' are different bytestrings! :(")
 
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
         if new_media_filename != media_file.name:
-            logger.warning(
-                f"Media file '{media_file.name}' renamed to '{new_media_filename}'"
-            )
+            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
+            warnings.append(warning)
 
     col.close(save=True)
+
+    num_displayed: int = 0
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg="yellow")
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
