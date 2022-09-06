@@ -497,11 +497,14 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         try:
             with pytest.raises(git.GitCommandNotFound) as raised:
                 tmp = F.mkdtemp()
-                assert "C:\\Program Files\\Git\\cmd;" in os.environ["PATH"]
-                os.symlink("/usr/bin/tidy", tmp / "tidy")
-                os.environ["PATH"] = str(tmp)
+
                 if sys.platform == "win32":
-                    os.environ["PATH"] = r"C:\ProgramData\chocolatey\bin\tidy.exe"
+                    git_path = "C:\\Program Files\\Git\\cmd;" in os.environ["PATH"]
+                    os.environ["PATH"] = os.environ["PATH"].replace(git_path, "")
+                else:
+                    os.symlink("/usr/bin/tidy", tmp / "tidy")
+                    os.environ["PATH"] = str(tmp)
+
                 clone(runner, HTML.col_file)
             error = raised.exconly()
         finally:
