@@ -2614,11 +2614,11 @@ def push_deltas(
         with open(media_file, "rb") as f:
             new: bytes = f.read()
         logger.debug(f"media_file (new): {media_file}")
-        logger.debug(f"new: {len(new)}")
+        logger.debug(f"new length: {len(new)}")
 
         # Get bytes of existing media file (if it exists).
         old: bytes = media_data(col, media_file.name)
-        logger.debug(f"old: {len(old)}")
+        logger.debug(f"old length: {len(old)}")
         if old and old == new:
             continue
         else:
