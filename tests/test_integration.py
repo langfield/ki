@@ -500,7 +500,10 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                 shutil.copyfile(shutil.which("tidy"), tgt)
                 st = os.stat(tgt)
                 os.chmod(tgt, st.st_mode | 0o111)
-                os.environ["PATH"] = str(tgt.parent)
+                path = str(tgt.parent)
+                if sys.platform == "win32":
+                    path += ";"
+                os.environ["PATH"] = path
                 clone(runner, HTML.col_file)
             error = raised.exconly()
         finally:
