@@ -93,7 +93,6 @@ EDITED: SampleCollection = get_test_collection("edited")
 # CLI
 
 
-@pytest.mark.skip
 def test_bad_command_is_bad():
     """Typos should result in errors."""
     result = invoke(ki.ki, ["clome"])
@@ -101,7 +100,6 @@ def test_bad_command_is_bad():
     assert "Error: No such command 'clome'." in result.output
 
 
-@pytest.mark.skip
 def test_runas_module():
     """Can this package be run as a Python module?"""
     command = "python -m ki --help"
@@ -109,14 +107,12 @@ def test_runas_module():
     assert completed.returncode == 0
 
 
-@pytest.mark.skip
 def test_entrypoint():
     """Is entrypoint script installed? (setup.py)"""
     result = invoke(ki.ki, ["--help"])
     assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_version():
     """Does --version display information as expected?"""
     expected_version = version("ki")
@@ -126,7 +122,6 @@ def test_version():
     assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_command_availability():
     """Are commands available?"""
     results = []
@@ -137,7 +132,6 @@ def test_command_availability():
         assert result.exit_code == 0
 
 
-@pytest.mark.skip
 def test_cli():
     """Does CLI stop execution w/o a command argument?"""
     with pytest.raises(SystemExit):
@@ -149,7 +143,6 @@ def test_cli():
 
 
 @beartype
-@pytest.mark.skip
 def test_fails_without_ki_subdirectory(tmp_path: Path):
     """Do pull and push know whether they're in a ki-generated git repo?"""
     runner = CliRunner()
@@ -164,7 +157,6 @@ def test_fails_without_ki_subdirectory(tmp_path: Path):
 
 
 @beartype
-@pytest.mark.skip
 def test_computes_and_stores_md5sum(tmp_path: Path):
     """Does ki add new hash to `.ki/hashes`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -200,7 +192,6 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
             assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" in hashes
 
 
-@pytest.mark.skip
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -226,7 +217,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_output(tmp_path: Path):
     """Does it print nice things?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -263,7 +253,6 @@ def test_output(tmp_path: Path):
 # CLONE
 
 
-@pytest.mark.skip
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -277,7 +266,6 @@ def test_clone_fails_if_collection_doesnt_exist():
         assert not os.path.isdir(ORIGINAL.repodir)
 
 
-@pytest.mark.skip
 def test_clone_fails_if_collection_is_already_open():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -289,7 +277,6 @@ def test_clone_fails_if_collection_is_already_open():
             clone(runner, ORIGINAL.col_file)
 
 
-@pytest.mark.skip
 def test_clone_creates_directory():
     """Does it create the directory?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -303,7 +290,6 @@ def test_clone_creates_directory():
 
 
 @beartype
-@pytest.mark.skip
 def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
     """Do errors get displayed nicely?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -319,7 +305,6 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
 
 
 @beartype
-@pytest.mark.skip
 def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
     """Do errors get propagated in the places we expect?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -370,7 +355,6 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
             clone(runner, ORIGINAL.col_file)
 
 
-@pytest.mark.skip
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -389,7 +373,6 @@ def test_clone_handles_html():
         assert snippet in contents
 
 
-@pytest.mark.skip
 def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
     """Does it tidy html and stuff?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -410,7 +393,6 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
         )
 
 
-@pytest.mark.skip
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -429,7 +411,6 @@ def test_clone_errors_when_directory_is_populated():
             clone(runner, ORIGINAL.col_file)
 
 
-@pytest.mark.skip
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -449,7 +430,6 @@ def test_clone_cleans_up_on_error():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
     """Does clone not delete targetdirs that already existed?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -521,7 +501,6 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -533,7 +512,6 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
         clone(runner, ORIGINAL.col_file)
 
 
-@pytest.mark.skip
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -555,7 +533,6 @@ def test_clone_generates_expected_notes():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
@@ -579,7 +556,6 @@ def test_clone_generates_deck_tree_correctly():
         assert cloned_md5 == true_md5
 
 
-@pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -594,7 +570,6 @@ def test_clone_generates_ki_subdirectory():
         assert os.path.isdir(kidir)
 
 
-@pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -607,7 +582,6 @@ def test_cloned_collection_is_git_repository():
         assert is_git_repo(ORIGINAL.repodir)
 
 
-@pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -629,7 +603,6 @@ def test_clone_commits_directory_contents():
         assert len(commits) == 1
 
 
-@pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -644,7 +617,6 @@ def test_clone_leaves_collection_file_unchanged():
         assert original_md5 == updated_md5
 
 
-@pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -661,7 +633,6 @@ def test_clone_directory_argument_works():
         assert os.path.isdir(target)
 
 
-@pytest.mark.skip
 def test_clone_writes_media_files():
     """Does clone copy media files from the media directory into 'MEDIA'?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
@@ -674,7 +645,6 @@ def test_clone_writes_media_files():
         assert audio_path.is_file()
 
 
-@pytest.mark.skip
 def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path):
     SPLIT: SampleCollection = get_test_collection("split")
     runner = CliRunner()
@@ -684,7 +654,6 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         assert os.path.isfile(Path(SPLIT.repodir) / "top" / "a" / "a.md")
 
 
-@pytest.mark.skip
 def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
     DOUBLE: SampleCollection = get_test_collection("no_double_encodings")
     runner = CliRunner()
@@ -701,7 +670,6 @@ def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
 # PULL
 
 
-@pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -718,7 +686,6 @@ def test_pull_fails_if_collection_no_longer_exists():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -736,7 +703,6 @@ def test_pull_fails_if_collection_file_is_corrupted():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -756,7 +722,6 @@ def test_pull_writes_changes_correctly():
         assert os.path.isfile(NOTE_1)
 
 
-@pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -776,7 +741,6 @@ def test_pull_unchanged_collection_is_no_op():
         assert orig_hash == new_hash
 
 
-@pytest.mark.skip
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -796,7 +760,6 @@ def test_pull_avoids_unnecessary_merge_conflicts():
         assert "Automatic merge failed; fix" not in out
 
 
-@pytest.mark.skip
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -815,7 +778,6 @@ def test_pull_still_works_from_subdirectories():
         pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_displays_errors_from_repo_ref():
     """Does 'pull()' return early when the last push commit ref is bad?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -836,7 +798,6 @@ def test_pull_displays_errors_from_repo_ref():
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -857,7 +818,6 @@ def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -876,7 +836,6 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
             pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -898,7 +857,6 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
 
 
 @pytest.mark.xfail
-@pytest.mark.skip
 def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
     """UNFINISHED!"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -929,7 +887,6 @@ def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
         raise NotImplementedError
 
 
-@pytest.mark.skip
 def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1042,7 +999,6 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
         assert expected_this in note_text
 
 
-@pytest.mark.skip
 def test_pull_removes_files_deleted_in_remote(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     DELETED: SampleCollection = get_test_collection("deleted")
@@ -1059,7 +1015,6 @@ def test_pull_removes_files_deleted_in_remote(tmp_path: Path):
         out = pull(runner)
 
 
-@pytest.mark.skip
 def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks(
     tmp_path: Path,
 ):
@@ -1087,7 +1042,6 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
 # PUSH
 
 
-@pytest.mark.skip
 def test_push_writes_changes_correctly(tmp_path: Path):
     """If there are committed changes, does push change the collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1142,7 +1096,6 @@ def test_push_writes_changes_correctly(tmp_path: Path):
         assert len(new_notes) == 2
 
 
-@pytest.mark.skip
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1161,7 +1114,6 @@ def test_push_verifies_md5sum():
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1197,7 +1149,6 @@ def test_push_generates_correct_backup():
         assert backup_exists
 
 
-@pytest.mark.skip
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1219,7 +1170,6 @@ def test_push_doesnt_write_uncommitted_changes():
         assert len(os.listdir(".ki/backups")) == 0
 
 
-@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1259,7 +1209,6 @@ def test_push_doesnt_fail_after_pull():
         push(runner)
 
 
-@pytest.mark.skip
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1279,7 +1228,6 @@ def test_no_op_push_is_idempotent():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1310,7 +1258,6 @@ def test_push_deletes_notes():
         assert not os.path.isfile(NOTE_0)
 
 
-@pytest.mark.skip
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1336,7 +1283,6 @@ def test_push_still_works_from_subdirectories():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1394,7 +1340,6 @@ def test_push_deletes_added_notes():
 # We expect this test not to work anymore, because it is now outside the scope
 # of `ki`.
 @pytest.mark.xfail
-@pytest.mark.skip
 def test_push_generates_correct_title_for_notes():
     """Does push use the truncated sort field as a filename?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1426,7 +1371,6 @@ def test_push_generates_correct_title_for_notes():
         assert "r.md" in notes
 
 
-@pytest.mark.skip
 def test_push_displays_informative_error_when_last_push_file_is_missing():
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1445,7 +1389,6 @@ def test_push_displays_informative_error_when_last_push_file_is_missing():
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_honors_ignore_patterns():
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1481,7 +1424,6 @@ def test_push_honors_ignore_patterns():
         assert "Warning: not Anki note" in out
 
 
-@pytest.mark.skip
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1503,7 +1445,6 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1527,7 +1468,6 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
     mocker: MockerFixture,
 ):
@@ -1559,7 +1499,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
@@ -1592,7 +1531,6 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
             out = push(runner)
 
 
-@pytest.mark.skip
 def test_push_handles_submodules(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1624,7 +1562,6 @@ def test_push_handles_submodules(tmp_path: Path):
         assert "<br>z<br>" in notes[0]["Back"]
 
 
-@pytest.mark.skip
 def test_push_writes_media(tmp_path: Path):
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
@@ -1666,7 +1603,6 @@ def test_push_writes_media(tmp_path: Path):
         assert len(check.unused) == 0
 
 
-@pytest.mark.skip
 def test_push_handles_foreign_models(tmp_path: Path):
     """Just check that we don't return an exception from `push()`."""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1682,7 +1618,6 @@ def test_push_handles_foreign_models(tmp_path: Path):
         out = push(runner)
 
 
-@pytest.mark.skip
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1702,7 +1637,6 @@ def test_push_fails_if_database_is_locked():
             push(runner)
 
 
-@pytest.mark.skip
 def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path: Path):
     """
     If you push, make changes in Anki, then pull those changes, then undo them
@@ -1758,7 +1692,6 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted(tmp_path: Path):
         assert "ki push: up to date." not in out
 
 
-@pytest.mark.skip
 def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     """
     Does push refrain from adding a new notetype if the requested notetype
@@ -1814,7 +1747,6 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
         col.close(save=False)
 
 
-@pytest.mark.skip
 def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
     """
     The following operation should be nontrivial:
@@ -1860,7 +1792,6 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
         assert "ki push: up to date." not in out
 
 
-@pytest.mark.skip
 def test_push_changes_deck_for_moved_notes():
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     runner = CliRunner()
@@ -1895,7 +1826,6 @@ def test_push_changes_deck_for_moved_notes():
         assert colnote.deck == "aa::dd"
 
 
-@pytest.mark.skip
 def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
     UNCOMMITTED_SM: SampleCollection = get_test_collection(
         "uncommitted_submodule_commits"
@@ -1936,7 +1866,6 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
         assert "ki push: up to date." in out
 
 
-@pytest.mark.skip
 def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule(
     tmp_path: Path,
 ):
@@ -1966,7 +1895,6 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
             assert "'git submodule add'" in out
 
 
-@pytest.mark.skip
 def test_push_handles_tags_containing_trailing_commas():
     COMMAS: SampleCollection = get_test_collection("commas")
     runner = CliRunner()
@@ -1990,7 +1918,6 @@ def test_push_handles_tags_containing_trailing_commas():
         push(runner)
 
 
-@pytest.mark.skip
 def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
     BROKEN: SampleCollection = get_test_collection("broken_media_links")
     runner = CliRunner()
