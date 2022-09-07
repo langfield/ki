@@ -49,16 +49,20 @@ def debug_lark_error(note: str, err: UnexpectedInput) -> None:
     logger.error(f"\n{err}")
 
 
-TOO_MANY_HASHES_TITLE = r"""### Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+TOO_MANY_HASHES_TITLE = r"""## Note
+```
+guid: 123412341234
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 r
 
-### Back
+## Back
 s
 """
 
@@ -71,23 +75,27 @@ def test_too_many_hashes_for_title():
         parser.parse(note)
     err = exc.value
     assert err.line == 1
-    assert err.column == 3
+    assert err.column == 2
     assert err.token == "# Note\n"
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "##"
+    assert str(prev) == "#"
 
 
-TOO_FEW_HASHES_TITLE = r"""# Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+TOO_FEW_HASHES_TITLE = r""" Note
+```
+guid: 123412341234
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 r
 
-### Back
+## Back
 s
 """
 
@@ -100,22 +108,26 @@ def test_too_few_hashes_for_title():
         parser.parse(note)
     err = exc.value
     assert err.line == 1
-    assert err.column == 1
-    assert err.token == "# Note\n"
+    assert err.column == 2
+    assert err.token == "Note"
     assert len(err.token_history) == 1
     assert err.token_history.pop() is None
 
 
-TOO_FEW_HASHES_FIELDNAME = r"""## Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+TOO_FEW_HASHES_FIELDNAME = r"""# Note
+```
+guid: 123412341234
+notetype: Basic
+```
 
-## Front
+### Tags
+```
+```
+
+# Front
 r
 
-### Back
+## Back
 s
 """
 
@@ -127,25 +139,29 @@ def test_too_few_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 7
+    assert err.line == 11
     assert err.column == 1
-    assert err.token == "##"
+    assert err.token == "# Front\n"
     assert err.expected == set(["FIELDSENTINEL"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "\n"
 
 
-TOO_MANY_HASHES_FIELDNAME = r"""## Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+TOO_MANY_HASHES_FIELDNAME = r"""# Note
+```
+guid: 123412341234
+notetype: Basic
+```
 
-#### Front
+### Tags
+```
+```
+
+### Front
 r
 
-### Back
+## Back
 s
 """
 
@@ -157,25 +173,29 @@ def test_too_many_hashes_for_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 7
-    assert err.column == 4
+    assert err.line == 11
+    assert err.column == 3
     assert err.token == "# Front\n"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "###"
+    assert str(prev) == "##"
 
 
-MISSING_FIELDNAME = r"""## Note
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+MISSING_FIELDNAME = r"""# Note
+```
+guid: 123412341234
+notetype: Basic
+```
 
-###    
+### Tags
+```
+```
+
+##    
 r
 
-### Back
+## Back
 s
 """
 
@@ -187,25 +207,29 @@ def test_missing_fieldname():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 7
-    assert err.column == 8
+    assert err.line == 11
+    assert err.column == 7
     assert err.token == "\n"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "###"
+    assert str(prev) == "##"
 
 
-MISSING_TITLE = r"""##
-nid: 123412341234
-model: Basic
-tags:
-markdown: false
+MISSING_TITLE = r"""#
+```
+guid: 123412341234
+notetype: Basic
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -218,24 +242,28 @@ def test_missing_title():
         parser.parse(note)
     err = exc.value
     assert err.line == 1
-    assert err.column == 3
+    assert err.column == 2
     assert err.token == "\n"
     assert err.expected == set(["TITLENAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "##"
+    assert str(prev) == "#"
 
 
-MISSING_MODEL = r"""##a
-nid: 123412341234
-model:
-tags:
-markdown: false
+MISSING_MODEL = r"""# a
+```
+guid: 123412341234
+notetype:
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -247,25 +275,29 @@ def test_missing_model():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 3
+    assert err.line == 4
     assert err.column == 1
-    assert err.token == "model"
-    assert err.expected == set(["MODEL"])
+    assert err.token == "notetype"
+    assert err.expected == set(["NOTETYPE"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "nid: 123412341234\n"
+    assert str(prev) == "guid: 123412341234\n"
 
 
-WHITESPACE_MODEL = r"""##a
-nid: 123412341234
-model:          	
-tags:
-markdown: false
+WHITESPACE_MODEL = r"""# a
+```
+guid: 123412341234
+notetype:          	
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -277,25 +309,29 @@ def test_whitespace_model():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 3
+    assert err.line == 4
     assert err.column == 1
-    assert err.token == "model"
-    assert err.expected == set(["MODEL"])
+    assert err.token == "notetype"
+    assert err.expected == set(["NOTETYPE"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
-    assert str(prev) == "nid: 123412341234\n"
+    assert str(prev) == "guid: 123412341234\n"
 
 
-FIELDNAME_VALIDATION = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+FIELDNAME_VALIDATION = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### @@@@@
+### Tags
+```
+```
+
+## @@@@@
 r
 
-### b
+## b
 s
 """
 
@@ -312,11 +348,11 @@ def test_bad_field_single_char_name_validation():
             parser.parse(note)
         err = exc.value
 
-        assert err.line == 7
-        assert err.column == 5
+        assert err.line == 11
+        assert err.column == 4
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
-        assert str(prev) == "###"
+        assert str(prev) == "##"
         if isinstance(err, UnexpectedToken):
             assert err.token in char + "\n"
             assert err.expected == set(["ANKINAME"])
@@ -334,8 +370,8 @@ def test_bad_field_multi_char_name_validation():
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 7
-        assert err.column == 7
+        assert err.line == 11
+        assert err.column == 6
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
         assert str(prev) == fieldname[:2]
@@ -359,11 +395,11 @@ def test_fieldname_start_validation():
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 7
-        assert err.column == 5
+        assert err.line == 11
+        assert err.column == 4
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
-        assert str(prev) == "###"
+        assert str(prev) == "##"
         if isinstance(err, UnexpectedToken):
             assert err.token in fieldname + "\n"
             assert err.expected == set(["ANKINAME"])
@@ -371,16 +407,20 @@ def test_fieldname_start_validation():
             assert err.char == char
 
 
-FIELD_CONTENT_VALIDATION = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+FIELD_CONTENT_VALIDATION = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 @@@@@
 
-### b
+## b
 s
 """
 
@@ -395,7 +435,7 @@ def test_field_content_validation():
         with pytest.raises(UnexpectedCharacters) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 8
+        assert err.line == 12
         assert err.column == 1
         assert err.char == char
         assert len(err.token_history) == 1
@@ -403,53 +443,69 @@ def test_field_content_validation():
         assert str(prev) == "\n"
 
 
-NO_POST_HEADER_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false### a
+NO_POST_HEADER_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
+
+### Tags
+```
+```## a
 r
 
-### b
+## b
 s
 """
 
-ONE_POST_HEADER_NEWLINE = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
-### a
+ONE_POST_HEADER_NEWLINE = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
+
+### Tags
+```
+```
+## a
 r
 
-### b
+## b
 s
 """
 
-TWO_POST_HEADER_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+TWO_POST_HEADER_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
-THREE_POST_HEADER_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+THREE_POST_HEADER_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
+
+### Tags
+```
+```
 
 
-### a
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -464,18 +520,18 @@ def test_header_needs_two_trailing_newlines():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 5
+    assert err.line == 9
     assert err.column == 1
-    assert err.token == "markdown"
-    assert err.expected == {"NID", "MARKDOWN", "NEWLINE"}
+    assert err.token == "```## a"
+    assert err.expected == {"TAGNAME", "TRIPLEBACKTICKS"}
 
     note = ONE_POST_HEADER_NEWLINE
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 6
+    assert err.line == 10
     assert err.column == 1
-    assert err.token == "###"
+    assert err.token == "##"
     assert err.expected == {"NEWLINE"}
 
     note = TWO_POST_HEADER_NEWLINES
@@ -484,34 +540,42 @@ def test_header_needs_two_trailing_newlines():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
-    assert err.line == 7
+    assert err.line == 11
     assert err.column == 1
     assert err.token == "\n"
     assert err.expected == {"FIELDSENTINEL"}
 
 
-ONE_POST_NON_TERMINATING_FIELD_NEWLINE = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+ONE_POST_NON_TERMINATING_FIELD_NEWLINE = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
-### b
+## b
 s
 """
 
-TWO_POST_NON_TERMINATING_FIELD_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+TWO_POST_NON_TERMINATING_FIELD_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -534,14 +598,18 @@ def test_non_terminating_field_needs_at_least_two_trailing_newlines():
     transformer.transform(tree)
 
 
-EMPTY_FIELD_ZERO_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+EMPTY_FIELD_ZERO_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
-### b
+### Tags
+```
+```
+
+## a
+## b
 s
 """
 
@@ -551,21 +619,25 @@ def test_empty_field_is_still_checked_for_newline_count():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
     err = exc.value
-    assert err.line == 8
+    assert err.line == 12
     assert err.column == 1
-    assert err.token == "###"
+    assert err.token == "##"
     assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
 
 
-EMPTY_FIELD_ONE_NEWLINE = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+EMPTY_FIELD_ONE_NEWLINE = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
 
-### b
+## a
+
+## b
 s
 """
 
@@ -581,30 +653,38 @@ def test_empty_field_with_only_one_newline_raises_error():
     assert "Nonterminating fields" in str(err)
 
 
-EMPTY_FIELD_TWO_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+EMPTY_FIELD_TWO_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 
 
-### b
+## b
 s
 """
 
-EMPTY_FIELD_THREE_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+EMPTY_FIELD_THREE_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 
 
 
-### b
+## b
 s
 """
 
@@ -632,20 +712,23 @@ def test_empty_field_preserves_extra_newlines():
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     flatnote = transformer.transform(tree)
-    logger.debug(flatnote)
     assert flatnote.fields["a"] == "\n"
 
 
-LAST_FIELD_SINGLE_TRAILING_NEWLINE = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+LAST_FIELD_SINGLE_TRAILING_NEWLINE = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -657,16 +740,20 @@ def test_last_field_only_needs_one_trailing_empty_line():
     transformer.transform(tree)
 
 
-LAST_FIELD_NO_TRAILING_NEWLINE = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+LAST_FIELD_NO_TRAILING_NEWLINE = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s"""
 
 
@@ -676,22 +763,26 @@ def test_last_field_needs_one_trailing_newline():
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
     err = exc.value
-    assert err.line == 11
+    assert err.line == 15
     assert err.column == 1
     assert err.token == "s"
     assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
 
 
-LAST_FIELD_FIVE_TRAILING_NEWLINES = r"""## a
-nid: 123412341234
-model: a
-tags:
-markdown: false
+LAST_FIELD_FIVE_TRAILING_NEWLINES = r"""# a
+```
+guid: 123412341234
+notetype: a
+```
 
-### a
+### Tags
+```
+```
+
+## a
 r
 
-### b
+## b
 s
 
 
@@ -708,16 +799,21 @@ def test_last_field_newlines_are_preserved():
     assert flatnote.fields["b"] == "s\n\n\n\n"
 
 
-TAG_VALIDATION = r"""## a
-nid: 123412341234
-model: 0a
-tags: @@@@@
-markdown: false
+TAG_VALIDATION = r"""# a
+```
+guid: 123412341234
+notetype: 0a
+```
 
-### a
+### Tags
+```
+@@@@@
+```
+
+## a
 r
 
-### b
+## b
 s
 """
 
@@ -729,22 +825,34 @@ def test_tag_validation():
     template = TAG_VALIDATION
     parser = get_parser()
     for char in BAD_TAG_CHARS:
-        tags = f"subtle, {char}, heimdall"
+        tags = f"subtle\n{char}\nheimdall"
         note = template.replace("@@@@@", tags)
         with pytest.raises(UnexpectedInput) as exc:
             parser.parse(note)
         err = exc.value
-        assert err.line == 4
-        assert err.column in (15, 16)
+        assert err.line == 10
+        assert err.column in (1, 2)
         assert len(err.token_history) == 1
         prev = err.token_history.pop()
-        assert str(prev) == ","
+        assert str(prev) == "\n"
         if isinstance(err, UnexpectedToken):
-            remainder = ",".join(tags.split(",")[1:]) + "\n"
+            remainder = "\n".join(tags.split("\n")[1:]) + "\n"
             assert err.token in remainder
-            assert err.expected == set(["TAGNAME"])
+            assert err.expected == set(["TAGNAME", "TRIPLEBACKTICKS"])
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
+
+
+def test_parser_handles_special_characters_in_guid():
+    """In particular, does it allow colons?"""
+    parser = get_parser()
+    good = Path("tests/data/notes/special_characters_in_guid.md").read_text(
+        encoding="UTF-8"
+    )
+    try:
+        parser.parse(good)
+    except UnexpectedToken as err:
+        raise err
 
 
 def test_parser_goods():
@@ -755,7 +863,6 @@ def test_parser_goods():
         try:
             parser.parse(good)
         except UnexpectedToken as err:
-            logger.error(f"\n{good}")
             raise err
 
 
@@ -778,7 +885,6 @@ def test_transformer_goods():
             tree = parser.parse(good)
             transformer.transform(tree)
         except (UnexpectedToken, VisitError) as err:
-            logger.error(f"\n{good}")
             raise err
 
 

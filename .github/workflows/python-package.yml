@@ -17,6 +17,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
       - if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get install tidy
@@ -27,6 +28,7 @@ jobs:
         run: |
           git config --global user.email "ki@example.com"
           git config --global user.name "Ki GithubActions"
+          git --version
       - name: Install dependencies
         run: |
           pip install pytest wheel
@@ -37,4 +39,4 @@ jobs:
           pip install .
       - name: Test with pytest
         run: |
-          pytest -vv --timeout=120 tests/test_integration.py
+          pytest -vv --timeout=120 tests/

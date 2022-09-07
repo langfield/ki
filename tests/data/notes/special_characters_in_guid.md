@@ -1,6 +1,6 @@
 # Note
 ```
-guid: toiw:T>BQS
+guid: e&}2{Z6:Bx
 notetype: Basic
 ```
 
@@ -9,7 +9,7 @@ notetype: Basic
 ```
 
 ## Front
-dd
+100*16
 
 ## Back
-dd
+1600

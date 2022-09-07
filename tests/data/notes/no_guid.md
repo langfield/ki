@@ -1,6 +1,5 @@
 # Note
 ```
-guid: toiw:T>BQS
 notetype: Basic
 ```
 
@@ -9,7 +8,7 @@ notetype: Basic
 ```
 
 ## Front
-dd
+r
 
 ## Back
-dd
+s

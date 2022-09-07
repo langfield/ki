@@ -1,11 +1,15 @@
-## Note
-nid: 1645788806304
-model: Basic
-tags: 
-markdown: false
+# Note
+```
+guid: vgqWE;]I@M
+notetype: Basic
+```
 
-### Front
+### Tags
+```
+```
+
+## Front
 hello my enemy
 
-### Back
+## Back
 goodbye

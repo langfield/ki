@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import gc
 import sys
 import json
+import time
 import random
 import shutil
 import tempfile
+import itertools
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -21,7 +24,7 @@ from click.testing import CliRunner
 from anki.collection import Collection
 
 from beartype import beartype
-from beartype.typing import List, Union, Set
+from beartype.typing import List, Union, Set, Iterator
 
 import ki
 import ki.maybes as M
@@ -69,7 +72,7 @@ from ki import (
     unsubmodule_repo,
     write_repository,
     get_target,
-    push_decknote_to_anki,
+    push_note,
     get_models_recursively,
     append_md5sum,
     copy_media_files,
@@ -198,8 +201,9 @@ NOTE_1 = "Default/f.md"
 NOTE_2 = "note123412341234.md"
 NOTE_3 = "note 3.md"
 NOTE_4 = "Default/c.md"
-NOTE_5 = "alpha_nid.md"
-NOTE_6 = "no_nid.md"
+NOTE_5 = "alpha_guid.md"
+NOTE_6 = "no_guid.md"
+NOTE_7 = "Default/aa.md"
 MEDIA_NOTE = "air.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
@@ -369,9 +373,9 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    git.rmtree(os.path.join(repodir, ".git/"))
+    F.rmtree(F.test(Path(os.path.join(repodir, ".git/"))))
     checksum = checksumdir.dirhash(repodir)
-    git.rmtree(tempdir)
+    F.rmtree(F.test(Path(tempdir)))
     return checksum
 
 
@@ -436,9 +440,6 @@ def test_parse_markdown_note():
     transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_5_PATH)), Path("a/b"))
-        parse_markdown_note(parser, transformer, delta)
-    with pytest.raises(UnexpectedToken):
         delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_6_PATH)), Path("a/b"))
         parse_markdown_note(parser, transformer, delta)
 
@@ -479,13 +480,13 @@ def test_is_anki_note():
         note_file.write_text("one line", encoding="UTF-8")
         assert is_anki_note(note_file) is False
 
-        note_file.write_text("### Note\n## Note\n", encoding="UTF-8")
+        note_file.write_text("## Note\n# Note\n\n\n\n\n\n\n\n", encoding="UTF-8")
         assert is_anki_note(note_file) is False
 
-        note_file.write_text("## Note\nnid: 00000000000000a\n", encoding="UTF-8")
-        assert is_anki_note(note_file) is False
+        note_file.write_text("# Note\n```\nguid: 00a\n\n\n\n\n\n\n", encoding="UTF-8")
+        assert is_anki_note(note_file) is True
 
-        note_file.write_text("## Note\nnid: 000000000000000\n", encoding="UTF-8")
+        note_file.write_text("# Note\n```\nguid: 00\n\n\n\n\n\n\n\n", encoding="UTF-8")
         assert is_anki_note(note_file) is True
 
 
@@ -505,9 +506,9 @@ def test_update_note_raises_error_on_too_few_fields():
     field = "data"
 
     # Note that "Back" field is missing.
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, {"Front": field})
+    decknote = DeckNote("title", "0", "Default", "Basic", [], {"Front": field})
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, WrongFieldCountWarning)
@@ -523,10 +524,10 @@ def test_update_note_raises_error_on_too_many_fields():
 
     # Note that "Left" field is extra.
     fields = {"Front": field, "Back": field, "Left": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, WrongFieldCountWarning)
@@ -542,10 +543,10 @@ def test_update_note_raises_error_wrong_field_name():
 
     # Field `Backus` has wrong name, should be `Back`.
     fields = {"Front": field, "Backus": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, notetype)
+    warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
     assert isinstance(warning, InconsistentFieldNamesWarning)
@@ -562,7 +563,7 @@ def test_update_note_sets_tags():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("", 0, "Default", "Basic", ["tag"], False, fields)
+    decknote = DeckNote("", "0", "Default", "Basic", ["tag"], fields)
 
     assert note.tags == []
     notetype: Notetype = parse_notetype_dict(note.note_type())
@@ -577,7 +578,7 @@ def test_update_note_sets_deck():
     field = "data"
 
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "deck", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "deck", "Basic", [], fields)
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
@@ -596,7 +597,7 @@ def test_update_note_sets_field_contents():
 
     field = "TITLE\ndata"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], True, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     assert "TITLE" not in note.fields[0]
 
@@ -613,7 +614,7 @@ def test_update_note_removes_field_contents():
 
     field = "y"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     assert "a" in note.fields[0]
     notetype: Notetype = parse_notetype_dict(note.note_type())
@@ -628,11 +629,11 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Nonexistent", "Default", [], False, fields)
+    decknote = DeckNote("title", "0", "Nonexistent", "Default", [], fields)
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
-    with pytest.raises(NotetypeMismatchError) as _:
+    with pytest.raises(NotetypeMismatchError):
         update_note(note, decknote, notetype, notetype)
 
 
@@ -643,12 +644,12 @@ def test_display_fields_health_warning_catches_missing_clozes():
 
     field = "data"
     fields = {"Text": field, "Back Extra": ""}
-    decknote = DeckNote("title", 0, "Default", "Cloze", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "Cloze", [], fields)
 
     clz: NotetypeDict = col.models.by_name("Cloze")
     cloze: Notetype = parse_notetype_dict(clz)
     notetype: Notetype = parse_notetype_dict(note.note_type())
-    note, warnings = update_note(note, decknote, notetype, cloze)
+    warnings = update_note(note, decknote, notetype, cloze)
     warning = warnings.pop()
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
@@ -665,7 +666,7 @@ def test_update_note_changes_notetype():
     field = "data"
     fields = {"Front": field, "Back": field}
     decknote = DeckNote(
-        "title", 0, "Default", "Basic (and reversed card)", [], False, fields
+        "title", "0", "Default", "Basic (and reversed card)", [], fields
     )
 
     rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
@@ -717,7 +718,6 @@ def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
         new=False,
         deck=deck,
         title="",
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -772,10 +772,14 @@ def get_diff2_args() -> DiffReposArgs:
         kirepo.col_file, remote_root, msg, silent=True, verbose=False
     )
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    remote_root: ExtantDir = F.working_dir(remote_repo)
+    remote_repo.close()
+    remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    git_dir: ExtantDir = F.git_dir(remote_repo)
+    remote_repo.close()
+    git_dir: NoPath = F.rmtree(git_dir)
     F.copytree(git_copy, F.test(git_dir))
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
@@ -803,6 +807,8 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         changed = [str(delta.path) for delta in deltas]
         captured = capfd.readouterr()
@@ -833,6 +839,8 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         warnings = [d for d in deltas if isinstance(d, DiffTargetFileNotFoundWarning)]
         assert len(warnings) == 1
         warning = warnings.pop()
@@ -873,17 +881,20 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
 
         assert len(deltas) == 1
         delta = deltas[0]
+        assert isinstance(delta, Delta)
         assert delta.status == GitChangeType.ADDED
-        assert "submodule/Default/a.md" in str(delta.path)
+        assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
 
         # Push changes.
         push(runner)
 
         # Remove submodule.
-        git.rmtree(SUBMODULE_DIRNAME)
+        F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
@@ -893,7 +904,13 @@ def test_diff2_handles_submodules():
             args.parser,
             args.transformer,
         )
+        del args
+        gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
+
+        # We expect the following delta (GitChangeType.RENAMED):
+        #
+        # DEBUG    | ki:diff2:389 - submodule/Default/a.md -> Default/a.md
 
         assert len(deltas) > 0
         for delta in deltas:
@@ -1018,13 +1035,13 @@ def test_get_note_payload():
         assert "\nb\n" in result
 
 
-def test_write_repository_generates_deck_tree_correctly():
+def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
     """Does generated FS tree match example collection?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
     cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         targetdir = F.test(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
@@ -1078,7 +1095,6 @@ def test_write_repository_handles_html():
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
-        logger.debug(contents)
 
         assert '<div class="word-card">\n  <table class="kanji-match">' in contents
 
@@ -1119,42 +1135,42 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         # Case where `.ki/` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI)
+        F.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI)
+        F.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "fatal: not a ki repository" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "Directory not found" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/backups` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
         targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
-        git.rmtree(targetdir / KI / BACKUPS_DIR)
+        F.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1164,7 +1180,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/config` is a directory instead of a file.
         clone(runner, ORIGINAL.col_file)
@@ -1175,7 +1191,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A file was expected" in str(error.exconly())
         assert "'.ki/config'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/hashes` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1185,7 +1201,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert "'.ki/hashes'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where `.ki/models` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1195,7 +1211,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "File not found" in str(error.exconly())
         assert f"'{MODELS_FILE}'" in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
         # Case where collection file doesn't exist.
         clone(runner, ORIGINAL.col_file)
@@ -1207,7 +1223,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         assert "'.anki2'" in str(error.exconly())
         assert "database" in str(error.exconly())
         assert ORIGINAL.filename in str(error.exconly())
-        git.rmtree(targetdir)
+        F.rmtree(targetdir)
 
 
 def test_get_target(tmp_path):
@@ -1273,16 +1289,17 @@ def test_maybe_xfile(tmp_path):
         assert "pipe" in str(error.exconly())
 
 
-def test_push_decknote_to_anki():
+def test_push_note():
     """Do we print a nice error when a notetype is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
     fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "NonexistentModel", [], False, fields)
+    decknote = DeckNote("title", "0", "Default", "NonexistentModel", [], fields)
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(MissingNotetypeError) as error:
-        push_decknote_to_anki(col, decknote)
+        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1329,20 +1346,21 @@ def test_maybe_head_kirepo_ref():
         assert err_snippet in str(error.exconly())
 
 
-@beartype
-def test_push_decknote_to_anki_handles_note_key_errors(mocker: MockerFixture):
-    """Do we print a nice error when a KeyError is raised on note[]?"""
+def test_push_note_handles_note_field_name_mismatches():
+    """Do we return a nice warning when note fields are missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
 
     field = "data"
-    fields = {"Front": field, "Back": field}
-    decknote = DeckNote("title", 0, "Default", "Basic", [], False, fields)
-    mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
-    with pytest.raises(NoteFieldKeyError) as error:
-        push_decknote_to_anki(col, decknote)
-    assert "Expected field" in str(error.exconly())
-    assert "'bad_field_key'" in str(error.exconly())
+    fields = {"Front": field, "Backk": field}
+    decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
+    new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
+    warnings = push_note(col, decknote, int(time.time_ns()), {}, new_nids)
+    assert len(warnings) == 1
+    warning = warnings.pop()
+    assert isinstance(warning, InconsistentFieldNamesWarning)
+    assert "Backk" in str(warning)
+    assert "Expected a field" in str(warning)
 
 
 def test_parse_notetype_dict():
@@ -1491,7 +1509,6 @@ def test_copy_repo_handles_submodules(tmp_path):
 
         # Edit a file within the submodule.
         file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-        logger.debug(f"Adding 'z' to file '{file}'")
         with open(file, "a", encoding="UTF-8") as note_f:
             note_f.write("\nz\n")
 
@@ -1556,8 +1573,8 @@ def test_copy_media_files_returns_nice_errors():
     with runner.isolated_filesystem():
 
         # Remove the media directory.
-        media_dir = MEDIACOL.col_file.parent / MEDIACOL.media_directory_name
-        git.rmtree(media_dir)
+        media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
+        F.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
             copy_media_files(col, F.mkdtemp(), silent=True)
@@ -1590,9 +1607,10 @@ def test_write_repository_displays_missing_media_warnings(capfd):
             MEDIACOL.col_file, targetdir, leaves, media_dir, silent=False, verbose=True
         )
 
+        missing = Path(MEDIACOL.media_directory_name) / "1sec.mp3"
         captured = capfd.readouterr()
         assert "Missing or bad media file" in captured.out
-        assert "media.media/1sec.mp3" in captured.out
+        assert str(missing) in captured.out
 
 
 def test_copy_media_files_finds_notetype_media():
@@ -1623,3 +1641,9 @@ def test_shallow_walk_returns_extant_paths():
         assert os.path.isdir(d)
     for file in files:
         assert os.path.isfile(file)
+
+
+def test_get_test_collection_copies_media():
+    """Do media files get copied into the temp directory?"""
+    MEDIACOL: SampleCollection = get_test_collection("media")
+    assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"

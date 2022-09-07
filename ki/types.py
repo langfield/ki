@@ -112,12 +112,21 @@ class DeckNote:
     """Flat (as possible) representation of a note, but with deck."""
 
     title: str
-    nid: int
+    guid: str
     deck: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
+class NoteMetadata:
+    """The nid, mod, and mid of a note."""
+
+    nid: int
+    mod: int
+    mid: int
 
 
 @beartype
@@ -201,7 +210,6 @@ class ColNote:
     new: bool
     deck: str
     title: str
-    old_nid: int
     markdown: bool
     notetype: Notetype
     sortf_text: str
@@ -327,10 +335,17 @@ class StrangeExtantPathError(Exception):
 class ExpectedNonexistentPathError(FileExistsError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
-        msg = f"""
+        top = f"""
         Expected this path not to exist, but it does: '{path}'{info.rstrip()}
         """
-        super().__init__(errwrap(msg))
+        msg = """
+        If the path is to the `.ki/` metadata directory, this error may have
+        been caused by a `.gitignore` file that does not include `.ki/` (this
+        metadata should not be tracked by git). Check if this pattern is
+        included in the `.gitignore` file, and if it is not included, try
+        adding it.
+        """
+        super().__init__(f"{top}\n\n{errwrap(msg)}")
 
 
 class NotKiRepoError(Exception):
@@ -417,7 +432,7 @@ class NotetypeMismatchError(Exception):
     @beartype
     def __init__(self, decknote: DeckNote, new_notetype: Notetype):
         msg = f"Notetype '{decknote.model}' "
-        msg += f"specified in DeckNote with nid '{decknote.nid}' "
+        msg += f"specified in DeckNote with GUID '{decknote.guid}' "
         msg += f"does not match passed notetype '{new_notetype}'. "
         msg += "This should NEVER happen, "
         msg += "and indicates a bug in the caller to 'update_note()'."
@@ -522,6 +537,34 @@ class MissingTidyExecutableError(FileNotFoundError):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
+class AnkiDBNoteMissingFieldsError(RuntimeError):
+    @beartype
+    def __init__(self, decknote: DeckNote, nid: int, key: str):
+        top = f"fatal: Note with GUID '{decknote.guid}' missing DB field '{key}'"
+        msg = f"""
+        This is strange, should only happen if the `add_db_note()` call fails
+        or behaves strangely. This may indicate a bug in ki. Please report this
+        on GitHub at https://github.com/langfield/ki/issues. Note ID: '{nid}'.
+        """
+        super().__init__(f"{top}\n\n{errwrap(msg)}")
+
+
+class GitFileModeParseError(RuntimeError):
+    @beartype
+    def __init__(self, file: ExtantFile, out: str):
+        top = f"fatal: Failed to parse git file mode for media file '{file}'"
+        msg = """
+        A 'git ls-files' call is used to figure out the git file mode for
+        cloned media files. This is done in order to detect symlinks on
+        Windows, and follow them manually. This error is raised when we are
+        unable to parse the output of 'git ls-files' for some reason or
+        another, which for a symlink called 'filename', should look like this:
+        """
+        example = "120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename"
+        msg2 = f"Actual unparsed git command output:\n{out}"
+        super().__init__(f"{top}\n\n{errwrap(msg)}\n\n{example}\n\n{msg2}")
+
+
 # WARNINGS
 
 
@@ -542,7 +585,7 @@ class WrongFieldCountWarning(Warning):
         top = f"Warning: Wrong number of fields for model '{decknote.model}'"
         msg = f"""
         The notetype '{decknote.model}' takes '{len(names)}' fields, but got
-        '{len(decknote.fields.keys())}' for note '{decknote.nid}'.
+        '{len(decknote.fields.keys())}' for note with GUID '{decknote.guid}'.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
 
@@ -553,7 +596,7 @@ class InconsistentFieldNamesWarning(Warning):
         top = f"Warning: Inconsistent field names ('{x}' != '{y}')"
         msg = f"""
         Expected a field '{x}' for notetype '{decknote.model}', but got a field
-        '{y}' in note '{decknote.nid}'.
+        '{y}' in note with GUID '{decknote.guid}'.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
 
@@ -597,8 +640,15 @@ class DiffTargetFileNotFoundWarning(Warning):
     @beartype
     def __init__(self, path: Path):
         top = f"Diff target file not found: '{path}'"
-        msg = """
-        Unexpected: this may indicate a bug in ki. The caller prevents this
+        msg1 = """
+        Unexpected: this sometimes happens when a git repository is copied into
+        a subdirectory of a ki repository, and then added with 'git add'
+        instead of being added as a git submodule with 'git submodule add'. If
+        git displayed a warning on a recent 'git add' command, refer to the
+        hints within that warning.
+        """
+        msg2 = """
+        Otherwise, this may indicate a bug in ki.  The caller prevents this
         warning from being instantiated unless the git change type is one of
         'ADDED', 'MODIFIED', or 'RENAMED'. In all cases, the file being diffed
         should be extant in the target commit of the repository.  However, we
@@ -606,7 +656,7 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a 'push()' call where it is not strictly
         necessary.
         """
-        super().__init__(f"{top}\n{errwrap(msg)}")
+        super().__init__(f"{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}")
 
 
 class MissingMediaFileWarning(Warning):
@@ -620,5 +670,17 @@ class MissingMediaFileWarning(Warning):
         all media filenames present in note fields should correspond to extant
         files within the media directory (usually called 'collection.media/'
         within the relevant Anki user profile directory).
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class RenamedMediaFileWarning(Warning):
+    @beartype
+    def __init__(self, src: str, dst: str):
+        top = f"Media file '{src}' renamed to '{dst}'"
+        msg = """
+        This happens when we push a media file to a collection that already
+        contains another media file with the same name. In this case, Anki does
+        some deduplication by renaming the new one.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
