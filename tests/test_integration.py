@@ -501,7 +501,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                         r"C:\Program Files\Git\cmd;",
                         r"C:\Program Files\Git\mingw64\bin;",
                         r"C:\Program Files\Git\usr\bin;",
-                        r"C:\\Program Files\\Git\\cmd;",
+                        # r"C:\\Program Files\\Git\\cmd;",
                     ]
                     path = os.environ["PATH"]
                     logger.debug(f"PATH: \n{pp.pformat(os.environ['PATH'].split(';'))}")
