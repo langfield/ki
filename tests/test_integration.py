@@ -469,7 +469,6 @@ def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
             os.environ["PATH"] = old_path
 
 
-@pytest.mark.skip
 def test_clone_displays_nice_errors_for_missing_dependencies():
     """Does it tell the user what to install?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -497,14 +496,11 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         try:
             with pytest.raises(git.GitCommandNotFound) as raised:
                 tmp = F.mkdtemp()
-
-                if sys.platform == "win32":
-                    git_path = "C:\\Program Files\\Git\\cmd;"
-                    os.environ["PATH"] = os.environ["PATH"].replace(git_path, "")
-                else:
-                    os.symlink("/usr/bin/tidy", tmp / "tidy")
-                    os.environ["PATH"] = str(tmp)
-
+                tgt = tmp / "tidy"
+                shutil.copyfile(shutil.which("tidy"), tgt)
+                st = os.stat(tgt)
+                os.chmod(tgt, st.st_mode | 0o111)
+                os.environ["PATH"] = str(tgt.parent)
                 clone(runner, HTML.col_file)
             error = raised.exconly()
         finally:
