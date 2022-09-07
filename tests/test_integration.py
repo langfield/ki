@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import sys
 import shutil
 import sqlite3
 import tempfile
@@ -475,8 +476,14 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         try:
             with pytest.raises(git.GitCommandNotFound) as raised:
                 tmp = F.mkdtemp()
-                os.symlink("/usr/bin/tidy", tmp / "tidy")
-                os.environ["PATH"] = str(tmp)
+
+                if sys.platform == "win32":
+                    git_path = "C:\\Program Files\\Git\\cmd;"
+                    os.environ["PATH"] = os.environ["PATH"].replace(git_path, "")
+                else:
+                    os.symlink("/usr/bin/tidy", tmp / "tidy")
+                    os.environ["PATH"] = str(tmp)
+
                 clone(runner, HTML.col_file)
             error = raised.exconly()
         finally:
