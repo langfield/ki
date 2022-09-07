@@ -361,10 +361,12 @@ def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture)
         kirepo = M.kirepo(F.test(Path("C") / ORIGINAL.repodir))
         kirepo.repo.close()
 
+        """
         mocker.patch(
             "ki.M.kirepo",
             side_effect=[NotKiRepoError()],
         )
+        """
         with pytest.raises(NotKiRepoError):
             clone(runner, ORIGINAL.col_file)
 
