@@ -503,9 +503,11 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                         r"C:\Program Files\Git\usr\bin;"
                     ]
                     path = os.environ["PATH"]
+                    logger.debug(f"PATH: \n{pp.pformat(os.environ['PATH'].split(';'))}")
                     for gitpath in gits:
                         path = path.replace(gitpath, "")
                     os.environ["PATH"] = path
+                    logger.debug(f"MODIFIED PATH: \n{pp.pformat(os.environ['PATH'].split(';'))}")
 
                 else:
                     tmp = F.mkdtemp()
