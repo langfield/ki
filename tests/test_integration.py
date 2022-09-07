@@ -475,14 +475,25 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
         # `GitCommandNotFound` error.
         try:
             with pytest.raises(git.GitCommandNotFound) as raised:
-                tmp = F.mkdtemp()
-
                 if sys.platform == "win32":
-                    git_path = "C:\\Program Files\\Git\\cmd;"
-                    os.environ["PATH"] = os.environ["PATH"].replace(git_path, "")
+                    gits = [
+                        r"C:\Program Files\Git\bin;",
+                        r"C:\Program Files\Git\cmd;",
+                        r"C:\Program Files\Git\mingw64\bin;",
+                        r"C:\Program Files\Git\usr\bin;",
+                    ]
+                    path = os.environ["PATH"]
+                    for gitpath in gits:
+                        path = path.replace(gitpath, "")
+                    os.environ["PATH"] = path
                 else:
-                    os.symlink("/usr/bin/tidy", tmp / "tidy")
-                    os.environ["PATH"] = str(tmp)
+                    tmp = F.mkdtemp()
+                    tgt = tmp / "tidy"
+                    shutil.copyfile(shutil.which("tidy"), tgt)
+                    st = os.stat(tgt)
+                    os.chmod(tgt, st.st_mode | 0o111)
+                    path = str(tgt.parent)
+                    os.environ["PATH"] = path
 
                 clone(runner, HTML.col_file)
             error = raised.exconly()
