@@ -508,6 +508,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
                     for gitpath in gits:
                         path = path.replace(gitpath, "")
                     os.environ["PATH"] = path
+                    logger.debug(f"{path = }")
                     logger.debug(f"MODIFIED PATH: \n{pp.pformat(os.environ['PATH'].split(';'))}")
 
                 else:
