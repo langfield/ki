@@ -304,57 +304,6 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
             clone(runner, ORIGINAL.col_file)
 
 
-@beartype
-def test_clone_displays_errors_from_loading_kirepo_at_end(mocker: MockerFixture):
-    """Do errors get propagated in the places we expect?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # `M.kirepo()` is called four times in `clone()`, and we only want to
-        # actually mock the last call. So we need the mocked function to behave
-        # somewhat normally for the first three calls, which means returning a
-        # valid `kirepo`. And we can't return a mock because beartype will
-        # catch it. We need to return an *actual* kirepo or mess with the
-        # `__class__` attr of a mock (seems dangerous).
-
-        # So we actually clone three times in three separate directories, and
-        # instantiate a kirepo from each. The `clone()` call will do some
-        # copying between them, but since they're distinct locations, it will
-        # think everything is working fine.
-
-        # So we pass a iterable as the `side_effect` of our mock, and return
-        # our three 'fake' kirepos, and then finally the `Err` object we
-        # actually needed on the fourth call.
-        os.mkdir("A")
-        os.chdir("A")
-        clone(runner, ORIGINAL.col_file)
-        os.chdir("..")
-        kirepo = M.kirepo(F.test(Path("A") / ORIGINAL.repodir))
-        kirepo.repo.close()
-
-        os.mkdir("B")
-        os.chdir("B")
-        clone(runner, ORIGINAL.col_file)
-        os.chdir("..")
-        kirepo = M.kirepo(F.test(Path("B") / ORIGINAL.repodir))
-        kirepo.repo.close()
-
-        os.mkdir("C")
-        os.chdir("C")
-        clone(runner, ORIGINAL.col_file)
-        os.chdir("..")
-        kirepo = M.kirepo(F.test(Path("C") / ORIGINAL.repodir))
-        kirepo.repo.close()
-
-        mocker.patch(
-            "ki.M.kirepo",
-            side_effect=[NotKiRepoError()],
-        )
-        with pytest.raises(NotKiRepoError):
-            clone(runner, ORIGINAL.col_file)
-
-
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -856,37 +805,6 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
             pull(runner)
 
 
-@pytest.mark.xfail
-def test_pull_preserves_reassigned_note_ids(tmp_path: Path):
-    """UNFINISHED!"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
-        os.chdir(repo.working_dir)
-
-        # Copy a new note into the submodule.
-        note_path = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
-        shutil.copyfile(NOTE_2_PATH, note_path)
-
-        # Get a reference to the submodule repo.
-        subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
-
-        # Commit changes in submodule and parent repo.
-        subrepo.git.add(all=True)
-        subrepo.index.commit("Add a new note.")
-        repo.git.add(all=True)
-        repo.index.commit("Update submodule.")
-
-        out = push(runner, verbose=True)
-
-        # Edit collection (implicitly removes submodule).
-        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-        out = pull(runner)
-        raise NotImplementedError
-
-
 def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1335,40 +1253,6 @@ def test_push_deletes_added_notes():
         contents = os.listdir(os.path.join(ORIGINAL.repodir, "Default"))
         notes = [path for path in contents if path[-3:] == ".md"]
         assert len(notes) == 2
-
-
-# We expect this test not to work anymore, because it is now outside the scope
-# of `ki`.
-@pytest.mark.xfail
-def test_push_generates_correct_title_for_notes():
-    """Does push use the truncated sort field as a filename?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-
-        # Add new note source files.
-        os.chdir(ORIGINAL.repodir)
-        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-
-        # Commit the additions.
-        os.chdir("../")
-        repo = git.Repo(ORIGINAL.repodir)
-        repo.git.add(all=True)
-        repo.index.commit("Added 'e'.")
-
-        # Push changes.
-        os.chdir(ORIGINAL.repodir)
-        out = push(runner)
-
-        os.chdir("Default")
-        post_push_contents = os.listdir()
-        notes = [path for path in post_push_contents if path[-3:] == ".md"]
-
-        # Expect `['c.md', 'r.md', 'a.md']`.
-        assert "r.md" in notes
 
 
 def test_push_displays_informative_error_when_last_push_file_is_missing():
