@@ -2185,8 +2185,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
                 if sys.platform == "win32":
                     with open(patch_path, "rb") as f:
-                        with open(patch_path, "wb") as g:
-                            g.write(f.read().replace(b"\r\n", b"\n"))
+                        patch_bytes = f.read()
+                    reformatted_bytes = patch_bytes.replace(b"\r\n", b"\n")
+                    with open(patch_path, "wb") as f:
+                        f.write(reformatted_bytes)
 
                 # Number of leading path components to drop from diff paths.
                 num_parts = len(sm_rel_root.parts) + 1
