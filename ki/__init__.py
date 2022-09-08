@@ -2049,24 +2049,32 @@ def _clone(
     # Initialize the main repository.
     with F.halo("Initializing repository and committing contents..."):
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+        root = F.working_dir(repo)
+
+        logger.debug(f"{Path.cwd() = }")
+        logger.debug(f"{root = }")
+        old: ExtantDir = F.chdir(root)
 
         # Use `git update-index` to set 120000 file mode on each latent symlink
         # in `latent_links`.
         relative_links: Set[Path] = set()
-        for link in latent_links:
+        for abslink in latent_links:
             sha1 = hashlib.sha1()
-            with open(link, "rb") as f:
+            with open(abslink, "rb") as f:
                 sha1.update(f.read())
-            root = Path(repo.working_dir)
-            link = link.relative_to(root)
+            link = abslink.relative_to(root)
             relative_links.add(link)
             hexsha1 = sha1.hexdigest()
-            repo.git.update_index(f"120000,{hexsha1},{link}", add=True, cacheinfo=True)
+            logger.debug(f"{abslink = }")
+            target = f"120000,{hexsha1},{link}"
+            repo.git.update_index(target, add=True, cacheinfo=True)
 
         repo.git.add(all=True)
         for link in relative_links:
             repo.git.reset(link)
         _ = repo.index.commit(msg)
+
+        F.chdir(old)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
