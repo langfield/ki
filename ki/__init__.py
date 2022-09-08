@@ -2072,6 +2072,7 @@ def _clone(
 
             # Convert to POSIX pathseps since that's what `git` wants.
             logger.debug(f"Setting file mode for {link} to 120000")
+            logger.debug(f"{abslink = }")
             target = f"120000,{hexsha1},{link.as_posix()}"
             repo.git.update_index(target, add=True, cacheinfo=True)
             mode: int = filemode(abslink)
