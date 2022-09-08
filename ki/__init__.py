@@ -1897,12 +1897,19 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]) -> int:
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
         repo = git.Repo(file, search_parent_directories=True)
         out = repo.git.ls_files(["-s", str(file)])
+
+        # Treat case where file is untracked.
+        if out == "":
+            return -1
+
         mode: int = int(out.split()[0])
     except Exception as err:
         raise GitFileModeParseError(file, out) from err
@@ -2695,8 +2702,12 @@ def push_deltas(
         if old and old == new:
             continue
 
-        logger.warning(f"Existing media file contents at '{media_file.name}' do not match new contents.")
-        logger.debug(f"Old is stuff in database, new is stuff read from file in repository.")
+        logger.warning(
+            f"Existing media file contents at '{media_file.name}' do not match new contents."
+        )
+        logger.debug(
+            f"Old is stuff in database, new is stuff read from file in repository."
+        )
         logger.warning(f"{len(old) = }")
         logger.warning(f"{len(new) = }")
 

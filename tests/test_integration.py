@@ -1559,21 +1559,29 @@ def test_push_writes_media(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone.
+        logger.debug(f"First clone...")
         clone(runner, MEDIACOL.col_file)
 
         # Add a new note file containing media, and the corresponding media file.
         root = F.cwd()
         media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
         media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
+        logger.debug(f"Copying media file to '{media_file_path}'")
         shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
+
+        mode: int = ki.filemode(media_file_path)
+        logger.warning(f"{mode = }")
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)
         repo.index.commit("Add air.md")
         repo.close()
+
+        mode: int = ki.filemode(media_file_path)
+        logger.warning(f"{mode = }")
 
         # Push the commit.
         out = push(runner)
@@ -1583,6 +1591,7 @@ def test_push_writes_media(tmp_path: Path):
         F.rmtree(F.test(Path(MEDIACOL.repodir)))
 
         # Re-clone the pushed collection.
+        logger.debug(f"Second clone...")
         out = clone(runner, MEDIACOL.col_file)
 
         # Check that added note and media file exist.
