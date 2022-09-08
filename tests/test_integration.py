@@ -640,21 +640,20 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         assert os.path.isfile(orig)
 
 
-@pytest.mark.skip
 def test_clone_writes_plaintext_posix_symlinks_on_windows(
     tmp_path, mocker: MockerFixture
 ):
     SYMLINKS: SampleCollection = get_test_collection("symlinks")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        mocker.patch("sys.platform", "win32")
         out = clone(runner, SYMLINKS.col_file)
 
         # Verify that there are no symlinks in the cloned sample repo.
         for root, _, files in os.walk(SYMLINKS.repodir):
             for file in files:
                 path = os.path.join(root, file)
-                assert not os.path.islink(path)
+                if sys.platform == "win32":
+                    assert not os.path.islink(path)
 
         winlinks = [
             Path("Default") / "B" / "sample_cloze-ol.md",

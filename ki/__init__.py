@@ -2079,8 +2079,6 @@ def _clone(
             logger.debug(f"Actual mode = {mode}")
 
         repo.git.add(all=True)
-        for link in relative_links:
-            repo.git.reset(link)
         _ = repo.index.commit(msg)
 
         # DEBUG
@@ -2508,10 +2506,6 @@ def push(verbose: bool = False) -> PushResult:
     with F.halo("Initializing stage repository..."):
         head: KiRepoRef = M.head_kirepo_ref(kirepo)
         head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-        logger.debug(head_kirepo.root)
-
-        return PushResult.NONTRIVIAL
-
         remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
