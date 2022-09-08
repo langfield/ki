@@ -2083,6 +2083,10 @@ def _clone(
             repo.git.reset(link)
         _ = repo.index.commit(msg)
 
+        # DEBUG
+        for item in repo.index.diff(None):
+            logger.warning(f"Unstaged file: {item.b_path}")
+
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
 
