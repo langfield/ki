@@ -1977,7 +1977,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         gc.collect()
         echo("Done.")
     except Exception as err:
-        cleanup(targetdir, new)
+        # cleanup(targetdir, new)
         raise err
 
     if PROFILE:
