@@ -2679,6 +2679,8 @@ def push_deltas(
             target: str = media_file.read_text(encoding="UTF-8")
             parent: ExtantDir = F.parent(media_file)
             media_file: ExtantFile = M.xfile(parent / target)
+        else:
+            logger.warning(f"{mode = }")
 
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
