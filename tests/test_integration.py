@@ -624,6 +624,7 @@ def test_clone_writes_media_files():
         assert audio_path.is_file()
 
 
+@pytest.mark.skip
 def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path):
     SPLIT: SampleCollection = get_test_collection("split")
     runner = CliRunner()

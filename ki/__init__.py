@@ -2689,6 +2689,10 @@ def push_deltas(
         if old and old == new:
             continue
 
+        logger.warning(f"Existing media file contents at '{media_file.name}' do not match new contents.")
+        logger.warning(f"{len(old) = }")
+        logger.warning(f"{len(new) = }")
+
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
         if new_media_filename != media_file.name:
