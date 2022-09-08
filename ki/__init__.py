@@ -2063,8 +2063,11 @@ def _clone(
             hexsha1 = sha1.hexdigest()
 
             # Convert to POSIX pathseps since that's what `git` wants.
+            logger.debug(f"Setting file mode for {link} to 120000")
             target = f"120000,{hexsha1},{link.as_posix()}"
             repo.git.update_index(target, add=True, cacheinfo=True)
+            mode: int = filemode(abslink)
+            logger.debug(f"Actual mode = {mode}")
 
         repo.git.add(all=True)
         for link in relative_links:
@@ -2692,6 +2695,7 @@ def push_deltas(
             continue
 
         logger.warning(f"Existing media file contents at '{media_file.name}' do not match new contents.")
+        logger.debug(f"Old is stuff in database, new is stuff read from file in repository.")
         logger.warning(f"{len(old) = }")
         logger.warning(f"{len(new) = }")
 
