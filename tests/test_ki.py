@@ -1720,5 +1720,6 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         ref = M.head_repo_ref(git.Repo(MEDIACOL.repodir))
         ephem = ki.copy_repo(ref, "filemode-test")
         onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
+        logger.debug(f"{onesec_file = }")
         mode = ki.filemode(onesec_file)
         assert mode == 120000
