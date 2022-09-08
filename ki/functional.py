@@ -169,9 +169,7 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
 @beartype
 def symlink(path: NoFile, target: Path) -> Union[Symlink, LatentSymlink]:
     """Symlink `path` to `target`."""
-    logger.debug(f"Symlinking `{path} -> {target}`")
     if sys.platform == "win32":
-        logger.warning("WINDOWS")
         with open(path, "w", encoding="UTF-8") as f:
             f.write(str(target))
             return LatentSymlink(path)

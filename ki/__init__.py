@@ -2051,9 +2051,6 @@ def _clone(
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
         root = F.working_dir(repo)
 
-        logger.debug(f"{Path.cwd() = }")
-        logger.debug(f"{root = }")
-
         # Use `git update-index` to set 120000 file mode on each latent symlink
         # in `latent_links`.
         relative_links: Set[Path] = set()
@@ -2064,7 +2061,6 @@ def _clone(
             link = abslink.relative_to(root)
             relative_links.add(link)
             hexsha1 = sha1.hexdigest()
-            logger.debug(f"{abslink = }")
 
             # Convert to POSIX pathseps since that's what `git` wants.
             target = f"120000,{hexsha1},{link.as_posix()}"
