@@ -2071,18 +2071,11 @@ def _clone(
             hexsha1 = sha1.hexdigest()
 
             # Convert to POSIX pathseps since that's what `git` wants.
-            logger.debug(f"Setting file mode for {link} to 120000")
-            logger.debug(f"{abslink = }")
             target = f"120000,{hexsha1},{link.as_posix()}"
             repo.git.update_index(target, add=True, cacheinfo=True)
-            mode: int = filemode(abslink)
-            logger.debug(f"Actual mode = {mode}")
 
         repo.git.add(all=True)
         _ = repo.index.commit(msg)
-
-        # DEBUG
-        logger.debug(f"Checking untracked files in '{repo.working_dir}': {repo.untracked_files}")
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
@@ -2692,9 +2685,6 @@ def push_deltas(
             target: str = media_file.read_text(encoding="UTF-8")
             parent: ExtantDir = F.parent(media_file)
             media_file: ExtantFile = M.xfile(parent / target)
-        else:
-            logger.debug(f"{media_file}")
-            logger.warning(f"{media_file.name}: {mode = }")
 
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
@@ -2704,15 +2694,6 @@ def push_deltas(
         old: bytes = media_data(col, media_file.name)
         if old and old == new:
             continue
-
-        logger.warning(
-            f"Existing media file contents at '{media_file.name}' do not match new contents."
-        )
-        logger.debug(
-            f"Old is stuff in database, new is stuff read from file in repository."
-        )
-        logger.warning(f"{media_file.name}: {len(old) = }")
-        logger.warning(f"{media_file.name}: {len(new) = }")
 
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
