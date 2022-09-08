@@ -2084,6 +2084,7 @@ def _clone(
         _ = repo.index.commit(msg)
 
         # DEBUG
+        logger.debug(f"Checking unstaged files in '{repo.working_dir}'")
         for item in repo.index.diff(None):
             logger.warning(f"Unstaged file: {item.b_path}")
 
