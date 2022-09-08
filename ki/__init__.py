@@ -82,6 +82,7 @@ from ki.types import (
     NoFile,
     Symlink,
     LatentSymlink,
+    ExtantStrangePath,
     GitChangeType,
     Patch,
     Delta,
@@ -1896,12 +1897,19 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(file: ExtantFile) -> int:
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
         repo = git.Repo(file, search_parent_directories=True)
         out = repo.git.ls_files(["-s", str(file)])
+
+        # Treat case where file is untracked.
+        if out == "":
+            return -1
+
         mode: int = int(out.split()[0])
     except Exception as err:
         raise GitFileModeParseError(file, out) from err
@@ -2067,8 +2075,6 @@ def _clone(
             repo.git.update_index(target, add=True, cacheinfo=True)
 
         repo.git.add(all=True)
-        for link in relative_links:
-            repo.git.reset(link)
         _ = repo.index.commit(msg)
 
     # Store a checksum of the Anki collection file in the hashes file.
