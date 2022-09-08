@@ -1977,7 +1977,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         gc.collect()
         echo("Done.")
     except Exception as err:
-        # cleanup(targetdir, new)
+        cleanup(targetdir, new)
         raise err
 
     if PROFILE:
@@ -2065,7 +2065,9 @@ def _clone(
             relative_links.add(link)
             hexsha1 = sha1.hexdigest()
             logger.debug(f"{abslink = }")
-            target = f"120000,{hexsha1},{link}"
+
+            # Convert to POSIX pathseps since that's what `git` wants.
+            target = f"120000,{hexsha1},{link.as_posix()}"
             repo.git.update_index(target, add=True, cacheinfo=True)
 
         repo.git.add(all=True)
