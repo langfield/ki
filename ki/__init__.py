@@ -2084,9 +2084,7 @@ def _clone(
         _ = repo.index.commit(msg)
 
         # DEBUG
-        logger.debug(f"Checking unstaged files in '{repo.working_dir}'")
-        for item in repo.index.diff(None):
-            logger.warning(f"Unstaged file: {item.b_path}")
+        logger.debug(f"Checking untracked files in '{repo.working_dir}': {repo.untracked_files}")
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
