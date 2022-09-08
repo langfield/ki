@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for ki command line interface (CLI)."""
 import os
+import gc
 import sys
 import shutil
 import sqlite3
@@ -1212,6 +1213,9 @@ def test_push_doesnt_fail_after_pull():
         repo = git.Repo(ORIGINAL.repodir)
         repo.git.add(all=True)
         repo.index.commit("Added 'e'.")
+        repo.close()
+        del repo
+        gc.collect()
 
         # Push changes.
         os.chdir(ORIGINAL.repodir)
