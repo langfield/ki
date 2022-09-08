@@ -82,6 +82,7 @@ from ki.types import (
     NoFile,
     Symlink,
     LatentSymlink,
+    ExtantStrangePath,
     GitChangeType,
     Patch,
     Delta,
@@ -1896,7 +1897,7 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(file: ExtantFile) -> int:
+def filemode(file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
