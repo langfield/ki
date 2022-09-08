@@ -2053,7 +2053,6 @@ def _clone(
 
         logger.debug(f"{Path.cwd() = }")
         logger.debug(f"{root = }")
-        old: ExtantDir = F.chdir(root)
 
         # Use `git update-index` to set 120000 file mode on each latent symlink
         # in `latent_links`.
@@ -2073,8 +2072,6 @@ def _clone(
         for link in relative_links:
             repo.git.reset(link)
         _ = repo.index.commit(msg)
-
-        F.chdir(old)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
