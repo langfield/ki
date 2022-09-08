@@ -1566,13 +1566,14 @@ def test_push_writes_media(tmp_path: Path):
         root = F.cwd()
         media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
         media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
+        onesec_file = root / MEDIACOL.repodir / "Default" / MEDIA / "1sec.mp3"
         logger.debug(f"Copying media file to '{media_file_path}'")
         shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
 
-        mode: int = ki.filemode(media_file_path)
-        logger.warning(f"{mode = }")
+        mode: int = ki.filemode(onesec_file)
+        logger.warning(f"1sec.mp3: {mode = }")
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
@@ -1580,8 +1581,8 @@ def test_push_writes_media(tmp_path: Path):
         repo.index.commit("Add air.md")
         repo.close()
 
-        mode: int = ki.filemode(media_file_path)
-        logger.warning(f"{mode = }")
+        mode: int = ki.filemode(onesec_file)
+        logger.warning(f"1sec.mp3: {mode = }")
 
         # Push the commit.
         out = push(runner)

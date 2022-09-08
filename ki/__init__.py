@@ -2691,7 +2691,8 @@ def push_deltas(
             parent: ExtantDir = F.parent(media_file)
             media_file: ExtantFile = M.xfile(parent / target)
         else:
-            logger.warning(f"{mode = }")
+            logger.debug(f"{media_file}")
+            logger.warning(f"{media_file.name}: {mode = }")
 
         # Get bytes of new media file.
         with open(media_file, "rb") as f:
@@ -2708,8 +2709,8 @@ def push_deltas(
         logger.debug(
             f"Old is stuff in database, new is stuff read from file in repository."
         )
-        logger.warning(f"{len(old) = }")
-        logger.warning(f"{len(new) = }")
+        logger.warning(f"{media_file.name}: {len(old) = }")
+        logger.warning(f"{media_file.name}: {len(new) = }")
 
         # Add (and possibly rename) media paths.
         new_media_filename: str = col.media.add_file(media_file)
