@@ -1717,7 +1717,15 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         # Clone.
         clone(runner, MEDIACOL.col_file)
 
-        ref = M.head_repo_ref(git.Repo(MEDIACOL.repodir))
+        # Check that filemode is initially 120000.
+        repo = git.Repo(MEDIACOL.repodir)
+        onesec_file = F.working_dir(repo) / "Default" / MEDIA / "1sec.mp3"
+        logger.debug(f"{onesec_file = }")
+        mode = ki.filemode(onesec_file)
+        assert mode == 120000
+
+        # Check that `copy_repo()` keeps it as 120000.
+        ref = M.head_repo_ref(repo)
         ephem = ki.copy_repo(ref, "filemode-test")
         onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
         logger.debug(f"{onesec_file = }")
