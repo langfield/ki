@@ -292,7 +292,7 @@ class MissingFileError(FileNotFoundError):
         super().__init__(f"{header}\n\n{errwrap(msg)}")
 
 
-class MissingDirectoryError(Exception):
+class MissingDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = f"Directory not found: '{path}'{info.rstrip()}"
@@ -307,7 +307,7 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
         super().__init__(errwrap(msg))
 
 
-class ExpectedDirectoryButGotFileError(Exception):
+class ExpectedDirectoryButGotFileError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "A directory was expected at this location, but got a file: "
@@ -315,7 +315,7 @@ class ExpectedDirectoryButGotFileError(Exception):
         super().__init__(errwrap(msg))
 
 
-class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "An empty directory was expected at this location, but it is nonempty: "
@@ -323,7 +323,7 @@ class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
         super().__init__(errwrap(msg))
 
 
-class StrangeExtantPathError(Exception):
+class StrangeExtantPathError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = ""):
         msg = "A normal file or directory was expected, but got a weird pseudofile "
@@ -348,7 +348,7 @@ class ExpectedNonexistentPathError(FileExistsError):
         super().__init__(f"{top}\n\n{errwrap(msg)}")
 
 
-class NotKiRepoError(Exception):
+class NotKiRepoError(RuntimeError):
     @beartype
     def __init__(self):
         msg = "fatal: not a ki repository (or any parent up to mount point /)\n"
@@ -356,14 +356,14 @@ class NotKiRepoError(Exception):
         super().__init__(errwrap(msg))
 
 
-class UpdatesRejectedError(Exception):
+class UpdatesRejectedError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
         super().__init__(errwrap(msg))
 
 
-class TargetExistsError(Exception):
+class TargetExistsError(RuntimeError):
     @beartype
     def __init__(self, target: Path):
         msg = f"fatal: destination path '{target}' already exists and is "
@@ -371,14 +371,14 @@ class TargetExistsError(Exception):
         super().__init__(errwrap(msg))
 
 
-class GitRefNotFoundError(Exception):
+class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
         super().__init__(errwrap(msg))
 
 
-class GitHeadRefNotFoundError(Exception):
+class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f"""
@@ -391,14 +391,14 @@ class GitHeadRefNotFoundError(Exception):
         super().__init__(errwrap(msg))
 
 
-class CollectionChecksumError(Exception):
+class CollectionChecksumError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
         super().__init__(errwrap(msg))
 
 
-class MissingNotetypeError(Exception):
+class MissingNotetypeError(RuntimeError):
     @beartype
     def __init__(self, model: str):
         msg = f"""
@@ -411,7 +411,7 @@ class MissingNotetypeError(Exception):
 
 
 # TODO: We should also print which field ordinals *are* valid.
-class MissingFieldOrdinalError(Exception):
+class MissingFieldOrdinalError(RuntimeError):
 
     # pylint: disable=redefined-builtin
 
@@ -421,14 +421,14 @@ class MissingFieldOrdinalError(Exception):
         super().__init__(errwrap(msg))
 
 
-class MissingNoteIdError(Exception):
+class MissingNoteIdError(RuntimeError):
     @beartype
     def __init__(self, nid: int):
         msg = f"Failed to locate note with nid '{nid}' in Anki database."
         super().__init__(errwrap(msg))
 
 
-class NotetypeMismatchError(Exception):
+class NotetypeMismatchError(RuntimeError):
     @beartype
     def __init__(self, decknote: DeckNote, new_notetype: Notetype):
         msg = f"Notetype '{decknote.model}' "
@@ -439,7 +439,7 @@ class NotetypeMismatchError(Exception):
         super().__init__(errwrap(msg))
 
 
-class NotetypeKeyError(Exception):
+class NotetypeKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, name: str):
         msg = f"""
@@ -450,7 +450,7 @@ class NotetypeKeyError(Exception):
         super().__init__(errwrap(msg))
 
 
-class NoteFieldKeyError(Exception):
+class NoteFieldKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, nid: int):
         msg = f"""
@@ -462,7 +462,7 @@ class NoteFieldKeyError(Exception):
         super().__init__(errwrap(msg))
 
 
-class UnnamedNotetypeError(Exception):
+class UnnamedNotetypeError(RuntimeError):
     @beartype
     def __init__(self, nt: NotetypeDict):
         msg = f"""
@@ -473,7 +473,7 @@ class UnnamedNotetypeError(Exception):
         super().__init__(errwrap(msg) + "\n" + pp.pformat(nt))
 
 
-class SQLiteLockError(Exception):
+class SQLiteLockError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
@@ -493,7 +493,7 @@ class SQLiteLockError(Exception):
         super().__init__(f"{header}\n{errwrap(msg)}")
 
 
-class PathCreationCollisionError(Exception):
+class PathCreationCollisionError(RuntimeError):
     @beartype
     def __init__(self, root: ExtantDir, token: str):
         header = "Collision in children names for population of empty directory "
@@ -508,7 +508,7 @@ class PathCreationCollisionError(Exception):
         super().__init__(f"{header}\n{errwrap(msg)}")
 
 
-class MissingMediaDirectoryError(Exception):
+class MissingMediaDirectoryError(RuntimeError):
     @beartype
     def __init__(self, col_path: str, media_dir: Path):
         top = f"Missing or bad Anki collection media directory '{media_dir}' "
@@ -523,7 +523,7 @@ class MissingMediaDirectoryError(Exception):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
-class AnkiAlreadyOpenError(Exception):
+class AnkiAlreadyOpenError(RuntimeError):
     @beartype
     def __init__(self, msg: str):
         super().__init__(f"fatal: {msg}")
@@ -551,7 +551,7 @@ class AnkiDBNoteMissingFieldsError(RuntimeError):
 
 class GitFileModeParseError(RuntimeError):
     @beartype
-    def __init__(self, file: ExtantFile, out: str):
+    def __init__(self, file: Path, out: str):
         top = f"fatal: Failed to parse git file mode for media file '{file}'"
         msg = """
         A 'git ls-files' call is used to figure out the git file mode for
@@ -563,6 +563,28 @@ class GitFileModeParseError(RuntimeError):
         example = "120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename"
         msg2 = f"Actual unparsed git command output:\n{out}"
         super().__init__(f"{top}\n\n{errwrap(msg)}\n\n{example}\n\n{msg2}")
+
+
+class NonEmptyWorkingTreeError(RuntimeError):
+    @beartype
+    def __init__(self, repo: git.Repo):
+        top = "fatal: Non-empty working tree in freshly cloned repo at "
+        top += f"'{repo.working_dir}'"
+
+        msg = """
+        The working tree in a fresh clone should always be empty, and so if it
+        isn't, this means that some files were either errantly generated during
+        the clone process, or were not committed when they should have been.
+        This may indicate a bug in ki. Please report this on GitHub at
+        https://github.com/langfield/ki/issues.
+        """
+        details = "\nUntracked files:\n"
+        for untracked in repo.untracked_files:
+            details += f"  * {untracked}\n"
+        details += "\nChanged files:\n"
+        for item in repo.index.diff(None):
+            details += f"  * {item.b_path}\n"
+        super().__init__(f"{top}\n\n{errwrap(msg)}\n{details}")
 
 
 # WARNINGS
