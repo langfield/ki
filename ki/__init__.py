@@ -125,6 +125,7 @@ from ki.types import (
     AnkiDBNoteMissingFieldsError,
     GitFileModeParseError,
     RenamedMediaFileWarning,
+    NonEmptyWorkingTreeError,
 )
 from ki.maybes import (
     GIT,
@@ -1956,15 +1957,18 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     col_file: ExtantFile = M.xfile(Path(collection))
 
     @beartype
-    def cleanup(targetdir: ExtantDir, new: bool) -> Union[EmptyDir, NoPath]:
+    def cleanup(targetdir: ExtantDir, new: bool) -> Union[ExtantDir, EmptyDir, NoPath]:
         """Cleans up after failed clone operations."""
-        if new:
-            return F.rmtree(targetdir)
-        _, dirs, files = F.shallow_walk(targetdir)
-        for directory in dirs:
-            F.rmtree(directory)
-        for file in files:
-            os.remove(file)
+        try:
+            if new:
+                return F.rmtree(targetdir)
+            _, dirs, files = F.shallow_walk(targetdir)
+            for directory in dirs:
+                F.rmtree(directory)
+            for file in files:
+                os.remove(file)
+        except PermissionError as _:
+            pass
         return F.test(targetdir)
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
@@ -2059,23 +2063,35 @@ def _clone(
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
         root = F.working_dir(repo)
 
+        repo.git.add(all=True)
+        _ = repo.index.commit(msg)
+
         # Use `git update-index` to set 120000 file mode on each latent symlink
         # in `latent_links`.
         relative_links: Set[Path] = set()
         for abslink in latent_links:
-            sha1 = hashlib.sha1()
-            with open(abslink, "rb") as f:
-                sha1.update(f.read())
             link = abslink.relative_to(root)
             relative_links.add(link)
-            hexsha1 = sha1.hexdigest()
 
             # Convert to POSIX pathseps since that's what `git` wants.
-            target = f"120000,{hexsha1},{link.as_posix()}"
+            githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
+            target = f"120000,{githash},{link.as_posix()}"
             repo.git.update_index(target, add=True, cacheinfo=True)
 
-        repo.git.add(all=True)
+        # We do *not* call `git.add()` here since we call `git.update_index()` above.
         _ = repo.index.commit(msg)
+
+        # On Windows, there are changes left in the working tree at this point
+        # (because git sees that the mode of the actual underlying file is
+        # 100644), so we must stash them in order to ensure the repo is not
+        # left dirty.
+        repo.git.stash("save")
+        if repo.is_dirty():
+            raise NonEmptyWorkingTreeError(repo)
+
+        # Squash last two commits together.
+        repo.git.reset(["--soft", "HEAD~1"])
+        repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)

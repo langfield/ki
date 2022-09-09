@@ -1170,6 +1170,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
+        logger.debug(Path.cwd())
+        gc.collect()
         F.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.

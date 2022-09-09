@@ -171,7 +171,7 @@ def symlink(path: NoFile, target: Path) -> Union[Symlink, LatentSymlink]:
     """Symlink `path` to `target`."""
     if sys.platform == "win32":
         with open(path, "w", encoding="UTF-8") as f:
-            f.write(str(target))
+            f.write(str(target.as_posix()))
             return LatentSymlink(path)
 
     # Treat POSIX systems.

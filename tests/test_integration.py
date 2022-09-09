@@ -604,7 +604,7 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         orig = Path(SPLIT.repodir) / "top" / "a" / "a.md"
 
         if sys.platform == "win32":
-            assert two.read_text(encoding="UTF-8") == r"..\..\top\a\a.md"
+            assert two.read_text(encoding="UTF-8") == r"../../top/a/a.md"
         else:
             assert os.path.islink(two)
         assert os.path.isfile(orig)
