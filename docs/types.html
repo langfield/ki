@@ -46,9 +46,7 @@ from anki.collection import Note
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
 
-from ki.transformer import FlatNote
-
-# pylint: disable=too-many-lines, missing-class-docstring
+# pylint: disable=too-many-lines, missing-class-docstring, too-many-instance-attributes
 
 NotetypeDict = Dict[str, Any]
 MODELS_FILE = &#34;models.json&#34;
@@ -89,6 +87,14 @@ class ExtantStrangePath(type(Path())):
     UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
     when it was resolved.
     &#34;&#34;&#34;
+
+
+class Symlink(type(Path())):
+    &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;
+
+
+class LatentSymlink(type(Path())):
+    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;
 
 
 class NoFile(NoPath):
@@ -138,12 +144,21 @@ class DeckNote:
     &#34;&#34;&#34;Flat (as possible) representation of a note, but with deck.&#34;&#34;&#34;
 
     title: str
-    nid: int
+    guid: str
     deck: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]
+
+
+@beartype
+@dataclass(frozen=True)
+class NoteMetadata:
+    &#34;&#34;&#34;The nid, mod, and mid of a note.&#34;&#34;&#34;
+
+    nid: int
+    mod: int
+    mid: int
 
 
 @beartype
@@ -227,7 +242,6 @@ class ColNote:
     new: bool
     deck: str
     title: str
-    old_nid: int
     markdown: bool
     notetype: Notetype
     sortf_text: str
@@ -267,14 +281,6 @@ class WrittenNoteFile:
 
 
 @beartype
-def errwrap(msg: str) -&gt; str:
-    out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-    out = out.lstrip()
-    out = out.rstrip()
-    return out
-
-
-@beartype
 @dataclass(frozen=True)
 class Leaves:
     root: ExtantDir
@@ -301,9 +307,15 @@ class NoteDBRow:
 # EXCEPTIONS
 
 
-# TODO: Refactor the rest of the error messages so that they look like this,
-# with the empty line between the header and the body, and making use of
-# `errwrap()`.
+@beartype
+def errwrap(msg: str) -&gt; str:
+    &#34;&#34;&#34;Wrap an error message to a fixed width.&#34;&#34;&#34;
+    out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
+    out = out.lstrip()
+    out = out.rstrip()
+    return out
+
+
 class MissingFileError(FileNotFoundError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
@@ -312,11 +324,11 @@ class MissingFileError(FileNotFoundError):
         super().__init__(f&#34;{header}\n\n{errwrap(msg)}&#34;)
 
 
-class MissingDirectoryError(Exception):
+class MissingDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = f&#34;Directory not found: &#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedFileButGotDirectoryError(FileNotFoundError):
@@ -324,74 +336,81 @@ class ExpectedFileButGotDirectoryError(FileNotFoundError):
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A file was expected at this location, but got a directory: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class ExpectedDirectoryButGotFileError(Exception):
+class ExpectedDirectoryButGotFileError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A directory was expected at this location, but got a file: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;An empty directory was expected at this location, but it is nonempty: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class StrangeExtantPathError(Exception):
+class StrangeExtantPathError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A normal file or directory was expected, but got a weird pseudofile &#34;
         msg += &#34;(e.g. a socket, or a device): &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
 class ExpectedNonexistentPathError(FileExistsError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;&#34;&#34;
+        top = f&#34;&#34;&#34;
         Expected this path not to exist, but it does: &#39;{path}&#39;{info.rstrip()}
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        msg = &#34;&#34;&#34;
+        If the path is to the `.ki/` metadata directory, this error may have
+        been caused by a `.gitignore` file that does not include `.ki/` (this
+        metadata should not be tracked by git). Check if this pattern is
+        included in the `.gitignore` file, and if it is not included, try
+        adding it.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}&#34;)
 
 
-class NotKiRepoError(Exception):
+class NotKiRepoError(RuntimeError):
     @beartype
     def __init__(self):
         msg = &#34;fatal: not a ki repository (or any parent up to mount point /)\n&#34;
         msg += &#34;Stopping at filesystem boundary.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class UpdatesRejectedError(Exception):
+class UpdatesRejectedError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class TargetExistsError(Exception):
+class TargetExistsError(RuntimeError):
     @beartype
     def __init__(self, target: Path):
         msg = f&#34;fatal: destination path &#39;{target}&#39; already exists and is &#34;
         msg += &#34;not an empty directory.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class GitRefNotFoundError(Exception):
+class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class GitHeadRefNotFoundError(Exception):
+class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f&#34;&#34;&#34;
@@ -401,17 +420,17 @@ class GitHeadRefNotFoundError(Exception):
         the case, because ki repositories must be instantiated with a &#39;ki clone
         &lt;collection&gt;&#39; command, and this command creates an initial commit.
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class CollectionChecksumError(Exception):
+class CollectionChecksumError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class MissingNotetypeError(Exception):
+class MissingNotetypeError(RuntimeError):
     @beartype
     def __init__(self, model: str):
         msg = f&#34;&#34;&#34;
@@ -423,36 +442,36 @@ class MissingNotetypeError(Exception):
         super().__init__(errwrap(msg))
 
 
-# TODO: Should we also print which field ordinals *are* valid?
-class MissingFieldOrdinalError(Exception):
+# TODO: We should also print which field ordinals *are* valid.
+class MissingFieldOrdinalError(RuntimeError):
 
     # pylint: disable=redefined-builtin
 
     @beartype
     def __init__(self, ord: int, model: str):
         msg = f&#34;Field with ordinal {ord} missing from notetype &#39;{model}&#39;.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class MissingNoteIdError(Exception):
+class MissingNoteIdError(RuntimeError):
     @beartype
     def __init__(self, nid: int):
         msg = f&#34;Failed to locate note with nid &#39;{nid}&#39; in Anki database.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class NotetypeMismatchError(Exception):
+class NotetypeMismatchError(RuntimeError):
     @beartype
-    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
-        msg = f&#34;Notetype &#39;{flatnote.model}&#39; &#34;
-        msg += f&#34;specified in FlatNote with nid &#39;{flatnote.nid}&#39; &#34;
+    def __init__(self, decknote: DeckNote, new_notetype: Notetype):
+        msg = f&#34;Notetype &#39;{decknote.model}&#39; &#34;
+        msg += f&#34;specified in DeckNote with GUID &#39;{decknote.guid}&#39; &#34;
         msg += f&#34;does not match passed notetype &#39;{new_notetype}&#39;. &#34;
         msg += &#34;This should NEVER happen, &#34;
         msg += &#34;and indicates a bug in the caller to &#39;update_note()&#39;.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class NotetypeKeyError(Exception):
+class NotetypeKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, name: str):
         msg = f&#34;&#34;&#34;
@@ -460,10 +479,10 @@ class NotetypeKeyError(Exception):
         &#39;{MODELS_FILE}&#39; file in the current repository (may be contained in a
         subdirectory).
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class NoteFieldKeyError(Exception):
+class NoteFieldKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, nid: int):
         msg = f&#34;&#34;&#34;
@@ -472,10 +491,10 @@ class NoteFieldKeyError(Exception):
         `anki.notes.Note` objects on names pulled from their own notetype
         dictionary.
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))
+        super().__init__(errwrap(msg))
 
 
-class UnnamedNotetypeError(Exception):
+class UnnamedNotetypeError(RuntimeError):
     @beartype
     def __init__(self, nt: NotetypeDict):
         msg = f&#34;&#34;&#34;
@@ -483,11 +502,10 @@ class UnnamedNotetypeError(Exception):
         a &#39;{MODELS_FILE}&#39; file in the current repository (may be
         contained in a subdirectory):
         &#34;&#34;&#34;
-        msg = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        super().__init__(msg + &#34;\n&#34; + pp.pformat(nt))
+        super().__init__(errwrap(msg) + &#34;\n&#34; + pp.pformat(nt))
 
 
-class SQLiteLockError(Exception):
+class SQLiteLockError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
@@ -504,14 +522,10 @@ class SQLiteLockError(Exception):
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         &#34;&#34;&#34;
-        super().__init__(
-            header
-            + &#34;\n&#34;
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)
 
 
-class PathCreationCollisionError(Exception):
+class PathCreationCollisionError(RuntimeError):
     @beartype
     def __init__(self, root: ExtantDir, token: str):
         header = &#34;Collision in children names for population of empty directory &#34;
@@ -523,14 +537,10 @@ class PathCreationCollisionError(Exception):
         calls to &#39;F.fmkleaves()&#39;, and this is only used to populate the &#39;.ki/&#39;
         directory, whose contents all ought to be distinct.
         &#34;&#34;&#34;
-        super().__init__(
-            header
-            + &#34;\n&#34;
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)
 
 
-class MissingMediaDirectoryError(Exception):
+class MissingMediaDirectoryError(RuntimeError):
     @beartype
     def __init__(self, col_path: str, media_dir: Path):
         top = f&#34;Missing or bad Anki collection media directory &#39;{media_dir}&#39; &#34;
@@ -542,28 +552,114 @@ class MissingMediaDirectoryError(Exception):
         tampered with, or an old version of Anki incompatible with ki is
         installed.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
 
 
-class AnkiAlreadyOpenError(Exception):
+class AnkiAlreadyOpenError(RuntimeError):
     @beartype
     def __init__(self, msg: str):
         super().__init__(f&#34;fatal: {msg}&#34;)
 
 
+class MissingTidyExecutableError(FileNotFoundError):
+    @beartype
+    def __init__(self, err: FileNotFoundError):
+        top = &#34;Command not found: &#39;tidy&#39; (Is &#39;html5-tidy&#39; installed?)&#34;
+        msg = f&#34;Original exception: {err}&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class AnkiDBNoteMissingFieldsError(RuntimeError):
+    @beartype
+    def __init__(self, decknote: DeckNote, nid: int, key: str):
+        top = f&#34;fatal: Note with GUID &#39;{decknote.guid}&#39; missing DB field &#39;{key}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        This is strange, should only happen if the `add_db_note()` call fails
+        or behaves strangely. This may indicate a bug in ki. Please report this
+        on GitHub at https://github.com/langfield/ki/issues. Note ID: &#39;{nid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}&#34;)
+
+
+class GitFileModeParseError(RuntimeError):
+    @beartype
+    def __init__(self, file: Path, out: str):
+        top = f&#34;fatal: Failed to parse git file mode for media file &#39;{file}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        A &#39;git ls-files&#39; call is used to figure out the git file mode for
+        cloned media files. This is done in order to detect symlinks on
+        Windows, and follow them manually. This error is raised when we are
+        unable to parse the output of &#39;git ls-files&#39; for some reason or
+        another, which for a symlink called &#39;filename&#39;, should look like this:
+        &#34;&#34;&#34;
+        example = &#34;120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename&#34;
+        msg2 = f&#34;Actual unparsed git command output:\n{out}&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n\n{example}\n\n{msg2}&#34;)
+
+
+class NonEmptyWorkingTreeError(RuntimeError):
+    @beartype
+    def __init__(self, repo: git.Repo):
+        top = &#34;fatal: Non-empty working tree in freshly cloned repo at &#34;
+        top += f&#34;&#39;{repo.working_dir}&#39;&#34;
+
+        msg = &#34;&#34;&#34;
+        The working tree in a fresh clone should always be empty, and so if it
+        isn&#39;t, this means that some files were either errantly generated during
+        the clone process, or were not committed when they should have been.
+        This may indicate a bug in ki. Please report this on GitHub at
+        https://github.com/langfield/ki/issues.
+        &#34;&#34;&#34;
+        details = &#34;\nUntracked files:\n&#34;
+        for untracked in repo.untracked_files:
+            details += f&#34;  * {untracked}\n&#34;
+        details += &#34;\nChanged files:\n&#34;
+        for item in repo.index.diff(None):
+            details += f&#34;  * {item.b_path}\n&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n{details}&#34;)
+
+
 # WARNINGS
 
 
-# TODO: Make this warning more descriptive. Should given the note id, the path,
-# the field(s) which are missing, and the model.
 class NoteFieldValidationWarning(Warning):
-    pass
+    @beartype
+    def __init__(self, nid: int, field: str, notetype: Notetype):
+        top = f&#34;Warning: Bad field &#39;{field}&#39; for notetype &#39;{notetype}&#39; in note &#39;{nid}&#39;&#34;
+        msg = &#34;Try correcting the field name or changing the notetype.&#34;
+        msg += f&#34;The fields for the notetype &#39;{notetype}&#39; are:&#34;
+        fields: List[str] = [field.name for field in notetype.flds]
+        listing: str = &#34;  &#34; + &#34;\n  &#34;.join(fields)
+        super().__init__(f&#34;{top}\n{errwrap(msg)}\n{listing}&#34;)
+
+
+class WrongFieldCountWarning(Warning):
+    @beartype
+    def __init__(self, decknote: DeckNote, names: List[str]):
+        top = f&#34;Warning: Wrong number of fields for model &#39;{decknote.model}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        The notetype &#39;{decknote.model}&#39; takes &#39;{len(names)}&#39; fields, but got
+        &#39;{len(decknote.fields.keys())}&#39; for note with GUID &#39;{decknote.guid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class InconsistentFieldNamesWarning(Warning):
+    @beartype
+    def __init__(self, x: str, y: str, decknote: DeckNote):
+        top = f&#34;Warning: Inconsistent field names (&#39;{x}&#39; != &#39;{y}&#39;)&#34;
+        msg = f&#34;&#34;&#34;
+        Expected a field &#39;{x}&#39; for notetype &#39;{decknote.model}&#39;, but got a field
+        &#39;{y}&#39; in note with GUID &#39;{decknote.guid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
 
 
 class UnhealthyNoteWarning(Warning):
-    pass
+    @beartype
+    def __init__(self, nid: int, code: int):
+        top = f&#34;Warning: Note &#39;{nid}&#39; failed fields check with error code &#39;{code}&#39;&#34;
+        super().__init__(top)
 
 
 class UnPushedPathWarning(Warning):
@@ -591,17 +687,22 @@ class DeletedFileNotFoundWarning(Warning):
         a &#39;Warning&#39; instead of an &#39;Exception&#39; in order to avoid interrupting
         the execution of a &#39;push()&#39; call where it is not strictly necessary.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
 
 
 class DiffTargetFileNotFoundWarning(Warning):
     @beartype
     def __init__(self, path: Path):
         top = f&#34;Diff target file not found: &#39;{path}&#39;&#34;
-        msg = &#34;&#34;&#34;
-        Unexpected: this may indicate a bug in ki. The caller prevents this
+        msg1 = &#34;&#34;&#34;
+        Unexpected: this sometimes happens when a git repository is copied into
+        a subdirectory of a ki repository, and then added with &#39;git add&#39;
+        instead of being added as a git submodule with &#39;git submodule add&#39;. If
+        git displayed a warning on a recent &#39;git add&#39; command, refer to the
+        hints within that warning.
+        &#34;&#34;&#34;
+        msg2 = &#34;&#34;&#34;
+        Otherwise, this may indicate a bug in ki.  The caller prevents this
         warning from being instantiated unless the git change type is one of
         &#39;ADDED&#39;, &#39;MODIFIED&#39;, or &#39;RENAMED&#39;. In all cases, the file being diffed
         should be extant in the target commit of the repository.  However, we
@@ -609,9 +710,7 @@ class DiffTargetFileNotFoundWarning(Warning):
         interrupting the execution of a &#39;push()&#39; call where it is not strictly
         necessary.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )
+        super().__init__(f&#34;{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}&#34;)
 
 
 class MissingMediaFileWarning(Warning):
@@ -626,9 +725,19 @@ class MissingMediaFileWarning(Warning):
         files within the media directory (usually called &#39;collection.media/&#39;
         within the relevant Anki user profile directory).
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class RenamedMediaFileWarning(Warning):
+    @beartype
+    def __init__(self, src: str, dst: str):
+        top = f&#34;Media file &#39;{src}&#39; renamed to &#39;{dst}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        This happens when we push a media file to a collection that already
+        contains another media file with the same name. In this case, Anki does
+        some deduplication by renaming the new one.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 </section>
 <section>
@@ -642,13 +751,14 @@ class MissingMediaFileWarning(Warning):
 <span>def <span class="ident">errwrap</span></span>(<span>msg: str) ‑> str</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Wrap an error message to a fixed width.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def errwrap(msg: str) -&gt; str:
+    &#34;&#34;&#34;Wrap an error message to a fixed width.&#34;&#34;&#34;
     out: str = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
     out = out.lstrip()
     out = out.rstrip()
@@ -665,25 +775,54 @@ def errwrap(msg: str) -&gt; str:
 <span>(</span><span>msg: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class AnkiAlreadyOpenError(Exception):
+<pre><code class="python">class AnkiAlreadyOpenError(RuntimeError):
     @beartype
     def __init__(self, msg: str):
         super().__init__(f&#34;fatal: {msg}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
+<dt id="ki.types.AnkiDBNoteMissingFieldsError"><code class="flex name class">
+<span>class <span class="ident">AnkiDBNoteMissingFieldsError</span></span>
+<span>(</span><span>decknote: <a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a>, nid: int, key: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Unspecified run-time error.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class AnkiDBNoteMissingFieldsError(RuntimeError):
+    @beartype
+    def __init__(self, decknote: DeckNote, nid: int, key: str):
+        top = f&#34;fatal: Note with GUID &#39;{decknote.guid}&#39; missing DB field &#39;{key}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        This is strange, should only happen if the `add_db_note()` call fails
+        or behaves strangely. This may indicate a bug in ki. Please report this
+        on GitHub at https://github.com/langfield/ki/issues. Note ID: &#39;{nid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
 </dd>
 <dt id="ki.types.ColNote"><code class="flex name class">
 <span>class <span class="ident">ColNote</span></span>
-<span>(</span><span>n: anki.notes.Note, new: bool, deck: str, title: str, old_nid: int, markdown: bool, notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>, sortf_text: str)</span>
+<span>(</span><span>n: anki.notes.Note, new: bool, deck: str, title: str, markdown: bool, notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>, sortf_text: str)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>A note that exists in the Anki DB.</p></div>
@@ -700,7 +839,6 @@ class ColNote:
     new: bool
     deck: str
     title: str
-    old_nid: int
     markdown: bool
     notetype: Notetype
     sortf_text: str</code></pre>
@@ -727,10 +865,6 @@ class ColNote:
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.ColNote.old_nid"><code class="name">var <span class="ident">old_nid</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
 <dt id="ki.types.ColNote.sortf_text"><code class="name">var <span class="ident">sortf_text</span> : str</code></dt>
 <dd>
 <div class="desc"></div>
@@ -746,26 +880,27 @@ class ColNote:
 <span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class CollectionChecksumError(Exception):
+<pre><code class="python">class CollectionChecksumError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
 </dd>
 <dt id="ki.types.DeckNote"><code class="flex name class">
 <span>class <span class="ident">DeckNote</span></span>
-<span>(</span><span>title: str, nid: int, deck: str, model: str, tags: list[str], markdown: bool, fields: dict[str, str])</span>
+<span>(</span><span>title: str, guid: str, deck: str, model: str, tags: list[str], fields: dict[str, str])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Flat (as possible) representation of a note, but with deck.</p></div>
@@ -779,11 +914,10 @@ class DeckNote:
     &#34;&#34;&#34;Flat (as possible) representation of a note, but with deck.&#34;&#34;&#34;
 
     title: str
-    nid: int
+    guid: str
     deck: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]</code></pre>
 </details>
 <h3>Class variables</h3>
@@ -796,15 +930,11 @@ class DeckNote:
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.DeckNote.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
+<dt id="ki.types.DeckNote.guid"><code class="name">var <span class="ident">guid</span> : str</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 <dt id="ki.types.DeckNote.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.types.DeckNote.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -839,9 +969,7 @@ class DeckNote:
         a &#39;Warning&#39; instead of an &#39;Exception&#39; in order to avoid interrupting
         the execution of a &#39;push()&#39; call where it is not strictly necessary.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -899,8 +1027,15 @@ class Delta:
     @beartype
     def __init__(self, path: Path):
         top = f&#34;Diff target file not found: &#39;{path}&#39;&#34;
-        msg = &#34;&#34;&#34;
-        Unexpected: this may indicate a bug in ki. The caller prevents this
+        msg1 = &#34;&#34;&#34;
+        Unexpected: this sometimes happens when a git repository is copied into
+        a subdirectory of a ki repository, and then added with &#39;git add&#39;
+        instead of being added as a git submodule with &#39;git submodule add&#39;. If
+        git displayed a warning on a recent &#39;git add&#39; command, refer to the
+        hints within that warning.
+        &#34;&#34;&#34;
+        msg2 = &#34;&#34;&#34;
+        Otherwise, this may indicate a bug in ki.  The caller prevents this
         warning from being instantiated unless the git change type is one of
         &#39;ADDED&#39;, &#39;MODIFIED&#39;, or &#39;RENAMED&#39;. In all cases, the file being diffed
         should be extant in the target commit of the repository.  However, we
@@ -908,9 +1043,7 @@ class Delta:
         interrupting the execution of a &#39;push()&#39; call where it is not strictly
         necessary.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -946,20 +1079,21 @@ class Delta:
 <span>(</span><span>path: pathlib.Path, info: str = '')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ExpectedDirectoryButGotFileError(Exception):
+<pre><code class="python">class ExpectedDirectoryButGotFileError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A directory was expected at this location, but got a file: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -969,20 +1103,21 @@ class Delta:
 <span>(</span><span>path: pathlib.Path, info: str = '')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(Exception):
+<pre><code class="python">class ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;An empty directory was expected at this location, but it is nonempty: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1002,7 +1137,7 @@ class Delta:
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A file was expected at this location, but got a directory: &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1025,10 +1160,17 @@ class Delta:
 <pre><code class="python">class ExpectedNonexistentPathError(FileExistsError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
-        msg = f&#34;&#34;&#34;
+        top = f&#34;&#34;&#34;
         Expected this path not to exist, but it does: &#39;{path}&#39;{info.rstrip()}
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        msg = &#34;&#34;&#34;
+        If the path is to the `.ki/` metadata directory, this error may have
+        been caused by a `.gitignore` file that does not include `.ki/` (this
+        metadata should not be tracked by git). Check if this pattern is
+        included in the `.gitignore` file, and if it is not included, try
+        adding it.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1186,17 +1328,49 @@ class Field:
 </dd>
 </dl>
 </dd>
+<dt id="ki.types.GitFileModeParseError"><code class="flex name class">
+<span>class <span class="ident">GitFileModeParseError</span></span>
+<span>(</span><span>file: pathlib.Path, out: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Unspecified run-time error.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class GitFileModeParseError(RuntimeError):
+    @beartype
+    def __init__(self, file: Path, out: str):
+        top = f&#34;fatal: Failed to parse git file mode for media file &#39;{file}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        A &#39;git ls-files&#39; call is used to figure out the git file mode for
+        cloned media files. This is done in order to detect symlinks on
+        Windows, and follow them manually. This error is raised when we are
+        unable to parse the output of &#39;git ls-files&#39; for some reason or
+        another, which for a symlink called &#39;filename&#39;, should look like this:
+        &#34;&#34;&#34;
+        example = &#34;120000 a35bd1f49b7b9225a76d052e9a35fb711a8646a6 0       filename&#34;
+        msg2 = f&#34;Actual unparsed git command output:\n{out}&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n\n{example}\n\n{msg2}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="ki.types.GitHeadRefNotFoundError"><code class="flex name class">
 <span>class <span class="ident">GitHeadRefNotFoundError</span></span>
 <span>(</span><span>repo: git.repo.base.Repo, error: Exception)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class GitHeadRefNotFoundError(Exception):
+<pre><code class="python">class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f&#34;&#34;&#34;
@@ -1206,10 +1380,11 @@ class Field:
         the case, because ki repositories must be instantiated with a &#39;ki clone
         &lt;collection&gt;&#39; command, and this command creates an initial commit.
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1219,19 +1394,47 @@ class Field:
 <span>(</span><span>repo: git.repo.base.Repo, sha: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class GitRefNotFoundError(Exception):
+<pre><code class="python">class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
         msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
+<dt id="ki.types.InconsistentFieldNamesWarning"><code class="flex name class">
+<span>class <span class="ident">InconsistentFieldNamesWarning</span></span>
+<span>(</span><span>x: str, y: str, decknote: <a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a>)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class InconsistentFieldNamesWarning(Warning):
+    @beartype
+    def __init__(self, x: str, y: str, decknote: DeckNote):
+        top = f&#34;Warning: Inconsistent field names (&#39;{x}&#39; != &#39;{y}&#39;)&#34;
+        msg = f&#34;&#34;&#34;
+        Expected a field &#39;{x}&#39; for notetype &#39;{decknote.model}&#39;, but got a field
+        &#39;{y}&#39; in note with GUID &#39;{decknote.guid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1344,6 +1547,27 @@ class KiRepoRef:
 </dd>
 </dl>
 </dd>
+<dt id="ki.types.LatentSymlink"><code class="flex name class">
+<span>class <span class="ident">LatentSymlink</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>UNSAFE: A POSIX-style symlink created on Windows with mode 100644.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class LatentSymlink(type(Path())):
+    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
+</ul>
+</dd>
 <dt id="ki.types.Leaves"><code class="flex name class">
 <span>class <span class="ident">Leaves</span></span>
 <span>(</span><span>root: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, files: dict[str, <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>], dirs: dict[str, <a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a>])</span>
@@ -1382,19 +1606,20 @@ class Leaves:
 <span>(</span><span>path: pathlib.Path, info: str = '')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MissingDirectoryError(Exception):
+<pre><code class="python">class MissingDirectoryError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = f&#34;Directory not found: &#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1404,22 +1629,23 @@ class Leaves:
 <span>(</span><span>ord: int, model: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MissingFieldOrdinalError(Exception):
+<pre><code class="python">class MissingFieldOrdinalError(RuntimeError):
 
     # pylint: disable=redefined-builtin
 
     @beartype
     def __init__(self, ord: int, model: str):
         msg = f&#34;Field with ordinal {ord} missing from notetype &#39;{model}&#39;.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1454,12 +1680,12 @@ class Leaves:
 <span>(</span><span>col_path: str, media_dir: pathlib.Path)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MissingMediaDirectoryError(Exception):
+<pre><code class="python">class MissingMediaDirectoryError(RuntimeError):
     @beartype
     def __init__(self, col_path: str, media_dir: Path):
         top = f&#34;Missing or bad Anki collection media directory &#39;{media_dir}&#39; &#34;
@@ -1471,12 +1697,11 @@ class Leaves:
         tampered with, or an old version of Anki incompatible with ki is
         installed.
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1503,9 +1728,7 @@ class Leaves:
         files within the media directory (usually called &#39;collection.media/&#39;
         within the relevant Anki user profile directory).
         &#34;&#34;&#34;
-        super().__init__(
-            top + &#34;\n&#34; + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1519,19 +1742,20 @@ class Leaves:
 <span>(</span><span>nid: int)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MissingNoteIdError(Exception):
+<pre><code class="python">class MissingNoteIdError(RuntimeError):
     @beartype
     def __init__(self, nid: int):
         msg = f&#34;Failed to locate note with nid &#39;{nid}&#39; in Anki database.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1541,12 +1765,12 @@ class Leaves:
 <span>(</span><span>model: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class MissingNotetypeError(Exception):
+<pre><code class="python">class MissingNotetypeError(RuntimeError):
     @beartype
     def __init__(self, model: str):
         msg = f&#34;&#34;&#34;
@@ -1559,6 +1783,32 @@ class Leaves:
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
+<dt id="ki.types.MissingTidyExecutableError"><code class="flex name class">
+<span>class <span class="ident">MissingTidyExecutableError</span></span>
+<span>(</span><span>err: FileNotFoundError)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>File not found.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class MissingTidyExecutableError(FileNotFoundError):
+    @beartype
+    def __init__(self, err: FileNotFoundError):
+        top = &#34;Command not found: &#39;tidy&#39; (Is &#39;html5-tidy&#39; installed?)&#34;
+        msg = f&#34;Original exception: {err}&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.FileNotFoundError</li>
+<li>builtins.OSError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1629,6 +1879,44 @@ def parent(self):
 <li><a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a></li>
 </ul>
 </dd>
+<dt id="ki.types.NonEmptyWorkingTreeError"><code class="flex name class">
+<span>class <span class="ident">NonEmptyWorkingTreeError</span></span>
+<span>(</span><span>repo: git.repo.base.Repo)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Unspecified run-time error.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class NonEmptyWorkingTreeError(RuntimeError):
+    @beartype
+    def __init__(self, repo: git.Repo):
+        top = &#34;fatal: Non-empty working tree in freshly cloned repo at &#34;
+        top += f&#34;&#39;{repo.working_dir}&#39;&#34;
+
+        msg = &#34;&#34;&#34;
+        The working tree in a fresh clone should always be empty, and so if it
+        isn&#39;t, this means that some files were either errantly generated during
+        the clone process, or were not committed when they should have been.
+        This may indicate a bug in ki. Please report this on GitHub at
+        https://github.com/langfield/ki/issues.
+        &#34;&#34;&#34;
+        details = &#34;\nUntracked files:\n&#34;
+        for untracked in repo.untracked_files:
+            details += f&#34;  * {untracked}\n&#34;
+        details += &#34;\nChanged files:\n&#34;
+        for item in repo.index.diff(None):
+            details += f&#34;  * {item.b_path}\n&#34;
+        super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n{details}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="ki.types.NotAnkiNoteWarning"><code class="flex name class">
 <span>class <span class="ident">NotAnkiNoteWarning</span></span>
 <span>(</span><span>file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
@@ -1656,20 +1944,21 @@ def parent(self):
 <span>class <span class="ident">NotKiRepoError</span></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class NotKiRepoError(Exception):
+<pre><code class="python">class NotKiRepoError(RuntimeError):
     @beartype
     def __init__(self):
         msg = &#34;fatal: not a ki repository (or any parent up to mount point /)\n&#34;
         msg += &#34;Stopping at filesystem boundary.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1752,12 +2041,12 @@ class NoteDBRow:
 <span>(</span><span>key: str, nid: int)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class NoteFieldKeyError(Exception):
+<pre><code class="python">class NoteFieldKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, nid: int):
         msg = f&#34;&#34;&#34;
@@ -1766,17 +2055,18 @@ class NoteDBRow:
         `anki.notes.Note` objects on names pulled from their own notetype
         dictionary.
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
 </dd>
 <dt id="ki.types.NoteFieldValidationWarning"><code class="flex name class">
 <span>class <span class="ident">NoteFieldValidationWarning</span></span>
-<span>(</span><span>*args, **kwargs)</span>
+<span>(</span><span>nid: int, field: str, notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Base class for warning categories.</p></div>
@@ -1785,7 +2075,14 @@ class NoteDBRow:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class NoteFieldValidationWarning(Warning):
-    pass</code></pre>
+    @beartype
+    def __init__(self, nid: int, field: str, notetype: Notetype):
+        top = f&#34;Warning: Bad field &#39;{field}&#39; for notetype &#39;{notetype}&#39; in note &#39;{nid}&#39;&#34;
+        msg = &#34;Try correcting the field name or changing the notetype.&#34;
+        msg += f&#34;The fields for the notetype &#39;{notetype}&#39; are:&#34;
+        fields: List[str] = [field.name for field in notetype.flds]
+        listing: str = &#34;  &#34; + &#34;\n  &#34;.join(fields)
+        super().__init__(f&#34;{top}\n{errwrap(msg)}\n{listing}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1793,6 +2090,41 @@ class NoteDBRow:
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
+</dd>
+<dt id="ki.types.NoteMetadata"><code class="flex name class">
+<span>class <span class="ident">NoteMetadata</span></span>
+<span>(</span><span>nid: int, mod: int, mid: int)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>The nid, mod, and mid of a note.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class NoteMetadata:
+    &#34;&#34;&#34;The nid, mod, and mid of a note.&#34;&#34;&#34;
+
+    nid: int
+    mod: int
+    mid: int</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.NoteMetadata.mid"><code class="name">var <span class="ident">mid</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.NoteMetadata.mod"><code class="name">var <span class="ident">mod</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.NoteMetadata.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
 </dd>
 <dt id="ki.types.Notetype"><code class="flex name class">
 <span>class <span class="ident">Notetype</span></span>
@@ -1860,12 +2192,12 @@ class Notetype:
 <span>(</span><span>key: str, name: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class NotetypeKeyError(Exception):
+<pre><code class="python">class NotetypeKeyError(RuntimeError):
     @beartype
     def __init__(self, key: str, name: str):
         msg = f&#34;&#34;&#34;
@@ -1873,36 +2205,38 @@ class Notetype:
         &#39;{MODELS_FILE}&#39; file in the current repository (may be contained in a
         subdirectory).
         &#34;&#34;&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
 </dd>
 <dt id="ki.types.NotetypeMismatchError"><code class="flex name class">
 <span>class <span class="ident">NotetypeMismatchError</span></span>
-<span>(</span><span>flatnote: <a title="ki.transformer.FlatNote" href="transformer.html#ki.transformer.FlatNote">FlatNote</a>, new_notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>)</span>
+<span>(</span><span>decknote: <a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a>, new_notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class NotetypeMismatchError(Exception):
+<pre><code class="python">class NotetypeMismatchError(RuntimeError):
     @beartype
-    def __init__(self, flatnote: FlatNote, new_notetype: Notetype):
-        msg = f&#34;Notetype &#39;{flatnote.model}&#39; &#34;
-        msg += f&#34;specified in FlatNote with nid &#39;{flatnote.nid}&#39; &#34;
+    def __init__(self, decknote: DeckNote, new_notetype: Notetype):
+        msg = f&#34;Notetype &#39;{decknote.model}&#39; &#34;
+        msg += f&#34;specified in DeckNote with GUID &#39;{decknote.guid}&#39; &#34;
         msg += f&#34;does not match passed notetype &#39;{new_notetype}&#39;. &#34;
         msg += &#34;This should NEVER happen, &#34;
         msg += &#34;and indicates a bug in the caller to &#39;update_note()&#39;.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -1947,12 +2281,12 @@ class Patch:
 <span>(</span><span>root: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, token: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class PathCreationCollisionError(Exception):
+<pre><code class="python">class PathCreationCollisionError(RuntimeError):
     @beartype
     def __init__(self, root: ExtantDir, token: str):
         header = &#34;Collision in children names for population of empty directory &#34;
@@ -1964,14 +2298,11 @@ class Patch:
         calls to &#39;F.fmkleaves()&#39;, and this is only used to populate the &#39;.ki/&#39;
         directory, whose contents all ought to be distinct.
         &#34;&#34;&#34;
-        super().__init__(
-            header
-            + &#34;\n&#34;
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2007,6 +2338,34 @@ class Patch:
 <div class="desc"></div>
 </dd>
 </dl>
+</dd>
+<dt id="ki.types.RenamedMediaFileWarning"><code class="flex name class">
+<span>class <span class="ident">RenamedMediaFileWarning</span></span>
+<span>(</span><span>src: str, dst: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class RenamedMediaFileWarning(Warning):
+    @beartype
+    def __init__(self, src: str, dst: str):
+        top = f&#34;Media file &#39;{src}&#39; renamed to &#39;{dst}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        This happens when we push a media file to a collection that already
+        contains another media file with the same name. In this case, Anki does
+        some deduplication by renaming the new one.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
 </dd>
 <dt id="ki.types.RepoRef"><code class="flex name class">
 <span>class <span class="ident">RepoRef</span></span>
@@ -2047,12 +2406,12 @@ class RepoRef:
 <span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, err: sqlite3.DatabaseError)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class SQLiteLockError(Exception):
+<pre><code class="python">class SQLiteLockError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
@@ -2069,14 +2428,11 @@ class RepoRef:
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
         &#34;&#34;&#34;
-        super().__init__(
-            header
-            + &#34;\n&#34;
-            + textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        )</code></pre>
+        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2107,23 +2463,45 @@ class RepoRef:
 <span>(</span><span>path: pathlib.Path, info: str = '')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class StrangeExtantPathError(Exception):
+<pre><code class="python">class StrangeExtantPathError(RuntimeError):
     @beartype
     def __init__(self, path: Path, info: str = &#34;&#34;):
         msg = &#34;A normal file or directory was expected, but got a weird pseudofile &#34;
         msg += &#34;(e.g. a socket, or a device): &#34;
         msg += f&#34;&#39;{path}&#39;{info.rstrip()}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
+</ul>
+</dd>
+<dt id="ki.types.Symlink"><code class="flex name class">
+<span>class <span class="ident">Symlink</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>UNSAFE: Indicates that this path was a symlink when tested.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class Symlink(type(Path())):
+    &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
 </ul>
 </dd>
 <dt id="ki.types.TargetExistsError"><code class="flex name class">
@@ -2131,20 +2509,21 @@ class RepoRef:
 <span>(</span><span>target: pathlib.Path)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class TargetExistsError(Exception):
+<pre><code class="python">class TargetExistsError(RuntimeError):
     @beartype
     def __init__(self, target: Path):
         msg = f&#34;fatal: destination path &#39;{target}&#39; already exists and is &#34;
         msg += &#34;not an empty directory.&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2214,7 +2593,7 @@ class Template:
 </dd>
 <dt id="ki.types.UnhealthyNoteWarning"><code class="flex name class">
 <span>class <span class="ident">UnhealthyNoteWarning</span></span>
-<span>(</span><span>*args, **kwargs)</span>
+<span>(</span><span>nid: int, code: int)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Base class for warning categories.</p></div>
@@ -2223,7 +2602,10 @@ class Template:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class UnhealthyNoteWarning(Warning):
-    pass</code></pre>
+    @beartype
+    def __init__(self, nid: int, code: int):
+        top = f&#34;Warning: Note &#39;{nid}&#39; failed fields check with error code &#39;{code}&#39;&#34;
+        super().__init__(top)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -2237,12 +2619,12 @@ class Template:
 <span>(</span><span>nt: dict[str, typing.Any])</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class UnnamedNotetypeError(Exception):
+<pre><code class="python">class UnnamedNotetypeError(RuntimeError):
     @beartype
     def __init__(self, nt: NotetypeDict):
         msg = f&#34;&#34;&#34;
@@ -2250,11 +2632,11 @@ class Template:
         a &#39;{MODELS_FILE}&#39; file in the current repository (may be
         contained in a subdirectory):
         &#34;&#34;&#34;
-        msg = textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH)
-        super().__init__(msg + &#34;\n&#34; + pp.pformat(nt))</code></pre>
+        super().__init__(errwrap(msg) + &#34;\n&#34; + pp.pformat(nt))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2264,19 +2646,20 @@ class Template:
 <span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Common base class for all non-exit exceptions.</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class UpdatesRejectedError(Exception):
+<pre><code class="python">class UpdatesRejectedError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
         msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
-        super().__init__(textwrap.fill(textwrap.dedent(msg), width=ERROR_MESSAGE_WIDTH))</code></pre>
+        super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
+<li>builtins.RuntimeError</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2311,6 +2694,33 @@ class WrittenNoteFile:
 </dd>
 </dl>
 </dd>
+<dt id="ki.types.WrongFieldCountWarning"><code class="flex name class">
+<span>class <span class="ident">WrongFieldCountWarning</span></span>
+<span>(</span><span>decknote: <a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a>, names: list[str])</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class WrongFieldCountWarning(Warning):
+    @beartype
+    def __init__(self, decknote: DeckNote, names: List[str]):
+        top = f&#34;Warning: Wrong number of fields for model &#39;{decknote.model}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        The notetype &#39;{decknote.model}&#39; takes &#39;{len(names)}&#39; fields, but got
+        &#39;{len(decknote.fields.keys())}&#39; for note with GUID &#39;{decknote.guid}&#39;.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 </dl>
 </section>
 </article>
@@ -2341,6 +2751,9 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.AnkiAlreadyOpenError" href="#ki.types.AnkiAlreadyOpenError">AnkiAlreadyOpenError</a></code></h4>
 </li>
 <li>
+<h4><code><a title="ki.types.AnkiDBNoteMissingFieldsError" href="#ki.types.AnkiDBNoteMissingFieldsError">AnkiDBNoteMissingFieldsError</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.ColNote" href="#ki.types.ColNote">ColNote</a></code></h4>
 <ul class="two-column">
 <li><code><a title="ki.types.ColNote.deck" href="#ki.types.ColNote.deck">deck</a></code></li>
@@ -2348,7 +2761,6 @@ class WrittenNoteFile:
 <li><code><a title="ki.types.ColNote.n" href="#ki.types.ColNote.n">n</a></code></li>
 <li><code><a title="ki.types.ColNote.new" href="#ki.types.ColNote.new">new</a></code></li>
 <li><code><a title="ki.types.ColNote.notetype" href="#ki.types.ColNote.notetype">notetype</a></code></li>
-<li><code><a title="ki.types.ColNote.old_nid" href="#ki.types.ColNote.old_nid">old_nid</a></code></li>
 <li><code><a title="ki.types.ColNote.sortf_text" href="#ki.types.ColNote.sortf_text">sortf_text</a></code></li>
 <li><code><a title="ki.types.ColNote.title" href="#ki.types.ColNote.title">title</a></code></li>
 </ul>
@@ -2361,9 +2773,8 @@ class WrittenNoteFile:
 <ul class="two-column">
 <li><code><a title="ki.types.DeckNote.deck" href="#ki.types.DeckNote.deck">deck</a></code></li>
 <li><code><a title="ki.types.DeckNote.fields" href="#ki.types.DeckNote.fields">fields</a></code></li>
-<li><code><a title="ki.types.DeckNote.markdown" href="#ki.types.DeckNote.markdown">markdown</a></code></li>
+<li><code><a title="ki.types.DeckNote.guid" href="#ki.types.DeckNote.guid">guid</a></code></li>
 <li><code><a title="ki.types.DeckNote.model" href="#ki.types.DeckNote.model">model</a></code></li>
-<li><code><a title="ki.types.DeckNote.nid" href="#ki.types.DeckNote.nid">nid</a></code></li>
 <li><code><a title="ki.types.DeckNote.tags" href="#ki.types.DeckNote.tags">tags</a></code></li>
 <li><code><a title="ki.types.DeckNote.title" href="#ki.types.DeckNote.title">title</a></code></li>
 </ul>
@@ -2424,10 +2835,16 @@ class WrittenNoteFile:
 </ul>
 </li>
 <li>
+<h4><code><a title="ki.types.GitFileModeParseError" href="#ki.types.GitFileModeParseError">GitFileModeParseError</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.GitHeadRefNotFoundError" href="#ki.types.GitHeadRefNotFoundError">GitHeadRefNotFoundError</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.GitRefNotFoundError" href="#ki.types.GitRefNotFoundError">GitRefNotFoundError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.InconsistentFieldNamesWarning" href="#ki.types.InconsistentFieldNamesWarning">InconsistentFieldNamesWarning</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.KiRepo" href="#ki.types.KiRepo">KiRepo</a></code></h4>
@@ -2449,6 +2866,9 @@ class WrittenNoteFile:
 <li><code><a title="ki.types.KiRepoRef.kirepo" href="#ki.types.KiRepoRef.kirepo">kirepo</a></code></li>
 <li><code><a title="ki.types.KiRepoRef.sha" href="#ki.types.KiRepoRef.sha">sha</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="ki.types.LatentSymlink" href="#ki.types.LatentSymlink">LatentSymlink</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.Leaves" href="#ki.types.Leaves">Leaves</a></code></h4>
@@ -2480,6 +2900,9 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.MissingNotetypeError" href="#ki.types.MissingNotetypeError">MissingNotetypeError</a></code></h4>
 </li>
 <li>
+<h4><code><a title="ki.types.MissingTidyExecutableError" href="#ki.types.MissingTidyExecutableError">MissingTidyExecutableError</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a></code></h4>
 <ul class="">
 <li><code><a title="ki.types.NoFile.parent" href="#ki.types.NoFile.parent">parent</a></code></li>
@@ -2487,6 +2910,9 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.NoPath" href="#ki.types.NoPath">NoPath</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.NonEmptyWorkingTreeError" href="#ki.types.NonEmptyWorkingTreeError">NonEmptyWorkingTreeError</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.NotAnkiNoteWarning" href="#ki.types.NotAnkiNoteWarning">NotAnkiNoteWarning</a></code></h4>
@@ -2515,6 +2941,14 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.NoteFieldValidationWarning" href="#ki.types.NoteFieldValidationWarning">NoteFieldValidationWarning</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.NoteMetadata" href="#ki.types.NoteMetadata">NoteMetadata</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.NoteMetadata.mid" href="#ki.types.NoteMetadata.mid">mid</a></code></li>
+<li><code><a title="ki.types.NoteMetadata.mod" href="#ki.types.NoteMetadata.mod">mod</a></code></li>
+<li><code><a title="ki.types.NoteMetadata.nid" href="#ki.types.NoteMetadata.nid">nid</a></code></li>
+</ul>
 </li>
 <li>
 <h4><code><a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a></code></h4>
@@ -2553,6 +2987,9 @@ class WrittenNoteFile:
 </ul>
 </li>
 <li>
+<h4><code><a title="ki.types.RenamedMediaFileWarning" href="#ki.types.RenamedMediaFileWarning">RenamedMediaFileWarning</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.RepoRef" href="#ki.types.RepoRef">RepoRef</a></code></h4>
 <ul class="">
 <li><code><a title="ki.types.RepoRef.repo" href="#ki.types.RepoRef.repo">repo</a></code></li>
@@ -2567,6 +3004,9 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.StrangeExtantPathError" href="#ki.types.StrangeExtantPathError">StrangeExtantPathError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.Symlink" href="#ki.types.Symlink">Symlink</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.TargetExistsError" href="#ki.types.TargetExistsError">TargetExistsError</a></code></h4>
@@ -2598,6 +3038,9 @@ class WrittenNoteFile:
 <li><code><a title="ki.types.WrittenNoteFile.did" href="#ki.types.WrittenNoteFile.did">did</a></code></li>
 <li><code><a title="ki.types.WrittenNoteFile.file" href="#ki.types.WrittenNoteFile.file">file</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="ki.types.WrongFieldCountWarning" href="#ki.types.WrongFieldCountWarning">WrongFieldCountWarning</a></code></h4>
 </li>
 </ul>
 </li>

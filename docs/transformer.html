@@ -48,6 +48,8 @@ from beartype.typing import (
 
 # pylint: disable=invalid-name, too-few-public-methods
 
+BACKTICKS = &#34;```\n&#34;
+
 
 @beartype
 @dataclass(frozen=True)
@@ -64,10 +66,9 @@ class FlatNote:
     &#34;&#34;&#34;Flat (as possible) representation of a note.&#34;&#34;&#34;
 
     title: str
-    nid: int
+    guid: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]
 
 
@@ -77,10 +78,8 @@ class Header:
     &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
 
     title: str
-    nid: int
+    guid: str
     model: str
-    tags: List[str]
-    markdown: bool
 
 
 class NoteTransformer(Transformer):
@@ -88,12 +87,11 @@ class NoteTransformer(Transformer):
     note
       header
         title     Note
-        nid: 123412341234
+        guid: 123412341234
 
-        model: Basic
+        notetype: Basic
 
         tags      None
-        markdown: false
 
 
       field
@@ -112,11 +110,12 @@ class NoteTransformer(Transformer):
     # pylint: disable=no-self-use, missing-function-docstring
 
     @beartype
-    def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
-        assert len(n) &gt;= 2
+    def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
+        assert len(n) &gt;= 3
 
         header = n[0]
-        fields = n[1:]
+        tags = n[1]
+        fields = n[2:]
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
@@ -125,16 +124,16 @@ class NoteTransformer(Transformer):
             fieldmap[field.title] = field.content
 
         return FlatNote(
-            header.title,
-            header.nid,
-            header.model,
-            header.tags,
-            header.markdown,
-            fieldmap,
+            title=header.title,
+            guid=header.guid,
+            model=header.model,
+            tags=tags,
+            fields=fieldmap,
         )
 
     @beartype
-    def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+    def header(self, h: List[str]) -&gt; Header:
+        h = filter(lambda s: s != BACKTICKS, h)
         return Header(*h)
 
     @beartype
@@ -145,6 +144,7 @@ class NoteTransformer(Transformer):
 
     @beartype
     def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+        tags = filter(lambda t: t != BACKTICKS, tags)
         return [tag for tag in tags if tag is not None]
 
     @beartype
@@ -153,7 +153,19 @@ class NoteTransformer(Transformer):
         fheader = f[0]
         lines = f[1:]
         content = &#34;&#34;.join(lines)
-        return Field(fheader, content)
+        if content[-2:] != &#34;\n\n&#34;:
+            raise RuntimeError(
+                f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
+            )
+        return Field(fheader, content[:-2])
+
+    @beartype
+    def terminalfield(self, f: List[str]) -&gt; Field:
+        assert len(f) &gt;= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = &#34;&#34;.join(lines)
+        return Field(fheader, content[:-1])
 
     @beartype
     def fieldheader(self, f: List[str]) -&gt; str:
@@ -162,27 +174,21 @@ class NoteTransformer(Transformer):
         return f[1]
 
     @beartype
-    def NID(self, t: Token) -&gt; int:
-        &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
-        nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
-        try:
-            return int(nid)
-        except ValueError:
-            return -1
+    def GUID(self, t: Token) -&gt; str:
+        &#34;&#34;&#34;Possibly empty for new markdown notes.&#34;&#34;&#34;
+        return re.sub(r&#34;^guid:&#34;, &#34;&#34;, str(t)).strip()
 
     @beartype
-    def MODEL(self, t: Token) -&gt; str:
-        model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+    def NOTETYPE(self, t: Token) -&gt; str:
+        model = re.sub(r&#34;^notetype:&#34;, &#34;&#34;, str(t)).strip()
         return model
 
     @beartype
-    def MARKDOWN(self, t: Token) -&gt; bool:
-        md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
-        assert md in (&#34;true&#34;, &#34;false&#34;)
-        return md == &#34;true&#34;
+    def FIELDLINE(self, t: Token) -&gt; str:
+        return str(t)
 
     @beartype
-    def FIELDLINE(self, t: Token) -&gt; str:
+    def EMPTYFIELD(self, t: Token) -&gt; str:
         return str(t)
 
     @beartype
@@ -195,6 +201,10 @@ class NoteTransformer(Transformer):
 
     @beartype
     def TAGNAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TRIPLEBACKTICKS(self, t: Token) -&gt; str:
         return str(t)</code></pre>
 </details>
 </section>
@@ -239,7 +249,7 @@ class Field:
 </dd>
 <dt id="ki.transformer.FlatNote"><code class="flex name class">
 <span>class <span class="ident">FlatNote</span></span>
-<span>(</span><span>title: str, nid: int, model: str, tags: list[str], markdown: bool, fields: dict[str, str])</span>
+<span>(</span><span>title: str, guid: str, model: str, tags: list[str], fields: dict[str, str])</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Flat (as possible) representation of a note.</p></div>
@@ -253,10 +263,9 @@ class FlatNote:
     &#34;&#34;&#34;Flat (as possible) representation of a note.&#34;&#34;&#34;
 
     title: str
-    nid: int
+    guid: str
     model: str
     tags: List[str]
-    markdown: bool
     fields: Dict[str, str]</code></pre>
 </details>
 <h3>Class variables</h3>
@@ -265,15 +274,11 @@ class FlatNote:
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.transformer.FlatNote.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
+<dt id="ki.transformer.FlatNote.guid"><code class="name">var <span class="ident">guid</span> : str</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 <dt id="ki.transformer.FlatNote.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.transformer.FlatNote.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -289,7 +294,7 @@ class FlatNote:
 </dd>
 <dt id="ki.transformer.Header"><code class="flex name class">
 <span>class <span class="ident">Header</span></span>
-<span>(</span><span>title: str, nid: int, model: str, tags: list[str], markdown: bool)</span>
+<span>(</span><span>title: str, guid: str, model: str)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Note metadata.</p></div>
@@ -303,26 +308,16 @@ class Header:
     &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
 
     title: str
-    nid: int
-    model: str
-    tags: List[str]
-    markdown: bool</code></pre>
+    guid: str
+    model: str</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.transformer.Header.markdown"><code class="name">var <span class="ident">markdown</span> : bool</code></dt>
+<dt id="ki.transformer.Header.guid"><code class="name">var <span class="ident">guid</span> : str</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 <dt id="ki.transformer.Header.model"><code class="name">var <span class="ident">model</span> : str</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.transformer.Header.nid"><code class="name">var <span class="ident">nid</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.transformer.Header.tags"><code class="name">var <span class="ident">tags</span> : list[str]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -341,11 +336,10 @@ class Header:
 header
 title
 Note
-nid: 123412341234</p>
-<pre><code>model: Basic
+guid: 123412341234</p>
+<pre><code>notetype: Basic
 
 tags      None
-markdown: false
 </code></pre>
 <p>field
 fieldheader
@@ -366,12 +360,11 @@ s</p></div>
     note
       header
         title     Note
-        nid: 123412341234
+        guid: 123412341234
 
-        model: Basic
+        notetype: Basic
 
         tags      None
-        markdown: false
 
 
       field
@@ -390,11 +383,12 @@ s</p></div>
     # pylint: disable=no-self-use, missing-function-docstring
 
     @beartype
-    def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
-        assert len(n) &gt;= 2
+    def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
+        assert len(n) &gt;= 3
 
         header = n[0]
-        fields = n[1:]
+        tags = n[1]
+        fields = n[2:]
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
@@ -403,16 +397,16 @@ s</p></div>
             fieldmap[field.title] = field.content
 
         return FlatNote(
-            header.title,
-            header.nid,
-            header.model,
-            header.tags,
-            header.markdown,
-            fieldmap,
+            title=header.title,
+            guid=header.guid,
+            model=header.model,
+            tags=tags,
+            fields=fieldmap,
         )
 
     @beartype
-    def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+    def header(self, h: List[str]) -&gt; Header:
+        h = filter(lambda s: s != BACKTICKS, h)
         return Header(*h)
 
     @beartype
@@ -423,6 +417,7 @@ s</p></div>
 
     @beartype
     def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+        tags = filter(lambda t: t != BACKTICKS, tags)
         return [tag for tag in tags if tag is not None]
 
     @beartype
@@ -431,7 +426,19 @@ s</p></div>
         fheader = f[0]
         lines = f[1:]
         content = &#34;&#34;.join(lines)
-        return Field(fheader, content)
+        if content[-2:] != &#34;\n\n&#34;:
+            raise RuntimeError(
+                f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
+            )
+        return Field(fheader, content[:-2])
+
+    @beartype
+    def terminalfield(self, f: List[str]) -&gt; Field:
+        assert len(f) &gt;= 1
+        fheader = f[0]
+        lines = f[1:]
+        content = &#34;&#34;.join(lines)
+        return Field(fheader, content[:-1])
 
     @beartype
     def fieldheader(self, f: List[str]) -&gt; str:
@@ -440,27 +447,21 @@ s</p></div>
         return f[1]
 
     @beartype
-    def NID(self, t: Token) -&gt; int:
-        &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
-        nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
-        try:
-            return int(nid)
-        except ValueError:
-            return -1
+    def GUID(self, t: Token) -&gt; str:
+        &#34;&#34;&#34;Possibly empty for new markdown notes.&#34;&#34;&#34;
+        return re.sub(r&#34;^guid:&#34;, &#34;&#34;, str(t)).strip()
 
     @beartype
-    def MODEL(self, t: Token) -&gt; str:
-        model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+    def NOTETYPE(self, t: Token) -&gt; str:
+        model = re.sub(r&#34;^notetype:&#34;, &#34;&#34;, str(t)).strip()
         return model
 
     @beartype
-    def MARKDOWN(self, t: Token) -&gt; bool:
-        md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
-        assert md in (&#34;true&#34;, &#34;false&#34;)
-        return md == &#34;true&#34;
+    def FIELDLINE(self, t: Token) -&gt; str:
+        return str(t)
 
     @beartype
-    def FIELDLINE(self, t: Token) -&gt; str:
+    def EMPTYFIELD(self, t: Token) -&gt; str:
         return str(t)
 
     @beartype
@@ -473,6 +474,10 @@ s</p></div>
 
     @beartype
     def TAGNAME(self, t: Token) -&gt; str:
+        return str(t)
+
+    @beartype
+    def TRIPLEBACKTICKS(self, t: Token) -&gt; str:
         return str(t)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -498,6 +503,20 @@ def ANKINAME(self, t: Token) -&gt; str:
     return str(t)</code></pre>
 </details>
 </dd>
+<dt id="ki.transformer.NoteTransformer.EMPTYFIELD"><code class="name flex">
+<span>def <span class="ident">EMPTYFIELD</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def EMPTYFIELD(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
 <dt id="ki.transformer.NoteTransformer.FIELDLINE"><code class="name flex">
 <span>def <span class="ident">FIELDLINE</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
 </code></dt>
@@ -512,24 +531,23 @@ def FIELDLINE(self, t: Token) -&gt; str:
     return str(t)</code></pre>
 </details>
 </dd>
-<dt id="ki.transformer.NoteTransformer.MARKDOWN"><code class="name flex">
-<span>def <span class="ident">MARKDOWN</span></span>(<span>self, t: lark.lexer.Token) ‑> bool</span>
+<dt id="ki.transformer.NoteTransformer.GUID"><code class="name flex">
+<span>def <span class="ident">GUID</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Possibly empty for new markdown notes.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def MARKDOWN(self, t: Token) -&gt; bool:
-    md = re.sub(r&#34;^markdown:&#34;, &#34;&#34;, str(t)).strip()
-    assert md in (&#34;true&#34;, &#34;false&#34;)
-    return md == &#34;true&#34;</code></pre>
+def GUID(self, t: Token) -&gt; str:
+    &#34;&#34;&#34;Possibly empty for new markdown notes.&#34;&#34;&#34;
+    return re.sub(r&#34;^guid:&#34;, &#34;&#34;, str(t)).strip()</code></pre>
 </details>
 </dd>
-<dt id="ki.transformer.NoteTransformer.MODEL"><code class="name flex">
-<span>def <span class="ident">MODEL</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+<dt id="ki.transformer.NoteTransformer.NOTETYPE"><code class="name flex">
+<span>def <span class="ident">NOTETYPE</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -538,28 +556,9 @@ def MARKDOWN(self, t: Token) -&gt; bool:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def MODEL(self, t: Token) -&gt; str:
-    model = re.sub(r&#34;^model:&#34;, &#34;&#34;, str(t)).strip()
+def NOTETYPE(self, t: Token) -&gt; str:
+    model = re.sub(r&#34;^notetype:&#34;, &#34;&#34;, str(t)).strip()
     return model</code></pre>
-</details>
-</dd>
-<dt id="ki.transformer.NoteTransformer.NID"><code class="name flex">
-<span>def <span class="ident">NID</span></span>(<span>self, t: lark.lexer.Token) ‑> int</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Return <code>-1</code> if empty.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def NID(self, t: Token) -&gt; int:
-    &#34;&#34;&#34;Return ``-1`` if empty.&#34;&#34;&#34;
-    nid = re.sub(r&#34;^nid:&#34;, &#34;&#34;, str(t)).strip()
-    try:
-        return int(nid)
-    except ValueError:
-        return -1</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.TAGNAME"><code class="name flex">
@@ -590,6 +589,20 @@ def TITLENAME(self, t: Token) -&gt; str:
     return str(t)</code></pre>
 </details>
 </dd>
+<dt id="ki.transformer.NoteTransformer.TRIPLEBACKTICKS"><code class="name flex">
+<span>def <span class="ident">TRIPLEBACKTICKS</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def TRIPLEBACKTICKS(self, t: Token) -&gt; str:
+    return str(t)</code></pre>
+</details>
+</dd>
 <dt id="ki.transformer.NoteTransformer.field"><code class="name flex">
 <span>def <span class="ident">field</span></span>(<span>self, f: list[str]) ‑> <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></span>
 </code></dt>
@@ -605,7 +618,11 @@ def field(self, f: List[str]) -&gt; Field:
     fheader = f[0]
     lines = f[1:]
     content = &#34;&#34;.join(lines)
-    return Field(fheader, content)</code></pre>
+    if content[-2:] != &#34;\n\n&#34;:
+        raise RuntimeError(
+            f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
+        )
+    return Field(fheader, content[:-2])</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.fieldheader"><code class="name flex">
@@ -626,7 +643,7 @@ def fieldheader(self, f: List[str]) -&gt; str:
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.header"><code class="name flex">
-<span>def <span class="ident">header</span></span>(<span>self, h: list[typing.Union[str, int, bool, list[str]]]) ‑> <a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a></span>
+<span>def <span class="ident">header</span></span>(<span>self, h: list[str]) ‑> <a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -635,12 +652,13 @@ def fieldheader(self, f: List[str]) -&gt; str:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
+def header(self, h: List[str]) -&gt; Header:
+    h = filter(lambda s: s != BACKTICKS, h)
     return Header(*h)</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.note"><code class="name flex">
-<span>def <span class="ident">note</span></span>(<span>self, n: list[typing.Union[<a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a>, <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a>]]) ‑> <a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a></span>
+<span>def <span class="ident">note</span></span>(<span>self, n: list[typing.Union[<a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a>, list[str], <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a>]]) ‑> <a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -649,11 +667,12 @@ def header(self, h: List[Union[str, int, bool, List[str]]]) -&gt; Header:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
-    assert len(n) &gt;= 2
+def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
+    assert len(n) &gt;= 3
 
     header = n[0]
-    fields = n[1:]
+    tags = n[1]
+    fields = n[2:]
     assert isinstance(header, Header)
     assert isinstance(fields[0], Field)
 
@@ -662,12 +681,11 @@ def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
         fieldmap[field.title] = field.content
 
     return FlatNote(
-        header.title,
-        header.nid,
-        header.model,
-        header.tags,
-        header.markdown,
-        fieldmap,
+        title=header.title,
+        guid=header.guid,
+        model=header.model,
+        tags=tags,
+        fields=fieldmap,
     )</code></pre>
 </details>
 </dd>
@@ -682,7 +700,26 @@ def note(self, n: List[Union[Header, Field]]) -&gt; FlatNote:
 </summary>
 <pre><code class="python">@beartype
 def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
+    tags = filter(lambda t: t != BACKTICKS, tags)
     return [tag for tag in tags if tag is not None]</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.terminalfield"><code class="name flex">
+<span>def <span class="ident">terminalfield</span></span>(<span>self, f: list[str]) ‑> <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def terminalfield(self, f: List[str]) -&gt; Field:
+    assert len(f) &gt;= 1
+    fheader = f[0]
+    lines = f[1:]
+    content = &#34;&#34;.join(lines)
+    return Field(fheader, content[:-1])</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.title"><code class="name flex">
@@ -734,11 +771,10 @@ def title(self, t: List[str]) -&gt; str:
 </li>
 <li>
 <h4><code><a title="ki.transformer.FlatNote" href="#ki.transformer.FlatNote">FlatNote</a></code></h4>
-<ul class="two-column">
+<ul class="">
 <li><code><a title="ki.transformer.FlatNote.fields" href="#ki.transformer.FlatNote.fields">fields</a></code></li>
-<li><code><a title="ki.transformer.FlatNote.markdown" href="#ki.transformer.FlatNote.markdown">markdown</a></code></li>
+<li><code><a title="ki.transformer.FlatNote.guid" href="#ki.transformer.FlatNote.guid">guid</a></code></li>
 <li><code><a title="ki.transformer.FlatNote.model" href="#ki.transformer.FlatNote.model">model</a></code></li>
-<li><code><a title="ki.transformer.FlatNote.nid" href="#ki.transformer.FlatNote.nid">nid</a></code></li>
 <li><code><a title="ki.transformer.FlatNote.tags" href="#ki.transformer.FlatNote.tags">tags</a></code></li>
 <li><code><a title="ki.transformer.FlatNote.title" href="#ki.transformer.FlatNote.title">title</a></code></li>
 </ul>
@@ -746,10 +782,8 @@ def title(self, t: List[str]) -&gt; str:
 <li>
 <h4><code><a title="ki.transformer.Header" href="#ki.transformer.Header">Header</a></code></h4>
 <ul class="">
-<li><code><a title="ki.transformer.Header.markdown" href="#ki.transformer.Header.markdown">markdown</a></code></li>
+<li><code><a title="ki.transformer.Header.guid" href="#ki.transformer.Header.guid">guid</a></code></li>
 <li><code><a title="ki.transformer.Header.model" href="#ki.transformer.Header.model">model</a></code></li>
-<li><code><a title="ki.transformer.Header.nid" href="#ki.transformer.Header.nid">nid</a></code></li>
-<li><code><a title="ki.transformer.Header.tags" href="#ki.transformer.Header.tags">tags</a></code></li>
 <li><code><a title="ki.transformer.Header.title" href="#ki.transformer.Header.title">title</a></code></li>
 </ul>
 </li>
@@ -757,17 +791,19 @@ def title(self, t: List[str]) -&gt; str:
 <h4><code><a title="ki.transformer.NoteTransformer" href="#ki.transformer.NoteTransformer">NoteTransformer</a></code></h4>
 <ul class="two-column">
 <li><code><a title="ki.transformer.NoteTransformer.ANKINAME" href="#ki.transformer.NoteTransformer.ANKINAME">ANKINAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.EMPTYFIELD" href="#ki.transformer.NoteTransformer.EMPTYFIELD">EMPTYFIELD</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.FIELDLINE" href="#ki.transformer.NoteTransformer.FIELDLINE">FIELDLINE</a></code></li>
-<li><code><a title="ki.transformer.NoteTransformer.MARKDOWN" href="#ki.transformer.NoteTransformer.MARKDOWN">MARKDOWN</a></code></li>
-<li><code><a title="ki.transformer.NoteTransformer.MODEL" href="#ki.transformer.NoteTransformer.MODEL">MODEL</a></code></li>
-<li><code><a title="ki.transformer.NoteTransformer.NID" href="#ki.transformer.NoteTransformer.NID">NID</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.GUID" href="#ki.transformer.NoteTransformer.GUID">GUID</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.NOTETYPE" href="#ki.transformer.NoteTransformer.NOTETYPE">NOTETYPE</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.TAGNAME" href="#ki.transformer.NoteTransformer.TAGNAME">TAGNAME</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.TITLENAME" href="#ki.transformer.NoteTransformer.TITLENAME">TITLENAME</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.TRIPLEBACKTICKS" href="#ki.transformer.NoteTransformer.TRIPLEBACKTICKS">TRIPLEBACKTICKS</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.field" href="#ki.transformer.NoteTransformer.field">field</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.fieldheader" href="#ki.transformer.NoteTransformer.fieldheader">fieldheader</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.header" href="#ki.transformer.NoteTransformer.header">header</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.note" href="#ki.transformer.NoteTransformer.note">note</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.tags" href="#ki.transformer.NoteTransformer.tags">tags</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.terminalfield" href="#ki.transformer.NoteTransformer.terminalfield">terminalfield</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.title" href="#ki.transformer.NoteTransformer.title">title</a></code></li>
 </ul>
 </li>

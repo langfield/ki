@@ -69,7 +69,6 @@ from ki.types import (
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
 )
-from ki.functional import FS_ROOT
 
 KI = &#34;.ki&#34;
 GIT = &#34;.git&#34;
@@ -220,16 +219,13 @@ def kirepo(cwd: ExtantDir) -&gt; KiRepo:
     &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
     current = cwd
 
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
+    while not F.is_root(current):
         ki_dir = F.test(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = F.parent(current)
 
-    if current == FS_ROOT:
+    if F.is_root(current):
         raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.
@@ -264,6 +260,7 @@ def kirepo(cwd: ExtantDir) -&gt; KiRepo:
 
 @beartype
 def repo_ref(repository: git.Repo, sha: str) -&gt; RepoRef:
+    &#34;&#34;&#34;Validate a commit SHA against a repository and return a `RepoRef`.&#34;&#34;&#34;
     if not F.ref_exists(repository, sha):
         raise GitRefNotFoundError(repository, sha)
     return RepoRef(repository, sha)
@@ -271,6 +268,7 @@ def repo_ref(repository: git.Repo, sha: str) -&gt; RepoRef:
 
 @beartype
 def head_repo_ref(repository: git.Repo) -&gt; RepoRef:
+    &#34;&#34;&#34;Return a `RepoRef` for HEAD of current branch.&#34;&#34;&#34;
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
         ref = RepoRef(repository, repository.head.commit.hexsha)
@@ -281,6 +279,7 @@ def head_repo_ref(repository: git.Repo) -&gt; RepoRef:
 
 @beartype
 def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
+    &#34;&#34;&#34;Return a `KiRepoRef` for HEAD of current branch.&#34;&#34;&#34;
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
         ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
@@ -291,6 +290,7 @@ def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
 
 @beartype
 def collection(col_file: ExtantFile) -&gt; Collection:
+    &#34;&#34;&#34;Open a collection or raise a pretty exception.&#34;&#34;&#34;
     try:
         col = Collection(col_file)
     except anki.errors.DBError as err:
@@ -309,13 +309,14 @@ def collection(col_file: ExtantFile) -&gt; Collection:
 <span>def <span class="ident">collection</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> anki.collection.Collection</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Open a collection or raise a pretty exception.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def collection(col_file: ExtantFile) -&gt; Collection:
+    &#34;&#34;&#34;Open a collection or raise a pretty exception.&#34;&#34;&#34;
     try:
         col = Collection(col_file)
     except anki.errors.DBError as err:
@@ -348,13 +349,14 @@ def emptydir(path: Path) -&gt; ExtantDir:
 <span>def <span class="ident">head_kirepo_ref</span></span>(<span>kirepository: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> <a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a></span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Return a <code>KiRepoRef</code> for HEAD of current branch.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
+    &#34;&#34;&#34;Return a `KiRepoRef` for HEAD of current branch.&#34;&#34;&#34;
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
         ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
@@ -367,13 +369,14 @@ def head_kirepo_ref(kirepository: KiRepo) -&gt; KiRepoRef:
 <span>def <span class="ident">head_repo_ref</span></span>(<span>repository: git.repo.base.Repo) ‑> <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a></span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Return a <code>RepoRef</code> for HEAD of current branch.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def head_repo_ref(repository: git.Repo) -&gt; RepoRef:
+    &#34;&#34;&#34;Return a `RepoRef` for HEAD of current branch.&#34;&#34;&#34;
     # GitPython raises a ValueError when references don&#39;t exist.
     try:
         ref = RepoRef(repository, repository.head.commit.hexsha)
@@ -396,16 +399,13 @@ def kirepo(cwd: ExtantDir) -&gt; KiRepo:
     &#34;&#34;&#34;Get the containing ki repository of `path`.&#34;&#34;&#34;
     current = cwd
 
-    # Note that `current` is an `ExtantDir` but `FS_ROOT` is a `Path`.
-    # We can make this comparison because both are instances of `Path` and
-    # `Path` implements the `==` operator nicely.
-    while current != FS_ROOT:
+    while not F.is_root(current):
         ki_dir = F.test(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = F.parent(current)
 
-    if current == FS_ROOT:
+    if F.is_root(current):
         raise NotKiRepoError()
 
     # Root directory and ki directory of repo now guaranteed to exist.
@@ -507,13 +507,14 @@ def repo(root: ExtantDir) -&gt; git.Repo:
 <span>def <span class="ident">repo_ref</span></span>(<span>repository: git.repo.base.Repo, sha: str) ‑> <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a></span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Validate a commit SHA against a repository and return a <code>RepoRef</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def repo_ref(repository: git.Repo, sha: str) -&gt; RepoRef:
+    &#34;&#34;&#34;Validate a commit SHA against a repository and return a `RepoRef`.&#34;&#34;&#34;
     if not F.ref_exists(repository, sha):
         raise GitRefNotFoundError(repository, sha)
     return RepoRef(repository, sha)</code></pre>

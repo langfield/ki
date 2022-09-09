@@ -33,19 +33,24 @@
 <pre><code class="python">#!/usr/bin/env python3
 &#34;&#34;&#34;Type-safe, non Anki-specific functions.&#34;&#34;&#34;
 
-# pylint: disable=import-self
+# pylint: disable=import-self, too-many-return-statements
 
 import os
 import re
+import sys
+import stat
+import errno
 import shutil
 import hashlib
 import tempfile
 import functools
 import unicodedata
 from pathlib import Path
+from types import TracebackType
 
 import git
 from halo import Halo
+from loguru import logger
 
 from beartype import beartype
 from beartype.typing import (
@@ -56,6 +61,9 @@ from beartype.typing import (
     Dict,
     Set,
     Tuple,
+    Callable,
+    Any,
+    Type,
 )
 
 import ki.functional as F
@@ -65,6 +73,8 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
+    LatentSymlink,
     Singleton,
     ExtantStrangePath,
     KiRepoRef,
@@ -73,9 +83,10 @@ from ki.types import (
     PathCreationCollisionError,
 )
 
-FS_ROOT = Path(&#34;/&#34;)
 SPINNER = &#34;bouncingBall&#34;
 HALO_ENABLED = True
+if &#34;KITEST&#34; in os.environ and os.environ[&#34;KITEST&#34;] == &#34;1&#34;:
+    HALO_ENABLED = False
 
 # Emoji regex character classes.
 EMOJIS = &#34;\U0001F600-\U0001F64F&#34;
@@ -87,17 +98,36 @@ FLAGS = &#34;\U0001F1E0-\U0001F1FF&#34;
 SLUG_REGEX = re.compile(r&#34;[^\w\s\-&#34; + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + &#34;]&#34;)
 
 
+def rmtree2(path: str) -&gt; None:
+    &#34;&#34;&#34;On windows, rmtree fails for readonly dirs.&#34;&#34;&#34;
+
+    def handle_remove_readonly(
+        func: Callable[..., Any],
+        path: str,
+        exc: Tuple[Type[OSError], OSError, TracebackType],
+    ) -&gt; None:
+        excvalue = exc[1]
+        if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
+            for p in (path, os.path.dirname(path)):
+                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
+            func(path)
+        else:
+            raise excvalue
+
+    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
+
+
 @beartype
 def rmtree(target: ExtantDir) -&gt; NoFile:
-    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
-    shutil.rmtree(target)
+    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows.&#34;&#34;&#34;
+    rmtree2(str(target))
     return NoFile(target)
 
 
 @beartype
 def copytree(source: ExtantDir, target: NoFile) -&gt; ExtantDir:
     &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, symlinks=True)
     return ExtantDir(target.resolve())
 
 
@@ -107,6 +137,14 @@ def cwd() -&gt; ExtantDir:
     return ExtantDir(Path.cwd().resolve())
 
 
+@beartype
+def is_root(path: Union[ExtantFile, ExtantDir]) -&gt; bool:
+    &#34;&#34;&#34;Check if &#39;path&#39; is a root directory (e.g., &#39;/&#39; on Unix or &#39;C:\&#39; on Windows).&#34;&#34;&#34;
+    # Symlinks and `~`s are resolved before checking.
+    path = path.resolve()
+    return len(path.parents) == 0
+
+
 @functools.cache
 @beartype
 def shallow_walk(
@@ -114,16 +152,18 @@ def shallow_walk(
 ) -&gt; Tuple[ExtantDir, List[ExtantDir], List[ExtantFile]]:
     &#34;&#34;&#34;Walk only the top-level directory with `os.walk()`.&#34;&#34;&#34;
     root, dirs, files = next(os.walk(directory))
-    dirs = [ExtantDir(d) for d in dirs]
-    files = [ExtantFile(f) for f in files]
-    return ExtantDir(root), dirs, files
+    root = ExtantDir(root)
+    dirs = [ExtantDir(root / d) for d in dirs]
+    files = [ExtantFile(root / f) for f in files]
+    return root, dirs, files
 
 
+# TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
 @beartype
 def test(
     path: Path,
     resolve: bool = True,
-) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile]:
+) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile, Symlink]:
     &#34;&#34;&#34;Test whether `path` is a file, a directory, or something else.&#34;&#34;&#34;
     if resolve:
         path = path.resolve()
@@ -135,6 +175,8 @@ def test(
         return ExtantDir(path)
     if path.exists():
         return ExtantStrangePath(path)
+    if os.path.islink(path):
+        return Symlink(path)
     if path.parent.is_dir():
         return NoFile(path)
     return NoPath(path)
@@ -157,10 +199,16 @@ def write(path: Union[ExtantFile, NoFile], text: str) -&gt; ExtantFile:
 
 
 @beartype
-def symlink(path: NoFile, target: ExtantFile) -&gt; ExtantFile:
+def symlink(path: NoFile, target: Path) -&gt; Union[Symlink, LatentSymlink]:
     &#34;&#34;&#34;Symlink `path` to `target`.&#34;&#34;&#34;
-    path.symlink_to(target)
-    return ExtantFile(path)
+    if sys.platform == &#34;win32&#34;:
+        with open(path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
+            f.write(str(target.as_posix()))
+            return LatentSymlink(path)
+
+    # Treat POSIX systems.
+    os.symlink(target, path)
+    return Symlink(path)
 
 
 @beartype
@@ -200,8 +248,8 @@ def parent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
     Get the parent of a path that exists.  If the path points to the filesystem
     root, we return itself.
     &#34;&#34;&#34;
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
+    if is_root(path):
+        return ExtantDir(path.resolve())
     return ExtantDir(path.parent)
 
 
@@ -411,7 +459,7 @@ def copyfile(source: ExtantFile, target_root: ExtantDir, name: str) -&gt; Extant
 <pre><code class="python">@beartype
 def copytree(source: ExtantDir, target: NoFile) -&gt; ExtantDir:
     &#34;&#34;&#34;Call shutil.copytree().&#34;&#34;&#34;
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, symlinks=True)
     return ExtantDir(target.resolve())</code></pre>
 </details>
 </dd>
@@ -559,6 +607,23 @@ def is_empty(directory: ExtantDir) -&gt; bool:
     return not next(os.scandir(directory), None)</code></pre>
 </details>
 </dd>
+<dt id="ki.functional.is_root"><code class="name flex">
+<span>def <span class="ident">is_root</span></span>(<span>path: Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>]) ‑> bool</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Check if 'path' is a root directory (e.g., '/' on Unix or 'C:' on Windows).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def is_root(path: Union[ExtantFile, ExtantDir]) -&gt; bool:
+    &#34;&#34;&#34;Check if &#39;path&#39; is a root directory (e.g., &#39;/&#39; on Unix or &#39;C:\&#39; on Windows).&#34;&#34;&#34;
+    # Symlinks and `~`s are resolved before checking.
+    path = path.resolve()
+    return len(path.parents) == 0</code></pre>
+</details>
+</dd>
 <dt id="ki.functional.kirepo_ref_to_repo_ref"><code class="name flex">
 <span>def <span class="ident">kirepo_ref_to_repo_ref</span></span>(<span>kirepo_ref: <a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a>) ‑> <a title="ki.types.RepoRef" href="types.html#ki.types.RepoRef">RepoRef</a></span>
 </code></dt>
@@ -671,8 +736,8 @@ def parent(path: Union[ExtantFile, ExtantDir]) -&gt; ExtantDir:
     Get the parent of a path that exists.  If the path points to the filesystem
     root, we return itself.
     &#34;&#34;&#34;
-    if path.resolve() == FS_ROOT:
-        return ExtantDir(FS_ROOT.resolve())
+    if is_root(path):
+        return ExtantDir(path.resolve())
     return ExtantDir(path.parent)</code></pre>
 </details>
 </dd>
@@ -717,16 +782,44 @@ def rglob(root: ExtantDir, pattern: str) -&gt; List[ExtantFile]:
 <span>def <span class="ident">rmtree</span></span>(<span>target: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Call shutil.rmtree().</p></div>
+<div class="desc"><p>Equivalent to <code>shutil.rmtree()</code>, but annihilates read-only files on Windows.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def rmtree(target: ExtantDir) -&gt; NoFile:
-    &#34;&#34;&#34;Call shutil.rmtree().&#34;&#34;&#34;
-    shutil.rmtree(target)
+    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows.&#34;&#34;&#34;
+    rmtree2(str(target))
     return NoFile(target)</code></pre>
+</details>
+</dd>
+<dt id="ki.functional.rmtree2"><code class="name flex">
+<span>def <span class="ident">rmtree2</span></span>(<span>path: str) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>On windows, rmtree fails for readonly dirs.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def rmtree2(path: str) -&gt; None:
+    &#34;&#34;&#34;On windows, rmtree fails for readonly dirs.&#34;&#34;&#34;
+
+    def handle_remove_readonly(
+        func: Callable[..., Any],
+        path: str,
+        exc: Tuple[Type[OSError], OSError, TracebackType],
+    ) -&gt; None:
+        excvalue = exc[1]
+        if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
+            for p in (path, os.path.dirname(path)):
+                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
+            func(path)
+        else:
+            raise excvalue
+
+    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)</code></pre>
 </details>
 </dd>
 <dt id="ki.functional.shallow_walk"><code class="name flex">
@@ -745,9 +838,10 @@ def shallow_walk(
 ) -&gt; Tuple[ExtantDir, List[ExtantDir], List[ExtantFile]]:
     &#34;&#34;&#34;Walk only the top-level directory with `os.walk()`.&#34;&#34;&#34;
     root, dirs, files = next(os.walk(directory))
-    dirs = [ExtantDir(d) for d in dirs]
-    files = [ExtantFile(f) for f in files]
-    return ExtantDir(root), dirs, files</code></pre>
+    root = ExtantDir(root)
+    dirs = [ExtantDir(root / d) for d in dirs]
+    files = [ExtantFile(root / f) for f in files]
+    return root, dirs, files</code></pre>
 </details>
 </dd>
 <dt id="ki.functional.singleton"><code class="name flex">
@@ -794,7 +888,7 @@ def slugify(value: str) -&gt; str:
 </details>
 </dd>
 <dt id="ki.functional.symlink"><code class="name flex">
-<span>def <span class="ident">symlink</span></span>(<span>path: <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>, target: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a></span>
+<span>def <span class="ident">symlink</span></span>(<span>path: <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>, target: pathlib.Path) ‑> Union[<a title="ki.types.Symlink" href="types.html#ki.types.Symlink">Symlink</a>, <a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Symlink <code>path</code> to <code>target</code>.</p></div>
@@ -803,14 +897,20 @@ def slugify(value: str) -&gt; str:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def symlink(path: NoFile, target: ExtantFile) -&gt; ExtantFile:
+def symlink(path: NoFile, target: Path) -&gt; Union[Symlink, LatentSymlink]:
     &#34;&#34;&#34;Symlink `path` to `target`.&#34;&#34;&#34;
-    path.symlink_to(target)
-    return ExtantFile(path)</code></pre>
+    if sys.platform == &#34;win32&#34;:
+        with open(path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
+            f.write(str(target.as_posix()))
+            return LatentSymlink(path)
+
+    # Treat POSIX systems.
+    os.symlink(target, path)
+    return Symlink(path)</code></pre>
 </details>
 </dd>
 <dt id="ki.functional.test"><code class="name flex">
-<span>def <span class="ident">test</span></span>(<span>path: pathlib.Path, resolve: bool = True) ‑> Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, <a title="ki.types.ExtantStrangePath" href="types.html#ki.types.ExtantStrangePath">ExtantStrangePath</a>, <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>, <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>]</span>
+<span>def <span class="ident">test</span></span>(<span>path: pathlib.Path, resolve: bool = True) ‑> Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, <a title="ki.types.ExtantStrangePath" href="types.html#ki.types.ExtantStrangePath">ExtantStrangePath</a>, <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>, <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>, <a title="ki.types.Symlink" href="types.html#ki.types.Symlink">Symlink</a>]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Test whether <code>path</code> is a file, a directory, or something else.</p></div>
@@ -822,7 +922,7 @@ def symlink(path: NoFile, target: ExtantFile) -&gt; ExtantFile:
 def test(
     path: Path,
     resolve: bool = True,
-) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile]:
+) -&gt; Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile, Symlink]:
     &#34;&#34;&#34;Test whether `path` is a file, a directory, or something else.&#34;&#34;&#34;
     if resolve:
         path = path.resolve()
@@ -834,6 +934,8 @@ def test(
         return ExtantDir(path)
     if path.exists():
         return ExtantStrangePath(path)
+    if os.path.islink(path):
+        return Symlink(path)
     if path.parent.is_dir():
         return NoFile(path)
     return NoPath(path)</code></pre>
@@ -921,6 +1023,7 @@ def write(path: Union[ExtantFile, NoFile], text: str) -&gt; ExtantFile:
 <li><code><a title="ki.functional.git_dir" href="#ki.functional.git_dir">git_dir</a></code></li>
 <li><code><a title="ki.functional.halo" href="#ki.functional.halo">halo</a></code></li>
 <li><code><a title="ki.functional.is_empty" href="#ki.functional.is_empty">is_empty</a></code></li>
+<li><code><a title="ki.functional.is_root" href="#ki.functional.is_root">is_root</a></code></li>
 <li><code><a title="ki.functional.kirepo_ref_to_repo_ref" href="#ki.functional.kirepo_ref_to_repo_ref">kirepo_ref_to_repo_ref</a></code></li>
 <li><code><a title="ki.functional.md5" href="#ki.functional.md5">md5</a></code></li>
 <li><code><a title="ki.functional.mkdir" href="#ki.functional.mkdir">mkdir</a></code></li>
@@ -930,6 +1033,7 @@ def write(path: Union[ExtantFile, NoFile], text: str) -&gt; ExtantFile:
 <li><code><a title="ki.functional.ref_exists" href="#ki.functional.ref_exists">ref_exists</a></code></li>
 <li><code><a title="ki.functional.rglob" href="#ki.functional.rglob">rglob</a></code></li>
 <li><code><a title="ki.functional.rmtree" href="#ki.functional.rmtree">rmtree</a></code></li>
+<li><code><a title="ki.functional.rmtree2" href="#ki.functional.rmtree2">rmtree2</a></code></li>
 <li><code><a title="ki.functional.shallow_walk" href="#ki.functional.shallow_walk">shallow_walk</a></code></li>
 <li><code><a title="ki.functional.singleton" href="#ki.functional.singleton">singleton</a></code></li>
 <li><code><a title="ki.functional.slugify" href="#ki.functional.slugify">slugify</a></code></li>

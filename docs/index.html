@@ -639,6 +639,10 @@ decks in exactly the same way they work on large, complex software projects.
 
 import os
 import re
+import io
+import gc
+import sys
+import time
 import json
 import copy
 import shutil
@@ -646,17 +650,19 @@ import random
 import logging
 import secrets
 import sqlite3
+import hashlib
+import itertools
+import traceback
 import functools
 import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 
 import git
 import click
-import blake3
-import markdownify
 import whatthepatch
 import prettyprinter as pp
 from tqdm import tqdm
@@ -666,15 +672,14 @@ from loguru import logger
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, CardId
+from anki.cards import Card, CardId, TemplateDict
 from anki.decks import DeckTreeNode
 from anki.utils import ids2str
 from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
 from anki.errors import NotFoundError
 from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
-
-from apy.convert import markdown_to_html, plain_to_html, html_to_markdown
+from anki.importing.noteimp import NoteImporter
 
 from beartype import beartype
 from beartype.typing import (
@@ -688,6 +693,7 @@ from beartype.typing import (
     TypeVar,
     Sequence,
     Tuple,
+    Iterator,
 )
 
 import ki.maybes as M
@@ -699,6 +705,9 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
+    LatentSymlink,
+    ExtantStrangePath,
     GitChangeType,
     Patch,
     Delta,
@@ -712,6 +721,7 @@ from ki.types import (
     Leaves,
     NoteDBRow,
     DeckNote,
+    NoteMetadata,
     PushResult,
     WrittenNoteFile,
     UpdatesRejectedError,
@@ -733,6 +743,14 @@ from ki.types import (
     NoteFieldKeyError,
     MissingMediaDirectoryError,
     MissingMediaFileWarning,
+    ExpectedNonexistentPathError,
+    WrongFieldCountWarning,
+    InconsistentFieldNamesWarning,
+    MissingTidyExecutableError,
+    AnkiDBNoteMissingFieldsError,
+    GitFileModeParseError,
+    RenamedMediaFileWarning,
+    NonEmptyWorkingTreeError,
 )
 from ki.maybes import (
     GIT,
@@ -746,22 +764,20 @@ from ki.maybes import (
 )
 from ki.transformer import NoteTransformer, FlatNote
 
-from pyinstrument import Profiler
-
 logging.basicConfig(level=logging.INFO)
 
 T = TypeVar(&#34;T&#34;)
 
-# TODO: What if there is a deck called `media`?
+# TODO: What if there is a deck called `_media`?
 MEDIA = &#34;_media&#34;
 DEV_NULL = &#34;/dev/null&#34;
-BATCH_SIZE = 500
+BATCH_SIZE = 300
 HTML_REGEX = r&#34;&lt;/?\s*[a-z-][^&gt;]*\s*&gt;|(\&amp;(?:[\w\d]+|#\d+|#x[a-f\d]+);)&#34;
 REMOTE_NAME = &#34;anki&#34;
 BRANCH_NAME = &#34;main&#34;
 CHANGE_TYPES = &#34;A D R M T&#34;.split()
 TQDM_NUM_COLS = 80
-MAX_FIELNAME_LEN = 30
+MAX_FILENAME_LEN = 40
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path(&#34;ki-head&#34;)
@@ -782,24 +798,124 @@ FAILED = &#34;Failed: exiting.&#34;
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
 SPINNER = &#34;bouncingBall&#34;
+VERBOSE = False
 PROFILE = False
+
+BASE91_TABLE = [
+    &#34;a&#34;,
+    &#34;b&#34;,
+    &#34;c&#34;,
+    &#34;d&#34;,
+    &#34;e&#34;,
+    &#34;f&#34;,
+    &#34;g&#34;,
+    &#34;h&#34;,
+    &#34;i&#34;,
+    &#34;j&#34;,
+    &#34;k&#34;,
+    &#34;l&#34;,
+    &#34;m&#34;,
+    &#34;n&#34;,
+    &#34;o&#34;,
+    &#34;p&#34;,
+    &#34;q&#34;,
+    &#34;r&#34;,
+    &#34;s&#34;,
+    &#34;t&#34;,
+    &#34;u&#34;,
+    &#34;v&#34;,
+    &#34;w&#34;,
+    &#34;x&#34;,
+    &#34;y&#34;,
+    &#34;z&#34;,
+    &#34;A&#34;,
+    &#34;B&#34;,
+    &#34;C&#34;,
+    &#34;D&#34;,
+    &#34;E&#34;,
+    &#34;F&#34;,
+    &#34;G&#34;,
+    &#34;H&#34;,
+    &#34;I&#34;,
+    &#34;J&#34;,
+    &#34;K&#34;,
+    &#34;L&#34;,
+    &#34;M&#34;,
+    &#34;N&#34;,
+    &#34;O&#34;,
+    &#34;P&#34;,
+    &#34;Q&#34;,
+    &#34;R&#34;,
+    &#34;S&#34;,
+    &#34;T&#34;,
+    &#34;U&#34;,
+    &#34;V&#34;,
+    &#34;W&#34;,
+    &#34;X&#34;,
+    &#34;Y&#34;,
+    &#34;Z&#34;,
+    &#34;0&#34;,
+    &#34;1&#34;,
+    &#34;2&#34;,
+    &#34;3&#34;,
+    &#34;4&#34;,
+    &#34;5&#34;,
+    &#34;6&#34;,
+    &#34;7&#34;,
+    &#34;8&#34;,
+    &#34;9&#34;,
+    &#34;!&#34;,
+    &#34;#&#34;,
+    &#34;$&#34;,
+    &#34;%&#34;,
+    &#34;&amp;&#34;,
+    &#34;(&#34;,
+    &#34;)&#34;,
+    &#34;*&#34;,
+    &#34;+&#34;,
+    &#34;,&#34;,
+    &#34;-&#34;,
+    &#34;.&#34;,
+    &#34;/&#34;,
+    &#34;:&#34;,
+    &#34;;&#34;,
+    &#34;&lt;&#34;,
+    &#34;=&#34;,
+    &#34;&gt;&#34;,
+    &#34;?&#34;,
+    &#34;@&#34;,
+    &#34;[&#34;,
+    &#34;]&#34;,
+    &#34;^&#34;,
+    &#34;_&#34;,
+    &#34;`&#34;,
+    &#34;{&#34;,
+    &#34;|&#34;,
+    &#34;}&#34;,
+    &#34;~&#34;,
+]
 
 
 @beartype
 def lock(col_file: ExtantFile) -&gt; sqlite3.Connection:
-    &#34;&#34;&#34;Acquire a lock on a SQLite3 database given a path.&#34;&#34;&#34;
+    &#34;&#34;&#34;Check that lock can be acquired on a SQLite3 database given a path.&#34;&#34;&#34;
     try:
         con = sqlite3.connect(col_file, timeout=0.1)
         con.isolation_level = &#34;EXCLUSIVE&#34;
         con.execute(&#34;BEGIN EXCLUSIVE&#34;)
     except sqlite3.DatabaseError as err:
         raise SQLiteLockError(col_file, err) from err
+    if sys.platform == &#34;win32&#34;:
+        con.commit()
+        con.close()
     return con
 
 
 @beartype
 def unlock(con: sqlite3.Connection) -&gt; None:
     &#34;&#34;&#34;Unlock a SQLite3 database.&#34;&#34;&#34;
+    if sys.platform == &#34;win32&#34;:
+        return
     con.commit()
     con.close()
 
@@ -844,7 +960,10 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -&gt; KiRepo:
     &#34;&#34;&#34;
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = copy_repo(ref, suffix)
-    F.copytree(kirepo_ref.kirepo.ki_dir, F.test(F.working_dir(ephem) / KI))
+    ki_dir: Path = F.test(F.working_dir(ephem) / KI)
+    if not isinstance(ki_dir, NoFile):
+        raise ExpectedNonexistentPathError(ki_dir)
+    F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
     kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
 
     return kirepo
@@ -852,19 +971,19 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -&gt; KiRepo:
 
 @beartype
 def is_anki_note(path: ExtantFile) -&gt; bool:
-    &#34;&#34;&#34;Check if file is an `apy`-style markdown anki note.&#34;&#34;&#34;
-    path = str(path)
-
+    &#34;&#34;&#34;Check if file is a `ki`-style markdown note.&#34;&#34;&#34;
     # Ought to have markdown file extension.
-    if path[-3:] != &#34;.md&#34;:
+    if path.suffix != &#34;.md&#34;:
         return False
     with open(path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as md_f:
         lines = md_f.readlines()
-    if len(lines) &lt; 2:
+    if len(lines) &lt; 8:
         return False
-    if lines[0] != &#34;## Note\n&#34;:
+    if lines[0] != &#34;# Note\n&#34;:
         return False
-    if not re.match(r&#34;^nid: [0-9]+$&#34;, lines[1]):
+    if lines[1] != &#34;```\n&#34;:
+        return False
+    if not re.match(r&#34;^guid: &#34;, lines[2]):
         return False
     return True
 
@@ -916,20 +1035,14 @@ def unsubmodule_repo(repo: git.Repo) -&gt; git.Repo:
 
     UNSAFE: git.rm() calls.
     &#34;&#34;&#34;
-    # TODO: Is there any point in making commits within this function, if we
-    # are just going to annihilate the .git/ directory immediately afterwards?
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
 
-        # Path guaranteed to exist by gitpython.
-        #
-        # TODO: Catch runtime exceptions likely caused by removing the
-        # `sm.update()` call that used to be here. May have to check for
-        # existence of submodule via gitpython, or something else.
+        # The submodule path is guaranteed to exist by gitpython.
         sm_path = Path(sm.module().working_tree_dir)
         repo.git.rm(sm_path, cached=True)
 
-        # May not exist.
+        # Annihilate `.gitmodules` file.
         if gitmodules_path.is_file:
             repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
@@ -939,13 +1052,13 @@ def unsubmodule_repo(repo: git.Repo) -&gt; git.Repo:
         else:
             (sm_path / GIT).unlink(missing_ok=True)
 
-        # Should still exist after git.rm().
+        # Directory should still exist after `git.rm()`.
         repo.git.add(sm_path)
-        _ = repo.index.commit(f&#34;Add submodule {sm.name} as ordinary directory.&#34;)
+        _ = repo.index.commit(f&#34;Add submodule `{sm.name}` as ordinary directory.&#34;)
 
     if gitmodules_path.exists():
         repo.git.rm(gitmodules_path)
-        _ = repo.index.commit(&#34;Remove &#39;.gitmodules&#39; file.&#34;)
+        _ = repo.index.commit(&#34;Remove `.gitmodules` file.&#34;)
     return repo
 
 
@@ -958,7 +1071,9 @@ def diff2(
     &#34;&#34;&#34;Diff `repo` from `HEAD~1` to `HEAD`.&#34;&#34;&#34;
     with F.halo(text=f&#34;Checking out repo &#39;{F.working_dir(repo)}&#39; at HEAD~1...&#34;):
         head1: RepoRef = M.repo_ref(repo, repo.commit(&#34;HEAD~1&#34;).hexsha)
+        # pylint: disable=consider-using-f-string
         uuid = &#34;%4x&#34; % random.randrange(16**4)
+        # pylint: enable=consider-using-f-string
         head1_repo = copy_repo(head1, suffix=f&#34;HEAD~1-{uuid}&#34;)
 
     # We diff from A~B.
@@ -970,8 +1085,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    with F.halo(text=f&#34;Diffing &#39;{head1.sha}&#39; ~ &#39;{repo.head.commit}&#39;...&#34;):
-        diff_index = repo.commit(&#34;HEAD~1&#34;).diff(repo.commit(&#34;HEAD&#34;))
+    head = repo.commit(&#34;HEAD&#34;)
+    with F.halo(text=f&#34;Diffing &#39;{head1.sha}&#39; ~ &#39;{head.hexsha}&#39;...&#34;):
+        diff_index = repo.commit(&#34;HEAD~1&#34;).diff(head, create_patch=VERBOSE)
 
     for change_type in GitChangeType:
 
@@ -979,18 +1095,29 @@ def diff2(
         bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
         bar.set_description(f&#34;{change_type}&#34;)
         for diff in bar:
+            a_relpath: str = diff.a_path
+            b_relpath: str = diff.b_path
+            if diff.a_path is None:
+                a_relpath = b_relpath
+            if diff.b_path is None:
+                b_relpath = a_relpath
+
             a_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.a_path),
+                Path(a_relpath),
                 a_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
             b_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.b_path),
+                Path(b_relpath),
                 b_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
+
+            if VERBOSE:
+                logger.debug(f&#34;{a_relpath} -&gt; {b_relpath}&#34;)
+                logger.debug(diff.diff.decode())
 
             if a_warning is not None:
                 deltas.append(a_warning)
@@ -999,11 +1126,11 @@ def diff2(
                 deltas.append(b_warning)
                 continue
 
-            a_path = F.test(a_dir / diff.a_path)
-            b_path = F.test(b_dir / diff.b_path)
+            a_path = F.test(a_dir / a_relpath)
+            b_path = F.test(b_dir / b_relpath)
 
-            a_relpath = Path(diff.a_path)
-            b_relpath = Path(diff.b_path)
+            a_relpath = Path(a_relpath)
+            b_relpath = Path(b_relpath)
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
@@ -1022,12 +1149,15 @@ def diff2(
                 b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
                 a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
                 b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
-                if a_decknote.nid != b_decknote.nid:
+                if a_decknote.guid != b_decknote.guid:
                     deltas.append(a_delta)
                     deltas.append(b_delta)
                     continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
+
+    if VERBOSE:
+        echo(f&#34;Diffing &#39;{repo.working_dir}&#39;: &#39;{head1.sha}&#39; ~ &#39;{head.hexsha}&#39;&#34;)
 
     return deltas
 
@@ -1131,24 +1261,51 @@ def get_models_recursively(kirepo: KiRepo, silent: bool) -&gt; Dict[str, Notetyp
     return all_models
 
 
-# TODO: Consider making this function return warnings instead of logging them.
 @beartype
 def display_fields_health_warning(note: Note) -&gt; int:
     &#34;&#34;&#34;Display warnings when Anki&#39;s fields health check fails.&#34;&#34;&#34;
     health = note.fields_check()
     if health == 1:
-        logger.warning(f&#34;Found empty note:\n {note}&#34;)
-        logger.warning(f&#34;Fields health check code: {health}&#34;)
+        warn(f&#34;Found empty note &#39;{note.id}&#39;&#34;)
+        warn(f&#34;Fields health check code: {health}&#34;)
     elif health == 2:
-        logger.warning(f&#34;\nFound duplicate note when adding new note w/ nid {note.id}.&#34;)
-        logger.warning(f&#34;Notetype/fields of note {note.id} match existing note.&#34;)
-        logger.warning(&#34;Note was not added to collection!&#34;)
-        logger.warning(f&#34;First field: {note.fields[0]}&#34;)
-        logger.warning(f&#34;Fields health check code: {health}&#34;)
+        duplication = (
+            &#34;Failed to add note to collection. Notetype/fields of &#34;
+            + f&#34;note &#39;{note.id}&#39; are duplicate of existing note.&#34;
+        )
+        warn(duplication)
+        warn(f&#34;First field:\n{html_to_screen(note.fields[0])}&#34;)
+        warn(f&#34;Fields health check code: {health}&#34;)
     elif health != 0:
-        logger.error(f&#34;Failed to process note &#39;{note.id}&#39;.&#34;)
-        logger.error(f&#34;Note failed fields check with unknown error code: {health}&#34;)
+        death = (
+            f&#34;fatal: Note &#39;{note.id}&#39; failed fields check with unknown &#34;
+            + f&#34;error code: {health}&#34;
+        )
+        logger.error(death)
     return health
+
+
+@beartype
+def get_guid(fields: List[str]) -&gt; str:
+    &#34;&#34;&#34;Construct a new GUID for a note. Adapted from genanki&#39;s `guid_for()`.&#34;&#34;&#34;
+    contents = &#34;__&#34;.join(fields)
+
+    # Get the first 8 bytes of the SHA256 of `contents` as an int.
+    m = hashlib.sha256()
+    m.update(contents.encode(&#34;utf-8&#34;))
+    hash_bytes = m.digest()[:8]
+    hash_int = 0
+    for b in hash_bytes:
+        hash_int &lt;&lt;= 8
+        hash_int += b
+
+    # convert to the weird base91 format that Anki uses
+    rv_reversed = []
+    while hash_int &gt; 0:
+        rv_reversed.append(BASE91_TABLE[hash_int % len(BASE91_TABLE)])
+        hash_int //= len(BASE91_TABLE)
+
+    return &#34;&#34;.join(reversed(rv_reversed))
 
 
 @beartype
@@ -1160,21 +1317,44 @@ def parse_markdown_note(
     flatnote: FlatNote = transformer.transform(tree)
     parts: Tuple[str, ...] = delta.relpath.parent.parts
     deck: str = &#34;::&#34;.join(parts)
+
+    # Generate a GUID from the hash of the field contents if the `guid` field
+    # in the note file was left blank.
+    guid = flatnote.guid if flatnote.guid != &#34;&#34; else get_guid(flatnote.fields)
+
     return DeckNote(
         title=flatnote.title,
-        nid=flatnote.nid,
+        guid=guid,
         deck=deck,
         model=flatnote.model,
         tags=flatnote.tags,
-        markdown=flatnote.markdown,
         fields=flatnote.fields,
     )
 
 
 @beartype
+def plain_to_html(plain: str) -&gt; str:
+    &#34;&#34;&#34;Convert plain text to html&#34;&#34;&#34;
+    # Minor clean up
+    plain = plain.replace(r&#34;&amp;lt;&#34;, &#34;&lt;&#34;)
+    plain = plain.replace(r&#34;&amp;gt;&#34;, &#34;&gt;&#34;)
+    plain = plain.replace(r&#34;&amp;amp;&#34;, &#34;&amp;&#34;)
+    plain = plain.replace(r&#34;&amp;nbsp;&#34;, &#34; &#34;)
+    plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
+    plain = re.sub(r&#34;\&lt;i\&gt;\s*\&lt;\/i\&gt;&#34;, &#34;&#34;, plain)
+    plain = re.sub(r&#34;\&lt;div\&gt;\s*\&lt;\/div\&gt;&#34;, &#34;&#34;, plain)
+
+    # Convert newlines to `&lt;br&gt;` tags.
+    if not re.search(HTML_REGEX, plain):
+        plain = plain.replace(&#34;\n&#34;, &#34;&lt;br&gt;&#34;)
+
+    return plain.strip()
+
+
+@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
-) -&gt; Tuple[Note, List[Warning]]:
+) -&gt; List[Warning]:
     &#34;&#34;&#34;
     Change all the data of `note` to that given in `decknote`.
 
@@ -1216,25 +1396,28 @@ def update_note(
         fmap[field.ord] = None
 
     # Change notetype (also clears all fields).
-    note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
-    note.load()
+    if old_notetype.id != new_notetype.id:
+        note.col.models.change(
+            old_notetype.dict, [note.id], new_notetype.dict, fmap, None
+        )
+        note.load()
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
-
-    # TODO: Don&#39;t print this here.
-    for warning in warnings:
-        logger.warning(warning)
+    if len(warnings) &gt; 0:
+        return warnings
 
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
-    # TODO: Check if these apy methods can raise exceptions.
     for key, field in decknote.fields.items():
-        if decknote.markdown:
-            note[key] = markdown_to_html(field)
-        else:
+        if key not in note:
+            warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
+            continue
+        try:
             note[key] = plain_to_html(field)
+        except IndexError as err:
+            raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
 
     # Flush fields to collection object.
     note.flush()
@@ -1243,41 +1426,36 @@ def update_note(
     health = display_fields_health_warning(note)
     if health != 0:
         note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(str(note.id)))
+        warnings.append(UnhealthyNoteWarning(note.id, health))
 
-    return note, warnings
+    return warnings
 
 
 @beartype
 def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -&gt; List[Warning]:
     &#34;&#34;&#34;Validate that the fields given in the note match the notetype.&#34;&#34;&#34;
     warnings: List[Warning] = []
-    # Set current notetype for collection to `model_name`.
-    field_names: List[str] = [field.name for field in notetype.flds]
+    names: List[str] = [field.name for field in notetype.flds]
 
-    # TODO: Use a more descriptive error message. It is probably sufficient to
-    # just add the `nid` from the decknote, so we know which note we failed to
-    # validate. It might also be nice to print the path of the note in the
+    # TODO: It might also be nice to print the path of the note in the
     # repository. This would have to be added to the `DeckNote` spec.
-    if len(decknote.fields.keys()) != len(field_names):
-        msg = f&#34;Wrong number of fields for model {decknote.model}!&#34;
-        warnings.append(NoteFieldValidationWarning(msg))
+    if len(decknote.fields.keys()) != len(names):
+        warnings.append(WrongFieldCountWarning(decknote, names))
 
-    for x, y in zip(field_names, decknote.fields.keys()):
+    for x, y in zip(names, decknote.fields.keys()):
         if x != y:
-            msg = f&#34;Inconsistent field names ({x} != {y})&#34;
-            warnings.append(NoteFieldValidationWarning(msg))
+            warnings.append(InconsistentFieldNamesWarning(x, y, decknote))
 
     return warnings
 
 
-# TODO: This should take a `colnote` as a parameter instead of the text, and it
-# should use other fields when there is not enough content in the first field
-# to get a unique filename, if they exist.
+# TODO: This should use other fields when there is not enough content in the
+# first field to get a unique filename, if they exist. Note that we must still
+# treat the case where all fields are images!
 @beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; NoFile:
+def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = &#34;&#34;) -&gt; NoFile:
     &#34;&#34;&#34;Get note path from sort field text.&#34;&#34;&#34;
-    field_text = sort_field_text
+    field_text = colnote.sortf_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -1286,18 +1464,21 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; NoFile:
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = sort_field_text
+        field_text = colnote.sortf_text
 
-    name = field_text[:MAX_FIELNAME_LEN]
+    name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception.  If all
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
-        slug = secrets.token_hex(10)
-        logger.warning(f&#34;Slug for {name} is empty. Using {slug} as filename&#34;)
+        slug = str(colnote.n.guid)
+        msg = f&#34;Slug for &#39;{colnote.n.guid}&#39; is empty. Using guid as filename&#34;
+        logger.warning(msg)
 
+    if card_name != &#34;&#34;:
+        slug = f&#34;{slug}_{card_name}&#34;
     filename: str = f&#34;{slug}{MD}&#34;
     note_path = F.test(deck_dir / filename, resolve=False)
 
@@ -1362,10 +1543,53 @@ def get_field_note_id(nid: int, fieldname: str) -&gt; str:
     return f&#34;{nid}{F.slugify(fieldname)}&#34;
 
 
+# TODO: Use more refined types than `int`.
 @beartype
-def push_decknote_to_anki(
-    col: Collection, decknote: DeckNote
-) -&gt; Tuple[ColNote, List[Warning]]:
+def add_db_note(
+    col: Collection,
+    nid: int,
+    guid: str,
+    mid: int,
+    mod: int,
+    usn: int,
+    tags: List[str],
+    fields: List[str],
+    sfld: str,
+    csum: int,
+    flags: int,
+    data: str,
+) -&gt; Note:
+    &#34;&#34;&#34;Add a note to the database directly, with a SQL INSERT.&#34;&#34;&#34;
+    importer = NoteImporter(col, &#34;&#34;)
+    importer.addNew(
+        [
+            (
+                nid,
+                guid,
+                mid,
+                mod,
+                usn,
+                &#34; &#34; + &#34; &#34;.join(tags) + &#34; &#34;,
+                &#34;\x1f&#34;.join(fields),
+                sfld,
+                csum,
+                flags,
+                data,
+            )
+        ]
+    )
+    col.after_note_updates([nid], mark_modified=False)
+    return col.get_note(nid)
+
+
+@beartype
+def push_note(
+    col: Collection,
+    decknote: DeckNote,
+    timestamp_ns: int,
+    guids: Dict[str, NoteMetadata],
+    new_nids: Iterator[int],
+) -&gt; List[Warning]:
     &#34;&#34;&#34;
     Update the Anki `Note` object in `col` corresponding to `decknote`,
     creating it if it does not already exist.
@@ -1374,9 +1598,6 @@ def push_decknote_to_anki(
     ------
     MissingNotetypeError
         If we can&#39;t find a notetype with the name provided in `decknote`.
-    NoteFieldKeyError
-        If the parsed sort field name from the notetype specified in `decknote`
-        does not exist.
     &#34;&#34;&#34;
     # Notetype/model names are privileged in Anki, so if we don&#39;t find the
     # right name, we raise an error.
@@ -1384,39 +1605,34 @@ def push_decknote_to_anki(
     if model_id is None:
         raise MissingNotetypeError(decknote.model)
 
-    new = False
-    note: Note
-    try:
-        note = col.get_note(decknote.nid)
-    except NotFoundError:
-        note = col.new_note(model_id)
-        col.add_note(note, col.decks.id(decknote.deck, create=True))
-        new = True
+    if decknote.guid in guids:
+        nid: int = guids[decknote.guid].nid
+        note: Note = col.get_note(nid)
+    else:
+        nid: int = next(new_nids)
+        note: Note = add_db_note(
+            col,
+            nid,
+            decknote.guid,
+            model_id,
+            mod=int(timestamp_ns // 1e9),
+            usn=-1,
+            tags=decknote.tags,
+            fields=list(decknote.fields.values()),
+            sfld=&#34;&#34;,
+            csum=0,
+            flags=0,
+            data=&#34;&#34;,
+        )
 
     # If we are updating an existing note, we need to know the old and new
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
     old_notetype: Notetype = parse_notetype_dict(note.note_type())
     new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    note, warnings = update_note(note, decknote, old_notetype, new_notetype)
+    warnings = update_note(note, decknote, old_notetype, new_notetype)
 
-    # Get the text of the sort field for this note.
-    try:
-        sortf_text: str = note[new_notetype.sortf.name]
-    except KeyError as err:
-        raise NoteFieldKeyError(str(err), note.id) from err
-
-    colnote = ColNote(
-        n=note,
-        new=new,
-        deck=decknote.deck,
-        title=decknote.title,
-        old_nid=decknote.nid,
-        markdown=decknote.markdown,
-        notetype=new_notetype,
-        sortf_text=sortf_text,
-    )
-    return colnote, warnings
+    return warnings
 
 
 @beartype
@@ -1429,7 +1645,7 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
-    # `push_decknote_to_anki()`.
+    # `push_note()`.
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
@@ -1437,13 +1653,18 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
-    deck = col.decks.name(note.cards()[0].did)
+    try:
+        deck = col.decks.name(note.cards()[0].did)
+    except IndexError as err:
+        logger.error(f&#34;{note.cards() = }&#34;)
+        logger.error(f&#34;{note.guid = }&#34;)
+        logger.error(f&#34;{note.id = }&#34;)
+        raise err
     colnote = ColNote(
         n=note,
         new=False,
         deck=deck,
         title=&#34;&#34;,
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -1455,20 +1676,17 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
 def get_header_lines(colnote) -&gt; List[str]:
     &#34;&#34;&#34;Get header of markdown representation of note.&#34;&#34;&#34;
     lines = [
-        &#34;## Note&#34;,
-        f&#34;nid: {colnote.n.id}&#34;,
-        f&#34;model: {colnote.notetype.name}&#34;,
+        &#34;# Note&#34;,
+        &#34;```&#34;,
+        f&#34;guid: {colnote.n.guid}&#34;,
+        f&#34;notetype: {colnote.notetype.name}&#34;,
+        &#34;```&#34;,
+        &#34;&#34;,
+        &#34;### Tags&#34;,
+        &#34;```&#34;,
     ]
-    lines += [f&#34;tags: {&#39;, &#39;.join(colnote.n.tags)}&#34;]
-
-    # TODO: There is almost certainly a bug here, since when the sentinel
-    # *does* appear, we don&#39;t add a `markdown` field at all, but it is required
-    # in the note grammar, so we&#39;ll get a parsing error when we try to push. A
-    # test must be written for this case.
-    if not any(GENERATED_HTML_SENTINEL in field for field in colnote.n.values()):
-        lines += [&#34;markdown: false&#34;]
-
-    lines += [&#34;&#34;]
+    lines += colnote.n.tags
+    lines += [&#34;```&#34;, &#34;&#34;]
     return lines
 
 
@@ -1483,17 +1701,22 @@ def files_in_str(
             fname = match.group(&#34;fname&#34;)
             is_local = not re.match(&#34;(https?|ftp)://&#34;, fname.lower())
             if is_local or include_remote:
+                fname = fname.strip()
+                fname = fname.replace(&#39;&#34;&#39;, &#34;&#34;)
                 files.append(fname)
     return files
 
 
 @beartype
-def get_media_files(
+def copy_media_files(
     col: Collection,
+    media_target_dir: EmptyDir,
     silent: bool,
 ) -&gt; Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
     &#34;&#34;&#34;
-    Get a list of extant media files used in notes and notetypes.
+    Get a list of extant media files used in notes and notetypes, copy those
+    media files to the top-level `_media/` directory in the repository root,
+    and return a map sending note ids to sets of copied media files.
 
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
@@ -1560,7 +1783,8 @@ def get_media_files(
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                media[row.nid] = media.get(row.nid, set()) | set([media_file])
+                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
             else:
                 warnings.add(MissingMediaFileWarning(col.path, media_file))
 
@@ -1568,7 +1792,8 @@ def get_media_files(
 
     # Faster version.
     _, _, files = F.shallow_walk(media_dir)
-    for fname in files:
+    fnames: List[Path] = [Path(file.name) for file in files]
+    for fname in fnames:
 
         # Notetype template media files are *always* prefixed by underscores.
         if str(fname).startswith(&#34;_&#34;):
@@ -1583,8 +1808,11 @@ def get_media_files(
                     # obtained from an `os.listdir()` call.
                     media_file = F.test(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
+                        copied_file = F.copyfile(
+                            media_file, media_target_dir, media_file.name
+                        )
                         notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([media_file])
+                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
 
     return media, warnings
@@ -1614,9 +1842,10 @@ def write_repository(
     col_file: ExtantFile,
     targetdir: ExtantDir,
     leaves: Leaves,
-    media_dir: EmptyDir,
+    media_target_dir: EmptyDir,
     silent: bool,
-) -&gt; None:
+    verbose: bool,
+) -&gt; Set[LatentSymlink]:
     &#34;&#34;&#34;Write notes to appropriate directories in `targetdir`.&#34;&#34;&#34;
 
     # Create config file.
@@ -1651,31 +1880,39 @@ def write_repository(
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for fieldname, fieldtext in colnote.n.items():
-            if re.search(HTML_REGEX, fieldtext):
-                fid: str = get_field_note_id(nid, fieldname)
+        for field_name, field_text in colnote.n.items():
+            field_text: str = html_to_screen(field_text)
+            if re.search(HTML_REGEX, field_text):
+                fid: str = get_field_note_id(nid, field_name)
                 html_file: NoFile = F.test(root / fid)
-                tidy_field_files[fid] = F.write(html_file, fieldtext)
+                tidy_field_files[fid] = F.write(html_file, field_text)
 
     tidy_html_recursively(root, silent)
 
     media: Dict[int, Set[ExtantFile]]
-    media, warnings = get_media_files(col, silent=silent)
+    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
-    write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
+    latent_links: Set[LatentSymlink] = write_decks(
+        col,
+        targetdir,
+        colnotes,
+        media,
+        tidy_field_files,
+        silent,
+    )
 
-    # TODO: Maybe print how many warnings are ignored of each type.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg=&#34;yellow&#34;)
-
-    with F.halo(&#34;Copying media...&#34;):
-        for note_media in media.values():
-            for media_file in note_media:
-                F.copyfile(media_file, media_dir, media_file.name)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     F.rmtree(root)
     col.close(save=False)
+
+    return latent_links
 
 
 @beartype
@@ -1686,7 +1923,7 @@ def write_decks(
     media: Dict[int, Set[ExtantFile]],
     tidy_field_files: Dict[str, ExtantFile],
     silent: bool,
-) -&gt; None:
+) -&gt; Set[LatentSymlink]:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1753,94 +1990,231 @@ def write_decks(
     # the symlinks should point.
     written_notes: Dict[int, WrittenNoteFile] = {}
 
-    # TODO: This block is littered with unsafe code. Fix.
+    # All latent symlinks created on Windows whose file modes we must set.
+    latent_links: Set[LatentSymlink] = set()
+
     nodes: List[DeckTreeNode] = postorder(root)
 
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description(&#34;Decks&#34;)
-    for node in bar:
+    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
+    nodes_bar.set_description(&#34;Decks&#34;)
+    for node in nodes_bar:
+        node_cids: Set[int]
+        node_notes: Dict[int, WrittenNoteFile]
+        node_latent_links: Set[LatentSymlink]
+        node_cids, node_notes, node_latent_links = write_deck_node_cards(
+            node,
+            col,
+            targetdir,
+            colnotes,
+            tidy_field_files,
+            models_map,
+            written_cids,
+            written_notes,
+        )
+        written_cids |= node_cids
+        written_notes.update(node_notes)
+        latent_links |= node_latent_links
 
-        # The name stored in a `DeckTreeNode` object is not the full name of
-        # the deck, it is just the &#39;basename&#39;. The `postorder()` function
-        # returns a deck with `did == 0` at the end of each call, probably
-        # because this is the implicit parent deck of all top-level decks. This
-        # deck empirically always has the empty string as its name. This is
-        # likely an Anki implementation detail. As a result, we ignore any deck
-        # with empty basename. We do this as opposed to ignoring decks with
-        # `did == 0` because it seems less likely to change if the Anki devs
-        # decide to mess with the implementation. Empty deck names will always
-        # be reserved, but they might e.g. decide ``did == -1`` makes more
-        # sense.
-        did: int = node.deck_id
-        basename: str = node.name
-        if basename == &#34;&#34;:
+    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
+    latent_links |= media_links
+    return latent_links
+
+
+@beartype
+def write_deck_node_cards(
+    node: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    colnotes: Dict[int, ColNote],
+    tidy_field_files: Dict[str, ExtantFile],
+    models_map: Dict[int, NotetypeDict],
+    written_cids: Set[int],
+    written_notes: Dict[int, WrittenNoteFile],
+) -&gt; Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
+    &#34;&#34;&#34;Write all the cards to disk for a single `DeckTreeNode`.&#34;&#34;&#34;
+    written_cids = copy.deepcopy(written_cids)
+    written_notes = copy.deepcopy(written_notes)
+    latent_links: Set[LatentSymlink] = set()
+
+    # The name stored in a `DeckTreeNode` object is not the full name of
+    # the deck, it is just the &#39;basename&#39;. The `postorder()` function
+    # returns a deck with `did == 0` at the end of each call, probably
+    # because this is the implicit parent deck of all top-level decks. This
+    # deck empirically always has the empty string as its name. This is
+    # likely an Anki implementation detail. As a result, we ignore any deck
+    # with empty basename. We do this as opposed to ignoring decks with
+    # `did == 0` because it seems less likely to change if the Anki devs
+    # decide to mess with the implementation. Empty deck names will always
+    # be reserved, but they might e.g. decide ``did == -1`` makes more
+    # sense.
+    did: int = node.deck_id
+    basename: str = node.name
+    if basename == &#34;&#34;:
+        return set(), {}, set()
+    name = col.decks.name(did)
+
+    deck_dir: ExtantDir = create_deck_dir(name, targetdir)
+    children: Set[CardId] = set(col.decks.cids(did=did, children=False))
+    descendants: List[CardId] = col.decks.cids(did=did, children=True)
+    descendant_nids: Set[int] = {NOTETYPE_NID}
+    descendant_mids: Set[int] = set()
+
+    for cid in descendants:
+        card: Card = col.get_card(cid)
+        descendant_nids.add(card.nid)
+        descendant_mids.add(card.note().mid)
+
+        # Card writes should not be cumulative, so we only perform them if
+        # `cid` is the card id of a card that is in the deck corresponding
+        # to `node`, but not in any of its children.
+        if cid not in children:
             continue
-        name = col.decks.name(did)
 
-        deck_dir: ExtantDir = create_deck_dir(name, targetdir)
-        children: Set[CardId] = set(col.decks.cids(did=did, children=False))
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
-        descendant_mids: Set[int] = set()
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-            descendant_mids.add(card.note().mid)
+        # We only even consider writing *anything* (file or symlink) to
+        # disk after checking that we haven&#39;t already processed this
+        # particular card id. If we have, then we only need to bother with
+        # the cumulative stuff above (nids and mids, which we keep track of
+        # in order to write out models and media).
+        #
+        # TODO: This fixes a very serious bug. Write a test to capture the
+        # issue. Use the Japanese Core 2000 deck as a template if needed.
+        if cid in written_cids:
+            continue
+        written_cids.add(cid)
 
-            # Card writes should not be cumulative, so we only perform them if
-            # `cid` is the card id of a card that is in the deck corresponding
-            # to `node`, but not in any of its children.
-            if cid not in children:
-                continue
+        # We only write the payload if we haven&#39;t seen this note before.
+        # Otherwise, this must be a different card generated from the same
+        # note, so we symlink to the location where we&#39;ve already written
+        # it to disk.
+        colnote: ColNote = colnotes[card.nid]
 
-            # We only even consider writing *anything* (file or symlink) to
-            # disk after checking that we haven&#39;t already processed this
-            # particular card id. If we have, then we only need to bother with
-            # the cumulative stuff above (nids and mids, which we keep track of
-            # in order to write out models and media).
+        if card.nid not in written_notes:
+            note_path: NoFile = get_note_path(colnote, deck_dir)
+            payload: str = get_note_payload(colnote, tidy_field_files)
+            note_path: ExtantFile = F.write(note_path, payload)
+            written_notes[card.nid] = WrittenNoteFile(did, note_path)
+        else:
+            # If `card` is in the same deck as the card we wrote `written`
+            # for, then there is no need to create a symlink, because the
+            # note file is already there, in the correct deck directory.
             #
             # TODO: This fixes a very serious bug. Write a test to capture the
             # issue. Use the Japanese Core 2000 deck as a template if needed.
-            if cid in written_cids:
+            written: WrittenNoteFile = written_notes[card.nid]
+            if card.did == written.did:
                 continue
-            written_cids.add(cid)
 
-            # We only write the payload if we haven&#39;t seen this note before.
-            # Otherwise, this must be a different card generated from the same
-            # note, so we symlink to the location where we&#39;ve already written
-            # it to disk.
-            colnote: ColNote = colnotes[card.nid]
+            # Get card template name.
+            template: TemplateDict = card.template()
+            name: str = template[&#34;name&#34;]
 
-            if card.nid not in written_notes:
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                payload: str = get_note_payload(colnote, tidy_field_files)
-                note_path: ExtantFile = F.write(note_path, payload)
-                written_notes[card.nid] = WrittenNoteFile(did, note_path)
-            else:
-                # If `card` is in the same deck as the card we wrote `written`
-                # for, then there is no need to create a symlink, because the
-                # note file is already there, in the correct deck directory.
-                #
-                # TODO: This fixes a very serious bug. Write a test to capture the
-                # issue. Use the Japanese Core 2000 deck as a template if needed.
-                written: WrittenNoteFile = written_notes[card.nid]
-                if card.did == written.did:
+            note_path: NoFile = get_note_path(colnote, deck_dir, name)
+            abs_target: ExtantFile = written_notes[card.nid].file
+            distance = len(note_path.parent.relative_to(targetdir).parts)
+            up_path = Path(&#34;../&#34; * distance)
+            relative: Path = abs_target.relative_to(targetdir)
+            target: Path = up_path / relative
+
+            try:
+                link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
+                if isinstance(link, LatentSymlink):
+                    latent_links.add(link)
+            except OSError as _:
+                trace = traceback.format_exc(limit=3)
+                logger.warning(f&#34;Failed to create symlink for cid &#39;{cid}&#39;\n{trace}&#34;)
+
+    # TODO: Should this block be outside this function?
+    # Write `models.json` for current deck.
+    deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
+    with open(deck_dir / MODELS_FILE, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
+        json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+
+    return written_cids, written_notes, latent_links
+
+
+@beartype
+def chain_media_symlinks(
+    root: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    media: Dict[int, Set[ExtantFile]],
+) -&gt; Set[LatentSymlink]:
+    &#34;&#34;&#34;Chain symlinks up the deck tree into top-level `&lt;collection&gt;/_media/`.&#34;&#34;&#34;
+
+    @beartype
+    def preorder(node: DeckTreeNode) -&gt; List[DeckTreeNode]:
+        &#34;&#34;&#34;
+        Pre-order traversal. Guarantees that we won&#39;t process a node until
+        we&#39;ve processed all its ancestors.
+        &#34;&#34;&#34;
+        traversal: List[DeckTreeNode] = [node]
+        for child in node.children:
+            traversal += preorder(child)
+        return traversal
+
+    @beartype
+    def map_parents(node: DeckTreeNode, col: Collection) -&gt; Dict[str, DeckTreeNode]:
+        &#34;&#34;&#34;Map deck names to parent `DeckTreeNode`s.&#34;&#34;&#34;
+        parents: Dict[str, DeckTreeNode] = {}
+        for child in node.children:
+            did: int = child.deck_id
+            name: str = col.decks.name(did)
+            parents[name] = node
+            subparents = map_parents(child, col)
+            parents.update(subparents)
+        return parents
+
+    media_latent_links: Set[LatentSymlink] = set()
+    media_dirs: Dict[str, ExtantDir] = {}
+    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
+    for node in preorder(root):
+        if node.name == &#34;&#34;:
+            continue
+        did: int = node.deck_id
+        fullname = col.decks.name(did)
+        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
+        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        media_dirs[fullname] = deck_media_dir
+        descendant_nids: Set[int] = {NOTETYPE_NID}
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
+
+        for nid in descendant_nids:
+            if nid not in media:
+                continue
+
+            for media_file in media[nid]:
+                parent: DeckTreeNode = parents[fullname]
+                if parent.name != &#34;&#34;:
+                    parent_did: int = parent.deck_id
+                    parent_fullname: str = col.decks.name(parent_did)
+                    parent_media_dir = media_dirs[parent_fullname]
+                    abs_target: Symlink = F.test(
+                        parent_media_dir / media_file.name, resolve=False
+                    )
+                else:
+                    abs_target: ExtantFile = media_file
+
+                path = F.test(deck_media_dir / media_file.name, resolve=False)
+                if not isinstance(path, NoFile):
                     continue
 
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                F.symlink(note_path, written_notes[card.nid].file)
+                distance = len(path.parent.relative_to(targetdir).parts)
+                up_path = Path(&#34;../&#34; * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
 
-        # Write `models.json` for current deck.
-        deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-        with open(deck_dir / MODELS_FILE, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
-            json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+                try:
+                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
+                    if isinstance(link, LatentSymlink):
+                        media_latent_links.add(link)
+                except OSError as _:
+                    trace = traceback.format_exc(limit=3)
+                    logger.warning(f&#34;Failed to create symlink to media\n{trace}&#34;)
 
-        # Write media files for this deck.
-        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
-        for nid in descendant_nids:
-            if nid in media:
-                for media_file in media[nid]:
-                    F.copyfile(media_file, deck_media_dir, media_file.name)
+    return media_latent_links
 
 
 @beartype
@@ -1873,15 +2247,17 @@ def html_to_screen(html: str) -&gt; str:
     plain = plain.replace(&#34;&lt;br&gt;&#34;, &#34;\n&#34;)
     plain = plain.replace(&#34;&lt;br/&gt;&#34;, &#34;\n&#34;)
     plain = plain.replace(&#34;&lt;br /&gt;&#34;, &#34;\n&#34;)
-    plain = plain.replace(&#34;&lt;div&gt;&#34;, &#34;\n&#34;)
-    plain = plain.replace(&#34;&lt;/div&gt;&#34;, &#34;&#34;)
+
+    # Unbreak lines within src attributes.
+    plain = re.sub(&#39;src= ?\n&#34;&#39;, &#39;src=&#34;&#39;, plain)
 
     plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
     return plain.strip()
 
 
 @beartype
-def get_colnote_repr(colnote: ColNote) -&gt; str:
+def get_colnote_as_str(colnote: ColNote) -&gt; str:
+    &#34;&#34;&#34;Return string representation of a `ColNote`.&#34;&#34;&#34;
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append(&#34;### &#34; + field_name)
@@ -1912,19 +2288,23 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     for field_name, field_text in colnote.n.items():
         fid = get_field_note_id(colnote.n.id, field_name)
         if fid in tidy_field_files:
-            tidy_fields[field_name] = tidy_field_files[fid].read_text()
+            # HTML5-tidy adds a newline after `&lt;br&gt;` in indent mode, so we
+            # remove these, because `html_to_screen()` converts `&lt;br&gt;` tags to
+            # newlines anyway.
+            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=&#34;UTF-8&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br&gt;\n&#34;, &#34;\n&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br/&gt;\n&#34;, &#34;\n&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br /&gt;\n&#34;, &#34;\n&#34;)
+            tidy_fields[field_name] = tidied_field_text
         else:
             tidy_fields[field_name] = field_text
 
-    # TODO: Make this use `get_colnote_repr()`.
-    # Construct note repr from `tidy_fields` map.
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
-
-        # Strip newlines.
-        field_text = field_text.replace(&#34;\n&#34;, &#34;&#34;)
-        lines.append(&#34;### &#34; + field_name)
-        lines.append(html_to_screen(field_text))
+        lines.append(&#34;## &#34; + field_name)
+        screen_text = html_to_screen(field_text)
+        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
+        lines.append(text)
         lines.append(&#34;&#34;)
 
     return &#34;\n&#34;.join(lines)
@@ -1947,6 +2327,7 @@ def git_pull(
             args += [&#34;--allow-unrelated-histories&#34;]
         if theirs:
             args += [&#34;--strategy-option=theirs&#34;]
+        args += [&#34;--verbose&#34;]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f&#34;{p.stdout.decode()}&#34;, silent=silent)
@@ -1962,6 +2343,12 @@ def echo(string: str, silent: bool = False) -&gt; None:
     &#34;&#34;&#34;Call `click.secho()` with formatting.&#34;&#34;&#34;
     if not silent:
         click.secho(string, bold=True)
+
+
+@beartype
+def warn(string: str) -&gt; None:
+    &#34;&#34;&#34;Call `click.secho()` with formatting (yellow).&#34;&#34;&#34;
+    click.secho(f&#34;WARNING: {string}&#34;, bold=True, fg=&#34;yellow&#34;)
 
 
 @beartype
@@ -1988,65 +2375,32 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; None:
             &#34;no&#34;,
             &#34;--show-body-only&#34;,
             &#34;yes&#34;,
+            &#34;--wrap&#34;,
+            &#34;68&#34;,
+            &#34;--wrap-attributes&#34;,
+            &#34;yes&#34;,
         ]
         command += batch
         try:
             subprocess.run(command, check=False, capture_output=True)
-        except Exception as err:
-            raise err
+        except FileNotFoundError as err:
+            raise MissingTidyExecutableError(err) from err
 
 
 @beartype
-def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -&gt; EmptyDir:
+def get_target(
+    cwd: ExtantDir, col_file: ExtantFile, directory: str
+) -&gt; Tuple[EmptyDir, bool]:
     &#34;&#34;&#34;Create default target directory.&#34;&#34;&#34;
     path = F.test(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
+    new: bool = True
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M.emptydir(path)
+        return M.emptydir(path), new
     if isinstance(path, EmptyDir):
-        return path
+        new = False
+        return path, new
     raise TargetExistsError(path)
-
-
-@beartype
-def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -&gt; List[str]:
-    &#34;&#34;&#34;
-    Construct the contents of a note corresponding to the arguments `colnote`,
-    which itself was created from `decknote`, and then write it to disk.
-
-    Returns a list of lines to add to the commit message (either an empty list,
-    or a list containing a single line).
-
-    This function is intended to be used when we are adding *completely* new
-    notes, in which case the caller generates a new note with a newly generated
-    nid, which can be accessed at `colnote.n.id`. In general, this is the
-    branch taken whenever Anki fails to recognize the nid given in the note
-    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
-    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
-    newly assigned nid for this note, yielded by the Anki runtime, and the
-    latter has whatever was written in the file.
-    &#34;&#34;&#34;
-    # If this is not a new note, then we didn&#39;t reassign its nid, and we don&#39;t
-    # need to regenerate the file. So we don&#39;t add a line to the commit
-    # message.
-    if not colnote.new:
-        return []
-
-    # Get paths to note in local repo, as distinct from staging repo.
-    repo_note_path: Path = root / relpath
-
-    # If this is not an entirely new file, remove it.
-    if repo_note_path.is_file():
-        repo_note_path.unlink()
-
-    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
-    F.write(new_note_path, get_colnote_repr(colnote))
-
-    # Construct a nice commit message line.
-    msg = f&#34;Reassigned nid: &#39;{colnote.old_nid}&#39; -&gt; &#34;
-    msg += f&#34;&#39;{colnote.n.id}&#39; in &#39;{os.path.relpath(new_note_path, root)}&#39;&#34;
-    return [msg]
 
 
 @beartype
@@ -2155,6 +2509,39 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -&gt; None:
         echo(f&#34;Added model &#39;{model.name}&#39;&#34;)
 
 
+@beartype
+def media_data(col: Collection, fname: str) -&gt; bytes:
+    &#34;&#34;&#34;Get media file content as bytes (empty if missing).&#34;&#34;&#34;
+    if not col.media.have(fname):
+        return b&#34;&#34;
+    path = os.path.join(col.media.dir(), fname)
+    try:
+        with open(path, &#34;rb&#34;) as f:
+            return f.read()
+    except OSError:
+        return b&#34;&#34;
+
+
+@beartype
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -&gt; int:
+    &#34;&#34;&#34;Get git file mode.&#34;&#34;&#34;
+    try:
+        # We must search from file upwards in case inside submodule.
+        repo = git.Repo(file, search_parent_directories=True)
+        out = repo.git.ls_files([&#34;-s&#34;, str(file)])
+
+        # Treat case where file is untracked.
+        if out == &#34;&#34;:
+            return -1
+
+        mode: int = int(out.split()[0])
+    except Exception as err:
+        raise GitFileModeParseError(file, out) from err
+    return mode
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -2170,7 +2557,8 @@ def ki() -&gt; None:
 @ki.command()
 @click.argument(&#34;collection&#34;)
 @click.argument(&#34;directory&#34;, required=False, default=&#34;&#34;)
-def clone(collection: str, directory: str = &#34;&#34;) -&gt; None:
+@click.option(&#34;--verbose&#34;, &#34;-v&#34;, is_flag=True, help=&#34;Print more output.&#34;)
+def clone(collection: str, directory: str = &#34;&#34;, verbose: bool = False) -&gt; None:
     &#34;&#34;&#34;
     Clone an Anki collection into a directory.
 
@@ -2183,18 +2571,51 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; None:
         Note: we check that this directory does not yet exist.
     &#34;&#34;&#34;
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
     echo(&#34;Cloning.&#34;)
     col_file: ExtantFile = M.xfile(Path(collection))
 
+    @beartype
+    def cleanup(targetdir: ExtantDir, new: bool) -&gt; Union[ExtantDir, EmptyDir, NoPath]:
+        &#34;&#34;&#34;Cleans up after failed clone operations.&#34;&#34;&#34;
+        try:
+            if new:
+                return F.rmtree(targetdir)
+            _, dirs, files = F.shallow_walk(targetdir)
+            for directory in dirs:
+                F.rmtree(directory)
+            for file in files:
+                os.remove(file)
+        except PermissionError as _:
+            pass
+        return F.test(targetdir)
+
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
-    targetdir: EmptyDir = get_target(F.cwd(), col_file, directory)
-    _, _ = _clone(col_file, targetdir, msg=&#34;Initial commit&#34;, silent=False)
-    kirepo: KiRepo = M.kirepo(targetdir)
-    F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
-    echo(&#34;Done.&#34;)
+    targetdir: EmptyDir
+    new: bool
+    targetdir, new = get_target(F.cwd(), col_file, directory)
+    try:
+        _, _ = _clone(
+            col_file,
+            targetdir,
+            msg=&#34;Initial commit&#34;,
+            silent=False,
+            verbose=verbose,
+        )
+        kirepo: KiRepo = M.kirepo(targetdir)
+        F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        kirepo.repo.close()
+        gc.collect()
+        echo(&#34;Done.&#34;)
+    except Exception as err:
+        cleanup(targetdir, new)
+        raise err
 
     if PROFILE:
         profiler.stop()
@@ -2204,7 +2625,11 @@ def clone(collection: str, directory: str = &#34;&#34;) -&gt; None:
 
 @beartype
 def _clone(
-    col_file: ExtantFile, targetdir: EmptyDir, msg: str, silent: bool
+    col_file: ExtantFile,
+    targetdir: EmptyDir,
+    msg: str,
+    silent: bool,
+    verbose: bool,
 ) -&gt; Tuple[git.Repo, str]:
     &#34;&#34;&#34;
     Clone an Anki collection into a directory.
@@ -2232,7 +2657,6 @@ def _clone(
     md5sum : str
         The hash of the Anki collection file.
     &#34;&#34;&#34;
-    # TODO: On errors, we should close `col` with save=False.
     echo(f&#34;Found .anki2 file at &#39;{col_file}&#39;&#34;, silent=silent)
 
     # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
@@ -2250,13 +2674,49 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + &#34;\n&#34;)
 
     # Write notes to disk.
-    write_repository(col_file, targetdir, leaves, directories.dirs[MEDIA], silent)
+    latent_links: Set[LatentSymlink] = write_repository(
+        col_file,
+        targetdir,
+        leaves,
+        directories.dirs[MEDIA],
+        silent,
+        verbose,
+    )
 
     # Initialize the main repository.
     with F.halo(&#34;Initializing repository and committing contents...&#34;):
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+        root = F.working_dir(repo)
+
         repo.git.add(all=True)
         _ = repo.index.commit(msg)
+
+        # Use `git update-index` to set 120000 file mode on each latent symlink
+        # in `latent_links`.
+        relative_links: Set[Path] = set()
+        for abslink in latent_links:
+            link = abslink.relative_to(root)
+            relative_links.add(link)
+
+            # Convert to POSIX pathseps since that&#39;s what `git` wants.
+            githash = repo.git.hash_object([&#34;-w&#34;, f&#34;{link.as_posix()}&#34;])
+            target = f&#34;120000,{githash},{link.as_posix()}&#34;
+            repo.git.update_index(target, add=True, cacheinfo=True)
+
+        # We do *not* call `git.add()` here since we call `git.update_index()` above.
+        _ = repo.index.commit(msg)
+
+        # On Windows, there are changes left in the working tree at this point
+        # (because git sees that the mode of the actual underlying file is
+        # 100644), so we must stash them in order to ensure the repo is not
+        # left dirty.
+        repo.git.stash(&#34;save&#34;)
+        if repo.is_dirty():
+            raise NonEmptyWorkingTreeError(repo)
+
+        # Squash last two commits together.
+        repo.git.reset([&#34;--soft&#34;, &#34;HEAD~1&#34;])
+        repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
@@ -2272,6 +2732,10 @@ def pull() -&gt; None:
     repository.
     &#34;&#34;&#34;
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -2337,7 +2801,7 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
 
     # Copy `repo` into a temp directory and `reset --hard` at ref of last
     # successful `push()`.
-    sha: str = kirepo.last_push_file.read_text()
+    sha: str = kirepo.last_push_file.read_text(encoding=&#34;UTF-8&#34;)
     with F.halo(text=f&#34;Checking out repo at &#39;{sha}&#39;...&#34;):
         ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
         last_push_repo: git.Repo = copy_repo(ref, f&#34;{LOCAL_SUFFIX}-{md5sum}&#34;)
@@ -2345,8 +2809,14 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
-    msg = f&#34;Fetch changes from DB at &#39;{kirepo.col_file}&#39; with md5sum &#39;{md5sum}&#39;&#34;
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=silent)
+    msg = f&#34;Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`&#34;
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        anki_remote_root,
+        msg,
+        silent=silent,
+        verbose=False,
+    )
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
@@ -2364,7 +2834,7 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
     unsub_root = F.working_dir(unsub_repo)
-    with F.halo(text=f&#34;Updating submodules in stage repositories...&#34;):
+    with F.halo(text=&#34;Updating submodules in stage repositories...&#34;):
         unsub_repo.git.submodule(&#34;update&#34;)
         last_push_repo.git.submodule(&#34;update&#34;)
     with F.halo(text=f&#34;Unsubmoduling repository at &#39;{unsub_root}&#39;...&#34;):
@@ -2386,18 +2856,18 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
             path = path[2:]
         return path
 
+    # Construct patches for every file in the flattenened/unsubmoduled checkout
+    # of the revision of the last successful `ki push`. Each patch is the diff
+    # between the relevant file in the flattened (all submodules converted to
+    # ordinary directories) repository and the same file in the Anki remote (a
+    # fresh `ki clone` of the current database).
     patches: List[Patch] = []
-    import io
-    from contextlib import redirect_stdout
-
     f = io.StringIO()
-    with F.halo(text=f&#34;Generating submodule patches...&#34;):
+    with F.halo(text=&#34;Generating submodule patches...&#34;):
         with redirect_stdout(f):
             for diff in whatthepatch.parse_patch(raw_unified_patch):
-
                 a_path = unquote_diff_path(diff.header.old_path)
                 b_path = unquote_diff_path(diff.header.new_path)
-
                 if a_path == DEV_NULL:
                     a_path = b_path
                 if b_path == DEV_NULL:
@@ -2405,108 +2875,142 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
                 patch = Patch(Path(a_path), Path(b_path), diff)
                 patches.append(patch)
 
-    # Get paths to submodules.
+    # Construct a map that sends submodule relative roots, that is, the
+    # relative path of a submodule root directory to the top-level root
+    # directory of the ki repository, to `git.Repo` objects for each submodule.
     subrepos: Dict[Path, git.Repo] = {}
     for sm in last_push_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_root: ExtantDir = F.working_dir(sm_repo)
+
+            # Get submodule root relative to ki repository root.
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
             halotext = f&#34;Removing submodule directory &#39;{sm_rel_root}&#39; from remote...&#34;
-            with F.halo(text=halotext):
-                remote_repo.git.rm([&#34;-r&#34;, str(sm_rel_root)])
+            if os.path.isdir(anki_remote_root / sm_rel_root):
+                with F.halo(text=halotext):
+                    remote_repo.git.rm([&#34;-r&#34;, str(sm_rel_root)])
 
     if len(last_push_repo.submodules) &gt; 0:
-        with F.halo(text=f&#34;Committing submodule directory removals...&#34;):
+        with F.halo(text=&#34;Committing submodule directory removals...&#34;):
             remote_repo.git.add(all=True)
             remote_repo.index.commit(&#34;Remove submodule directories.&#34;)
 
     # Apply patches within submodules.
     msg = &#34;Applying patches:\n\n&#34;
-    bar = tqdm(patches, ncols=TQDM_NUM_COLS)
-    bar.set_description(&#34;Patches&#34;)
+    patches_bar = tqdm(patches, ncols=TQDM_NUM_COLS)
+    patches_bar.set_description(&#34;Patches&#34;)
     patched_submodules: Set[Path] = set()
-    for patch in bar:
+    for patch in patches_bar:
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
             # of a submodule, but we just do this for now. In this case, we may
             # have `patch.a` not be relative to the submodule root (if we moved
             # a file into the sm dir), or vice-versa.
-            a_is_relative: bool = patch.a.is_relative_to(sm_rel_root)
-            b_is_relative: bool = patch.b.is_relative_to(sm_rel_root)
+            a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
+            b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
 
-            if a_is_relative and b_is_relative:
-                patched_submodules.add(sm_rel_root)
-                patch_bytes: bytes = patch.diff.text.encode()
-
-                # pylint: disable=not-callable
-                patch_hash: str = blake3.blake3(patch_bytes).hexdigest()
-
-                # pylint: enable=not-callable
-                patch_path: NoFile = F.test(patches_dir / patch_hash)
-
-                # Replace paths relative to `last_push_root` with paths
-                # relative to `sm_root`.
-                a_relpath = patch.a.relative_to(sm_rel_root)
-                b_relpath = patch.b.relative_to(sm_rel_root)
+            if a_in_submodule and b_in_submodule:
 
                 # Ignore the submodule &#39;file&#39; itself.
-                if a_relpath == Path(&#34;.&#34;) or b_relpath == Path(&#34;.&#34;):
+                if sm_rel_root in (patch.a, patch.b):
                     continue
+
+                # Hash the patch to use as a filename.
+                blake2 = hashlib.blake2s()
+                blake2.update(patch.diff.text.encode())
+                patch_hash: str = blake2.hexdigest()
+                patch_path: NoFile = F.test(patches_dir / patch_hash)
+
+                # Strip trailing linefeeds from each line so that `git apply`
+                # is happy on Windows (equivalent to running `dos2unix`).
+                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
+                if sys.platform == &#34;win32&#34;:
+                    with open(patch_path, &#34;rb&#34;) as f:
+                        patch_bytes = f.read()
+                    reformatted_bytes = patch_bytes.replace(b&#34;\r\n&#34;, b&#34;\n&#34;)
+                    with open(patch_path, &#34;wb&#34;) as f:
+                        f.write(reformatted_bytes)
+
+                # Number of leading path components to drop from diff paths.
+                num_parts = len(sm_rel_root.parts) + 1
 
                 # TODO: More tests are needed to make sure that the `git apply`
                 # call is not flaky. In particular, we must treat new and
                 # deleted files.
-                patch_text: str = patch.diff.text
-                patch_text = patch_text.replace(str(patch.a), str(a_relpath))
-                patch_text = patch_text.replace(str(patch.b), str(b_relpath))
-                patch_path: ExtantFile = F.write(patch_path, patch_text)
-                msg += f&#34;  &#39;{patch.a}&#39;\n&#34;
-
+                #
                 # Note that it is unnecessary to use `--3way` here, because
                 # this submodule is supposed to represent a fast-forward from
                 # the last successful push to the current state of the remote.
                 # There should be no nontrivial merging involved.
-                sm_repo.git.apply(patch_path)
+                #
+                # Then -p&lt;n&gt; flag tells `git apply` to drop the first n leading
+                # path components from both diff paths. So if n is 2, we map
+                # `a/dog/cat` -&gt; `cat`.
+                sm_repo.git.apply(
+                    patch_path,
+                    p=str(num_parts),
+                    allow_empty=True,
+                    verbose=True,
+                )
+                patched_submodules.add(sm_rel_root)
+                msg += f&#34;  `{patch.a}`\n&#34;
 
     echo(f&#34;Applied {len(patched_submodules)} patches within submodules.&#34;)
     for sm_rel_root in patched_submodules:
         echo(f&#34;  Patched &#39;{sm_rel_root}&#39;&#34;)
 
     # Commit patches in submodules.
-    with F.halo(text=f&#34;Committing applied patches to submodules...&#34;):
+    with F.halo(text=&#34;Committing applied patches to submodules...&#34;):
         for sm_repo in subrepos.values():
             sm_repo.git.add(all=True)
             sm_repo.index.commit(msg)
 
-    # TODO: What if a submodule was deleted (or added) entirely?
+    # Get active branches of each submodule.
+    sm_branches: Dict[Path, str] = {}
+    for sm_rel_root, sm_repo in subrepos.items():
+        try:
+            sm_branches[sm_rel_root] = sm_repo.active_branch.name
+        except TypeError:
+            head: git.Head = next(iter(sm_repo.branches))
+            sm_branches[sm_rel_root] = head.name
 
-    # TODO: New commits in submodules within `last_push_repo` must be pulled
-    # into the submodules within `kirepo.repo`. This can be done by adding a
-    # remote pointing to the patched submodule in each corresponding submodule
-    # in the main repository, and then pulling from that remote. Then the
-    # remote should be deleted.
+    # TODO: What if a submodule was deleted (or added) entirely?
+    #
+    # New commits in submodules within `last_push_repo` are be pulled into the
+    # submodules within `kirepo.repo`. This is done by adding a remote pointing
+    # to the patched submodule in each corresponding submodule in the main
+    # repository, and then pulling from that remote. Then the remote is
+    # deleted.
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
+
+            # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
+                branch: str = sm_branches[sm_rel_root]
 
-                # Put detached HEAD back on `main` in the remote submodule.
-                remote_sm.git.branch(&#34;temp&#34;)
-                remote_sm.git.checkout(BRANCH_NAME)
-                echo(remote_sm.git.merge([&#34;--strategy-option&#34;, &#34;theirs&#34;, &#34;temp&#34;]))
+                # TODO: What&#39;s in `upstream` that isn&#39;t already in `branch`?
+                remote_sm.git.branch(&#34;upstream&#34;)
+
+                # Simulate a `git merge --strategy=theirs upstream`.
+                remote_sm.git.checkout([&#34;-b&#34;, &#34;tmp&#34;, &#34;upstream&#34;])
+                remote_sm.git.merge([&#34;-s&#34;, &#34;ours&#34;, branch])
+                remote_sm.git.checkout(branch)
+                remote_sm.git.merge(&#34;tmp&#34;)
+                remote_sm.git.branch([&#34;-D&#34;, &#34;tmp&#34;])
 
                 remote_target: ExtantDir = F.git_dir(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,
-                    BRANCH_NAME,
+                    branch,
                     F.working_dir(sm_repo),
                     False,
                     False,
@@ -2514,6 +3018,8 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
                     silent,
                 )
                 sm_repo.delete_remote(sm_remote)
+                remote_sm.close()
+            sm_repo.close()
 
     # Commit new submodules commits in `last_push_repo`.
     if len(patched_submodules) &gt; 0:
@@ -2545,13 +3051,28 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    old_cwd: ExtantDir = F.chdir(last_push_root)
-    last_push_repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
-    git_pull(REMOTE_NAME, BRANCH_NAME, last_push_root, True, True, True, silent)
-    last_push_repo.delete_remote(anki_remote)
-    F.chdir(old_cwd)
+    echo(f&#34;Copying blobs at HEAD=&#39;{sha}&#39; to stage in &#39;{last_push_root}&#39;...&#34;)
+    git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / &#34;GIT&#34;))
+    last_push_repo.close()
+    last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
+    del last_push_repo
+    remote_root: ExtantDir = F.working_dir(remote_repo)
+    last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
 
-    # Create remote pointing to `last_push_repo` and pull into `repo`.
+    echo(f&#34;Copying git history from &#39;{sha}&#39; to stage...&#34;)
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
+    del last_push_repo
+    F.copytree(git_copy, F.test(git_dir))
+
+    echo(f&#34;Committing stage repository contents in &#39;{last_push_root}&#39;...&#34;)
+    last_push_repo: git.Repo = M.repo(last_push_root)
+    last_push_repo.git.add(all=True)
+    last_push_repo.index.commit(f&#34;Pull changes from repository at `{kirepo.root}`&#34;)
+
+    # Create remote pointing to `last_push_repo` and pull into `repo`. Note
+    # that this `git pull` may not always create a merge commit, because a
+    # fast-forward only updates the branch pointer.
     last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
     kirepo.repo.git.config(&#34;pull.rebase&#34;, &#34;false&#34;)
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
@@ -2568,8 +3089,9 @@ def _pull(kirepo: KiRepo, silent: bool) -&gt; None:
 
 
 @ki.command()
+@click.option(&#34;--verbose&#34;, &#34;-v&#34;, is_flag=True, help=&#34;Print more output.&#34;)
 @beartype
-def push() -&gt; PushResult:
+def push(verbose: bool = False) -&gt; PushResult:
     &#34;&#34;&#34;
     Push a ki repository into a .anki2 file.
 
@@ -2594,6 +3116,10 @@ def push() -&gt; PushResult:
         If the user needs to pull remote changes first.
     &#34;&#34;&#34;
     if PROFILE:
+        # pylint: disable=import-outside-toplevel
+        from pyinstrument import Profiler
+
+        # pylint: enable=import-outside-toplevel
         profiler = Profiler()
         profiler.start()
 
@@ -2617,10 +3143,17 @@ def push() -&gt; PushResult:
         remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f&#34;Fetch changes from collection &#39;{kirepo.col_file}&#39; with md5sum &#39;{md5sum}&#39;&#34;
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone(
+        kirepo.col_file,
+        remote_root,
+        msg,
+        silent=True,
+        verbose=verbose,
+    )
 
     with F.halo(f&#34;Copying blobs at HEAD=&#39;{head.sha}&#39; to stage in &#39;{remote_root}&#39;...&#34;):
         git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / &#34;GIT&#34;))
+        remote_repo.close()
         remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
         del remote_repo
         remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
@@ -2634,7 +3167,7 @@ def push() -&gt; PushResult:
     with F.halo(f&#34;Committing stage repository contents in &#39;{remote_root}&#39;...&#34;):
         remote_repo: git.Repo = M.repo(remote_root)
         remote_repo.git.add(all=True)
-        remote_repo.index.commit(f&#34;Pull changes from repository at &#39;{kirepo.root}&#39;&#34;)
+        remote_repo.index.commit(f&#34;Pull changes from repository at `{kirepo.root}`&#34;)
     # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.
@@ -2662,6 +3195,7 @@ def push() -&gt; PushResult:
         transformer,
         head_kirepo,
         con,
+        verbose,
     )
 
     if PROFILE:
@@ -2682,10 +3216,17 @@ def push_deltas(
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
+    verbose: bool,
 ) -&gt; PushResult:
     &#34;&#34;&#34;Push a list of `Delta`s to an Anki collection.&#34;&#34;&#34;
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+
+    # Display warnings from diff procedure.
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg=&#34;yellow&#34;)
+    warnings = []
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -2714,15 +3255,23 @@ def push_deltas(
     # Add new models to the collection.
     add_models(col, models)
 
-    # Gather logging statements to display.
-    log: List[str] = []
-
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset(&#34;HEAD&#34;, hard=True)
 
     # Display table of note change type counts.
     echo_note_change_types(deltas)
+
+    # Construct a map from guid -&gt; (nid, mod, mid), adapted from
+    # `Anki2Importer._import_notes()`. Note that `mod` is the modification
+    # timestamp, in epoch seconds (timestamp of when the note was last
+    # modified).
+    guids: Dict[str, NoteMetadata] = {}
+    for nid, guid, mod, mid in col.db.execute(&#34;select id, guid, mod, mid from notes&#34;):
+        guids[guid] = NoteMetadata(nid, mod, mid)
+
+    timestamp_ns: int = time.time_ns()
+    new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
 
@@ -2735,42 +3284,23 @@ def push_deltas(
         decknote = parse_markdown_note(parser, transformer, delta)
 
         if is_delete(delta):
-            col.remove_notes([decknote.nid])
+            if decknote.guid in guids:
+                col.remove_notes([guids[decknote.guid].nid])
             continue
 
         # TODO: If relevant prefix of sort field has changed, we should
         # regenerate the file. Recall that the sort field is used to determine
         # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote, note_warnings = push_decknote_to_anki(col, decknote)
-        log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
-        warnings += note_warnings
+        warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
 
-    # Display all warnings.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg=&#34;yellow&#34;)
-
-    # Commit nid reassignments.
-    echo(f&#34;Reassigned {len(log)} nids.&#34;)
-    if len(log) &gt; 0:
-        msg = &#34;Generated new nid(s).\n\n&#34; + &#34;\n&#34;.join(log)
-
-        # Commit in all submodules (doesn&#39;t support recursing yet).
-        for sm in kirepo.repo.submodules:
-
-            # TODO: Remove submodule update calls, and use the gitpython
-            # API to check if the submodules exist instead. The update
-            # calls make a remote fetch which takes an extremely long time,
-            # and the user should have run `git submodule update`
-            # themselves anyway.
-            subrepo: git.Repo = sm.module()
-            subrepo.git.add(all=True)
-            subrepo.index.commit(msg)
-
-        # Commit in main repository.
-        kirepo.repo.git.add(all=True)
-        _ = kirepo.repo.index.commit(msg)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -2784,22 +3314,50 @@ def push_deltas(
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-    # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
-    # deduplication, and fixes fields for notes that reference that media.
+    warnings = []
+
     bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
     bar.set_description(&#34;Media&#34;)
     for media_file in bar:
 
+        # Check file mode, and follow symlink if applicable.
+        mode: int = filemode(media_file)
+        if mode == 120000:
+            target: str = media_file.read_text(encoding=&#34;UTF-8&#34;)
+            parent: ExtantDir = F.parent(media_file)
+            media_file: ExtantFile = M.xfile(parent / target)
+
+        # Get bytes of new media file.
+        with open(media_file, &#34;rb&#34;) as f:
+            new: bytes = f.read()
+
+        # Get bytes of existing media file (if it exists).
+        old: bytes = media_data(col, media_file.name)
+        if old and old == new:
+            continue
+
         # Add (and possibly rename) media paths.
-        _: str = col.media.add_file(media_file)
+        new_media_filename: str = col.media.add_file(media_file)
+        if new_media_filename != media_file.name:
+            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
+            warnings.append(warning)
 
     col.close(save=True)
+
+    num_displayed: int = 0
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg=&#34;yellow&#34;)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
+    head: RepoRef = M.head_repo_ref(kirepo.repo)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
@@ -2833,6 +3391,53 @@ def push_deltas(
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="ki.add_db_note"><code class="name flex">
+<span>def <span class="ident">add_db_note</span></span>(<span>col: anki.collection.Collection, nid: int, guid: str, mid: int, mod: int, usn: int, tags: list[str], fields: list[str], sfld: str, csum: int, flags: int, data: str) ‑> anki.notes.Note</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Add a note to the database directly, with a SQL INSERT.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def add_db_note(
+    col: Collection,
+    nid: int,
+    guid: str,
+    mid: int,
+    mod: int,
+    usn: int,
+    tags: List[str],
+    fields: List[str],
+    sfld: str,
+    csum: int,
+    flags: int,
+    data: str,
+) -&gt; Note:
+    &#34;&#34;&#34;Add a note to the database directly, with a SQL INSERT.&#34;&#34;&#34;
+    importer = NoteImporter(col, &#34;&#34;)
+    importer.addNew(
+        [
+            (
+                nid,
+                guid,
+                mid,
+                mod,
+                usn,
+                &#34; &#34; + &#34; &#34;.join(tags) + &#34; &#34;,
+                &#34;\x1f&#34;.join(fields),
+                sfld,
+                csum,
+                flags,
+                data,
+            )
+        ]
+    )
+    col.after_note_updates([nid], mark_modified=False)
+    return col.get_note(nid)</code></pre>
+</details>
+</dd>
 <dt id="ki.add_models"><code class="name flex">
 <span>def <span class="ident">add_models</span></span>(<span>col: anki.collection.Collection, models: dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>]) ‑> None</span>
 </code></dt>
@@ -2963,6 +3568,100 @@ def backup(kirepo: KiRepo) -&gt; None:
     F.copyfile(kirepo.col_file, kirepo.backups_dir, name)</code></pre>
 </details>
 </dd>
+<dt id="ki.chain_media_symlinks"><code class="name flex">
+<span>def <span class="ident">chain_media_symlinks</span></span>(<span>root: anki.decks_pb2.DeckTreeNode, col: anki.collection.Collection, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, media: dict[int, set[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]]) ‑> set[<a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Chain symlinks up the deck tree into top-level <code>&lt;collection&gt;/_media/</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def chain_media_symlinks(
+    root: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    media: Dict[int, Set[ExtantFile]],
+) -&gt; Set[LatentSymlink]:
+    &#34;&#34;&#34;Chain symlinks up the deck tree into top-level `&lt;collection&gt;/_media/`.&#34;&#34;&#34;
+
+    @beartype
+    def preorder(node: DeckTreeNode) -&gt; List[DeckTreeNode]:
+        &#34;&#34;&#34;
+        Pre-order traversal. Guarantees that we won&#39;t process a node until
+        we&#39;ve processed all its ancestors.
+        &#34;&#34;&#34;
+        traversal: List[DeckTreeNode] = [node]
+        for child in node.children:
+            traversal += preorder(child)
+        return traversal
+
+    @beartype
+    def map_parents(node: DeckTreeNode, col: Collection) -&gt; Dict[str, DeckTreeNode]:
+        &#34;&#34;&#34;Map deck names to parent `DeckTreeNode`s.&#34;&#34;&#34;
+        parents: Dict[str, DeckTreeNode] = {}
+        for child in node.children:
+            did: int = child.deck_id
+            name: str = col.decks.name(did)
+            parents[name] = node
+            subparents = map_parents(child, col)
+            parents.update(subparents)
+        return parents
+
+    media_latent_links: Set[LatentSymlink] = set()
+    media_dirs: Dict[str, ExtantDir] = {}
+    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
+    for node in preorder(root):
+        if node.name == &#34;&#34;:
+            continue
+        did: int = node.deck_id
+        fullname = col.decks.name(did)
+        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
+        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        media_dirs[fullname] = deck_media_dir
+        descendant_nids: Set[int] = {NOTETYPE_NID}
+        descendants: List[CardId] = col.decks.cids(did=did, children=True)
+        for cid in descendants:
+            card: Card = col.get_card(cid)
+            descendant_nids.add(card.nid)
+
+        for nid in descendant_nids:
+            if nid not in media:
+                continue
+
+            for media_file in media[nid]:
+                parent: DeckTreeNode = parents[fullname]
+                if parent.name != &#34;&#34;:
+                    parent_did: int = parent.deck_id
+                    parent_fullname: str = col.decks.name(parent_did)
+                    parent_media_dir = media_dirs[parent_fullname]
+                    abs_target: Symlink = F.test(
+                        parent_media_dir / media_file.name, resolve=False
+                    )
+                else:
+                    abs_target: ExtantFile = media_file
+
+                path = F.test(deck_media_dir / media_file.name, resolve=False)
+                if not isinstance(path, NoFile):
+                    continue
+
+                distance = len(path.parent.relative_to(targetdir).parts)
+                up_path = Path(&#34;../&#34; * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
+
+                try:
+                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
+                    if isinstance(link, LatentSymlink):
+                        media_latent_links.add(link)
+                except OSError as _:
+                    trace = traceback.format_exc(limit=3)
+                    logger.warning(f&#34;Failed to create symlink to media\n{trace}&#34;)
+
+    return media_latent_links</code></pre>
+</details>
+</dd>
 <dt id="ki.copy_kirepo"><code class="name flex">
 <span>def <span class="ident">copy_kirepo</span></span>(<span>kirepo_ref: <a title="ki.types.KiRepoRef" href="types.html#ki.types.KiRepoRef">KiRepoRef</a>, suffix: str) ‑> <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a></span>
 </code></dt>
@@ -3009,10 +3708,160 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -&gt; KiRepo:
     &#34;&#34;&#34;
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = copy_repo(ref, suffix)
-    F.copytree(kirepo_ref.kirepo.ki_dir, F.test(F.working_dir(ephem) / KI))
+    ki_dir: Path = F.test(F.working_dir(ephem) / KI)
+    if not isinstance(ki_dir, NoFile):
+        raise ExpectedNonexistentPathError(ki_dir)
+    F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
     kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
 
     return kirepo</code></pre>
+</details>
+</dd>
+<dt id="ki.copy_media_files"><code class="name flex">
+<span>def <span class="ident">copy_media_files</span></span>(<span>col: anki.collection.Collection, media_target_dir: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, silent: bool) ‑> tuple[dict[int, set[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]], set[Warning]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get a list of extant media files used in notes and notetypes, copy those
+media files to the top-level <code>_media/</code> directory in the repository root,
+and return a map sending note ids to sets of copied media files.</p>
+<p>Adapted from code in <code>anki/pylib/anki/exporting.py</code>. Specifically, the
+<code>AnkiExporter.exportInto()</code> function.</p>
+<h2 id="sqlite3-notes-table-schema">Sqlite3 Notes Table Schema</h2>
+<p>CREATE TABLE notes (
+id integer PRIMARY KEY,
+guid text NOT NULL,
+mid integer NOT NULL,
+mod integer NOT NULL,
+usn integer NOT NULL,
+tags text NOT NULL,
+flds text NOT NULL,
+&ndash; The use of type integer for sfld is deliberate, because it means
+&ndash; that integer values in this field will sort numerically.
+sfld integer NOT NULL,
+csum integer NOT NULL,
+flags integer NOT NULL,
+data text NOT NULL
+);</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>col</code></strong></dt>
+<dd>Anki collection.</dd>
+<dt><strong><code>silent</code></strong></dt>
+<dd>Whether to display stdout.</dd>
+</dl></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def copy_media_files(
+    col: Collection,
+    media_target_dir: EmptyDir,
+    silent: bool,
+) -&gt; Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
+    &#34;&#34;&#34;
+    Get a list of extant media files used in notes and notetypes, copy those
+    media files to the top-level `_media/` directory in the repository root,
+    and return a map sending note ids to sets of copied media files.
+
+    Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
+    `AnkiExporter.exportInto()` function.
+
+    SQLite3 notes table schema
+    --------------------------
+    CREATE TABLE notes (
+        id integer PRIMARY KEY,
+        guid text NOT NULL,
+        mid integer NOT NULL,
+        mod integer NOT NULL,
+        usn integer NOT NULL,
+        tags text NOT NULL,
+        flds text NOT NULL,
+        -- The use of type integer for sfld is deliberate, because it means
+        -- that integer values in this field will sort numerically.
+        sfld integer NOT NULL,
+        csum integer NOT NULL,
+        flags integer NOT NULL,
+        data text NOT NULL
+    );
+
+    Parameters
+    ----------
+    col
+        Anki collection.
+    silent
+        Whether to display stdout.
+    &#34;&#34;&#34;
+
+    # All note ids as a string for the SQL query.
+    strnids = ids2str(list(col.find_notes(query=&#34;&#34;)))
+
+    # This is the path to the media directory. In the original implementation
+    # of `AnkiExporter.exportInto()`, there is check made of the form
+    #
+    #   if self.mediaDir:
+    #
+    # before doing path manipulation with this string.
+    #
+    # Examining the `__init__()` function of `MediaManager`, we can see that
+    # `col.media.dir()` will only be `None` in the case where `server=True` is
+    # passed to the `Collection` constructor. But since we do the construction
+    # within ki, we have a guarantee that this will never be true, and thus we
+    # can assume it is a nonempty string, which is all we need for the
+    # following code to be safe.
+    media_dir = F.test(Path(col.media.dir()))
+    if not isinstance(media_dir, ExtantDir):
+        raise MissingMediaDirectoryError(col.path, media_dir)
+
+    # Find only used media files, collecting warnings for bad paths.
+    media: Dict[int, Set[ExtantFile]] = {}
+    warnings: Set[Warning] = set()
+    query: str = &#34;select * from notes where id in &#34; + strnids
+    rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
+
+    bar = tqdm(rows, ncols=TQDM_NUM_COLS, leave=not silent)
+    bar.set_description(&#34;Media&#34;)
+    for row in bar:
+        for file in files_in_str(col, row.flds):
+
+            # Skip files in subdirs.
+            if file != os.path.basename(file):
+                continue
+            media_file = F.test(media_dir / file)
+            if isinstance(media_file, ExtantFile):
+                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
+            else:
+                warnings.add(MissingMediaFileWarning(col.path, media_file))
+
+    mids = col.db.list(&#34;select distinct mid from notes where id in &#34; + strnids)
+
+    # Faster version.
+    _, _, files = F.shallow_walk(media_dir)
+    fnames: List[Path] = [Path(file.name) for file in files]
+    for fname in fnames:
+
+        # Notetype template media files are *always* prefixed by underscores.
+        if str(fname).startswith(&#34;_&#34;):
+
+            # Scan all models in mids for reference to fname.
+            for m in col.models.all():
+                if int(m[&#34;id&#34;]) in mids and _modelHasMedia(m, str(fname)):
+
+                    # If the path referenced by `fname` doesn&#39;t exist or is not
+                    # a file, we do not display a warning or return an error.
+                    # This path certainly ought to exist, since `fname` was
+                    # obtained from an `os.listdir()` call.
+                    media_file = F.test(media_dir / fname)
+                    if isinstance(media_file, ExtantFile):
+                        copied_file = F.copyfile(
+                            media_file, media_target_dir, media_file.name
+                        )
+                        notetype_media = media.get(NOTETYPE_NID, set())
+                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
+                    break
+
+    return media, warnings</code></pre>
 </details>
 </dd>
 <dt id="ki.copy_repo"><code class="name flex">
@@ -3086,7 +3935,9 @@ def diff2(
     &#34;&#34;&#34;Diff `repo` from `HEAD~1` to `HEAD`.&#34;&#34;&#34;
     with F.halo(text=f&#34;Checking out repo &#39;{F.working_dir(repo)}&#39; at HEAD~1...&#34;):
         head1: RepoRef = M.repo_ref(repo, repo.commit(&#34;HEAD~1&#34;).hexsha)
+        # pylint: disable=consider-using-f-string
         uuid = &#34;%4x&#34; % random.randrange(16**4)
+        # pylint: enable=consider-using-f-string
         head1_repo = copy_repo(head1, suffix=f&#34;HEAD~1-{uuid}&#34;)
 
     # We diff from A~B.
@@ -3098,8 +3949,9 @@ def diff2(
     a_dir = F.test(Path(a_repo.working_dir))
     b_dir = F.test(Path(b_repo.working_dir))
 
-    with F.halo(text=f&#34;Diffing &#39;{head1.sha}&#39; ~ &#39;{repo.head.commit}&#39;...&#34;):
-        diff_index = repo.commit(&#34;HEAD~1&#34;).diff(repo.commit(&#34;HEAD&#34;))
+    head = repo.commit(&#34;HEAD&#34;)
+    with F.halo(text=f&#34;Diffing &#39;{head1.sha}&#39; ~ &#39;{head.hexsha}&#39;...&#34;):
+        diff_index = repo.commit(&#34;HEAD~1&#34;).diff(head, create_patch=VERBOSE)
 
     for change_type in GitChangeType:
 
@@ -3107,18 +3959,29 @@ def diff2(
         bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
         bar.set_description(f&#34;{change_type}&#34;)
         for diff in bar:
+            a_relpath: str = diff.a_path
+            b_relpath: str = diff.b_path
+            if diff.a_path is None:
+                a_relpath = b_relpath
+            if diff.b_path is None:
+                b_relpath = a_relpath
+
             a_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.a_path),
+                Path(a_relpath),
                 a_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
             b_warning: Optional[Warning] = get_note_warnings(
-                Path(diff.b_path),
+                Path(b_relpath),
                 b_dir,
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
+
+            if VERBOSE:
+                logger.debug(f&#34;{a_relpath} -&gt; {b_relpath}&#34;)
+                logger.debug(diff.diff.decode())
 
             if a_warning is not None:
                 deltas.append(a_warning)
@@ -3127,11 +3990,11 @@ def diff2(
                 deltas.append(b_warning)
                 continue
 
-            a_path = F.test(a_dir / diff.a_path)
-            b_path = F.test(b_dir / diff.b_path)
+            a_path = F.test(a_dir / a_relpath)
+            b_path = F.test(b_dir / b_relpath)
 
-            a_relpath = Path(diff.a_path)
-            b_relpath = Path(diff.b_path)
+            a_relpath = Path(a_relpath)
+            b_relpath = Path(b_relpath)
 
             if change_type == GitChangeType.DELETED:
                 if not isinstance(a_path, ExtantFile):
@@ -3150,12 +4013,15 @@ def diff2(
                 b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
                 a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
                 b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
-                if a_decknote.nid != b_decknote.nid:
+                if a_decknote.guid != b_decknote.guid:
                     deltas.append(a_delta)
                     deltas.append(b_delta)
                     continue
 
             deltas.append(Delta(change_type, b_path, b_relpath))
+
+    if VERBOSE:
+        echo(f&#34;Diffing &#39;{repo.working_dir}&#39;: &#39;{head1.sha}&#39; ~ &#39;{head.hexsha}&#39;&#34;)
 
     return deltas</code></pre>
 </details>
@@ -3174,17 +4040,22 @@ def display_fields_health_warning(note: Note) -&gt; int:
     &#34;&#34;&#34;Display warnings when Anki&#39;s fields health check fails.&#34;&#34;&#34;
     health = note.fields_check()
     if health == 1:
-        logger.warning(f&#34;Found empty note:\n {note}&#34;)
-        logger.warning(f&#34;Fields health check code: {health}&#34;)
+        warn(f&#34;Found empty note &#39;{note.id}&#39;&#34;)
+        warn(f&#34;Fields health check code: {health}&#34;)
     elif health == 2:
-        logger.warning(f&#34;\nFound duplicate note when adding new note w/ nid {note.id}.&#34;)
-        logger.warning(f&#34;Notetype/fields of note {note.id} match existing note.&#34;)
-        logger.warning(&#34;Note was not added to collection!&#34;)
-        logger.warning(f&#34;First field: {note.fields[0]}&#34;)
-        logger.warning(f&#34;Fields health check code: {health}&#34;)
+        duplication = (
+            &#34;Failed to add note to collection. Notetype/fields of &#34;
+            + f&#34;note &#39;{note.id}&#39; are duplicate of existing note.&#34;
+        )
+        warn(duplication)
+        warn(f&#34;First field:\n{html_to_screen(note.fields[0])}&#34;)
+        warn(f&#34;Fields health check code: {health}&#34;)
     elif health != 0:
-        logger.error(f&#34;Failed to process note &#39;{note.id}&#39;.&#34;)
-        logger.error(f&#34;Note failed fields check with unknown error code: {health}&#34;)
+        death = (
+            f&#34;fatal: Note &#39;{note.id}&#39; failed fields check with unknown &#34;
+            + f&#34;error code: {health}&#34;
+        )
+        logger.error(death)
     return health</code></pre>
 </details>
 </dd>
@@ -3247,6 +4118,35 @@ def echo_note_change_types(deltas: List[Delta]) -&gt; None:
     echo(&#34;=&#34; * (WORD_PAD + COUNT_PAD))</code></pre>
 </details>
 </dd>
+<dt id="ki.filemode"><code class="name flex">
+<span>def <span class="ident">filemode</span></span>(<span>file: Union[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, <a title="ki.types.ExtantStrangePath" href="types.html#ki.types.ExtantStrangePath">ExtantStrangePath</a>, <a title="ki.types.Symlink" href="types.html#ki.types.Symlink">Symlink</a>, <a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]) ‑> int</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get git file mode.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -&gt; int:
+    &#34;&#34;&#34;Get git file mode.&#34;&#34;&#34;
+    try:
+        # We must search from file upwards in case inside submodule.
+        repo = git.Repo(file, search_parent_directories=True)
+        out = repo.git.ls_files([&#34;-s&#34;, str(file)])
+
+        # Treat case where file is untracked.
+        if out == &#34;&#34;:
+            return -1
+
+        mode: int = int(out.split()[0])
+    except Exception as err:
+        raise GitFileModeParseError(file, out) from err
+    return mode</code></pre>
+</details>
+</dd>
 <dt id="ki.files_in_str"><code class="name flex">
 <span>def <span class="ident">files_in_str</span></span>(<span>col: anki.collection.Collection, string: str, include_remote: bool = False) ‑> list[str]</span>
 </code></dt>
@@ -3267,6 +4167,8 @@ def echo_note_change_types(deltas: List[Delta]) -&gt; None:
             fname = match.group(&#34;fname&#34;)
             is_local = not re.match(&#34;(https?|ftp)://&#34;, fname.lower())
             if is_local or include_remote:
+                fname = fname.strip()
+                fname = fname.replace(&#39;&#34;&#39;, &#34;&#34;)
                 files.append(fname)
     return files</code></pre>
 </details>
@@ -3290,7 +4192,7 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
     notetype: Notetype = parse_notetype_dict(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
-    # `push_decknote_to_anki()`.
+    # `push_note()`.
     try:
         sortf_text: str = note[notetype.sortf.name]
     except KeyError as err:
@@ -3298,13 +4200,18 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
 
     # TODO: Remove implicit assumption that all cards are in the same deck, and
     # work with cards instead of notes.
-    deck = col.decks.name(note.cards()[0].did)
+    try:
+        deck = col.decks.name(note.cards()[0].did)
+    except IndexError as err:
+        logger.error(f&#34;{note.cards() = }&#34;)
+        logger.error(f&#34;{note.guid = }&#34;)
+        logger.error(f&#34;{note.id = }&#34;)
+        raise err
     colnote = ColNote(
         n=note,
         new=False,
         deck=deck,
         title=&#34;&#34;,
-        old_nid=note.id,
         markdown=False,
         notetype=notetype,
         sortf_text=sortf_text,
@@ -3312,17 +4219,18 @@ def get_colnote(col: Collection, nid: int) -&gt; ColNote:
     return colnote</code></pre>
 </details>
 </dd>
-<dt id="ki.get_colnote_repr"><code class="name flex">
-<span>def <span class="ident">get_colnote_repr</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>) ‑> str</span>
+<dt id="ki.get_colnote_as_str"><code class="name flex">
+<span>def <span class="ident">get_colnote_as_str</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>) ‑> str</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>Return string representation of a <code>ColNote</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def get_colnote_repr(colnote: ColNote) -&gt; str:
+def get_colnote_as_str(colnote: ColNote) -&gt; str:
+    &#34;&#34;&#34;Return string representation of a `ColNote`.&#34;&#34;&#34;
     lines = get_header_lines(colnote)
     for field_name, field_text in colnote.n.items():
         lines.append(&#34;### &#34; + field_name)
@@ -3347,6 +4255,38 @@ def get_field_note_id(nid: int, fieldname: str) -&gt; str:
     return f&#34;{nid}{F.slugify(fieldname)}&#34;</code></pre>
 </details>
 </dd>
+<dt id="ki.get_guid"><code class="name flex">
+<span>def <span class="ident">get_guid</span></span>(<span>fields: list[str]) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Construct a new GUID for a note. Adapted from genanki's <code>guid_for()</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def get_guid(fields: List[str]) -&gt; str:
+    &#34;&#34;&#34;Construct a new GUID for a note. Adapted from genanki&#39;s `guid_for()`.&#34;&#34;&#34;
+    contents = &#34;__&#34;.join(fields)
+
+    # Get the first 8 bytes of the SHA256 of `contents` as an int.
+    m = hashlib.sha256()
+    m.update(contents.encode(&#34;utf-8&#34;))
+    hash_bytes = m.digest()[:8]
+    hash_int = 0
+    for b in hash_bytes:
+        hash_int &lt;&lt;= 8
+        hash_int += b
+
+    # convert to the weird base91 format that Anki uses
+    rv_reversed = []
+    while hash_int &gt; 0:
+        rv_reversed.append(BASE91_TABLE[hash_int % len(BASE91_TABLE)])
+        hash_int //= len(BASE91_TABLE)
+
+    return &#34;&#34;.join(reversed(rv_reversed))</code></pre>
+</details>
+</dd>
 <dt id="ki.get_header_lines"><code class="name flex">
 <span>def <span class="ident">get_header_lines</span></span>(<span>colnote) ‑> list[str]</span>
 </code></dt>
@@ -3360,158 +4300,18 @@ def get_field_note_id(nid: int, fieldname: str) -&gt; str:
 def get_header_lines(colnote) -&gt; List[str]:
     &#34;&#34;&#34;Get header of markdown representation of note.&#34;&#34;&#34;
     lines = [
-        &#34;## Note&#34;,
-        f&#34;nid: {colnote.n.id}&#34;,
-        f&#34;model: {colnote.notetype.name}&#34;,
+        &#34;# Note&#34;,
+        &#34;```&#34;,
+        f&#34;guid: {colnote.n.guid}&#34;,
+        f&#34;notetype: {colnote.notetype.name}&#34;,
+        &#34;```&#34;,
+        &#34;&#34;,
+        &#34;### Tags&#34;,
+        &#34;```&#34;,
     ]
-    lines += [f&#34;tags: {&#39;, &#39;.join(colnote.n.tags)}&#34;]
-
-    # TODO: There is almost certainly a bug here, since when the sentinel
-    # *does* appear, we don&#39;t add a `markdown` field at all, but it is required
-    # in the note grammar, so we&#39;ll get a parsing error when we try to push. A
-    # test must be written for this case.
-    if not any(GENERATED_HTML_SENTINEL in field for field in colnote.n.values()):
-        lines += [&#34;markdown: false&#34;]
-
-    lines += [&#34;&#34;]
+    lines += colnote.n.tags
+    lines += [&#34;```&#34;, &#34;&#34;]
     return lines</code></pre>
-</details>
-</dd>
-<dt id="ki.get_media_files"><code class="name flex">
-<span>def <span class="ident">get_media_files</span></span>(<span>col: anki.collection.Collection, silent: bool) ‑> tuple[dict[int, set[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]], set[Warning]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get a list of extant media files used in notes and notetypes.</p>
-<p>Adapted from code in <code>anki/pylib/anki/exporting.py</code>. Specifically, the
-<code>AnkiExporter.exportInto()</code> function.</p>
-<h2 id="sqlite3-notes-table-schema">Sqlite3 Notes Table Schema</h2>
-<p>CREATE TABLE notes (
-id integer PRIMARY KEY,
-guid text NOT NULL,
-mid integer NOT NULL,
-mod integer NOT NULL,
-usn integer NOT NULL,
-tags text NOT NULL,
-flds text NOT NULL,
-&ndash; The use of type integer for sfld is deliberate, because it means
-&ndash; that integer values in this field will sort numerically.
-sfld integer NOT NULL,
-csum integer NOT NULL,
-flags integer NOT NULL,
-data text NOT NULL
-);</p>
-<h2 id="parameters">Parameters</h2>
-<dl>
-<dt><strong><code>col</code></strong></dt>
-<dd>Anki collection.</dd>
-<dt><strong><code>silent</code></strong></dt>
-<dd>Whether to display stdout.</dd>
-</dl></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def get_media_files(
-    col: Collection,
-    silent: bool,
-) -&gt; Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
-    &#34;&#34;&#34;
-    Get a list of extant media files used in notes and notetypes.
-
-    Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
-    `AnkiExporter.exportInto()` function.
-
-    SQLite3 notes table schema
-    --------------------------
-    CREATE TABLE notes (
-        id integer PRIMARY KEY,
-        guid text NOT NULL,
-        mid integer NOT NULL,
-        mod integer NOT NULL,
-        usn integer NOT NULL,
-        tags text NOT NULL,
-        flds text NOT NULL,
-        -- The use of type integer for sfld is deliberate, because it means
-        -- that integer values in this field will sort numerically.
-        sfld integer NOT NULL,
-        csum integer NOT NULL,
-        flags integer NOT NULL,
-        data text NOT NULL
-    );
-
-    Parameters
-    ----------
-    col
-        Anki collection.
-    silent
-        Whether to display stdout.
-    &#34;&#34;&#34;
-
-    # All note ids as a string for the SQL query.
-    strnids = ids2str(list(col.find_notes(query=&#34;&#34;)))
-
-    # This is the path to the media directory. In the original implementation
-    # of `AnkiExporter.exportInto()`, there is check made of the form
-    #
-    #   if self.mediaDir:
-    #
-    # before doing path manipulation with this string.
-    #
-    # Examining the `__init__()` function of `MediaManager`, we can see that
-    # `col.media.dir()` will only be `None` in the case where `server=True` is
-    # passed to the `Collection` constructor. But since we do the construction
-    # within ki, we have a guarantee that this will never be true, and thus we
-    # can assume it is a nonempty string, which is all we need for the
-    # following code to be safe.
-    media_dir = F.test(Path(col.media.dir()))
-    if not isinstance(media_dir, ExtantDir):
-        raise MissingMediaDirectoryError(col.path, media_dir)
-
-    # Find only used media files, collecting warnings for bad paths.
-    media: Dict[int, Set[ExtantFile]] = {}
-    warnings: Set[Warning] = set()
-    query: str = &#34;select * from notes where id in &#34; + strnids
-    rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-
-    bar = tqdm(rows, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description(&#34;Media&#34;)
-    for row in bar:
-        for file in files_in_str(col, row.flds):
-
-            # Skip files in subdirs.
-            if file != os.path.basename(file):
-                continue
-            media_file = F.test(media_dir / file)
-            if isinstance(media_file, ExtantFile):
-                media[row.nid] = media.get(row.nid, set()) | set([media_file])
-            else:
-                warnings.add(MissingMediaFileWarning(col.path, media_file))
-
-    mids = col.db.list(&#34;select distinct mid from notes where id in &#34; + strnids)
-
-    # Faster version.
-    _, _, files = F.shallow_walk(media_dir)
-    for fname in files:
-
-        # Notetype template media files are *always* prefixed by underscores.
-        if str(fname).startswith(&#34;_&#34;):
-
-            # Scan all models in mids for reference to fname.
-            for m in col.models.all():
-                if int(m[&#34;id&#34;]) in mids and _modelHasMedia(m, str(fname)):
-
-                    # If the path referenced by `fname` doesn&#39;t exist or is not
-                    # a file, we do not display a warning or return an error.
-                    # This path certainly ought to exist, since `fname` was
-                    # obtained from an `os.listdir()` call.
-                    media_file = F.test(media_dir / fname)
-                    if isinstance(media_file, ExtantFile):
-                        notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([media_file])
-                    break
-
-    return media, warnings</code></pre>
 </details>
 </dd>
 <dt id="ki.get_models_recursively"><code class="name flex">
@@ -3563,7 +4363,7 @@ def get_models_recursively(kirepo: KiRepo, silent: bool) -&gt; Dict[str, Notetyp
 </details>
 </dd>
 <dt id="ki.get_note_path"><code class="name flex">
-<span>def <span class="ident">get_note_path</span></span>(<span>sort_field_text: str, deck_dir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
+<span>def <span class="ident">get_note_path</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, deck_dir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, card_name: str = '') ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Get note path from sort field text.</p></div>
@@ -3572,9 +4372,9 @@ def get_models_recursively(kirepo: KiRepo, silent: bool) -&gt; Dict[str, Notetyp
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; NoFile:
+def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = &#34;&#34;) -&gt; NoFile:
     &#34;&#34;&#34;Get note path from sort field text.&#34;&#34;&#34;
-    field_text = sort_field_text
+    field_text = colnote.sortf_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -3583,18 +4383,21 @@ def get_note_path(sort_field_text: str, deck_dir: ExtantDir) -&gt; NoFile:
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = sort_field_text
+        field_text = colnote.sortf_text
 
-    name = field_text[:MAX_FIELNAME_LEN]
+    name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
 
     # Make it so `slug` cannot possibly be an empty string, because then we get
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception.  If all
     # else fails, generate a random hex string to use as the filename.
     if len(slug) == 0:
-        slug = secrets.token_hex(10)
-        logger.warning(f&#34;Slug for {name} is empty. Using {slug} as filename&#34;)
+        slug = str(colnote.n.guid)
+        msg = f&#34;Slug for &#39;{colnote.n.guid}&#39; is empty. Using guid as filename&#34;
+        logger.warning(msg)
 
+    if card_name != &#34;&#34;:
+        slug = f&#34;{slug}_{card_name}&#34;
     filename: str = f&#34;{slug}{MD}&#34;
     note_path = F.test(deck_dir / filename, resolve=False)
 
@@ -3647,19 +4450,23 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
     for field_name, field_text in colnote.n.items():
         fid = get_field_note_id(colnote.n.id, field_name)
         if fid in tidy_field_files:
-            tidy_fields[field_name] = tidy_field_files[fid].read_text()
+            # HTML5-tidy adds a newline after `&lt;br&gt;` in indent mode, so we
+            # remove these, because `html_to_screen()` converts `&lt;br&gt;` tags to
+            # newlines anyway.
+            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=&#34;UTF-8&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br&gt;\n&#34;, &#34;\n&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br/&gt;\n&#34;, &#34;\n&#34;)
+            tidied_field_text = tidied_field_text.replace(&#34;&lt;br /&gt;\n&#34;, &#34;\n&#34;)
+            tidy_fields[field_name] = tidied_field_text
         else:
             tidy_fields[field_name] = field_text
 
-    # TODO: Make this use `get_colnote_repr()`.
-    # Construct note repr from `tidy_fields` map.
     lines = get_header_lines(colnote)
     for field_name, field_text in tidy_fields.items():
-
-        # Strip newlines.
-        field_text = field_text.replace(&#34;\n&#34;, &#34;&#34;)
-        lines.append(&#34;### &#34; + field_name)
-        lines.append(html_to_screen(field_text))
+        lines.append(&#34;## &#34; + field_name)
+        screen_text = html_to_screen(field_text)
+        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
+        lines.append(text)
         lines.append(&#34;&#34;)
 
     return &#34;\n&#34;.join(lines)</code></pre>
@@ -3714,7 +4521,7 @@ def get_note_warnings(
 </details>
 </dd>
 <dt id="ki.get_target"><code class="name flex">
-<span>def <span class="ident">get_target</span></span>(<span>cwd: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, directory: str) ‑> <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a></span>
+<span>def <span class="ident">get_target</span></span>(<span>cwd: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, directory: str) ‑> tuple[<a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, bool]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Create default target directory.</p></div>
@@ -3723,14 +4530,18 @@ def get_note_warnings(
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def get_target(cwd: ExtantDir, col_file: ExtantFile, directory: str) -&gt; EmptyDir:
+def get_target(
+    cwd: ExtantDir, col_file: ExtantFile, directory: str
+) -&gt; Tuple[EmptyDir, bool]:
     &#34;&#34;&#34;Create default target directory.&#34;&#34;&#34;
     path = F.test(Path(directory) if directory != &#34;&#34; else cwd / col_file.stem)
+    new: bool = True
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
-        return M.emptydir(path)
+        return M.emptydir(path), new
     if isinstance(path, EmptyDir):
-        return path
+        new = False
+        return path, new
     raise TargetExistsError(path)</code></pre>
 </details>
 </dd>
@@ -3760,6 +4571,7 @@ def git_pull(
             args += [&#34;--allow-unrelated-histories&#34;]
         if theirs:
             args += [&#34;--strategy-option=theirs&#34;]
+        args += [&#34;--verbose&#34;]
         args += [remote, branch]
         p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f&#34;{p.stdout.decode()}&#34;, silent=silent)
@@ -3816,8 +4628,9 @@ def html_to_screen(html: str) -&gt; str:
     plain = plain.replace(&#34;&lt;br&gt;&#34;, &#34;\n&#34;)
     plain = plain.replace(&#34;&lt;br/&gt;&#34;, &#34;\n&#34;)
     plain = plain.replace(&#34;&lt;br /&gt;&#34;, &#34;\n&#34;)
-    plain = plain.replace(&#34;&lt;div&gt;&#34;, &#34;\n&#34;)
-    plain = plain.replace(&#34;&lt;/div&gt;&#34;, &#34;&#34;)
+
+    # Unbreak lines within src attributes.
+    plain = re.sub(&#39;src= ?\n&#34;&#39;, &#39;src=&#34;&#39;, plain)
 
     plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
     return plain.strip()</code></pre>
@@ -3827,26 +4640,26 @@ def html_to_screen(html: str) -&gt; str:
 <span>def <span class="ident">is_anki_note</span></span>(<span>path: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> bool</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Check if file is an <code>apy</code>-style markdown anki note.</p></div>
+<div class="desc"><p>Check if file is a <code><a title="ki" href="#ki">ki</a></code>-style markdown note.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def is_anki_note(path: ExtantFile) -&gt; bool:
-    &#34;&#34;&#34;Check if file is an `apy`-style markdown anki note.&#34;&#34;&#34;
-    path = str(path)
-
+    &#34;&#34;&#34;Check if file is a `ki`-style markdown note.&#34;&#34;&#34;
     # Ought to have markdown file extension.
-    if path[-3:] != &#34;.md&#34;:
+    if path.suffix != &#34;.md&#34;:
         return False
     with open(path, &#34;r&#34;, encoding=&#34;UTF-8&#34;) as md_f:
         lines = md_f.readlines()
-    if len(lines) &lt; 2:
+    if len(lines) &lt; 8:
         return False
-    if lines[0] != &#34;## Note\n&#34;:
+    if lines[0] != &#34;# Note\n&#34;:
         return False
-    if not re.match(r&#34;^nid: [0-9]+$&#34;, lines[1]):
+    if lines[1] != &#34;```\n&#34;:
+        return False
+    if not re.match(r&#34;^guid: &#34;, lines[2]):
         return False
     return True</code></pre>
 </details>
@@ -3855,21 +4668,46 @@ def is_anki_note(path: ExtantFile) -&gt; bool:
 <span>def <span class="ident">lock</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>) ‑> sqlite3.Connection</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Acquire a lock on a SQLite3 database given a path.</p></div>
+<div class="desc"><p>Check that lock can be acquired on a SQLite3 database given a path.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def lock(col_file: ExtantFile) -&gt; sqlite3.Connection:
-    &#34;&#34;&#34;Acquire a lock on a SQLite3 database given a path.&#34;&#34;&#34;
+    &#34;&#34;&#34;Check that lock can be acquired on a SQLite3 database given a path.&#34;&#34;&#34;
     try:
         con = sqlite3.connect(col_file, timeout=0.1)
         con.isolation_level = &#34;EXCLUSIVE&#34;
         con.execute(&#34;BEGIN EXCLUSIVE&#34;)
     except sqlite3.DatabaseError as err:
         raise SQLiteLockError(col_file, err) from err
+    if sys.platform == &#34;win32&#34;:
+        con.commit()
+        con.close()
     return con</code></pre>
+</details>
+</dd>
+<dt id="ki.media_data"><code class="name flex">
+<span>def <span class="ident">media_data</span></span>(<span>col: anki.collection.Collection, fname: str) ‑> bytes</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get media file content as bytes (empty if missing).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def media_data(col: Collection, fname: str) -&gt; bytes:
+    &#34;&#34;&#34;Get media file content as bytes (empty if missing).&#34;&#34;&#34;
+    if not col.media.have(fname):
+        return b&#34;&#34;
+    path = os.path.join(col.media.dir(), fname)
+    try:
+        with open(path, &#34;rb&#34;) as f:
+            return f.read()
+    except OSError:
+        return b&#34;&#34;</code></pre>
 </details>
 </dd>
 <dt id="ki.parse_markdown_note"><code class="name flex">
@@ -3890,13 +4728,17 @@ def parse_markdown_note(
     flatnote: FlatNote = transformer.transform(tree)
     parts: Tuple[str, ...] = delta.relpath.parent.parts
     deck: str = &#34;::&#34;.join(parts)
+
+    # Generate a GUID from the hash of the field contents if the `guid` field
+    # in the note file was left blank.
+    guid = flatnote.guid if flatnote.guid != &#34;&#34; else get_guid(flatnote.fields)
+
     return DeckNote(
         title=flatnote.title,
-        nid=flatnote.nid,
+        guid=guid,
         deck=deck,
         model=flatnote.model,
         tags=flatnote.tags,
-        markdown=flatnote.markdown,
         fields=flatnote.fields,
     )</code></pre>
 </details>
@@ -3987,83 +4829,36 @@ def parse_notetype_dict(nt: Dict[str, Any]) -&gt; Notetype:
     return notetype</code></pre>
 </details>
 </dd>
-<dt id="ki.push_decknote_to_anki"><code class="name flex">
-<span>def <span class="ident">push_decknote_to_anki</span></span>(<span>col: anki.collection.Collection, decknote: <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>) ‑> tuple[<a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, list[Warning]]</span>
+<dt id="ki.plain_to_html"><code class="name flex">
+<span>def <span class="ident">plain_to_html</span></span>(<span>plain: str) ‑> str</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Update the Anki <code>Note</code> object in <code>col</code> corresponding to <code>decknote</code>,
-creating it if it does not already exist.</p>
-<h2 id="raises">Raises</h2>
-<dl>
-<dt><code>MissingNotetypeError</code></dt>
-<dd>If we can't find a notetype with the name provided in <code>decknote</code>.</dd>
-<dt><code>NoteFieldKeyError</code></dt>
-<dd>If the parsed sort field name from the notetype specified in <code>decknote</code>
-does not exist.</dd>
-</dl></div>
+<div class="desc"><p>Convert plain text to html</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def push_decknote_to_anki(
-    col: Collection, decknote: DeckNote
-) -&gt; Tuple[ColNote, List[Warning]]:
-    &#34;&#34;&#34;
-    Update the Anki `Note` object in `col` corresponding to `decknote`,
-    creating it if it does not already exist.
+def plain_to_html(plain: str) -&gt; str:
+    &#34;&#34;&#34;Convert plain text to html&#34;&#34;&#34;
+    # Minor clean up
+    plain = plain.replace(r&#34;&amp;lt;&#34;, &#34;&lt;&#34;)
+    plain = plain.replace(r&#34;&amp;gt;&#34;, &#34;&gt;&#34;)
+    plain = plain.replace(r&#34;&amp;amp;&#34;, &#34;&amp;&#34;)
+    plain = plain.replace(r&#34;&amp;nbsp;&#34;, &#34; &#34;)
+    plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
+    plain = re.sub(r&#34;\&lt;i\&gt;\s*\&lt;\/i\&gt;&#34;, &#34;&#34;, plain)
+    plain = re.sub(r&#34;\&lt;div\&gt;\s*\&lt;\/div\&gt;&#34;, &#34;&#34;, plain)
 
-    Raises
-    ------
-    MissingNotetypeError
-        If we can&#39;t find a notetype with the name provided in `decknote`.
-    NoteFieldKeyError
-        If the parsed sort field name from the notetype specified in `decknote`
-        does not exist.
-    &#34;&#34;&#34;
-    # Notetype/model names are privileged in Anki, so if we don&#39;t find the
-    # right name, we raise an error.
-    model_id: Optional[int] = col.models.id_for_name(decknote.model)
-    if model_id is None:
-        raise MissingNotetypeError(decknote.model)
+    # Convert newlines to `&lt;br&gt;` tags.
+    if not re.search(HTML_REGEX, plain):
+        plain = plain.replace(&#34;\n&#34;, &#34;&lt;br&gt;&#34;)
 
-    new = False
-    note: Note
-    try:
-        note = col.get_note(decknote.nid)
-    except NotFoundError:
-        note = col.new_note(model_id)
-        col.add_note(note, col.decks.id(decknote.deck, create=True))
-        new = True
-
-    # If we are updating an existing note, we need to know the old and new
-    # notetypes, and then update the notetype (and the rest of the note data)
-    # accordingly.
-    old_notetype: Notetype = parse_notetype_dict(note.note_type())
-    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    note, warnings = update_note(note, decknote, old_notetype, new_notetype)
-
-    # Get the text of the sort field for this note.
-    try:
-        sortf_text: str = note[new_notetype.sortf.name]
-    except KeyError as err:
-        raise NoteFieldKeyError(str(err), note.id) from err
-
-    colnote = ColNote(
-        n=note,
-        new=new,
-        deck=decknote.deck,
-        title=decknote.title,
-        old_nid=decknote.nid,
-        markdown=decknote.markdown,
-        notetype=new_notetype,
-        sortf_text=sortf_text,
-    )
-    return colnote, warnings</code></pre>
+    return plain.strip()</code></pre>
 </details>
 </dd>
 <dt id="ki.push_deltas"><code class="name flex">
-<span>def <span class="ident">push_deltas</span></span>(<span>deltas: list[typing.Union[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>, Warning]], models: dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>], kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, md5sum: str, parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, head_kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, con: sqlite3.Connection) ‑> <a title="ki.types.PushResult" href="types.html#ki.types.PushResult">PushResult</a></span>
+<span>def <span class="ident">push_deltas</span></span>(<span>deltas: list[typing.Union[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>, Warning]], models: dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>], kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, md5sum: str, parser: lark.lark.Lark, transformer: <a title="ki.transformer.NoteTransformer" href="transformer.html#ki.transformer.NoteTransformer">NoteTransformer</a>, head_kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, con: sqlite3.Connection, verbose: bool) ‑> <a title="ki.types.PushResult" href="types.html#ki.types.PushResult">PushResult</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Push a list of <code>Delta</code>s to an Anki collection.</p></div>
@@ -4081,10 +4876,17 @@ def push_deltas(
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
+    verbose: bool,
 ) -&gt; PushResult:
     &#34;&#34;&#34;Push a list of `Delta`s to an Anki collection.&#34;&#34;&#34;
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
+
+    # Display warnings from diff procedure.
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg=&#34;yellow&#34;)
+    warnings = []
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -4113,15 +4915,23 @@ def push_deltas(
     # Add new models to the collection.
     add_models(col, models)
 
-    # Gather logging statements to display.
-    log: List[str] = []
-
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset(&#34;HEAD&#34;, hard=True)
 
     # Display table of note change type counts.
     echo_note_change_types(deltas)
+
+    # Construct a map from guid -&gt; (nid, mod, mid), adapted from
+    # `Anki2Importer._import_notes()`. Note that `mod` is the modification
+    # timestamp, in epoch seconds (timestamp of when the note was last
+    # modified).
+    guids: Dict[str, NoteMetadata] = {}
+    for nid, guid, mod, mid in col.db.execute(&#34;select id, guid, mod, mid from notes&#34;):
+        guids[guid] = NoteMetadata(nid, mod, mid)
+
+    timestamp_ns: int = time.time_ns()
+    new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
 
@@ -4134,42 +4944,23 @@ def push_deltas(
         decknote = parse_markdown_note(parser, transformer, delta)
 
         if is_delete(delta):
-            col.remove_notes([decknote.nid])
+            if decknote.guid in guids:
+                col.remove_notes([guids[decknote.guid].nid])
             continue
 
         # TODO: If relevant prefix of sort field has changed, we should
         # regenerate the file. Recall that the sort field is used to determine
         # the filename. If the content of the sort field has changed, then we
         # may need to update the filename.
-        colnote, note_warnings = push_decknote_to_anki(col, decknote)
-        log += regenerate_note_file(colnote, kirepo.root, delta.relpath)
-        warnings += note_warnings
+        warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
 
-    # Display all warnings.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg=&#34;yellow&#34;)
-
-    # Commit nid reassignments.
-    echo(f&#34;Reassigned {len(log)} nids.&#34;)
-    if len(log) &gt; 0:
-        msg = &#34;Generated new nid(s).\n\n&#34; + &#34;\n&#34;.join(log)
-
-        # Commit in all submodules (doesn&#39;t support recursing yet).
-        for sm in kirepo.repo.submodules:
-
-            # TODO: Remove submodule update calls, and use the gitpython
-            # API to check if the submodules exist instead. The update
-            # calls make a remote fetch which takes an extremely long time,
-            # and the user should have run `git submodule update`
-            # themselves anyway.
-            subrepo: git.Repo = sm.module()
-            subrepo.git.add(all=True)
-            subrepo.index.commit(msg)
-
-        # Commit in main repository.
-        kirepo.repo.git.add(all=True)
-        _ = kirepo.repo.index.commit(msg)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -4183,22 +4974,50 @@ def push_deltas(
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-    # TODO: Write an analogue of `Anki2Importer._mungeMedia()` that does
-    # deduplication, and fixes fields for notes that reference that media.
+    warnings = []
+
     bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
     bar.set_description(&#34;Media&#34;)
     for media_file in bar:
 
+        # Check file mode, and follow symlink if applicable.
+        mode: int = filemode(media_file)
+        if mode == 120000:
+            target: str = media_file.read_text(encoding=&#34;UTF-8&#34;)
+            parent: ExtantDir = F.parent(media_file)
+            media_file: ExtantFile = M.xfile(parent / target)
+
+        # Get bytes of new media file.
+        with open(media_file, &#34;rb&#34;) as f:
+            new: bytes = f.read()
+
+        # Get bytes of existing media file (if it exists).
+        old: bytes = media_data(col, media_file.name)
+        if old and old == new:
+            continue
+
         # Add (and possibly rename) media paths.
-        _: str = col.media.add_file(media_file)
+        new_media_filename: str = col.media.add_file(media_file)
+        if new_media_filename != media_file.name:
+            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
+            warnings.append(warning)
 
     col.close(save=True)
+
+    num_displayed: int = 0
+    for warning in warnings:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
+            click.secho(str(warning), fg=&#34;yellow&#34;)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     # Append to hashes file.
     new_md5sum = F.md5(new_col_file)
     append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
+    head: RepoRef = M.head_repo_ref(kirepo.repo)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
@@ -4206,65 +5025,72 @@ def push_deltas(
     return PushResult.NONTRIVIAL</code></pre>
 </details>
 </dd>
-<dt id="ki.regenerate_note_file"><code class="name flex">
-<span>def <span class="ident">regenerate_note_file</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, root: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, relpath: pathlib.Path) ‑> list[str]</span>
+<dt id="ki.push_note"><code class="name flex">
+<span>def <span class="ident">push_note</span></span>(<span>col: anki.collection.Collection, decknote: <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>, timestamp_ns: int, guids: dict[str, <a title="ki.types.NoteMetadata" href="types.html#ki.types.NoteMetadata">NoteMetadata</a>], new_nids: collections.abc.Iterator[int]) ‑> list[Warning]</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Construct the contents of a note corresponding to the arguments <code>colnote</code>,
-which itself was created from <code>decknote</code>, and then write it to disk.</p>
-<p>Returns a list of lines to add to the commit message (either an empty list,
-or a list containing a single line).</p>
-<p>This function is intended to be used when we are adding <em>completely</em> new
-notes, in which case the caller generates a new note with a newly generated
-nid, which can be accessed at <code>colnote.n.id</code>. In general, this is the
-branch taken whenever Anki fails to recognize the nid given in the note
-file, which can be accessed via <code>colnote.old_nid</code>. Thus, we only regenerate
-if <code>colnote.n.id</code> and <code>colnote.old_nid</code> to differ, since the former has the
-newly assigned nid for this note, yielded by the Anki runtime, and the
-latter has whatever was written in the file.</p></div>
+<div class="desc"><p>Update the Anki <code>Note</code> object in <code>col</code> corresponding to <code>decknote</code>,
+creating it if it does not already exist.</p>
+<h2 id="raises">Raises</h2>
+<dl>
+<dt><code>MissingNotetypeError</code></dt>
+<dd>If we can't find a notetype with the name provided in <code>decknote</code>.</dd>
+</dl></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def regenerate_note_file(colnote: ColNote, root: ExtantDir, relpath: Path) -&gt; List[str]:
+def push_note(
+    col: Collection,
+    decknote: DeckNote,
+    timestamp_ns: int,
+    guids: Dict[str, NoteMetadata],
+    new_nids: Iterator[int],
+) -&gt; List[Warning]:
     &#34;&#34;&#34;
-    Construct the contents of a note corresponding to the arguments `colnote`,
-    which itself was created from `decknote`, and then write it to disk.
+    Update the Anki `Note` object in `col` corresponding to `decknote`,
+    creating it if it does not already exist.
 
-    Returns a list of lines to add to the commit message (either an empty list,
-    or a list containing a single line).
-
-    This function is intended to be used when we are adding *completely* new
-    notes, in which case the caller generates a new note with a newly generated
-    nid, which can be accessed at `colnote.n.id`. In general, this is the
-    branch taken whenever Anki fails to recognize the nid given in the note
-    file, which can be accessed via `colnote.old_nid`. Thus, we only regenerate
-    if `colnote.n.id` and `colnote.old_nid` to differ, since the former has the
-    newly assigned nid for this note, yielded by the Anki runtime, and the
-    latter has whatever was written in the file.
+    Raises
+    ------
+    MissingNotetypeError
+        If we can&#39;t find a notetype with the name provided in `decknote`.
     &#34;&#34;&#34;
-    # If this is not a new note, then we didn&#39;t reassign its nid, and we don&#39;t
-    # need to regenerate the file. So we don&#39;t add a line to the commit
-    # message.
-    if not colnote.new:
-        return []
+    # Notetype/model names are privileged in Anki, so if we don&#39;t find the
+    # right name, we raise an error.
+    model_id: Optional[int] = col.models.id_for_name(decknote.model)
+    if model_id is None:
+        raise MissingNotetypeError(decknote.model)
 
-    # Get paths to note in local repo, as distinct from staging repo.
-    repo_note_path: Path = root / relpath
+    if decknote.guid in guids:
+        nid: int = guids[decknote.guid].nid
+        note: Note = col.get_note(nid)
+    else:
+        nid: int = next(new_nids)
+        note: Note = add_db_note(
+            col,
+            nid,
+            decknote.guid,
+            model_id,
+            mod=int(timestamp_ns // 1e9),
+            usn=-1,
+            tags=decknote.tags,
+            fields=list(decknote.fields.values()),
+            sfld=&#34;&#34;,
+            csum=0,
+            flags=0,
+            data=&#34;&#34;,
+        )
 
-    # If this is not an entirely new file, remove it.
-    if repo_note_path.is_file():
-        repo_note_path.unlink()
+    # If we are updating an existing note, we need to know the old and new
+    # notetypes, and then update the notetype (and the rest of the note data)
+    # accordingly.
+    old_notetype: Notetype = parse_notetype_dict(note.note_type())
+    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
+    warnings = update_note(note, decknote, old_notetype, new_notetype)
 
-    parent: ExtantDir = F.force_mkdir(repo_note_path.parent)
-    new_note_path: NoFile = get_note_path(colnote.sortf_text, parent)
-    F.write(new_note_path, get_colnote_repr(colnote))
-
-    # Construct a nice commit message line.
-    msg = f&#34;Reassigned nid: &#39;{colnote.old_nid}&#39; -&gt; &#34;
-    msg += f&#34;&#39;{colnote.n.id}&#39; in &#39;{os.path.relpath(new_note_path, root)}&#39;&#34;
-    return [msg]</code></pre>
+    return warnings</code></pre>
 </details>
 </dd>
 <dt id="ki.tidy_html_recursively"><code class="name flex">
@@ -4300,12 +5126,16 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; None:
             &#34;no&#34;,
             &#34;--show-body-only&#34;,
             &#34;yes&#34;,
+            &#34;--wrap&#34;,
+            &#34;68&#34;,
+            &#34;--wrap-attributes&#34;,
+            &#34;yes&#34;,
         ]
         command += batch
         try:
             subprocess.run(command, check=False, capture_output=True)
-        except Exception as err:
-            raise err</code></pre>
+        except FileNotFoundError as err:
+            raise MissingTidyExecutableError(err) from err</code></pre>
 </details>
 </dd>
 <dt id="ki.unlock"><code class="name flex">
@@ -4320,6 +5150,8 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -&gt; None:
 <pre><code class="python">@beartype
 def unlock(con: sqlite3.Connection) -&gt; None:
     &#34;&#34;&#34;Unlock a SQLite3 database.&#34;&#34;&#34;
+    if sys.platform == &#34;win32&#34;:
+        return
     con.commit()
     con.close()</code></pre>
 </details>
@@ -4349,20 +5181,14 @@ def unsubmodule_repo(repo: git.Repo) -&gt; git.Repo:
 
     UNSAFE: git.rm() calls.
     &#34;&#34;&#34;
-    # TODO: Is there any point in making commits within this function, if we
-    # are just going to annihilate the .git/ directory immediately afterwards?
     gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
     for sm in repo.submodules:
 
-        # Path guaranteed to exist by gitpython.
-        #
-        # TODO: Catch runtime exceptions likely caused by removing the
-        # `sm.update()` call that used to be here. May have to check for
-        # existence of submodule via gitpython, or something else.
+        # The submodule path is guaranteed to exist by gitpython.
         sm_path = Path(sm.module().working_tree_dir)
         repo.git.rm(sm_path, cached=True)
 
-        # May not exist.
+        # Annihilate `.gitmodules` file.
         if gitmodules_path.is_file:
             repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
@@ -4372,18 +5198,18 @@ def unsubmodule_repo(repo: git.Repo) -&gt; git.Repo:
         else:
             (sm_path / GIT).unlink(missing_ok=True)
 
-        # Should still exist after git.rm().
+        # Directory should still exist after `git.rm()`.
         repo.git.add(sm_path)
-        _ = repo.index.commit(f&#34;Add submodule {sm.name} as ordinary directory.&#34;)
+        _ = repo.index.commit(f&#34;Add submodule `{sm.name}` as ordinary directory.&#34;)
 
     if gitmodules_path.exists():
         repo.git.rm(gitmodules_path)
-        _ = repo.index.commit(&#34;Remove &#39;.gitmodules&#39; file.&#34;)
+        _ = repo.index.commit(&#34;Remove `.gitmodules` file.&#34;)
     return repo</code></pre>
 </details>
 </dd>
 <dt id="ki.update_note"><code class="name flex">
-<span>def <span class="ident">update_note</span></span>(<span>note: anki.notes.Note, decknote: <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>, old_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>, new_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>) ‑> tuple[anki.notes.Note, list[Warning]]</span>
+<span>def <span class="ident">update_note</span></span>(<span>note: anki.notes.Note, decknote: <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>, old_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>, new_notetype: <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>) ‑> list[Warning]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Change all the data of <code>note</code> to that given in <code>decknote</code>.</p>
@@ -4408,7 +5234,7 @@ Overwrites all fields with <code>decknote.fields</code>.</p>
 <pre><code class="python">@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
-) -&gt; Tuple[Note, List[Warning]]:
+) -&gt; List[Warning]:
     &#34;&#34;&#34;
     Change all the data of `note` to that given in `decknote`.
 
@@ -4450,25 +5276,28 @@ def update_note(
         fmap[field.ord] = None
 
     # Change notetype (also clears all fields).
-    note.col.models.change(old_notetype.dict, [note.id], new_notetype.dict, fmap, None)
-    note.load()
+    if old_notetype.id != new_notetype.id:
+        note.col.models.change(
+            old_notetype.dict, [note.id], new_notetype.dict, fmap, None
+        )
+        note.load()
 
     # Validate field keys against notetype.
     warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
-
-    # TODO: Don&#39;t print this here.
-    for warning in warnings:
-        logger.warning(warning)
+    if len(warnings) &gt; 0:
+        return warnings
 
     # Set field values. This is correct because every field name that appears
     # in `new_notetype` is contained in `decknote.fields`, or else we would
     # have printed a warning and returned above.
-    # TODO: Check if these apy methods can raise exceptions.
     for key, field in decknote.fields.items():
-        if decknote.markdown:
-            note[key] = markdown_to_html(field)
-        else:
+        if key not in note:
+            warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
+            continue
+        try:
             note[key] = plain_to_html(field)
+        except IndexError as err:
+            raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
 
     # Flush fields to collection object.
     note.flush()
@@ -4477,9 +5306,9 @@ def update_note(
     health = display_fields_health_warning(note)
     if health != 0:
         note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(str(note.id)))
+        warnings.append(UnhealthyNoteWarning(note.id, health))
 
-    return note, warnings</code></pre>
+    return warnings</code></pre>
 </details>
 </dd>
 <dt id="ki.validate_decknote_fields"><code class="name flex">
@@ -4495,27 +5324,158 @@ def update_note(
 def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -&gt; List[Warning]:
     &#34;&#34;&#34;Validate that the fields given in the note match the notetype.&#34;&#34;&#34;
     warnings: List[Warning] = []
-    # Set current notetype for collection to `model_name`.
-    field_names: List[str] = [field.name for field in notetype.flds]
+    names: List[str] = [field.name for field in notetype.flds]
 
-    # TODO: Use a more descriptive error message. It is probably sufficient to
-    # just add the `nid` from the decknote, so we know which note we failed to
-    # validate. It might also be nice to print the path of the note in the
+    # TODO: It might also be nice to print the path of the note in the
     # repository. This would have to be added to the `DeckNote` spec.
-    if len(decknote.fields.keys()) != len(field_names):
-        msg = f&#34;Wrong number of fields for model {decknote.model}!&#34;
-        warnings.append(NoteFieldValidationWarning(msg))
+    if len(decknote.fields.keys()) != len(names):
+        warnings.append(WrongFieldCountWarning(decknote, names))
 
-    for x, y in zip(field_names, decknote.fields.keys()):
+    for x, y in zip(names, decknote.fields.keys()):
         if x != y:
-            msg = f&#34;Inconsistent field names ({x} != {y})&#34;
-            warnings.append(NoteFieldValidationWarning(msg))
+            warnings.append(InconsistentFieldNamesWarning(x, y, decknote))
 
     return warnings</code></pre>
 </details>
 </dd>
+<dt id="ki.warn"><code class="name flex">
+<span>def <span class="ident">warn</span></span>(<span>string: str) ‑> None</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Call <code>click.secho()</code> with formatting (yellow).</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def warn(string: str) -&gt; None:
+    &#34;&#34;&#34;Call `click.secho()` with formatting (yellow).&#34;&#34;&#34;
+    click.secho(f&#34;WARNING: {string}&#34;, bold=True, fg=&#34;yellow&#34;)</code></pre>
+</details>
+</dd>
+<dt id="ki.write_deck_node_cards"><code class="name flex">
+<span>def <span class="ident">write_deck_node_cards</span></span>(<span>node: anki.decks_pb2.DeckTreeNode, col: anki.collection.Collection, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], tidy_field_files: dict[str, <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>], models_map: dict[int, dict[str, typing.Any]], written_cids: set[int], written_notes: dict[int, <a title="ki.types.WrittenNoteFile" href="types.html#ki.types.WrittenNoteFile">WrittenNoteFile</a>]) ‑> tuple[set[int], dict[int, <a title="ki.types.WrittenNoteFile" href="types.html#ki.types.WrittenNoteFile">WrittenNoteFile</a>], set[<a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Write all the cards to disk for a single <code>DeckTreeNode</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def write_deck_node_cards(
+    node: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    colnotes: Dict[int, ColNote],
+    tidy_field_files: Dict[str, ExtantFile],
+    models_map: Dict[int, NotetypeDict],
+    written_cids: Set[int],
+    written_notes: Dict[int, WrittenNoteFile],
+) -&gt; Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
+    &#34;&#34;&#34;Write all the cards to disk for a single `DeckTreeNode`.&#34;&#34;&#34;
+    written_cids = copy.deepcopy(written_cids)
+    written_notes = copy.deepcopy(written_notes)
+    latent_links: Set[LatentSymlink] = set()
+
+    # The name stored in a `DeckTreeNode` object is not the full name of
+    # the deck, it is just the &#39;basename&#39;. The `postorder()` function
+    # returns a deck with `did == 0` at the end of each call, probably
+    # because this is the implicit parent deck of all top-level decks. This
+    # deck empirically always has the empty string as its name. This is
+    # likely an Anki implementation detail. As a result, we ignore any deck
+    # with empty basename. We do this as opposed to ignoring decks with
+    # `did == 0` because it seems less likely to change if the Anki devs
+    # decide to mess with the implementation. Empty deck names will always
+    # be reserved, but they might e.g. decide ``did == -1`` makes more
+    # sense.
+    did: int = node.deck_id
+    basename: str = node.name
+    if basename == &#34;&#34;:
+        return set(), {}, set()
+    name = col.decks.name(did)
+
+    deck_dir: ExtantDir = create_deck_dir(name, targetdir)
+    children: Set[CardId] = set(col.decks.cids(did=did, children=False))
+    descendants: List[CardId] = col.decks.cids(did=did, children=True)
+    descendant_nids: Set[int] = {NOTETYPE_NID}
+    descendant_mids: Set[int] = set()
+
+    for cid in descendants:
+        card: Card = col.get_card(cid)
+        descendant_nids.add(card.nid)
+        descendant_mids.add(card.note().mid)
+
+        # Card writes should not be cumulative, so we only perform them if
+        # `cid` is the card id of a card that is in the deck corresponding
+        # to `node`, but not in any of its children.
+        if cid not in children:
+            continue
+
+        # We only even consider writing *anything* (file or symlink) to
+        # disk after checking that we haven&#39;t already processed this
+        # particular card id. If we have, then we only need to bother with
+        # the cumulative stuff above (nids and mids, which we keep track of
+        # in order to write out models and media).
+        #
+        # TODO: This fixes a very serious bug. Write a test to capture the
+        # issue. Use the Japanese Core 2000 deck as a template if needed.
+        if cid in written_cids:
+            continue
+        written_cids.add(cid)
+
+        # We only write the payload if we haven&#39;t seen this note before.
+        # Otherwise, this must be a different card generated from the same
+        # note, so we symlink to the location where we&#39;ve already written
+        # it to disk.
+        colnote: ColNote = colnotes[card.nid]
+
+        if card.nid not in written_notes:
+            note_path: NoFile = get_note_path(colnote, deck_dir)
+            payload: str = get_note_payload(colnote, tidy_field_files)
+            note_path: ExtantFile = F.write(note_path, payload)
+            written_notes[card.nid] = WrittenNoteFile(did, note_path)
+        else:
+            # If `card` is in the same deck as the card we wrote `written`
+            # for, then there is no need to create a symlink, because the
+            # note file is already there, in the correct deck directory.
+            #
+            # TODO: This fixes a very serious bug. Write a test to capture the
+            # issue. Use the Japanese Core 2000 deck as a template if needed.
+            written: WrittenNoteFile = written_notes[card.nid]
+            if card.did == written.did:
+                continue
+
+            # Get card template name.
+            template: TemplateDict = card.template()
+            name: str = template[&#34;name&#34;]
+
+            note_path: NoFile = get_note_path(colnote, deck_dir, name)
+            abs_target: ExtantFile = written_notes[card.nid].file
+            distance = len(note_path.parent.relative_to(targetdir).parts)
+            up_path = Path(&#34;../&#34; * distance)
+            relative: Path = abs_target.relative_to(targetdir)
+            target: Path = up_path / relative
+
+            try:
+                link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
+                if isinstance(link, LatentSymlink):
+                    latent_links.add(link)
+            except OSError as _:
+                trace = traceback.format_exc(limit=3)
+                logger.warning(f&#34;Failed to create symlink for cid &#39;{cid}&#39;\n{trace}&#34;)
+
+    # TODO: Should this block be outside this function?
+    # Write `models.json` for current deck.
+    deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
+    with open(deck_dir / MODELS_FILE, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
+        json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+
+    return written_cids, written_notes, latent_links</code></pre>
+</details>
+</dd>
 <dt id="ki.write_decks"><code class="name flex">
-<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]], tidy_field_files: dict[str, <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>], silent: bool) ‑> None</span>
+<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>]], tidy_field_files: dict[str, <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>], silent: bool) ‑> set[<a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -4534,7 +5494,7 @@ def write_decks(
     media: Dict[int, Set[ExtantFile]],
     tidy_field_files: Dict[str, ExtantFile],
     silent: bool,
-) -&gt; None:
+) -&gt; Set[LatentSymlink]:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -4601,98 +5561,38 @@ def write_decks(
     # the symlinks should point.
     written_notes: Dict[int, WrittenNoteFile] = {}
 
-    # TODO: This block is littered with unsafe code. Fix.
+    # All latent symlinks created on Windows whose file modes we must set.
+    latent_links: Set[LatentSymlink] = set()
+
     nodes: List[DeckTreeNode] = postorder(root)
 
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description(&#34;Decks&#34;)
-    for node in bar:
+    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
+    nodes_bar.set_description(&#34;Decks&#34;)
+    for node in nodes_bar:
+        node_cids: Set[int]
+        node_notes: Dict[int, WrittenNoteFile]
+        node_latent_links: Set[LatentSymlink]
+        node_cids, node_notes, node_latent_links = write_deck_node_cards(
+            node,
+            col,
+            targetdir,
+            colnotes,
+            tidy_field_files,
+            models_map,
+            written_cids,
+            written_notes,
+        )
+        written_cids |= node_cids
+        written_notes.update(node_notes)
+        latent_links |= node_latent_links
 
-        # The name stored in a `DeckTreeNode` object is not the full name of
-        # the deck, it is just the &#39;basename&#39;. The `postorder()` function
-        # returns a deck with `did == 0` at the end of each call, probably
-        # because this is the implicit parent deck of all top-level decks. This
-        # deck empirically always has the empty string as its name. This is
-        # likely an Anki implementation detail. As a result, we ignore any deck
-        # with empty basename. We do this as opposed to ignoring decks with
-        # `did == 0` because it seems less likely to change if the Anki devs
-        # decide to mess with the implementation. Empty deck names will always
-        # be reserved, but they might e.g. decide ``did == -1`` makes more
-        # sense.
-        did: int = node.deck_id
-        basename: str = node.name
-        if basename == &#34;&#34;:
-            continue
-        name = col.decks.name(did)
-
-        deck_dir: ExtantDir = create_deck_dir(name, targetdir)
-        children: Set[CardId] = set(col.decks.cids(did=did, children=False))
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = set([NOTETYPE_NID])
-        descendant_mids: Set[int] = set()
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-            descendant_mids.add(card.note().mid)
-
-            # Card writes should not be cumulative, so we only perform them if
-            # `cid` is the card id of a card that is in the deck corresponding
-            # to `node`, but not in any of its children.
-            if cid not in children:
-                continue
-
-            # We only even consider writing *anything* (file or symlink) to
-            # disk after checking that we haven&#39;t already processed this
-            # particular card id. If we have, then we only need to bother with
-            # the cumulative stuff above (nids and mids, which we keep track of
-            # in order to write out models and media).
-            #
-            # TODO: This fixes a very serious bug. Write a test to capture the
-            # issue. Use the Japanese Core 2000 deck as a template if needed.
-            if cid in written_cids:
-                continue
-            written_cids.add(cid)
-
-            # We only write the payload if we haven&#39;t seen this note before.
-            # Otherwise, this must be a different card generated from the same
-            # note, so we symlink to the location where we&#39;ve already written
-            # it to disk.
-            colnote: ColNote = colnotes[card.nid]
-
-            if card.nid not in written_notes:
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                payload: str = get_note_payload(colnote, tidy_field_files)
-                note_path: ExtantFile = F.write(note_path, payload)
-                written_notes[card.nid] = WrittenNoteFile(did, note_path)
-            else:
-                # If `card` is in the same deck as the card we wrote `written`
-                # for, then there is no need to create a symlink, because the
-                # note file is already there, in the correct deck directory.
-                #
-                # TODO: This fixes a very serious bug. Write a test to capture the
-                # issue. Use the Japanese Core 2000 deck as a template if needed.
-                written: WrittenNoteFile = written_notes[card.nid]
-                if card.did == written.did:
-                    continue
-
-                note_path: NoFile = get_note_path(colnote.sortf_text, deck_dir)
-                F.symlink(note_path, written_notes[card.nid].file)
-
-        # Write `models.json` for current deck.
-        deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-        with open(deck_dir / MODELS_FILE, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
-            json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
-
-        # Write media files for this deck.
-        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
-        for nid in descendant_nids:
-            if nid in media:
-                for media_file in media[nid]:
-                    F.copyfile(media_file, deck_media_dir, media_file.name)</code></pre>
+    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
+    latent_links |= media_links
+    return latent_links</code></pre>
 </details>
 </dd>
 <dt id="ki.write_repository"><code class="name flex">
-<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, leaves: <a title="ki.types.Leaves" href="types.html#ki.types.Leaves">Leaves</a>, media_dir: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, silent: bool) ‑> None</span>
+<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.types.ExtantFile" href="types.html#ki.types.ExtantFile">ExtantFile</a>, targetdir: <a title="ki.types.ExtantDir" href="types.html#ki.types.ExtantDir">ExtantDir</a>, leaves: <a title="ki.types.Leaves" href="types.html#ki.types.Leaves">Leaves</a>, media_target_dir: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, silent: bool, verbose: bool) ‑> set[<a title="ki.types.LatentSymlink" href="types.html#ki.types.LatentSymlink">LatentSymlink</a>]</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write notes to appropriate directories in <code>targetdir</code>.</p></div>
@@ -4705,9 +5605,10 @@ def write_repository(
     col_file: ExtantFile,
     targetdir: ExtantDir,
     leaves: Leaves,
-    media_dir: EmptyDir,
+    media_target_dir: EmptyDir,
     silent: bool,
-) -&gt; None:
+    verbose: bool,
+) -&gt; Set[LatentSymlink]:
     &#34;&#34;&#34;Write notes to appropriate directories in `targetdir`.&#34;&#34;&#34;
 
     # Create config file.
@@ -4742,31 +5643,39 @@ def write_repository(
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for fieldname, fieldtext in colnote.n.items():
-            if re.search(HTML_REGEX, fieldtext):
-                fid: str = get_field_note_id(nid, fieldname)
+        for field_name, field_text in colnote.n.items():
+            field_text: str = html_to_screen(field_text)
+            if re.search(HTML_REGEX, field_text):
+                fid: str = get_field_note_id(nid, field_name)
                 html_file: NoFile = F.test(root / fid)
-                tidy_field_files[fid] = F.write(html_file, fieldtext)
+                tidy_field_files[fid] = F.write(html_file, field_text)
 
     tidy_html_recursively(root, silent)
 
     media: Dict[int, Set[ExtantFile]]
-    media, warnings = get_media_files(col, silent=silent)
+    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
-    write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
+    latent_links: Set[LatentSymlink] = write_decks(
+        col,
+        targetdir,
+        colnotes,
+        media,
+        tidy_field_files,
+        silent,
+    )
 
-    # TODO: Maybe print how many warnings are ignored of each type.
+    num_displayed: int = 0
     for warning in warnings:
-        if type(warning) not in WARNING_IGNORE_LIST:
+        if verbose or type(warning) not in WARNING_IGNORE_LIST:
             click.secho(str(warning), fg=&#34;yellow&#34;)
-
-    with F.halo(&#34;Copying media...&#34;):
-        for note_media in media.values():
-            for media_file in note_media:
-                F.copyfile(media_file, media_dir, media_file.name)
+            num_displayed += 1
+    num_suppressed: int = len(warnings) - num_displayed
+    echo(f&#34;Warnings suppressed: {num_suppressed} (show with &#39;--verbose&#39;)&#34;)
 
     F.rmtree(root)
-    col.close(save=False)</code></pre>
+    col.close(save=False)
+
+    return latent_links</code></pre>
 </details>
 </dd>
 </dl>
@@ -4838,22 +5747,26 @@ def write_repository(
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
+<li><code><a title="ki.add_db_note" href="#ki.add_db_note">add_db_note</a></code></li>
 <li><code><a title="ki.add_models" href="#ki.add_models">add_models</a></code></li>
 <li><code><a title="ki.append_md5sum" href="#ki.append_md5sum">append_md5sum</a></code></li>
 <li><code><a title="ki.backup" href="#ki.backup">backup</a></code></li>
+<li><code><a title="ki.chain_media_symlinks" href="#ki.chain_media_symlinks">chain_media_symlinks</a></code></li>
 <li><code><a title="ki.copy_kirepo" href="#ki.copy_kirepo">copy_kirepo</a></code></li>
+<li><code><a title="ki.copy_media_files" href="#ki.copy_media_files">copy_media_files</a></code></li>
 <li><code><a title="ki.copy_repo" href="#ki.copy_repo">copy_repo</a></code></li>
 <li><code><a title="ki.create_deck_dir" href="#ki.create_deck_dir">create_deck_dir</a></code></li>
 <li><code><a title="ki.diff2" href="#ki.diff2">diff2</a></code></li>
 <li><code><a title="ki.display_fields_health_warning" href="#ki.display_fields_health_warning">display_fields_health_warning</a></code></li>
 <li><code><a title="ki.echo" href="#ki.echo">echo</a></code></li>
 <li><code><a title="ki.echo_note_change_types" href="#ki.echo_note_change_types">echo_note_change_types</a></code></li>
+<li><code><a title="ki.filemode" href="#ki.filemode">filemode</a></code></li>
 <li><code><a title="ki.files_in_str" href="#ki.files_in_str">files_in_str</a></code></li>
 <li><code><a title="ki.get_colnote" href="#ki.get_colnote">get_colnote</a></code></li>
-<li><code><a title="ki.get_colnote_repr" href="#ki.get_colnote_repr">get_colnote_repr</a></code></li>
+<li><code><a title="ki.get_colnote_as_str" href="#ki.get_colnote_as_str">get_colnote_as_str</a></code></li>
 <li><code><a title="ki.get_field_note_id" href="#ki.get_field_note_id">get_field_note_id</a></code></li>
+<li><code><a title="ki.get_guid" href="#ki.get_guid">get_guid</a></code></li>
 <li><code><a title="ki.get_header_lines" href="#ki.get_header_lines">get_header_lines</a></code></li>
-<li><code><a title="ki.get_media_files" href="#ki.get_media_files">get_media_files</a></code></li>
 <li><code><a title="ki.get_models_recursively" href="#ki.get_models_recursively">get_models_recursively</a></code></li>
 <li><code><a title="ki.get_note_path" href="#ki.get_note_path">get_note_path</a></code></li>
 <li><code><a title="ki.get_note_payload" href="#ki.get_note_payload">get_note_payload</a></code></li>
@@ -4863,16 +5776,19 @@ def write_repository(
 <li><code><a title="ki.html_to_screen" href="#ki.html_to_screen">html_to_screen</a></code></li>
 <li><code><a title="ki.is_anki_note" href="#ki.is_anki_note">is_anki_note</a></code></li>
 <li><code><a title="ki.lock" href="#ki.lock">lock</a></code></li>
+<li><code><a title="ki.media_data" href="#ki.media_data">media_data</a></code></li>
 <li><code><a title="ki.parse_markdown_note" href="#ki.parse_markdown_note">parse_markdown_note</a></code></li>
 <li><code><a title="ki.parse_notetype_dict" href="#ki.parse_notetype_dict">parse_notetype_dict</a></code></li>
-<li><code><a title="ki.push_decknote_to_anki" href="#ki.push_decknote_to_anki">push_decknote_to_anki</a></code></li>
+<li><code><a title="ki.plain_to_html" href="#ki.plain_to_html">plain_to_html</a></code></li>
 <li><code><a title="ki.push_deltas" href="#ki.push_deltas">push_deltas</a></code></li>
-<li><code><a title="ki.regenerate_note_file" href="#ki.regenerate_note_file">regenerate_note_file</a></code></li>
+<li><code><a title="ki.push_note" href="#ki.push_note">push_note</a></code></li>
 <li><code><a title="ki.tidy_html_recursively" href="#ki.tidy_html_recursively">tidy_html_recursively</a></code></li>
 <li><code><a title="ki.unlock" href="#ki.unlock">unlock</a></code></li>
 <li><code><a title="ki.unsubmodule_repo" href="#ki.unsubmodule_repo">unsubmodule_repo</a></code></li>
 <li><code><a title="ki.update_note" href="#ki.update_note">update_note</a></code></li>
 <li><code><a title="ki.validate_decknote_fields" href="#ki.validate_decknote_fields">validate_decknote_fields</a></code></li>
+<li><code><a title="ki.warn" href="#ki.warn">warn</a></code></li>
+<li><code><a title="ki.write_deck_node_cards" href="#ki.write_deck_node_cards">write_deck_node_cards</a></code></li>
 <li><code><a title="ki.write_decks" href="#ki.write_decks">write_decks</a></code></li>
 <li><code><a title="ki.write_repository" href="#ki.write_repository">write_repository</a></code></li>
 </ul>
