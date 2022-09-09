@@ -600,8 +600,49 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         clone(runner, SPLIT.col_file)
-        assert os.path.islink(Path(SPLIT.repodir) / "top" / "b" / "a_Card 2.md")
-        assert os.path.isfile(Path(SPLIT.repodir) / "top" / "a" / "a.md")
+        two = Path(SPLIT.repodir) / "top" / "b" / "a_Card 2.md"
+        orig = Path(SPLIT.repodir) / "top" / "a" / "a.md"
+
+        if sys.platform == "win32":
+            assert two.read_text(encoding="UTF-8") == r"../../top/a/a.md"
+        else:
+            assert os.path.islink(two)
+        assert os.path.isfile(orig)
+
+
+def test_clone_writes_plaintext_posix_symlinks_on_windows(
+    tmp_path, mocker: MockerFixture
+):
+    SYMLINKS: SampleCollection = get_test_collection("symlinks")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        out = clone(runner, SYMLINKS.col_file)
+
+        # Verify that there are no symlinks in the cloned sample repo.
+        for root, _, files in os.walk(SYMLINKS.repodir):
+            for file in files:
+                path = os.path.join(root, file)
+                if sys.platform == "win32":
+                    assert not os.path.islink(path)
+
+        winlinks = [
+            Path("Default") / "B" / "sample_cloze-ol.md",
+            Path("Default") / "B" / "sample_cloze-ol_1.md",
+            Path("Default") / "C" / "sample_cloze-ol.md",
+            Path("Default") / "C" / "sample_cloze-ol_1.md",
+            Path("Default") / "C" / "sample_cloze-ol_2.md",
+            Path("Default") / "C" / "sample_cloze-ol_3.md",
+            Path("Default") / "C" / "sample_cloze-ol_4.md",
+        ]
+        winlinks = set([str(link) for link in winlinks])
+
+        # Check that each latent symlink has the correct file mode.
+        repo = git.Repo(SYMLINKS.repodir)
+        for entry in repo.commit().tree.traverse():
+            path = entry.path
+            if isinstance(entry, git.Blob) and path in winlinks:
+                mode = oct(entry.mode)
+                assert mode == "0o120000"
 
 
 def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
@@ -1456,21 +1497,30 @@ def test_push_writes_media(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone.
+        logger.debug(f"First clone...")
         clone(runner, MEDIACOL.col_file)
 
         # Add a new note file containing media, and the corresponding media file.
         root = F.cwd()
         media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
         media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
+        onesec_file = root / MEDIACOL.repodir / "Default" / MEDIA / "1sec.mp3"
+        logger.debug(f"Copying media file to '{media_file_path}'")
         shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
+
+        mode: int = ki.filemode(onesec_file)
+        logger.warning(f"1sec.mp3: {mode = }")
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
         repo.git.add(all=True)
         repo.index.commit("Add air.md")
         repo.close()
+
+        mode: int = ki.filemode(onesec_file)
+        logger.warning(f"1sec.mp3: {mode = }")
 
         # Push the commit.
         out = push(runner)
@@ -1480,6 +1530,7 @@ def test_push_writes_media(tmp_path: Path):
         F.rmtree(F.test(Path(MEDIACOL.repodir)))
 
         # Re-clone the pushed collection.
+        logger.debug(f"Second clone...")
         out = clone(runner, MEDIACOL.col_file)
 
         # Check that added note and media file exist.

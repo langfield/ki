@@ -81,6 +81,8 @@ from ki.types import (
     NoPath,
     NoFile,
     Symlink,
+    LatentSymlink,
+    ExtantStrangePath,
     GitChangeType,
     Patch,
     Delta,
@@ -123,6 +125,7 @@ from ki.types import (
     AnkiDBNoteMissingFieldsError,
     GitFileModeParseError,
     RenamedMediaFileWarning,
+    NonEmptyWorkingTreeError,
 )
 from ki.maybes import (
     GIT,
@@ -1217,7 +1220,7 @@ def write_repository(
     media_target_dir: EmptyDir,
     silent: bool,
     verbose: bool,
-) -> None:
+) -> Set[LatentSymlink]:
     """Write notes to appropriate directories in `targetdir`."""
 
     # Create config file.
@@ -1264,7 +1267,14 @@ def write_repository(
     media: Dict[int, Set[ExtantFile]]
     media, warnings = copy_media_files(col, media_target_dir, silent=silent)
 
-    write_decks(col, targetdir, colnotes, media, tidy_field_files, silent)
+    latent_links: Set[LatentSymlink] = write_decks(
+        col,
+        targetdir,
+        colnotes,
+        media,
+        tidy_field_files,
+        silent,
+    )
 
     num_displayed: int = 0
     for warning in warnings:
@@ -1277,6 +1287,8 @@ def write_repository(
     F.rmtree(root)
     col.close(save=False)
 
+    return latent_links
+
 
 @beartype
 def write_decks(
@@ -1286,7 +1298,7 @@ def write_decks(
     media: Dict[int, Set[ExtantFile]],
     tidy_field_files: Dict[str, ExtantFile],
     silent: bool,
-) -> None:
+) -> Set[LatentSymlink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1342,6 +1354,168 @@ def write_decks(
         traversal += [node]
         return traversal
 
+    # All card ids we've already processed.
+    written_cids: Set[int] = set()
+
+    # Map nids we've already written files for to a dataclass containing:
+    # - the corresponding `ExtantFile`
+    # - the deck id of the card for which we wrote it
+    #
+    # This deck id identifies the deck corresponding to the location where all
+    # the symlinks should point.
+    written_notes: Dict[int, WrittenNoteFile] = {}
+
+    # All latent symlinks created on Windows whose file modes we must set.
+    latent_links: Set[LatentSymlink] = set()
+
+    nodes: List[DeckTreeNode] = postorder(root)
+
+    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
+    nodes_bar.set_description("Decks")
+    for node in nodes_bar:
+        node_cids: Set[int]
+        node_notes: Dict[int, WrittenNoteFile]
+        node_latent_links: Set[LatentSymlink]
+        node_cids, node_notes, node_latent_links = write_deck_node_cards(
+            node,
+            col,
+            targetdir,
+            colnotes,
+            tidy_field_files,
+            models_map,
+            written_cids,
+            written_notes,
+        )
+        written_cids |= node_cids
+        written_notes.update(node_notes)
+        latent_links |= node_latent_links
+
+    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
+    latent_links |= media_links
+    return latent_links
+
+
+@beartype
+def write_deck_node_cards(
+    node: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    colnotes: Dict[int, ColNote],
+    tidy_field_files: Dict[str, ExtantFile],
+    models_map: Dict[int, NotetypeDict],
+    written_cids: Set[int],
+    written_notes: Dict[int, WrittenNoteFile],
+) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
+    """Write all the cards to disk for a single `DeckTreeNode`."""
+    written_cids = copy.deepcopy(written_cids)
+    written_notes = copy.deepcopy(written_notes)
+    latent_links: Set[LatentSymlink] = set()
+
+    # The name stored in a `DeckTreeNode` object is not the full name of
+    # the deck, it is just the 'basename'. The `postorder()` function
+    # returns a deck with `did == 0` at the end of each call, probably
+    # because this is the implicit parent deck of all top-level decks. This
+    # deck empirically always has the empty string as its name. This is
+    # likely an Anki implementation detail. As a result, we ignore any deck
+    # with empty basename. We do this as opposed to ignoring decks with
+    # `did == 0` because it seems less likely to change if the Anki devs
+    # decide to mess with the implementation. Empty deck names will always
+    # be reserved, but they might e.g. decide ``did == -1`` makes more
+    # sense.
+    did: int = node.deck_id
+    basename: str = node.name
+    if basename == "":
+        return set(), {}, set()
+    name = col.decks.name(did)
+
+    deck_dir: ExtantDir = create_deck_dir(name, targetdir)
+    children: Set[CardId] = set(col.decks.cids(did=did, children=False))
+    descendants: List[CardId] = col.decks.cids(did=did, children=True)
+    descendant_nids: Set[int] = {NOTETYPE_NID}
+    descendant_mids: Set[int] = set()
+
+    for cid in descendants:
+        card: Card = col.get_card(cid)
+        descendant_nids.add(card.nid)
+        descendant_mids.add(card.note().mid)
+
+        # Card writes should not be cumulative, so we only perform them if
+        # `cid` is the card id of a card that is in the deck corresponding
+        # to `node`, but not in any of its children.
+        if cid not in children:
+            continue
+
+        # We only even consider writing *anything* (file or symlink) to
+        # disk after checking that we haven't already processed this
+        # particular card id. If we have, then we only need to bother with
+        # the cumulative stuff above (nids and mids, which we keep track of
+        # in order to write out models and media).
+        #
+        # TODO: This fixes a very serious bug. Write a test to capture the
+        # issue. Use the Japanese Core 2000 deck as a template if needed.
+        if cid in written_cids:
+            continue
+        written_cids.add(cid)
+
+        # We only write the payload if we haven't seen this note before.
+        # Otherwise, this must be a different card generated from the same
+        # note, so we symlink to the location where we've already written
+        # it to disk.
+        colnote: ColNote = colnotes[card.nid]
+
+        if card.nid not in written_notes:
+            note_path: NoFile = get_note_path(colnote, deck_dir)
+            payload: str = get_note_payload(colnote, tidy_field_files)
+            note_path: ExtantFile = F.write(note_path, payload)
+            written_notes[card.nid] = WrittenNoteFile(did, note_path)
+        else:
+            # If `card` is in the same deck as the card we wrote `written`
+            # for, then there is no need to create a symlink, because the
+            # note file is already there, in the correct deck directory.
+            #
+            # TODO: This fixes a very serious bug. Write a test to capture the
+            # issue. Use the Japanese Core 2000 deck as a template if needed.
+            written: WrittenNoteFile = written_notes[card.nid]
+            if card.did == written.did:
+                continue
+
+            # Get card template name.
+            template: TemplateDict = card.template()
+            name: str = template["name"]
+
+            note_path: NoFile = get_note_path(colnote, deck_dir, name)
+            abs_target: ExtantFile = written_notes[card.nid].file
+            distance = len(note_path.parent.relative_to(targetdir).parts)
+            up_path = Path("../" * distance)
+            relative: Path = abs_target.relative_to(targetdir)
+            target: Path = up_path / relative
+
+            try:
+                link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
+                if isinstance(link, LatentSymlink):
+                    latent_links.add(link)
+            except OSError as _:
+                trace = traceback.format_exc(limit=3)
+                logger.warning(f"Failed to create symlink for cid '{cid}'\n{trace}")
+
+    # TODO: Should this block be outside this function?
+    # Write `models.json` for current deck.
+    deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
+    with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
+        json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+
+    return written_cids, written_notes, latent_links
+
+
+@beartype
+def chain_media_symlinks(
+    root: DeckTreeNode,
+    col: Collection,
+    targetdir: ExtantDir,
+    media: Dict[int, Set[ExtantFile]],
+) -> Set[LatentSymlink]:
+    """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
+
     @beartype
     def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
         """
@@ -1365,117 +1539,7 @@ def write_decks(
             parents.update(subparents)
         return parents
 
-    # All card ids we've already processed.
-    written_cids: Set[int] = set()
-
-    # Map nids we've already written files for to a dataclass containing:
-    # - the corresponding `ExtantFile`
-    # - the deck id of the card for which we wrote it
-    #
-    # This deck id identifies the deck corresponding to the location where all
-    # the symlinks should point.
-    written_notes: Dict[int, WrittenNoteFile] = {}
-
-    nodes: List[DeckTreeNode] = postorder(root)
-
-    bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Decks")
-    for node in bar:
-
-        # The name stored in a `DeckTreeNode` object is not the full name of
-        # the deck, it is just the 'basename'. The `postorder()` function
-        # returns a deck with `did == 0` at the end of each call, probably
-        # because this is the implicit parent deck of all top-level decks. This
-        # deck empirically always has the empty string as its name. This is
-        # likely an Anki implementation detail. As a result, we ignore any deck
-        # with empty basename. We do this as opposed to ignoring decks with
-        # `did == 0` because it seems less likely to change if the Anki devs
-        # decide to mess with the implementation. Empty deck names will always
-        # be reserved, but they might e.g. decide ``did == -1`` makes more
-        # sense.
-        did: int = node.deck_id
-        basename: str = node.name
-        if basename == "":
-            continue
-        name = col.decks.name(did)
-
-        deck_dir: ExtantDir = create_deck_dir(name, targetdir)
-        children: Set[CardId] = set(col.decks.cids(did=did, children=False))
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        descendant_nids: Set[int] = {NOTETYPE_NID}
-        descendant_mids: Set[int] = set()
-
-        # TODO: The code in this loop would be better placed in its own function.
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-            descendant_mids.add(card.note().mid)
-
-            # Card writes should not be cumulative, so we only perform them if
-            # `cid` is the card id of a card that is in the deck corresponding
-            # to `node`, but not in any of its children.
-            if cid not in children:
-                continue
-
-            # We only even consider writing *anything* (file or symlink) to
-            # disk after checking that we haven't already processed this
-            # particular card id. If we have, then we only need to bother with
-            # the cumulative stuff above (nids and mids, which we keep track of
-            # in order to write out models and media).
-            #
-            # TODO: This fixes a very serious bug. Write a test to capture the
-            # issue. Use the Japanese Core 2000 deck as a template if needed.
-            if cid in written_cids:
-                continue
-            written_cids.add(cid)
-
-            # We only write the payload if we haven't seen this note before.
-            # Otherwise, this must be a different card generated from the same
-            # note, so we symlink to the location where we've already written
-            # it to disk.
-            colnote: ColNote = colnotes[card.nid]
-
-            if card.nid not in written_notes:
-                note_path: NoFile = get_note_path(colnote, deck_dir)
-                payload: str = get_note_payload(colnote, tidy_field_files)
-                note_path: ExtantFile = F.write(note_path, payload)
-                written_notes[card.nid] = WrittenNoteFile(did, note_path)
-            else:
-                # If `card` is in the same deck as the card we wrote `written`
-                # for, then there is no need to create a symlink, because the
-                # note file is already there, in the correct deck directory.
-                #
-                # TODO: This fixes a very serious bug. Write a test to capture the
-                # issue. Use the Japanese Core 2000 deck as a template if needed.
-                written: WrittenNoteFile = written_notes[card.nid]
-                if card.did == written.did:
-                    continue
-
-                # Get card template name.
-                template: TemplateDict = card.template()
-                name: str = template["name"]
-
-                note_path: NoFile = get_note_path(colnote, deck_dir, name)
-                abs_target: ExtantFile = written_notes[card.nid].file
-                distance = len(note_path.parent.relative_to(targetdir).parts)
-                up_path = Path("../" * distance)
-                relative: Path = abs_target.relative_to(targetdir)
-                target: Path = up_path / relative
-
-                try:
-                    F.symlink(note_path, target)
-                except OSError as _:
-                    trace = traceback.format_exc(limit=3)
-                    logger.warning(f"Failed to create symlink for cid '{cid}'\n{trace}")
-
-        # Write `models.json` for current deck.
-        deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-        with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
-            json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
-
-    # TODO: This should be in its own function to make sure loop variables aren't being reused.
-
-    # Chain symlinks up the deck tree into `<repo_root>/_media/`.
+    media_latent_links: Set[LatentSymlink] = set()
     media_dirs: Dict[str, ExtantDir] = {}
     parents: Dict[str, DeckTreeNode] = map_parents(root, col)
     for node in preorder(root):
@@ -1491,32 +1555,41 @@ def write_decks(
         for cid in descendants:
             card: Card = col.get_card(cid)
             descendant_nids.add(card.nid)
-        for nid in descendant_nids:
-            if nid in media:
-                for media_file in media[nid]:
-                    parent: DeckTreeNode = parents[fullname]
-                    if parent.name != "":
-                        parent_did: int = parent.deck_id
-                        parent_fullname: str = col.decks.name(parent_did)
-                        parent_media_dir = media_dirs[parent_fullname]
-                        abs_target: Symlink = F.test(
-                            parent_media_dir / media_file.name, resolve=False
-                        )
-                    else:
-                        abs_target: ExtantFile = media_file
-                    path = F.test(deck_media_dir / media_file.name, resolve=False)
-                    if not isinstance(path, NoFile):
-                        continue
-                    distance = len(path.parent.relative_to(targetdir).parts)
-                    up_path = Path("../" * distance)
-                    relative: Path = abs_target.relative_to(targetdir)
-                    target: Path = up_path / relative
 
-                    try:
-                        F.symlink(path, target)
-                    except OSError as _:
-                        trace = traceback.format_exc(limit=3)
-                        logger.warning(f"Failed to create symlink to media\n{trace}")
+        for nid in descendant_nids:
+            if nid not in media:
+                continue
+
+            for media_file in media[nid]:
+                parent: DeckTreeNode = parents[fullname]
+                if parent.name != "":
+                    parent_did: int = parent.deck_id
+                    parent_fullname: str = col.decks.name(parent_did)
+                    parent_media_dir = media_dirs[parent_fullname]
+                    abs_target: Symlink = F.test(
+                        parent_media_dir / media_file.name, resolve=False
+                    )
+                else:
+                    abs_target: ExtantFile = media_file
+
+                path = F.test(deck_media_dir / media_file.name, resolve=False)
+                if not isinstance(path, NoFile):
+                    continue
+
+                distance = len(path.parent.relative_to(targetdir).parts)
+                up_path = Path("../" * distance)
+                relative: Path = abs_target.relative_to(targetdir)
+                target: Path = up_path / relative
+
+                try:
+                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
+                    if isinstance(link, LatentSymlink):
+                        media_latent_links.add(link)
+                except OSError as _:
+                    trace = traceback.format_exc(limit=3)
+                    logger.warning(f"Failed to create symlink to media\n{trace}")
+
+    return media_latent_links
 
 
 @beartype
@@ -1825,12 +1898,19 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(file: ExtantFile) -> int:
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
         repo = git.Repo(file, search_parent_directories=True)
         out = repo.git.ls_files(["-s", str(file)])
+
+        # Treat case where file is untracked.
+        if out == "":
+            return -1
+
         mode: int = int(out.split()[0])
     except Exception as err:
         raise GitFileModeParseError(file, out) from err
@@ -1877,15 +1957,18 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     col_file: ExtantFile = M.xfile(Path(collection))
 
     @beartype
-    def cleanup(targetdir: ExtantDir, new: bool) -> Union[EmptyDir, NoPath]:
+    def cleanup(targetdir: ExtantDir, new: bool) -> Union[ExtantDir, EmptyDir, NoPath]:
         """Cleans up after failed clone operations."""
-        if new:
-            return F.rmtree(targetdir)
-        _, dirs, files = F.shallow_walk(targetdir)
-        for directory in dirs:
-            F.rmtree(directory)
-        for file in files:
-            os.remove(file)
+        try:
+            if new:
+                return F.rmtree(targetdir)
+            _, dirs, files = F.shallow_walk(targetdir)
+            for directory in dirs:
+                F.rmtree(directory)
+            for file in files:
+                os.remove(file)
+        except PermissionError as _:
+            pass
         return F.test(targetdir)
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
@@ -1894,7 +1977,11 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
         _, _ = _clone(
-            col_file, targetdir, msg="Initial commit", silent=False, verbose=verbose
+            col_file,
+            targetdir,
+            msg="Initial commit",
+            silent=False,
+            verbose=verbose,
         )
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
@@ -1962,15 +2049,49 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    write_repository(
-        col_file, targetdir, leaves, directories.dirs[MEDIA], silent, verbose
+    latent_links: Set[LatentSymlink] = write_repository(
+        col_file,
+        targetdir,
+        leaves,
+        directories.dirs[MEDIA],
+        silent,
+        verbose,
     )
 
     # Initialize the main repository.
     with F.halo("Initializing repository and committing contents..."):
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+        root = F.working_dir(repo)
+
         repo.git.add(all=True)
         _ = repo.index.commit(msg)
+
+        # Use `git update-index` to set 120000 file mode on each latent symlink
+        # in `latent_links`.
+        relative_links: Set[Path] = set()
+        for abslink in latent_links:
+            link = abslink.relative_to(root)
+            relative_links.add(link)
+
+            # Convert to POSIX pathseps since that's what `git` wants.
+            githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
+            target = f"120000,{githash},{link.as_posix()}"
+            repo.git.update_index(target, add=True, cacheinfo=True)
+
+        # We do *not* call `git.add()` here since we call `git.update_index()` above.
+        _ = repo.index.commit(msg)
+
+        # On Windows, there are changes left in the working tree at this point
+        # (because git sees that the mode of the actual underlying file is
+        # 100644), so we must stash them in order to ensure the repo is not
+        # left dirty.
+        repo.git.stash("save")
+        if repo.is_dirty():
+            raise NonEmptyWorkingTreeError(repo)
+
+        # Squash last two commits together.
+        repo.git.reset(["--soft", "HEAD~1"])
+        repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)

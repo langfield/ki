@@ -5,6 +5,7 @@
 
 import os
 import re
+import sys
 import stat
 import errno
 import shutil
@@ -17,6 +18,7 @@ from types import TracebackType
 
 import git
 from halo import Halo
+from loguru import logger
 
 from beartype import beartype
 from beartype.typing import (
@@ -40,6 +42,7 @@ from ki.types import (
     NoPath,
     NoFile,
     Symlink,
+    LatentSymlink,
     Singleton,
     ExtantStrangePath,
     KiRepoRef,
@@ -164,10 +167,16 @@ def write(path: Union[ExtantFile, NoFile], text: str) -> ExtantFile:
 
 
 @beartype
-def symlink(path: NoFile, target: Path) -> ExtantFile:
+def symlink(path: NoFile, target: Path) -> Union[Symlink, LatentSymlink]:
     """Symlink `path` to `target`."""
+    if sys.platform == "win32":
+        with open(path, "w", encoding="UTF-8") as f:
+            f.write(str(target.as_posix()))
+            return LatentSymlink(path)
+
+    # Treat POSIX systems.
     os.symlink(target, path)
-    return ExtantFile(path)
+    return Symlink(path)
 
 
 @beartype

@@ -1170,6 +1170,8 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
+        logger.debug(Path.cwd())
+        gc.collect()
         F.rmtree(targetdir)
 
         # Case where `.ki/config` file doesn't exist.
@@ -1647,3 +1649,28 @@ def test_get_test_collection_copies_media():
     """Do media files get copied into the temp directory?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
     assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
+
+
+def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
+    """Especially on Windows, are copied symlinks still mode 120000?"""
+    MEDIACOL: SampleCollection = get_test_collection("media")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone.
+        clone(runner, MEDIACOL.col_file)
+
+        # Check that filemode is initially 120000.
+        repo = git.Repo(MEDIACOL.repodir)
+        onesec_file = F.working_dir(repo) / "Default" / MEDIA / "1sec.mp3"
+        logger.debug(f"{onesec_file = }")
+        mode = ki.filemode(onesec_file)
+        assert mode == 120000
+
+        # Check that `copy_repo()` keeps it as 120000.
+        ref = M.head_repo_ref(repo)
+        ephem = ki.copy_repo(ref, "filemode-test")
+        onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
+        logger.debug(f"{onesec_file = }")
+        mode = ki.filemode(onesec_file)
+        assert mode == 120000
