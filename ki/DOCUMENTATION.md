@@ -12,8 +12,8 @@ This is documentation for the ki
 
 # Installation
 
-Ki is tested on Python 3.9. You'll need to install Python and Git, and then run
-the following command in a terminal:
+Ki is tested on Python 3.9 and 3.10. You'll need to install Python and Git, and
+then run the following command in a terminal:
 
 1. Install the `ki` package:
 ```bash
