@@ -118,6 +118,10 @@ notetype: iKnow! Sentences
 
 ### Tags
 ```
+languages
+japanese
+jp-sentences
+jp-transportation
 ```
 
 ## Expression
