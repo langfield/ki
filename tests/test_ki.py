@@ -21,10 +21,12 @@ from lark.exceptions import UnexpectedToken
 from loguru import logger
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
-from anki.collection import Collection
+
+import anki.collection
+from anki.collection import Collection, Note
 
 from beartype import beartype
-from beartype.typing import List, Union, Set, Iterator
+from beartype.typing import List, Union, Set, Iterator, Tuple
 
 import ki
 import ki.maybes as M
@@ -78,6 +80,7 @@ from ki import (
     copy_media_files,
     diff2,
     _clone,
+    add_db_note,
 )
 from ki.types import (
     NoFile,
@@ -706,14 +709,14 @@ def test_slugify_handles_html_tags():
 
 
 @beartype
-def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
+def get_colnote_with_sortf_text(sortf_text: str) -> Tuple[Collection, ColNote]:
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     notetype: Notetype = parse_notetype_dict(note.note_type())
     deck = col.decks.name(note.cards()[0].did)
-    return ColNote(
+    return col, ColNote(
         n=note,
         new=False,
         deck=deck,
@@ -724,22 +727,50 @@ def get_colnote_with_sortf_text(sortf_text: str) -> ColNote:
     )
 
 
+@beartype
+def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, ColNote]:
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
+    note = col.get_note(set(col.find_notes("")).pop())
+    note["Front"] = front
+    note["Back"] = back
+    note.flush()
+
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+    deck = col.decks.name(note.cards()[0].did)
+    return col, ColNote(
+        n=note,
+        new=False,
+        deck=deck,
+        title="",
+        markdown=False,
+        notetype=notetype,
+        sortf_text=note[notetype.sortf.name],
+    )
+
+
 def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
-    colnote = get_colnote_with_sortf_text(field_text)
+    col, colnote = get_colnote_with_sortf_text(field_text)
 
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir: ExtantDir = F.force_mkdir(Path("a"))
 
-        path: ExtantFile = get_note_path(colnote, deck_dir)
+        payload = get_note_payload(colnote, {})
+        path: ExtantFile = get_note_path(colnote, payload, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
-        empty_colnote = get_colnote_with_sortf_text("")
-        path: ExtantFile = get_note_path(empty_colnote, deck_dir)
+        col, empty_colnote = get_colnote_with_sortf_text("")
+        payload = get_note_payload(empty_colnote, {})
+        path: ExtantFile = get_note_path(empty_colnote, payload, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
+
+        col, empty = get_basic_colnote_with_fields("", "")
+        payload = get_note_payload(empty, {})
+        path: ExtantFile = get_note_path(empty, payload, deck_dir)
 
 
 @beartype
@@ -792,7 +823,7 @@ def get_diff2_args() -> DiffReposArgs:
     return DiffReposArgs(remote_repo, parser, transformer)
 
 
-def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
+def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -807,16 +838,12 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(capfd, tmp_path):
             args.parser,
             args.transformer,
         )
-        del args
-        gc.collect()
 
         changed = [str(delta.path) for delta in deltas]
-        captured = capfd.readouterr()
         assert changed == []
-        assert "last_push" not in captured.err
 
 
-def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
+def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -847,7 +874,7 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path):
         assert "note123412341234.md" in str(warning)
 
 
-def test_unsubmodule_repo_removes_gitmodules(tmp_path):
+def test_unsubmodule_repo_removes_gitmodules(tmp_path: Path):
     """
     When you have a ki repo with submodules, does calling
     `unsubmodule_repo()`on it remove them? We test this by checking if the
@@ -917,18 +944,41 @@ def test_diff2_handles_submodules():
             assert delta.path.is_file()
 
 
-def test_backup_is_no_op_when_backup_already_exists(capfd):
-    """Do we print a nice message when we backup an already-backed-up file?"""
+def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
+    """
+    Does the second subsequent backup call register as redundant (we assume a
+    nice error message is displayed if so)?
+    """
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
         kirepo: KiRepo = M.kirepo(F.cwd())
-        backup(kirepo)
-        backup(kirepo)
-        captured = capfd.readouterr()
-        assert "Backup already exists." in captured.out
+
+        mock = mocker.patch("ki.echo")
+
+        returncode: int = backup(kirepo)
+        assert returncode == 0
+        calls = list(mock.call_args_list)
+        assert len(calls) == 1
+        call = calls[0]
+        args = call.args
+        assert len(call.args) == 1
+        displayed = call.args[0]
+        assert isinstance(displayed, str)
+        assert "Writing backup" in displayed
+
+        returncode = backup(kirepo)
+        assert returncode == 1
+        calls = list(mock.call_args_list)
+        assert len(calls) == 2
+        call = calls[-1]
+        args = call.args
+        assert len(call.args) == 1
+        displayed = call.args[0]
+        assert isinstance(displayed, str)
+        assert "Backup already exists" in displayed
 
 
 def test_git_pull():
@@ -960,12 +1010,13 @@ def test_git_pull():
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     runner = CliRunner()
-    colnote = get_colnote_with_sortf_text("a")
+    col, colnote = get_colnote_with_sortf_text("a")
     with runner.isolated_filesystem():
         deck_dir = F.cwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        note_path = get_note_path(colnote, deck_dir)
+        payload = get_note_payload(colnote, {})
+        note_path = get_note_path(colnote, payload, deck_dir)
         assert str(note_path.name) == "a_1.md"
 
 
@@ -1126,7 +1177,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         assert "'bad_field_key'" in str(error.exconly())
 
 
-def test_maybe_kirepo_displays_nice_errors(tmp_path):
+def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
     """Does a nice error get printed when kirepo metadata is missing?"""
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
@@ -1170,7 +1221,6 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
             M.kirepo(targetdir)
         assert "A directory was expected" in str(error.exconly())
         assert "'.ki/backups'" in str(error.exconly())
-        logger.debug(Path.cwd())
         gc.collect()
         F.rmtree(targetdir)
 
@@ -1228,7 +1278,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path):
         F.rmtree(targetdir)
 
 
-def test_get_target(tmp_path):
+def test_get_target(tmp_path: Path):
     """Do we print a nice error when the targetdir is nonempty?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1241,7 +1291,7 @@ def test_get_target(tmp_path):
         assert "file" in str(error.exconly())
 
 
-def test_maybe_emptydir(tmp_path):
+def test_maybe_emptydir(tmp_path: Path):
     """Do we print a nice error when the directory is unexpectedly nonempty?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1252,7 +1302,7 @@ def test_maybe_emptydir(tmp_path):
         assert str(Path.cwd()) in str(error.exconly()).replace("\n", "")
 
 
-def test_maybe_emptydir_handles_non_directories(tmp_path):
+def test_maybe_emptydir_handles_non_directories(tmp_path: Path):
     """Do we print a nice error when the path is not a directory?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1266,7 +1316,7 @@ def test_maybe_emptydir_handles_non_directories(tmp_path):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
-def test_maybe_xdir(tmp_path):
+def test_maybe_xdir(tmp_path: Path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1280,7 +1330,7 @@ def test_maybe_xdir(tmp_path):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
-def test_maybe_xfile(tmp_path):
+def test_maybe_xfile(tmp_path: Path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1410,7 +1460,7 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(
     assert "'bad_field_key'" in str(error.exconly())
 
 
-def test_nopath(tmp_path):
+def test_nopath(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         file = Path("file")
@@ -1419,7 +1469,7 @@ def test_nopath(tmp_path):
             M.nopath(file)
 
 
-def test_copy_kirepo(tmp_path):
+def test_copy_kirepo(tmp_path: Path):
     """
     Do errors in `M.nopath()` call in `copy_kirepo()` get forwarded to
     the caller and printed nicely?
@@ -1449,7 +1499,7 @@ def test_copy_kirepo(tmp_path):
         assert ".ki" in str(error.exconly())
 
 
-def test_filter_note_path(tmp_path):
+def test_filter_note_path(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         directory = Path("directory")
@@ -1466,7 +1516,7 @@ def test_filter_note_path(tmp_path):
         assert str(Path("directory") / "file") in str(warning)
 
 
-def test_get_models_recursively(tmp_path):
+def test_get_models_recursively(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1484,7 +1534,7 @@ def test_get_models_recursively(tmp_path):
 
 
 def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(
-    tmp_path,
+    tmp_path: Path,
 ):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
@@ -1501,7 +1551,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert "1645010146011" in str(error.exconly())
 
 
-def test_copy_repo_handles_submodules(tmp_path):
+def test_copy_repo_handles_submodules(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1531,7 +1581,7 @@ def test_copy_repo_handles_submodules(tmp_path):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
-def test_ftest_handles_strange_paths(tmp_path):
+def test_ftest_handles_strange_paths(tmp_path: Path):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1547,7 +1597,7 @@ def test_fparent_handles_fs_root():
     assert str(parent) == root
 
 
-def test_fmkleaves_handles_collisions(tmp_path):
+def test_fmkleaves_handles_collisions(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         root = F.test(F.cwd())
@@ -1584,7 +1634,7 @@ def test_copy_media_files_returns_nice_errors():
         assert "bad Anki collection media directory" in str(error.exconly())
 
 
-def test_write_repository_displays_missing_media_warnings(capfd):
+def test_write_repository_displays_missing_media_warnings(mocker: MockerFixture):
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1605,14 +1655,17 @@ def test_write_repository_displays_missing_media_warnings(capfd):
             if path.is_file():
                 os.remove(path)
 
+        mock = mocker.patch("click.secho")
         write_repository(
             MEDIACOL.col_file, targetdir, leaves, media_dir, silent=False, verbose=True
         )
+        calls = list(mock.call_args_list)
+        args: List[str] = list(map(lambda call: str(call.args), calls))
+        displayed = "\n".join(args)
 
-        missing = Path(MEDIACOL.media_directory_name) / "1sec.mp3"
-        captured = capfd.readouterr()
-        assert "Missing or bad media file" in captured.out
-        assert str(missing) in captured.out
+        assert "Missing or bad media file" in displayed
+        assert MEDIACOL.media_directory_name in displayed
+        assert "1sec.mp3" in displayed
 
 
 def test_copy_media_files_finds_notetype_media():
@@ -1663,7 +1716,6 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         # Check that filemode is initially 120000.
         repo = git.Repo(MEDIACOL.repodir)
         onesec_file = F.working_dir(repo) / "Default" / MEDIA / "1sec.mp3"
-        logger.debug(f"{onesec_file = }")
         mode = ki.filemode(onesec_file)
         assert mode == 120000
 
@@ -1671,6 +1723,59 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         ref = M.head_repo_ref(repo)
         ephem = ki.copy_repo(ref, "filemode-test")
         onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
-        logger.debug(f"{onesec_file = }")
         mode = ki.filemode(onesec_file)
         assert mode == 120000
+
+
+def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_on_windows(
+    tmp_path: Path,
+):
+    """If there are e.g. asterisks in a `guid`, do we still write the note file successfully?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = Collection(ORIGINAL.col_file)
+    timestamp_ns: int = time.time_ns()
+    new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
+
+    nid = next(new_nids)
+    mod = next(new_nids)
+    mid = 1645010146011
+    guid = r"QM6kTt.Nt*"
+    decknote = DeckNote(
+        title="title",
+        guid=guid,
+        deck="Default",
+        model="Basic",
+        tags=[],
+        fields={"Front": "", "Back": "b"},
+    )
+    note: Note = add_db_note(
+        col,
+        nid,
+        guid,
+        mid,
+        mod=int(timestamp_ns // 1e9),
+        usn=-1,
+        tags=decknote.tags,
+        fields=list(decknote.fields.values()),
+        sfld="",
+        csum=0,
+        flags=0,
+        data="",
+    )
+    notetype: Notetype = parse_notetype_dict(note.note_type())
+
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        targetdir: ExtantDir = F.mkdir(F.test(Path("collection")))
+        colnote = ColNote(
+            n=note,
+            new=True,
+            deck="Default",
+            title="None",
+            markdown=False,
+            notetype=notetype,
+            sortf_text="",
+        )
+        payload: str = "payload"
+        note_path: NoFile = get_note_path(colnote, payload, targetdir)
+        note_path: ExtantFile = F.write(note_path, payload)
