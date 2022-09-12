@@ -968,7 +968,21 @@ def add_db_note(
             )
         ]
     )
-    col.after_note_updates([nid], mark_modified=False)
+
+    # All the `mark_modified` flag does is update `mod`. Since we always set
+    # `mod` to the current timestamp anyway, this doesn't matter, so may as
+    # well set it to `True` to reflect the semantics of the operation we're
+    # performing. This may present issues down the road since newly imported
+    # cards from cloned submodules will be marked modified on import/push,
+    # which is not exactly right. The anki2 importer does *not* mark as
+    # modified, because importing a new note does not modify its content. We
+    # would need to have `mod` data inside the note grammar in order for this
+    # to make sense, which may be more trouble than it's worth. Users writing
+    # new notes as markdown files would have to set the `mod` to some default
+    # value, or leave it blank. Assuming people don't do this nearly as often
+    # as they will export or push notes they've created in Anki, then it might
+    # make sense.
+    col.after_note_updates([nid], mark_modified=True)
     return col.get_note(nid)
 
 
