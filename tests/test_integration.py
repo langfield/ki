@@ -1497,7 +1497,6 @@ def test_push_writes_media(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone.
-        logger.debug(f"First clone...")
         clone(runner, MEDIACOL.col_file)
 
         # Add a new note file containing media, and the corresponding media file.
@@ -1505,13 +1504,11 @@ def test_push_writes_media(tmp_path: Path):
         media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
         media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
         onesec_file = root / MEDIACOL.repodir / "Default" / MEDIA / "1sec.mp3"
-        logger.debug(f"Copying media file to '{media_file_path}'")
         shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
 
         mode: int = ki.filemode(onesec_file)
-        logger.warning(f"1sec.mp3: {mode = }")
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
@@ -1520,7 +1517,6 @@ def test_push_writes_media(tmp_path: Path):
         repo.close()
 
         mode: int = ki.filemode(onesec_file)
-        logger.warning(f"1sec.mp3: {mode = }")
 
         # Push the commit.
         out = push(runner)
@@ -1530,7 +1526,6 @@ def test_push_writes_media(tmp_path: Path):
         F.rmtree(F.test(Path(MEDIACOL.repodir)))
 
         # Re-clone the pushed collection.
-        logger.debug(f"Second clone...")
         out = clone(runner, MEDIACOL.col_file)
 
         # Check that added note and media file exist.
@@ -1865,9 +1860,9 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         # Clone collection in cwd.
         clone(runner, BROKEN.col_file)
         os.chdir(BROKEN.repodir)
-
         note_file = (
-            Path("🧙‍Recommendersysteme") / "wie-sieht-die-linkstruktur-von-einem-hub.md"
+            Path("🧙‍Recommendersysteme")
+            / "wie-sieht-die-linkstruktur-von-einem-hub-in-einem-web-graphe.md"
         )
         with open(note_file, "r", encoding="UTF-8") as read_f:
             contents = read_f.read().replace("guter", "guuter")

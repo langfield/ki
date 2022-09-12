@@ -26,6 +26,7 @@ import logging
 import secrets
 import sqlite3
 import hashlib
+import datetime
 import itertools
 import traceback
 import functools
@@ -152,7 +153,7 @@ REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
 CHANGE_TYPES = "A D R M T".split()
 TQDM_NUM_COLS = 80
-MAX_FILENAME_LEN = 40
+MAX_FILENAME_LEN = 60
 IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
@@ -828,7 +829,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 # first field to get a unique filename, if they exist. Note that we must still
 # treat the case where all fields are images!
 @beartype
-def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
+def get_note_path(colnote: ColNote, payload: str, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = colnote.sortf_text
 
@@ -844,13 +845,26 @@ def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") ->
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
 
-    # Make it so `slug` cannot possibly be an empty string, because then we get
-    # a `Path('.')` which is a bug, and causes a runtime exception.  If all
-    # else fails, generate a random hex string to use as the filename.
+    # If the slug is still empty, use all the fields.
     if len(slug) == 0:
-        slug = str(colnote.n.guid)
-        msg = f"Slug for '{colnote.n.guid}' is empty. Using guid as filename"
-        logger.warning(msg)
+        contents = " ".join(colnote.n.values())
+        name = contents[:MAX_FILENAME_LEN]
+        slug = F.slugify(name)
+
+    # Make it so `slug` cannot possibly be an empty string, because then we get
+    # a `Path('.')` which is a bug, and causes a runtime exception. If all else
+    # fails, use the notetype name, hash of the payload, and creation date.
+    if len(slug) == 0:
+        blake2 = hashlib.blake2s()
+        blake2.update(colnote.n.guid.encode("UTF-8"))
+        slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
+
+        # Note IDs are in milliseconds.
+        dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
+        slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
+
+        logger.warning(f"Slug for note with guid '{colnote.n.guid}' is empty...")
+        logger.warning(f"Using blake2 hash of guid as filename: '{slug}'")
 
     if card_name != "":
         slug = f"{slug}_{card_name}"
@@ -867,7 +881,7 @@ def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") ->
 
 
 @beartype
-def backup(kirepo: KiRepo) -> None:
+def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
     md5sum = F.md5(kirepo.col_file)
     name = f"{md5sum}.anki2"
@@ -880,10 +894,11 @@ def backup(kirepo: KiRepo) -> None:
     # location.
     if isinstance(backup_file, ExtantFile):
         echo("Backup already exists.")
-        return
+        return 1
 
     echo(f"Writing backup of .anki2 file to '{backup_file}'")
     F.copyfile(kirepo.col_file, kirepo.backups_dir, name)
+    return 0
 
 
 @beartype
@@ -1464,8 +1479,8 @@ def write_deck_node_cards(
         colnote: ColNote = colnotes[card.nid]
 
         if card.nid not in written_notes:
-            note_path: NoFile = get_note_path(colnote, deck_dir)
             payload: str = get_note_payload(colnote, tidy_field_files)
+            note_path: NoFile = get_note_path(colnote, payload, deck_dir)
             note_path: ExtantFile = F.write(note_path, payload)
             written_notes[card.nid] = WrittenNoteFile(did, note_path)
         else:
@@ -1483,7 +1498,8 @@ def write_deck_node_cards(
             template: TemplateDict = card.template()
             name: str = template["name"]
 
-            note_path: NoFile = get_note_path(colnote, deck_dir, name)
+            payload: str = get_note_payload(colnote, tidy_field_files)
+            note_path: NoFile = get_note_path(colnote, payload, deck_dir, name)
             abs_target: ExtantFile = written_notes[card.nid].file
             distance = len(note_path.parent.relative_to(targetdir).parts)
             up_path = Path("../" * distance)
