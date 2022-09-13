@@ -1,7 +1,7 @@
 click
 anki==2.1.51
 loguru==0.6.0
-gitpython==3.1.27
+gitpython @ git+https://github.com/langfield/gitpython.git@main#egg=gitpython
 tqdm==4.63.1
 lark==1.1.2
 prettyprinter==0.18.0
