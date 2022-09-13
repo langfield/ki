@@ -1779,3 +1779,30 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
         payload: str = "payload"
         note_path: NoFile = get_note_path(colnote, payload, targetdir)
         note_path: ExtantFile = F.write(note_path, payload)
+
+
+@pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows does not support colons in paths."
+)
+def test_diff2_handles_paths_containing_colons(tmp_path: Path):
+    """Check that gitpython doesn't crash when a path contains a `:`."""
+    # Create parser and transformer.
+    grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+    parser = Lark(grammar, start="note", parser="lalr")
+    transformer = NoteTransformer()
+
+    # Move to tmp directory.
+    tgt = F.test(tmp_path / "mwe")
+    repodir = F.mkdir(tgt)
+    repo = git.Repo.init(repodir, initial_branch=BRANCH_NAME)
+    deck = F.mkdir(F.test(repodir / "a:b"))
+    file = F.test(tgt / "a:b" / "file")
+    file.write_text("a")
+    repo.git.add(all=True)
+    repo.index.commit("Initial commit.")
+    file.write_text("b")
+    repo.git.add(all=True)
+    repo.index.commit("Edit file.")
+    diff2(repo, parser, transformer)
