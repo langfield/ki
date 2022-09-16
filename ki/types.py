@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 import git
 import whatthepatch
-import prettyprinter as pp
 from anki.collection import Note
 
 from beartype import beartype
@@ -470,7 +469,7 @@ class UnnamedNotetypeError(RuntimeError):
         a '{MODELS_FILE}' file in the current repository (may be
         contained in a subdirectory):
         """
-        super().__init__(errwrap(msg) + "\n" + pp.pformat(nt))
+        super().__init__(errwrap(msg) + "\n" + str(nt))
 
 
 class SQLiteLockError(RuntimeError):

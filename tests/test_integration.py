@@ -13,7 +13,6 @@ from importlib.metadata import version
 
 import git
 import pytest
-import prettyprinter as pp
 from loguru import logger
 from pytest_mock import MockerFixture
 from click.testing import CliRunner

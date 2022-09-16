@@ -75,7 +75,7 @@ class NoteTransformer(Transformer):
           Back
         s
     """
-    # pylint: disable=no-self-use, missing-function-docstring
+    # pylint: disable=missing-function-docstring
 
     @beartype
     def note(self, n: List[Union[Header, List[str], Field]]) -> FlatNote:

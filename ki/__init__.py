@@ -40,9 +40,6 @@ from dataclasses import dataclass
 import git
 import click
 import whatthepatch
-import prettyprinter as pp
-from tqdm import tqdm
-from halo import Halo
 from lark import Lark
 from loguru import logger
 
@@ -175,7 +172,6 @@ WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFile
 
 SPINNER = "bouncingBall"
 VERBOSE = False
-PROFILE = False
 
 BASE91_TABLE = [
     "a",
@@ -448,12 +444,9 @@ def diff2(
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
-    with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
-        head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
-        # pylint: disable=consider-using-f-string
-        uuid = "%4x" % random.randrange(16**4)
-        # pylint: enable=consider-using-f-string
-        head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
+    head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+    uuid = "%4x" % random.randrange(16**4)
+    head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
     b_repo = repo
@@ -465,15 +458,11 @@ def diff2(
     b_dir = F.test(Path(b_repo.working_dir))
 
     head = repo.commit("HEAD")
-    with F.halo(text=f"Diffing '{head1.sha}' ~ '{head.hexsha}'..."):
-        diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
+    diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
 
     for change_type in GitChangeType:
 
-        diffs = diff_index.iter_change_type(change_type.value)
-        bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
-        bar.set_description(f"{change_type}")
-        for diff in bar:
+        for diff in diff_index.iter_change_type(change_type.value):
             a_relpath: str = diff.a_path
             b_relpath: str = diff.b_path
             if diff.a_path is None:
@@ -622,9 +611,7 @@ def get_models_recursively(kirepo: KiRepo, silent: bool) -> Dict[str, Notetype]:
     all_models: Dict[str, Notetype] = {}
 
     # Load notetypes from json files.
-    bar = tqdm(F.rglob(kirepo.root, MODELS_FILE), ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Models")
-    for models_file in bar:
+    for models_file in F.rglob(kirepo.root, MODELS_FILE):
 
         with open(models_file, "r", encoding="UTF-8") as models_f:
             new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
@@ -1177,9 +1164,7 @@ def copy_media_files(
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
 
-    bar = tqdm(rows, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Media")
-    for row in bar:
+    for row in rows:
         for file in files_in_str(col, row.flds):
 
             # Skip files in subdirs.
@@ -1276,11 +1261,7 @@ def write_repository(
 
     # Query all note ids, get the deck from each note, and construct a map
     # sending deck names to lists of notes.
-    all_nids = list(col.find_notes(query=""))
-
-    bar = tqdm(all_nids, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Notes")
-    for nid in bar:
+    for nid in col.find_notes(query=""):
         colnote: ColNote = get_colnote(col, nid)
         colnotes[nid] = colnote
         decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
@@ -1398,10 +1379,7 @@ def write_decks(
     latent_links: Set[LatentSymlink] = set()
 
     nodes: List[DeckTreeNode] = postorder(root)
-
-    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    nodes_bar.set_description("Decks")
-    for node in nodes_bar:
+    for node in postorder(root):
         node_cids: Set[int]
         node_notes: Dict[int, WrittenNoteFile]
         node_latent_links: Set[LatentSymlink]
@@ -1726,15 +1704,14 @@ def git_pull(
     silent: bool,
 ) -> None:
     """Pull remote into branch using a subprocess call."""
-    with F.halo(f"Pulling into '{cwd}'..."):
-        args = ["git", "pull", "-v"]
-        if unrelated:
-            args += ["--allow-unrelated-histories"]
-        if theirs:
-            args += ["--strategy-option=theirs"]
-        args += ["--verbose"]
-        args += [remote, branch]
-        p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
+    args = ["git", "pull", "-v"]
+    if unrelated:
+        args += ["--allow-unrelated-histories"]
+    if theirs:
+        args += ["--strategy-option=theirs"]
+    args += ["--verbose"]
+    args += [remote, branch]
+    p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     echo(f"{p.stdout.decode()}", silent=silent)
     echo(f"{p.stderr.decode()}", silent=silent)
     if check and p.returncode != 0:
@@ -1760,13 +1737,7 @@ def warn(string: str) -> None:
 def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
-    batches: List[List[ExtantFile]] = list(
-        F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
-    )
-
-    bar = tqdm(batches, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("HTML")
-    for batch in bar:
+    for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
         # TODO: Should we fail silently here, so as to not bother user with
         # tidy warnings?
         command = [
@@ -1859,7 +1830,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
     @beartype
     def notetype_hash_repr(notetype: Notetype) -> str:
         s = get_notetype_json(notetype)
-        return f"JSON for '{pp.pformat(notetype.id)}':\n{s}"
+        return f"JSON for '{notetype.id}':\n{s}"
 
     for model in models.values():
 
@@ -1955,14 +1926,6 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
     echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
@@ -2001,11 +1964,6 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     except Exception as err:
         cleanup(targetdir, new)
         raise err
-
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_clone_profile.html").resolve().write_text(s, encoding="UTF-8")
 
 
 @beartype
@@ -2069,39 +2027,38 @@ def _clone(
     )
 
     # Initialize the main repository.
-    with F.halo("Initializing repository and committing contents..."):
-        repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        root = F.working_dir(repo)
+    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    root = F.working_dir(repo)
 
-        repo.git.add(all=True)
-        _ = repo.index.commit(msg)
+    repo.git.add(all=True)
+    _ = repo.index.commit(msg)
 
-        # Use `git update-index` to set 120000 file mode on each latent symlink
-        # in `latent_links`.
-        relative_links: Set[Path] = set()
-        for abslink in latent_links:
-            link = abslink.relative_to(root)
-            relative_links.add(link)
+    # Use `git update-index` to set 120000 file mode on each latent symlink
+    # in `latent_links`.
+    relative_links: Set[Path] = set()
+    for abslink in latent_links:
+        link = abslink.relative_to(root)
+        relative_links.add(link)
 
-            # Convert to POSIX pathseps since that's what `git` wants.
-            githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
-            target = f"120000,{githash},{link.as_posix()}"
-            repo.git.update_index(target, add=True, cacheinfo=True)
+        # Convert to POSIX pathseps since that's what `git` wants.
+        githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
+        target = f"120000,{githash},{link.as_posix()}"
+        repo.git.update_index(target, add=True, cacheinfo=True)
 
-        # We do *not* call `git.add()` here since we call `git.update_index()` above.
-        _ = repo.index.commit(msg)
+    # We do *not* call `git.add()` here since we call `git.update_index()` above.
+    _ = repo.index.commit(msg)
 
-        # On Windows, there are changes left in the working tree at this point
-        # (because git sees that the mode of the actual underlying file is
-        # 100644), so we must stash them in order to ensure the repo is not
-        # left dirty.
-        repo.git.stash("save")
-        if repo.is_dirty():
-            raise NonEmptyWorkingTreeError(repo)
+    # On Windows, there are changes left in the working tree at this point
+    # (because git sees that the mode of the actual underlying file is
+    # 100644), so we must stash them in order to ensure the repo is not
+    # left dirty.
+    repo.git.stash("save")
+    if repo.is_dirty():
+        raise NonEmptyWorkingTreeError(repo)
 
-        # Squash last two commits together.
-        repo.git.reset(["--soft", "HEAD~1"])
-        repo.git.commit(message=msg, amend=True)
+    # Squash last two commits together.
+    repo.git.reset(["--soft", "HEAD~1"])
+    repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
@@ -2116,14 +2073,6 @@ def pull() -> None:
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -2136,11 +2085,6 @@ def pull() -> None:
 
     _pull(kirepo, silent=False)
     unlock(con)
-
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_pull_profile.html").resolve().write_text(s, encoding="UTF-8")
 
 
 @beartype
@@ -2187,10 +2131,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Copy `repo` into a temp directory and `reset --hard` at ref of last
     # successful `push()`.
     sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
-    with F.halo(text=f"Checking out repo at '{sha}'..."):
-        ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
-        last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
-        unsub_repo: git.Repo = copy_repo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
+    ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
+    last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
+    unsub_repo: git.Repo = copy_repo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -2218,18 +2161,13 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # changes that we don't want. Calling `git submodule update` here checks
     # out the commit that *was* recorded in the submodule file at the ref of
     # the last push.
-    unsub_root = F.working_dir(unsub_repo)
-    with F.halo(text="Updating submodules in stage repositories..."):
-        unsub_repo.git.submodule("update")
-        last_push_repo.git.submodule("update")
-    with F.halo(text=f"Unsubmoduling repository at '{unsub_root}'..."):
-        unsub_repo = unsubmodule_repo(unsub_repo)
+    unsub_repo.git.submodule("update")
+    last_push_repo.git.submodule("update")
+    unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
-    with F.halo(text=f"Fetching from remote at '{remote_repo.working_dir}'..."):
-        anki_remote.fetch()
-        unsub_remote.fetch()
-    with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in '{unsub_root}'..."):
-        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+    anki_remote.fetch()
+    unsub_remote.fetch()
+    raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
 
     @beartype
     def unquote_diff_path(path: str) -> str:
@@ -2248,17 +2186,16 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # fresh `ki clone` of the current database).
     patches: List[Patch] = []
     f = io.StringIO()
-    with F.halo(text="Generating submodule patches..."):
-        with redirect_stdout(f):
-            for diff in whatthepatch.parse_patch(raw_unified_patch):
-                a_path = unquote_diff_path(diff.header.old_path)
-                b_path = unquote_diff_path(diff.header.new_path)
-                if a_path == DEV_NULL:
-                    a_path = b_path
-                if b_path == DEV_NULL:
-                    b_path = a_path
-                patch = Patch(Path(a_path), Path(b_path), diff)
-                patches.append(patch)
+    with redirect_stdout(f):
+        for diff in whatthepatch.parse_patch(raw_unified_patch):
+            a_path = unquote_diff_path(diff.header.old_path)
+            b_path = unquote_diff_path(diff.header.new_path)
+            if a_path == DEV_NULL:
+                a_path = b_path
+            if b_path == DEV_NULL:
+                b_path = a_path
+            patch = Patch(Path(a_path), Path(b_path), diff)
+            patches.append(patch)
 
     # Construct a map that sends submodule relative roots, that is, the
     # relative path of a submodule root directory to the top-level root
@@ -2274,22 +2211,17 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
-            halotext = f"Removing submodule directory '{sm_rel_root}' from remote..."
             if os.path.isdir(anki_remote_root / sm_rel_root):
-                with F.halo(text=halotext):
-                    remote_repo.git.rm(["-r", str(sm_rel_root)])
+                remote_repo.git.rm(["-r", str(sm_rel_root)])
 
     if len(last_push_repo.submodules) > 0:
-        with F.halo(text="Committing submodule directory removals..."):
-            remote_repo.git.add(all=True)
-            remote_repo.index.commit("Remove submodule directories.")
+        remote_repo.git.add(all=True)
+        remote_repo.index.commit("Remove submodule directories.")
 
     # Apply patches within submodules.
     msg = "Applying patches:\n\n"
-    patches_bar = tqdm(patches, ncols=TQDM_NUM_COLS)
-    patches_bar.set_description("Patches")
     patched_submodules: Set[Path] = set()
-    for patch in patches_bar:
+    for patch in patches:
         for sm_rel_root, sm_repo in subrepos.items():
 
             # TODO: We must also treat case where we moved a file into or out
@@ -2350,10 +2282,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         echo(f"  Patched '{sm_rel_root}'")
 
     # Commit patches in submodules.
-    with F.halo(text="Committing applied patches to submodules..."):
-        for sm_repo in subrepos.values():
-            sm_repo.git.add(all=True)
-            sm_repo.index.commit(msg)
+    for sm_repo in subrepos.values():
+        sm_repo.git.add(all=True)
+        sm_repo.index.commit(msg)
 
     # Get active branches of each submodule.
     sm_branches: Dict[Path, str] = {}
@@ -2408,9 +2339,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Commit new submodules commits in `last_push_repo`.
     if len(patched_submodules) > 0:
-        with F.halo(text=f"Committing new submodule commits to '{last_push_root}'..."):
-            last_push_repo.git.add(all=True)
-            last_push_repo.index.commit(msg)
+        last_push_repo.git.add(all=True)
+        last_push_repo.index.commit(msg)
 
     # Handle deleted files, preferring `theirs`.
     deletes = 0
@@ -2430,9 +2360,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             deletes += 1
 
     if deletes > 0:
-        with F.halo(text=f"Committing remote deletions to '{last_push_root}'..."):
-            last_push_repo.git.add(all=True)
-            last_push_repo.index.commit(del_msg)
+        last_push_repo.git.add(all=True)
+        last_push_repo.index.commit(del_msg)
 
     # =================== NEW PULL ARCHITECTURE ====================
 
@@ -2500,16 +2429,6 @@ def push(verbose: bool = False) -> PushResult:
     UpdatesRejectedError
         If the user needs to pull remote changes first.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
-    pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
-
     # Check that we are inside a ki repository, and load collection.
     cwd: ExtantDir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
@@ -2522,10 +2441,9 @@ def push(verbose: bool = False) -> PushResult:
         raise UpdatesRejectedError(kirepo.col_file)
 
     # =================== NEW PUSH ARCHITECTURE ====================
-    with F.halo("Initializing stage repository..."):
-        head: KiRepoRef = M.head_kirepo_ref(kirepo)
-        head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-        remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    head: KiRepoRef = M.head_kirepo_ref(kirepo)
+    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+    remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(
@@ -2536,23 +2454,20 @@ def push(verbose: bool = False) -> PushResult:
         verbose=verbose,
     )
 
-    with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
-        git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-        remote_repo.close()
-        remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
-        del remote_repo
-        remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
+    remote_repo.close()
+    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    del remote_repo
+    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
 
-    with F.halo(f"Flattening stage repository submodules in '{remote_root}'..."):
-        remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-        git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
-        del remote_repo
-        F.copytree(git_copy, F.test(git_dir))
+    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    del remote_repo
+    F.copytree(git_copy, F.test(git_dir))
 
-    with F.halo(f"Committing stage repository contents in '{remote_root}'..."):
-        remote_repo: git.Repo = M.repo(remote_root)
-        remote_repo.git.add(all=True)
-        remote_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+    remote_repo: git.Repo = M.repo(remote_root)
+    remote_repo.git.add(all=True)
+    remote_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.
@@ -2571,7 +2486,7 @@ def push(verbose: bool = False) -> PushResult:
     # Map model names to models.
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
 
-    result: PushResult = push_deltas(
+    return push_deltas(
         deltas,
         models,
         kirepo,
@@ -2582,13 +2497,6 @@ def push(verbose: bool = False) -> PushResult:
         con,
         verbose,
     )
-
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_push_profile.html").resolve().write_text(s, encoding="UTF-8")
-
-    return result
 
 
 @beartype
@@ -2661,9 +2569,7 @@ def push_deltas(
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
 
-    bar = tqdm(deltas, ncols=TQDM_NUM_COLS)
-    bar.set_description("Deltas")
-    for delta in bar:
+    for delta in deltas:
 
         # Parse the file at `delta.path` into a `DeckNote`, and
         # add/edit/delete in collection.
@@ -2702,12 +2608,8 @@ def push_deltas(
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
     # Follow symlinks.
-    media_files = list(map(M.linktarget, media_files))
-
     warnings = []
-    bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
-    bar.set_description("Media")
-    for media_file in bar:
+    for media_file in map(M.linktarget, media_files):
 
         # Skip media files with the same name and the same data.
         old: bytes = media_data(col, media_file.name)

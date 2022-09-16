@@ -60,7 +60,6 @@ from ki import (
     copy_kirepo,
     get_note_payload,
     create_deck_dir,
-    tidy_html_recursively,
     get_note_path,
     git_pull,
     get_colnote,
@@ -81,6 +80,7 @@ from ki import (
     diff2,
     _clone,
     add_db_note,
+    tidy_html_recursively,
 )
 from ki.types import (
     NoFile,

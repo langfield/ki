@@ -17,8 +17,6 @@ from pathlib import Path
 from types import TracebackType
 
 import git
-from halo import Halo
-from loguru import logger
 
 from beartype import beartype
 from beartype.typing import (
@@ -364,18 +362,6 @@ def fmkleaves(
             new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
 
     return Leaves(root, new_files, new_dirs)
-
-
-@beartype
-def halo(text: str) -> Halo:
-    """Construct a Halo spinner (for indicating progress)."""
-    return Halo(
-        text=text,
-        spinner=SPINNER,
-        color="white",
-        text_color="white",
-        enabled=HALO_ENABLED,
-    )
 
 
 @beartype
