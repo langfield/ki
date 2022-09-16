@@ -59,6 +59,9 @@ def main() -> None:
     copy: git.Repo = copy_repo(head, f"submodule-{head.sha}")
     copyroot: ExtantDir = F.working_dir(copy)
 
+    # Harden all symlinks.
+    _ = map(M.hardlink, F.walk(copyroot))
+
     # Filter ``copy`` to include only the given deck.
     print(f"Operating on '{copyroot}'")
     F.chdir(copyroot)

@@ -825,11 +825,8 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
     return warnings
 
 
-# TODO: This should use other fields when there is not enough content in the
-# first field to get a unique filename, if they exist. Note that we must still
-# treat the case where all fields are images!
 @beartype
-def get_note_path(colnote: ColNote, payload: str, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
+def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = colnote.sortf_text
 
@@ -897,7 +894,7 @@ def backup(kirepo: KiRepo) -> int:
         return 1
 
     echo(f"Writing backup of .anki2 file to '{backup_file}'")
-    F.copyfile(kirepo.col_file, kirepo.backups_dir, name)
+    F.copyfile(kirepo.col_file, F.test(kirepo.backups_dir / name))
     return 0
 
 
@@ -1187,7 +1184,8 @@ def copy_media_files(
                 continue
             media_file = F.test(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
+                target_file = F.test(media_target_dir / media_file.name)
+                copied_file = F.copyfile(media_file, target_file)
                 media[row.nid] = media.get(row.nid, set()) | set([copied_file])
             else:
                 warnings.add(MissingMediaFileWarning(col.path, media_file))
@@ -1212,9 +1210,8 @@ def copy_media_files(
                     # obtained from an `os.listdir()` call.
                     media_file = F.test(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
-                        copied_file = F.copyfile(
-                            media_file, media_target_dir, media_file.name
-                        )
+                        target_file = F.test(media_target_dir / media_file.name)
+                        copied_file = F.copyfile(media_file, target_file)
                         notetype_media = media.get(NOTETYPE_NID, set())
                         media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
@@ -1494,7 +1491,7 @@ def write_deck_node_cards(
 
         if card.nid not in written_notes:
             payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, payload, deck_dir)
+            note_path: NoFile = get_note_path(colnote, deck_dir)
             note_path: ExtantFile = F.write(note_path, payload)
             written_notes[card.nid] = WrittenNoteFile(did, note_path)
         else:
@@ -1513,7 +1510,7 @@ def write_deck_node_cards(
             name: str = template["name"]
 
             payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, payload, deck_dir, name)
+            note_path: NoFile = get_note_path(colnote, deck_dir, name)
             abs_target: ExtantFile = written_notes[card.nid].file
             distance = len(note_path.parent.relative_to(targetdir).parts)
             up_path = Path("../" * distance)
@@ -1925,26 +1922,6 @@ def media_data(col: Collection, fname: str) -> bytes:
             return f.read()
     except OSError:
         return b""
-
-
-@beartype
-def filemode(
-    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
-) -> int:
-    """Get git file mode."""
-    try:
-        # We must search from file upwards in case inside submodule.
-        repo = git.Repo(file, search_parent_directories=True)
-        out = repo.git.ls_files(["-s", str(file)])
-
-        # Treat case where file is untracked.
-        if out == "":
-            return -1
-
-        mode: int = int(out.split()[0])
-    except Exception as err:
-        raise GitFileModeParseError(file, out) from err
-    return mode
 
 
 @click.group()
@@ -2646,7 +2623,8 @@ def push_deltas(
     temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
-    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
+    new_col_file: NoFile = F.test(temp_col_dir / col_name)
+    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, new_col_file)
 
     head: RepoRef = M.head_repo_ref(kirepo.repo)
     echo(f"Generating local .anki2 file from latest commit: {head.sha}")
@@ -2712,33 +2690,25 @@ def push_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    new_col_file = F.copyfile(new_col_file, F.parent(kirepo.col_file), col_name)
+    col_file = F.test(F.parent(kirepo.col_file) / col_name)
+    F.copyfile(new_col_file, col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 
-    # Add media files to collection.
+    # Add media files to collection and follow latent symlinks.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 
-    warnings = []
+    # Follow symlinks.
+    media_files = list(map(M.linktarget, media_files))
 
+    warnings = []
     bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
     bar.set_description("Media")
     for media_file in bar:
 
-        # Check file mode, and follow symlink if applicable.
-        mode: int = filemode(media_file)
-        if mode == 120000:
-            target: str = media_file.read_text(encoding="UTF-8")
-            parent: ExtantDir = F.parent(media_file)
-            media_file: ExtantFile = M.xfile(parent / target)
-
-        # Get bytes of new media file.
-        with open(media_file, "rb") as f:
-            new: bytes = f.read()
-
-        # Get bytes of existing media file (if it exists).
+        # Skip media files with the same name and the same data.
         old: bytes = media_data(col, media_file.name)
-        if old and old == new:
+        if old and old == media_file.read_bytes():
             continue
 
         # Add (and possibly rename) media paths.
@@ -2758,8 +2728,8 @@ def push_deltas(
     echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     # Append to hashes file.
-    new_md5sum = F.md5(new_col_file)
-    append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
+    new_md5sum = F.md5(kirepo.col_file)
+    append_md5sum(kirepo.ki_dir, kirepo.col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
     head: RepoRef = M.head_repo_ref(kirepo.repo)

@@ -32,6 +32,7 @@ from beartype.typing import (
     Callable,
     Any,
     Type,
+    FrozenSet,
 )
 
 import ki.functional as F
@@ -122,8 +123,21 @@ def shallow_walk(
     root, dirs, files = next(os.walk(directory))
     root = ExtantDir(root)
     dirs = [ExtantDir(root / d) for d in dirs]
+    # TODO: Treat symlinks.
     files = [ExtantFile(root / f) for f in files]
     return root, dirs, files
+
+
+@beartype
+def walk(
+    directory: ExtantDir,
+) -> FrozenSet[Union[ExtantFile, ExtantStrangePath, Symlink, NoFile]]:
+    """Get all file-like leaves in a directory, recursively."""
+    leaves = frozenset()
+    for root, _, files in os.walk(directory):
+        root = ExtantDir(root)
+        leaves |= frozenset({F.test(root / f) for f in files})
+    return leaves
 
 
 # TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
@@ -228,10 +242,8 @@ def mkdtemp() -> EmptyDir:
 
 
 @beartype
-def copyfile(source: ExtantFile, target_root: ExtantDir, name: str) -> ExtantFile:
-    """Force copy a file (potentially overwrites the target path)."""
-    name = singleton(name)
-    target = target_root / name
+def copyfile(source: ExtantFile, target: Union[ExtantFile, NoFile]) -> ExtantFile:
+    """Safely copy a file to a valid location."""
     shutil.copyfile(source, target)
     return ExtantFile(target.resolve())
 
@@ -371,3 +383,10 @@ def mkdir(path: NoPath) -> EmptyDir:
     """Make a directory (with parents)."""
     path.mkdir(parents=True)
     return EmptyDir(path)
+
+
+@beartype
+def unlink(file: Union[ExtantFile, Symlink, LatentSymlink]) -> NoFile:
+    """Safely unlink a file."""
+    os.unlink(file)
+    return NoFile(file)

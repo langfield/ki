@@ -1508,7 +1508,7 @@ def test_push_writes_media(tmp_path: Path):
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
 
-        mode: int = ki.filemode(onesec_file)
+        mode: int = M.filemode(onesec_file)
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
@@ -1516,7 +1516,7 @@ def test_push_writes_media(tmp_path: Path):
         repo.index.commit("Add air.md")
         repo.close()
 
-        mode: int = ki.filemode(onesec_file)
+        mode: int = M.filemode(onesec_file)
 
         # Push the commit.
         out = push(runner)

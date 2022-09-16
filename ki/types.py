@@ -587,6 +587,24 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f"{top}\n\n{errwrap(msg)}\n{details}")
 
 
+class MaximumLatentSymlinkChainingDepthExceededError(RuntimeError):
+    @beartype
+    def __init__(self, orig: ExtantFile, depth: int):
+        top = f"Maximum latent symlink depth exceeded while resolving '{orig}'"
+        msg = f"""
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another latent symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This error means that we tried to resolve this
+        link, and recursively followed subsequent latent symlinks to a
+        ludicrous depth ('{depth}'). There is possibly a cycle within the link
+        graph, which indicates that the links were written incorrectly. In
+        practice, this should never happen. Please report this bug on GitHub at
+        https://github.com/langfield/ki/issues.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
 # WARNINGS
 
 
@@ -704,5 +722,19 @@ class RenamedMediaFileWarning(Warning):
         This happens when we push a media file to a collection that already
         contains another media file with the same name. In this case, Anki does
         some deduplication by renaming the new one.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class MissingLatentSymlinkTarget(Warning):
+    @beartype
+    def __init__(self, link: ExtantFile, tgt: str):
+        top = f"Failed to locate target '{tgt}' of latent symlink '{link}'"
+        msg = """
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another latent symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This warning means that the target of a latent
+        symlink is not extant, and thus the link could not be resolved.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")

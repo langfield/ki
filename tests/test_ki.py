@@ -758,19 +758,19 @@ def test_get_note_path_produces_nonempty_filenames():
         deck_dir: ExtantDir = F.force_mkdir(Path("a"))
 
         payload = get_note_payload(colnote, {})
-        path: ExtantFile = get_note_path(colnote, payload, deck_dir)
+        path: ExtantFile = get_note_path(colnote, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
         col, empty_colnote = get_colnote_with_sortf_text("")
         payload = get_note_payload(empty_colnote, {})
-        path: ExtantFile = get_note_path(empty_colnote, payload, deck_dir)
+        path: ExtantFile = get_note_path(empty_colnote, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
 
         col, empty = get_basic_colnote_with_fields("", "")
         payload = get_note_payload(empty, {})
-        path: ExtantFile = get_note_path(empty, payload, deck_dir)
+        path: ExtantFile = get_note_path(empty, deck_dir)
 
 
 @beartype
@@ -1016,7 +1016,7 @@ def test_get_note_path():
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
         payload = get_note_payload(colnote, {})
-        note_path = get_note_path(colnote, payload, deck_dir)
+        note_path = get_note_path(colnote, deck_dir)
         assert str(note_path.name) == "a_1.md"
 
 
@@ -1716,14 +1716,14 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         # Check that filemode is initially 120000.
         repo = git.Repo(MEDIACOL.repodir)
         onesec_file = F.working_dir(repo) / "Default" / MEDIA / "1sec.mp3"
-        mode = ki.filemode(onesec_file)
+        mode = M.filemode(onesec_file)
         assert mode == 120000
 
         # Check that `copy_repo()` keeps it as 120000.
         ref = M.head_repo_ref(repo)
         ephem = ki.copy_repo(ref, "filemode-test")
         onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
-        mode = ki.filemode(onesec_file)
+        mode = M.filemode(onesec_file)
         assert mode == 120000
 
 
@@ -1777,7 +1777,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
             sortf_text="",
         )
         payload: str = "payload"
-        note_path: NoFile = get_note_path(colnote, payload, targetdir)
+        note_path: NoFile = get_note_path(colnote, targetdir)
         note_path: ExtantFile = F.write(note_path, payload)
 
 

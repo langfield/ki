@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monadic factory functions for safely handling errors in type construction."""
+"""Factory functions for safely handling errors in type construction."""
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, import-self
@@ -9,6 +9,7 @@ from pathlib import Path
 
 import git
 from beartype import beartype
+from beartype.typing import Union
 
 import anki
 from anki.collection import Collection
@@ -22,6 +23,9 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
+    Symlink,
+    ExtantStrangePath,
+    LatentSymlink,
     KiRepo,
     KiRepoRef,
     RepoRef,
@@ -36,6 +40,8 @@ from ki.types import (
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
+    MaximumLatentSymlinkChainingDepthExceededError,
+    GitFileModeParseError,
 )
 
 KI = ".ki"
@@ -264,3 +270,55 @@ def collection(col_file: ExtantFile) -> Collection:
     except anki.errors.DBError as err:
         raise AnkiAlreadyOpenError(str(err)) from err
     return col
+
+
+@beartype
+def linktarget(orig: ExtantFile) -> ExtantFile:
+    """Follow a latent symlink inside a git repo, or return regular file unchanged."""
+    # Check file mode, and follow symlink if applicable.
+    depth = 0
+    file = orig
+    while M.filemode(file) == 120000:
+        target: str = file.read_text(encoding="UTF-8")
+        parent: ExtantDir = F.parent(file)
+        file = M.xfile(parent / target)
+        depth += 1
+        if depth > 999:
+            raise MaximumLatentSymlinkChainingDepthExceededError(orig, depth)
+    return file
+
+
+@beartype
+def hardlink(link: Union[ExtantFile, Symlink]) -> ExtantFile:
+    """Replace a possibly latent symlink with its target."""
+    # Treat true POSIX symlink case.
+    if isinstance(link, Symlink):
+        tgt = F.test(link.resolve())
+        return F.copyfile(tgt, link)
+
+    # Treat latent symlink case.
+    tgt = M.linktarget(link)
+    if tgt != link:
+        link: NoFile = F.unlink(link)
+        link: ExtantFile = F.copyfile(tgt, link)
+    return link
+
+
+@beartype
+def filemode(
+    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
+) -> int:
+    """Get git file mode."""
+    try:
+        # We must search from file upwards in case inside submodule.
+        root_repo = git.Repo(file, search_parent_directories=True)
+        out = root_repo.git.ls_files(["-s", str(file)])
+
+        # Treat case where file is untracked.
+        if out == "":
+            return -1
+
+        mode: int = int(out.split()[0])
+    except Exception as err:
+        raise GitFileModeParseError(file, out) from err
+    return mode

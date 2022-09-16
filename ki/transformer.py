@@ -30,6 +30,16 @@ class Field:
 
 @beartype
 @dataclass(frozen=True)
+class Header:
+    """Note metadata."""
+
+    title: str
+    guid: str
+    model: str
+
+
+@beartype
+@dataclass(frozen=True)
 class FlatNote:
     """Flat (as possible) representation of a note."""
 
@@ -38,16 +48,6 @@ class FlatNote:
     model: str
     tags: List[str]
     fields: Dict[str, str]
-
-
-@beartype
-@dataclass(frozen=True)
-class Header:
-    """Note metadata."""
-
-    title: str
-    guid: str
-    model: str
 
 
 class NoteTransformer(Transformer):
