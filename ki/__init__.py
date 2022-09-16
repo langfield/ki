@@ -299,7 +299,7 @@ def unlock(con: sqlite3.Connection) -> None:
 @beartype
 def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    # Copy the entire repo into `<tmp_dir>/suffix/`.
+    # Copy the entire repo into a temp directory ending in `../suffix/`.
     target: NoFile = F.test(F.mkdtemp() / suffix)
     ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
 
@@ -388,6 +388,9 @@ def get_note_warnings(
     components: Tuple[str, ...] = path.parts
     dirnames: Set[str] = set(components) & ignore_dirs
     for dirname in dirnames:
+
+        # TODO: Surely this is a bug? This function should return an iterable
+        # of warnings.
         return UnPushedPathWarning(path, dirname)
 
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
