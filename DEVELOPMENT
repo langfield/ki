@@ -254,6 +254,15 @@ Generating HTML
 Media (DONE)
 
 
+Distillation
+------------
+The complexity of this program has gotten out of hand. An effort should be made
+to distill functionality into the smallest form possible. No custom exceptions,
+no functional or maybe modules, no pretty output, no halo, no profiling,
+nothing. No checking, no safety, nothing. Paths are always assumed to exist and
+targets are always assumed to be valid.
+
+
 Subdeck duplication
 -------------------
 Suppose we have a deck A. We clone our collection. Then, from inside Anki, we
