@@ -1460,7 +1460,7 @@ def test_copy_kirepo(tmp_path: Path):
 
     In `copy_kirepo()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
-    `copy_repo()` is just a git clone operation, and the `.ki`
+    `cprepo()` is just a git clone operation, and the `.ki`
     subdirectory is in the `.gitignore` file. It is possible but
     extraordinarily improbable that this path is created in between the
     `Repo.clone_from()` call and the `M.nopath()` call.
@@ -1535,7 +1535,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert "1645010146011" in str(error.exconly())
 
 
-def test_copy_repo_handles_submodules(tmp_path: Path):
+def test_cprepo_handles_submodules(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1654,7 +1654,7 @@ def test_get_test_collection_copies_media():
     assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
 
 
-def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
+def test_cprepo_preserves_git_symlink_file_modes(tmp_path: Path):
     """Especially on Windows, are copied symlinks still mode 120000?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
@@ -1669,9 +1669,9 @@ def test_copy_repo_preserves_git_symlink_file_modes(tmp_path: Path):
         mode = M.filemode(onesec_file)
         assert mode == 120000
 
-        # Check that `copy_repo()` keeps it as 120000.
+        # Check that `cprepo()` keeps it as 120000.
         ref = M.head_repo_ref(repo)
-        ephem = ki.copy_repo(ref, "filemode-test")
+        ephem = ki.cprepo(ref, "filemode-test")
         onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000

@@ -202,7 +202,7 @@ def unlock(con: sqlite3.Connection) -> None:
 
 
 @beartype
-def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
+def cprepo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into a temp directory ending in `../suffix/`.
     target: NoFile = F.test(F.mkdtemp() / suffix)
@@ -240,7 +240,7 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
         The cloned repository.
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
-    ephem: git.Repo = copy_repo(ref, suffix)
+    ephem: git.Repo = cprepo(ref, suffix)
     ki_dir: Path = F.test(F.working_dir(ephem) / KI)
     if not isinstance(ki_dir, NoFile):
         raise ExpectedNonexistentPathError(ki_dir)
@@ -355,7 +355,7 @@ def diff2(
     """Diff `repo` from `HEAD~1` to `HEAD`."""
     head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
     uuid = "%4x" % random.randrange(16**4)
-    head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
+    head1_repo = cprepo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
     b_repo = repo
@@ -2006,8 +2006,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # successful `push()`.
     sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
     ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
-    last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
-    unsub_repo: git.Repo = copy_repo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
+    last_push_repo: git.Repo = cprepo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
+    unsub_repo: git.Repo = cprepo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -2029,7 +2029,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
     # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `copy_repo()` call
+    # last successful ki push in the main repository. Our `cprepo()` call
     # does a `reset --hard` to the commit of the last push, but this does *not*
     # do an equivalent rollback for submodules. So they may contain new local
     # changes that we don't want. Calling `git submodule update` here checks
