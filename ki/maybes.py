@@ -194,8 +194,8 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     current = cwd
 
     while not F.is_root(current):
-        ki_dir = F.chk(current / KI)
-        if isinstance(ki_dir, ExtantDir):
+        kid = F.chk(current / KI)
+        if isinstance(kid, ExtantDir):
             break
         current = F.parent(current)
 
@@ -207,11 +207,11 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     repository: git.Repo = M.repo(root)
 
     # Check that relevant files in .ki/ subdirectory exist.
-    backups_dir = M.xdir(ki_dir / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
-    config_file = M.xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
-    hashes_file = M.xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
+    backups_dir = M.xdir(kid / BACKUPS_DIR, info=BACKUPS_DIR_INFO)
+    config_file = M.xfile(kid / CONFIG_FILE, info=CONFIG_FILE_INFO)
+    hashes_file = M.xfile(kid / HASHES_FILE, info=HASHES_FILE_INFO)
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    lca_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
+    lca_file = M.xfile(kid / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
     # Check that collection file exists.
     config = configparser.ConfigParser()
@@ -222,7 +222,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     return KiRepo(
         repository,
         root,
-        ki_dir,
+        kid,
         col_file,
         backups_dir,
         config_file,

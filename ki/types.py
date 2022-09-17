@@ -151,7 +151,7 @@ class KiRepo:
 
     repo: git.Repo
     root: ExtantDir
-    ki_dir: ExtantDir
+    ki: ExtantDir
     col_file: ExtantFile
     backups_dir: ExtantDir
     config_file: ExtantFile

@@ -209,9 +209,9 @@ def cp_repo(rev: Rev, suffix: str) -> git.Repo:
     ephem = git.Repo(F.copytree(F.root(rev.repo), target))
 
     # Annihilate the .ki subdirectory.
-    ki_dir = F.chk(F.root(ephem) / KI)
-    if isinstance(ki_dir, ExtantDir):
-        F.rmtree(ki_dir)
+    kid = F.chk(F.root(ephem) / KI)
+    if isinstance(kid, ExtantDir):
+        F.rmtree(kid)
 
     # Do a reset --hard to the given SHA.
     ephem.git.reset(rev.sha, hard=True)
@@ -241,10 +241,10 @@ def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
     """
     rev: Rev = F.ki_rev_to_rev(ki_rev)
     ephem: git.Repo = cp_repo(rev, suffix)
-    ki_dir: Path = F.chk(F.root(ephem) / KI)
-    if not isinstance(ki_dir, NoFile):
-        raise ExpectedNonexistentPathError(ki_dir)
-    F.copytree(ki_rev.kirepo.ki_dir, ki_dir)
+    kid: Path = F.chk(F.root(ephem) / KI)
+    if not isinstance(kid, NoFile):
+        raise ExpectedNonexistentPathError(kid)
+    F.copytree(ki_rev.kirepo.ki, kid)
     kirepo: KiRepo = M.kirepo(F.root(ephem))
     return kirepo
 
@@ -791,10 +791,10 @@ def backup(kirepo: KiRepo) -> int:
 
 @beartype
 def append_md5sum(
-    ki_dir: ExtantDir, tag: str, md5sum: str, silent: bool = False
+    kid: ExtantDir, tag: str, md5sum: str, silent: bool = False
 ) -> None:
     """Append an md5sum hash to the hashes file."""
-    hashes_file = ki_dir / HASHES_FILE
+    hashes_file = kid / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
 
@@ -2258,7 +2258,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
-    append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
+    append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum, silent=True)
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
 
@@ -2493,7 +2493,7 @@ def push_deltas(
 
     # Append to hashes file.
     new_md5sum = F.md5(kirepo.col_file)
-    append_md5sum(kirepo.ki_dir, kirepo.col_file.name, new_md5sum, silent=False)
+    append_md5sum(kirepo.ki, kirepo.col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
     head: Rev = M.head(kirepo.repo)

@@ -1080,10 +1080,10 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
 
         targetdir = F.chk(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
-        ki_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / KI))
+        kid = F.mkdir(F.chk(Path(MULTIDECK.repodir) / KI))
         media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
-            ki_dir,
+            kid,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
@@ -1117,10 +1117,10 @@ def test_write_repository_handles_html():
     with runner.isolated_filesystem():
 
         targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
-        ki_dir = F.mkdir(F.chk(Path(HTML.repodir) / KI))
+        kid = F.mkdir(F.chk(Path(HTML.repodir) / KI))
         media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
-            ki_dir,
+            kid,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
@@ -1143,10 +1143,10 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
     with runner.isolated_filesystem():
 
         targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
-        ki_dir = F.mkdir(F.chk(Path(HTML.repodir) / KI))
+        kid = F.mkdir(F.chk(Path(HTML.repodir) / KI))
         media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
-            ki_dir,
+            kid,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
@@ -1358,10 +1358,10 @@ def test_maybe_head_ki():
         os.mkdir("original")
         targetdir = F.chk(Path("original"))
         silent = False
-        ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
+        kid: EmptyDir = F.mksubdir(targetdir, Path(KI))
         media_dir = F.mkdir(F.chk(targetdir / MEDIA))
         leaves: Leaves = F.fmkleaves(
-            ki_dir,
+            kid,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
@@ -1372,7 +1372,7 @@ def test_maybe_head_ki():
             ORIGINAL.col_file, targetdir, leaves, media_dir, silent, verbose=False
         )
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        append_md5sum(ki_dir, ORIGINAL.col_file.name, md5sum, silent)
+        append_md5sum(kid, ORIGINAL.col_file.name, md5sum, silent)
 
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.chk(Path(repo.working_dir)))

@@ -14,7 +14,7 @@ from beartype.typing import (
     Union,
 )
 
-# pylint: disable=invalid-name, too-few-public-methods
+# pylint: disable=invalid-name, no-self-use, too-few-public-methods
 
 BACKTICKS = "```\n"
 
