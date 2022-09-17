@@ -220,7 +220,7 @@ def cprepo(repo_ref: RepoRef, suffix: str) -> git.Repo:
 
 
 @beartype
-def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
+def cpki(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     """
     Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
@@ -246,7 +246,6 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
         raise ExpectedNonexistentPathError(ki_dir)
     F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
     kirepo: KiRepo = M.kirepo(F.workdir(ephem))
-
     return kirepo
 
 
@@ -2307,7 +2306,7 @@ def push(verbose: bool = False) -> PushResult:
 
     # =================== NEW PUSH ARCHITECTURE ====================
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+    head_kirepo: KiRepo = cpki(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"

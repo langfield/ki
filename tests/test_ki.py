@@ -57,7 +57,7 @@ from ki import (
     KiRepo,
     KiRepoRef,
     get_note_warnings,
-    copy_kirepo,
+    cpki,
     get_note_payload,
     create_deck_dir,
     get_note_path,
@@ -796,7 +796,7 @@ def get_diff2_args() -> DiffReposArgs:
     lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
+    head_kirepo: KiRepo = cpki(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(
@@ -1453,12 +1453,12 @@ def test_nopath(tmp_path: Path):
             M.nopath(file)
 
 
-def test_copy_kirepo(tmp_path: Path):
+def test_cpki(tmp_path: Path):
     """
-    Do errors in `M.nopath()` call in `copy_kirepo()` get forwarded to
+    Do errors in `M.nopath()` call in `cpki()` get forwarded to
     the caller and printed nicely?
 
-    In `copy_kirepo()`, we construct a `NoPath` for the `.ki`
+    In `cpki()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
     `cprepo()` is just a git clone operation, and the `.ki`
     subdirectory is in the `.gitignore` file. It is possible but
@@ -1479,7 +1479,7 @@ def test_copy_kirepo(tmp_path: Path):
         kirepo.repo.index.commit("Add ki directory.")
         head: KiRepoRef = M.head_kirepo_ref(kirepo)
         with pytest.raises(ExpectedNonexistentPathError) as error:
-            copy_kirepo(head, suffix="suffix-md5")
+            cpki(head, suffix="suffix-md5")
         assert ".ki" in str(error.exconly())
 
 
@@ -1559,7 +1559,7 @@ def test_cprepo_handles_submodules(tmp_path: Path):
 
         # Just want to check that this doesn't return an exception, so we
         # unwrap, but don't assert anything.
-        kirepo = copy_kirepo(head, suffix="suffix-md5")
+        kirepo = cpki(head, suffix="suffix-md5")
 
 
 @pytest.mark.skipif(
