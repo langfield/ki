@@ -205,11 +205,11 @@ def unlock(con: sqlite3.Connection) -> None:
 def cp_repo(rev: Rev, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into a temp directory ending in `../suffix/`.
-    target: NoFile = F.test(F.mkdtemp() / suffix)
-    ephem = git.Repo(F.copytree(F.workdir(rev.repo), target))
+    target: NoFile = F.chk(F.mkdtemp() / suffix)
+    ephem = git.Repo(F.copytree(F.root(rev.repo), target))
 
     # Annihilate the .ki subdirectory.
-    ki_dir = F.test(F.workdir(ephem) / KI)
+    ki_dir = F.chk(F.root(ephem) / KI)
     if isinstance(ki_dir, ExtantDir):
         F.rmtree(ki_dir)
 
@@ -241,11 +241,11 @@ def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
     """
     rev: Rev = F.ki_rev_to_rev(ki_rev)
     ephem: git.Repo = cp_repo(rev, suffix)
-    ki_dir: Path = F.test(F.workdir(ephem) / KI)
+    ki_dir: Path = F.chk(F.root(ephem) / KI)
     if not isinstance(ki_dir, NoFile):
         raise ExpectedNonexistentPathError(ki_dir)
     F.copytree(ki_rev.kirepo.ki_dir, ki_dir)
-    kirepo: KiRepo = M.kirepo(F.workdir(ephem))
+    kirepo: KiRepo = M.kirepo(F.root(ephem))
     return kirepo
 
 
@@ -318,7 +318,7 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
 
     UNSAFE: git.rm() calls.
     """
-    gitmodules_path: Path = F.workdir(repo) / GITMODULES_FILE
+    gitmodules_path: Path = F.root(repo) / GITMODULES_FILE
     for sm in repo.submodules:
 
         # The submodule path is guaranteed to exist by gitpython.
@@ -329,7 +329,7 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
         if gitmodules_path.is_file:
             repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
-        sm_git_path = F.test(sm_path / GIT)
+        sm_git_path = F.chk(sm_path / GIT)
         if isinstance(sm_git_path, ExtantDir):
             F.rmtree(sm_git_path)
         else:
@@ -378,13 +378,13 @@ def diff2(
 
             a_warning: Optional[Warning] = get_note_warnings(
                 Path(a_relpath),
-                F.workdir(a_repo),
+                F.root(a_repo),
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
             b_warning: Optional[Warning] = get_note_warnings(
                 Path(b_relpath),
-                F.workdir(b_repo),
+                F.root(b_repo),
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
@@ -400,8 +400,8 @@ def diff2(
                 deltas.append(b_warning)
                 continue
 
-            a_path = F.test(F.workdir(a_repo) / a_relpath)
-            b_path = F.test(F.workdir(b_repo) / b_relpath)
+            a_path = F.chk(F.root(a_repo) / a_relpath)
+            b_path = F.chk(F.root(b_repo) / b_relpath)
 
             a_relpath = Path(a_relpath)
             b_relpath = Path(b_relpath)
@@ -759,12 +759,12 @@ def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") ->
     if card_name != "":
         slug = f"{slug}_{card_name}"
     filename: str = f"{slug}{MD}"
-    note_path = F.test(deck_dir / filename, resolve=False)
+    note_path = F.chk(deck_dir / filename, resolve=False)
 
     i = 1
     while not isinstance(note_path, NoFile):
         filename = f"{slug}_{i}{MD}"
-        note_path = F.test(deck_dir / filename, resolve=False)
+        note_path = F.chk(deck_dir / filename, resolve=False)
         i += 1
 
     return note_path
@@ -775,7 +775,7 @@ def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
     md5sum = F.md5(kirepo.col_file)
     name = f"{md5sum}.anki2"
-    backup_file = F.test(kirepo.backups_dir / name)
+    backup_file = F.chk(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
     # `name`, since `name` contains the md5sum of the collection file, and
@@ -785,7 +785,7 @@ def backup(kirepo: KiRepo) -> int:
     if isinstance(backup_file, ExtantFile):
         return 1
 
-    F.copyfile(kirepo.col_file, F.test(kirepo.backups_dir / name))
+    F.copyfile(kirepo.col_file, F.chk(kirepo.backups_dir / name))
     return 0
 
 
@@ -1054,7 +1054,7 @@ def copy_media_files(
     # within ki, we have a guarantee that this will never be true, and thus we
     # can assume it is a nonempty string, which is all we need for the
     # following code to be safe.
-    media_dir = F.test(Path(col.media.dir()))
+    media_dir = F.chk(Path(col.media.dir()))
     if not isinstance(media_dir, ExtantDir):
         raise MissingMediaDirectoryError(col.path, media_dir)
 
@@ -1069,9 +1069,9 @@ def copy_media_files(
             # Skip files in subdirs.
             if file != os.path.basename(file):
                 continue
-            media_file = F.test(media_dir / file)
+            media_file = F.chk(media_dir / file)
             if isinstance(media_file, ExtantFile):
-                target_file = F.test(media_target_dir / media_file.name)
+                target_file = F.chk(media_target_dir / media_file.name)
                 copied_file = F.copyfile(media_file, target_file)
                 media[row.nid] = media.get(row.nid, set()) | set([copied_file])
 
@@ -1093,9 +1093,9 @@ def copy_media_files(
                     # a file, we do not display a warning or return an error.
                     # This path certainly ought to exist, since `fname` was
                     # obtained from an `os.listdir()` call.
-                    media_file = F.test(media_dir / fname)
+                    media_file = F.chk(media_dir / fname)
                     if isinstance(media_file, ExtantFile):
-                        target_file = F.test(media_target_dir / media_file.name)
+                        target_file = F.chk(media_target_dir / media_file.name)
                         copied_file = F.copyfile(media_file, target_file)
                         notetype_media = media.get(NOTETYPE_NID, set())
                         media[NOTETYPE_NID] = notetype_media | set([copied_file])
@@ -1166,7 +1166,7 @@ def write_repository(
             field_text: str = html_to_screen(field_text)
             if re.search(HTML_REGEX, field_text):
                 fid: str = get_field_note_id(nid, field_name)
-                html_file: NoFile = F.test(root / fid)
+                html_file: NoFile = F.chk(root / fid)
                 tidy_field_files[fid] = F.write(html_file, field_text)
 
     tidy_html_recursively(root, silent)
@@ -1460,13 +1460,13 @@ def chain_media_symlinks(
                     parent_did: int = parent.deck_id
                     parent_fullname: str = col.decks.name(parent_did)
                     parent_media_dir = media_dirs[parent_fullname]
-                    abs_target: Symlink = F.test(
+                    abs_target: Symlink = F.chk(
                         parent_media_dir / media_file.name, resolve=False
                     )
                 else:
                     abs_target: ExtantFile = media_file
 
-                path = F.test(deck_media_dir / media_file.name, resolve=False)
+                path = F.chk(deck_media_dir / media_file.name, resolve=False)
                 if not isinstance(path, NoFile):
                     continue
 
@@ -1653,7 +1653,7 @@ def get_target(
     cwd: ExtantDir, col_file: ExtantFile, directory: str
 ) -> Tuple[EmptyDir, bool]:
     """Create default target directory."""
-    path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
+    path = F.chk(Path(directory) if directory != "" else cwd / col_file.stem)
     new: bool = True
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
@@ -1821,7 +1821,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
                 os.remove(file)
         except PermissionError as _:
             pass
-        return F.test(targetdir)
+        return F.chk(targetdir)
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
@@ -1901,7 +1901,7 @@ def _clone(
 
     # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-    root = F.workdir(repo)
+    root = F.root(repo)
 
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
@@ -2019,9 +2019,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
-    anki_remote = lca_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    lca_root: ExtantDir = F.workdir(lca_repo)
+    anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
+    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
+    lca_root: ExtantDir = F.root(lca_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
@@ -2075,10 +2075,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     for sm in lca_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
-            sm_root: ExtantDir = F.workdir(sm_repo)
+            sm_root: ExtantDir = F.root(sm_repo)
 
             # Get submodule root relative to ki repository root.
-            sm_rel_root: Path = sm_root.relative_to(lca_root)
+            sm_rel_root: Path = sm_root.relative_to(F.root(lca_repo))
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
@@ -2112,7 +2112,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 blake2 = hashlib.blake2s()
                 blake2.update(patch.diff.text.encode())
                 patch_hash: str = blake2.hexdigest()
-                patch_path: NoFile = F.test(patches_dir / patch_hash)
+                patch_path: NoFile = F.chk(patches_dir / patch_hash)
 
                 # Strip trailing linefeeds from each line so that `git apply`
                 # is happy on Windows (equivalent to running `dos2unix`).
@@ -2172,7 +2172,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
-            sm_rel_root: Path = F.workdir(sm_repo).relative_to(kirepo.root)
+            sm_rel_root: Path = F.root(sm_repo).relative_to(kirepo.root)
 
             # Note that `subrepos` are the submodules of `lca_repo`.
             if sm_rel_root in subrepos:
@@ -2189,12 +2189,12 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 remote_sm.git.merge("tmp")
                 remote_sm.git.branch(["-D", "tmp"])
 
-                remote_target: ExtantDir = F.git_dir(remote_sm)
+                remote_target: ExtantDir = F.gitd(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,
                     branch,
-                    F.workdir(sm_repo),
+                    F.root(sm_repo),
                     False,
                     False,
                     False,
@@ -2220,7 +2220,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         if diff.a_path == GITMODULES_FILE:
             continue
 
-        a_path: Path = F.test(lca_root / diff.a_path)
+        a_path: Path = F.chk(lca_root / diff.a_path)
         if isinstance(a_path, ExtantFile):
             lca_repo.git.rm(diff.a_path)
             del_msg += f"Remove '{a_path}'\n"
@@ -2232,17 +2232,17 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    git_copy = F.copytree(F.git_dir(lca_repo), F.test(F.mkdtemp() / "GIT"))
+    git_copy = F.copytree(F.gitd(lca_repo), F.chk(F.mkdtemp() / "GIT"))
     lca_repo.close()
-    lca_root: NoFile = F.rmtree(F.workdir(lca_repo))
+    lca_root: NoFile = F.rmtree(F.root(lca_repo))
     del lca_repo
-    remote_root: ExtantDir = F.workdir(remote_repo)
+    remote_root: ExtantDir = F.root(remote_repo)
     lca_root: ExtantDir = F.copytree(remote_root, lca_root)
 
     lca_repo: git.Repo = M.repo(lca_root)
-    git_dir: NoPath = F.rmtree(F.git_dir(lca_repo))
+    gitd: NoPath = F.rmtree(F.gitd(lca_repo))
     del lca_repo
-    F.copytree(git_copy, F.test(git_dir))
+    F.copytree(git_copy, F.chk(gitd))
 
     lca_repo: git.Repo = M.repo(lca_root)
     lca_repo.git.add(all=True)
@@ -2318,16 +2318,16 @@ def push(verbose: bool = False) -> PushResult:
         verbose=verbose,
     )
 
-    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
+    git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
     remote_repo.close()
-    remote_root: NoFile = F.rmtree(F.workdir(remote_repo))
+    remote_root: NoFile = F.rmtree(F.root(remote_repo))
     del remote_repo
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
 
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
+    gitd: NoPath = F.rmtree(F.gitd(remote_repo))
     del remote_repo
-    F.copytree(git_copy, F.test(git_dir))
+    F.copytree(git_copy, F.chk(gitd))
 
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
@@ -2396,7 +2396,7 @@ def push_deltas(
     temp_col_dir: ExtantDir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
-    new_col_file: NoFile = F.test(temp_col_dir / col_name)
+    new_col_file: NoFile = F.chk(temp_col_dir / col_name)
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, new_col_file)
     head: Rev = M.head(kirepo.repo)
 
@@ -2458,7 +2458,7 @@ def push_deltas(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    col_file = F.test(F.parent(kirepo.col_file) / col_name)
+    col_file = F.chk(F.parent(kirepo.col_file) / col_name)
     F.copyfile(new_col_file, col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 

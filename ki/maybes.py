@@ -194,7 +194,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     current = cwd
 
     while not F.is_root(current):
-        ki_dir = F.test(current / KI)
+        ki_dir = F.chk(current / KI)
         if isinstance(ki_dir, ExtantDir):
             break
         current = F.parent(current)
@@ -293,7 +293,7 @@ def hardlink(link: Union[ExtantFile, Symlink]) -> ExtantFile:
     """Replace a possibly latent symlink with its target."""
     # Treat true POSIX symlink case.
     if isinstance(link, Symlink):
-        tgt = F.test(link.resolve())
+        tgt = F.chk(link.resolve())
         return F.copyfile(tgt, link)
 
     # Treat latent symlink case.

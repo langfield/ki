@@ -169,7 +169,7 @@ def get_test_collection(stem: str) -> SampleCollection:
         shutil.copytree(media_directory_path, tempdir / media_directory_name)
 
     return SampleCollection(
-        F.test(Path(col_file)),
+        F.chk(Path(col_file)),
         path,
         stem,
         suffix,
@@ -376,9 +376,9 @@ def checksum_git_repository(path: str) -> str:
     tempdir = tempfile.mkdtemp()
     repodir = os.path.join(tempdir, "REPO")
     shutil.copytree(path, repodir)
-    F.rmtree(F.test(Path(os.path.join(repodir, ".git/"))))
+    F.rmtree(F.chk(Path(os.path.join(repodir, ".git/"))))
     checksum = checksumdir.dirhash(repodir)
-    F.rmtree(F.test(Path(tempdir)))
+    F.rmtree(F.chk(Path(tempdir)))
     return checksum
 
 
@@ -443,7 +443,7 @@ def test_parse_markdown_note():
     transformer = NoteTransformer()
 
     with pytest.raises(UnexpectedToken):
-        delta = Delta(GitChangeType.ADDED, F.test(Path(NOTE_6_PATH)), Path("a/b"))
+        delta = Delta(GitChangeType.ADDED, F.chk(Path(NOTE_6_PATH)), Path("a/b"))
         parse_markdown_note(parser, transformer, delta)
 
 
@@ -802,16 +802,16 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo, _ = _clone(
         kirepo.col_file, remote_root, msg, silent=True, verbose=False
     )
-    git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-    remote_root: ExtantDir = F.workdir(remote_repo)
+    git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
+    remote_root: ExtantDir = F.root(remote_repo)
     remote_repo.close()
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: ExtantDir = F.git_dir(remote_repo)
+    git_dir: ExtantDir = F.gitd(remote_repo)
     remote_repo.close()
     git_dir: NoPath = F.rmtree(git_dir)
-    F.copytree(git_copy, F.test(git_dir))
+    F.copytree(git_copy, F.chk(git_dir))
     remote_repo: git.Repo = M.repo(remote_root)
     remote_repo.git.add(all=True)
     remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
@@ -921,7 +921,7 @@ def test_diff2_handles_submodules():
         push(runner)
 
         # Remove submodule.
-        F.rmtree(F.test(Path(SUBMODULE_DIRNAME)))
+        F.rmtree(F.chk(Path(SUBMODULE_DIRNAME)))
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
@@ -1078,10 +1078,10 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
 
-        targetdir = F.test(Path(MULTIDECK.repodir))
+        targetdir = F.chk(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
-        ki_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
+        ki_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / KI))
+        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1116,9 +1116,9 @@ def test_write_repository_handles_html():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.mkdir(F.test(Path(HTML.repodir)))
-        ki_dir = F.mkdir(F.test(Path(HTML.repodir) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
+        targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
+        ki_dir = F.mkdir(F.chk(Path(HTML.repodir) / KI))
+        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1142,9 +1142,9 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        targetdir = F.mkdir(F.test(Path(HTML.repodir)))
-        ki_dir = F.mkdir(F.test(Path(HTML.repodir) / KI))
-        media_dir = F.mkdir(F.test(Path(MULTIDECK.repodir) / MEDIA))
+        targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
+        ki_dir = F.mkdir(F.chk(Path(HTML.repodir) / KI))
+        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1169,7 +1169,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1178,7 +1178,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
@@ -1188,7 +1188,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/backups` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1198,7 +1198,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/backups` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
@@ -1210,7 +1210,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/config` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1220,7 +1220,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/config` is a directory instead of a file.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         os.mkdir(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
@@ -1231,7 +1231,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/hashes` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / HASHES_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1241,7 +1241,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/models` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / MODELS_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1251,7 +1251,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where collection file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.test(Path(ORIGINAL.repodir))
+        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
         os.remove(ORIGINAL.col_file)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1356,10 +1356,10 @@ def test_maybe_head_ki():
 
         # Initialize the kirepo *without* committing.
         os.mkdir("original")
-        targetdir = F.test(Path("original"))
+        targetdir = F.chk(Path("original"))
         silent = False
         ki_dir: EmptyDir = F.mksubdir(targetdir, Path(KI))
-        media_dir = F.mkdir(F.test(targetdir / MEDIA))
+        media_dir = F.mkdir(F.chk(targetdir / MEDIA))
         leaves: Leaves = F.fmkleaves(
             ki_dir,
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
@@ -1375,7 +1375,7 @@ def test_maybe_head_ki():
         append_md5sum(ki_dir, ORIGINAL.col_file.name, md5sum, silent)
 
         # Since we didn't commit, there will be no HEAD.
-        kirepo = M.kirepo(F.test(Path(repo.working_dir)))
+        kirepo = M.kirepo(F.chk(Path(repo.working_dir)))
         with pytest.raises(GitHeadRefNotFoundError) as error:
             M.head_ki(kirepo)
         err_snippet = "ValueError raised while trying to get rev 'HEAD' from repo"
@@ -1570,13 +1570,13 @@ def test_ftest_handles_strange_paths(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkfifo("pipe")
-        pipe = F.test(Path("pipe"))
+        pipe = F.chk(Path("pipe"))
         assert isinstance(pipe, ExtantStrangePath)
 
 
 def test_fparent_handles_fs_root():
     root: str = os.path.abspath(os.sep)
-    parent = F.parent(F.test(Path(root)))
+    parent = F.parent(F.chk(Path(root)))
     assert isinstance(parent, ExtantDir)
     assert str(parent) == root
 
@@ -1584,7 +1584,7 @@ def test_fparent_handles_fs_root():
 def test_fmkleaves_handles_collisions(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        root = F.test(F.cwd())
+        root = F.chk(F.cwd())
         with pytest.raises(PathCreationCollisionError) as error:
             F.fmkleaves(root, files={"a": "a", "b": "a"})
         assert "'a'" in str(error.exconly())
@@ -1609,7 +1609,7 @@ def test_copy_media_files_returns_nice_errors():
     with runner.isolated_filesystem():
 
         # Remove the media directory.
-        media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
+        media_dir = F.chk(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
         F.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
@@ -1665,14 +1665,14 @@ def test_cp_repo_preserves_git_symlink_file_modes(tmp_path: Path):
 
         # Check that filemode is initially 120000.
         repo = git.Repo(MEDIACOL.repodir)
-        onesec_file = F.workdir(repo) / "Default" / MEDIA / "1sec.mp3"
+        onesec_file = F.root(repo) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000
 
         # Check that `cp_repo()` keeps it as 120000.
         rev = M.head(repo)
         ephem = ki.cp_repo(rev, "filemode-test")
-        onesec_file = F.workdir(ephem) / "Default" / MEDIA / "1sec.mp3"
+        onesec_file = F.root(ephem) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000
 
@@ -1716,7 +1716,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        targetdir: ExtantDir = F.mkdir(F.test(Path("collection")))
+        targetdir: ExtantDir = F.mkdir(F.chk(Path("collection")))
         colnote = ColNote(
             n=note,
             new=True,
@@ -1744,11 +1744,11 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     transformer = NoteTransformer()
 
     # Move to tmp directory.
-    tgt = F.test(tmp_path / "mwe")
+    tgt = F.chk(tmp_path / "mwe")
     repodir = F.mkdir(tgt)
     repo = git.Repo.init(repodir, initial_branch=BRANCH_NAME)
-    deck = F.mkdir(F.test(repodir / "a:b"))
-    file = F.test(tgt / "a:b" / "file")
+    deck = F.mkdir(F.chk(repodir / "a:b"))
+    file = F.chk(tgt / "a:b" / "file")
     file.write_text("a")
     repo.git.add(all=True)
     repo.index.commit("Initial commit.")

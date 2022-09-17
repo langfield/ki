@@ -53,11 +53,11 @@ def main() -> None:
     args: argparse.Namespace = parser.parse_args()
 
     # Make a copy of the given repository.
-    kirepo = M.kirepo(F.test(Path(args.kirepo)))
+    kirepo = M.kirepo(F.chk(Path(args.kirepo)))
     repo: git.Repo = kirepo.repo
     head: Rev = M.head(repo)
     copy: git.Repo = cp_repo(head, f"submodule-{head.sha}")
-    copyroot: ExtantDir = F.workdir(copy)
+    copyroot: ExtantDir = F.root(copy)
 
     # Harden all symlinks.
     _ = map(M.hardlink, F.walk(copyroot))

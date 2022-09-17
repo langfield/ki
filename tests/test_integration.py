@@ -368,7 +368,7 @@ def test_clone_cleans_up_on_error():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        F.rmtree(F.test(Path(HTML.repodir)))
+        F.rmtree(F.chk(Path(HTML.repodir)))
         old_path = os.environ["PATH"]
         try:
             with pytest.raises(FileNotFoundError) as err:
@@ -406,7 +406,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        F.rmtree(F.test(Path(HTML.repodir)))
+        F.rmtree(F.chk(Path(HTML.repodir)))
         old_path = os.environ["PATH"]
 
         # In case where nothing is installed, we expect to fail on `tidy`
@@ -777,7 +777,7 @@ def test_pull_displays_errors_from_rev():
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
 
-        kirepo: KiRepo = M.kirepo(F.test(Path(ORIGINAL.repodir)))
+        kirepo: KiRepo = M.kirepo(F.chk(Path(ORIGINAL.repodir)))
         kirepo.lca_file.write_text("gibberish")
 
         # Edit collection.
@@ -903,7 +903,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
 
         # Delete `japanese-core-2000/` subdirectory, and commit.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        F.rmtree(F.test(sm_dir))
+        F.rmtree(F.chk(sm_dir))
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -1102,7 +1102,7 @@ def test_push_generates_correct_backup():
 
         backup_exists = False
         for path in paths:
-            if F.md5(F.test(Path(path))) == old_hash:
+            if F.md5(F.chk(Path(path))) == old_hash:
                 backup_exists = True
 
         assert backup_exists
@@ -1522,7 +1522,7 @@ def test_push_writes_media(tmp_path: Path):
 
         # Annihilate the repo root.
         os.chdir("../")
-        F.rmtree(F.test(Path(MEDIACOL.repodir)))
+        F.rmtree(F.chk(Path(MEDIACOL.repodir)))
 
         # Re-clone the pushed collection.
         out = clone(runner, MEDIACOL.col_file)
@@ -1774,7 +1774,7 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
 
         # Delete a directory.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        F.rmtree(F.test(sm_dir))
+        F.rmtree(F.chk(sm_dir))
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")

@@ -134,13 +134,13 @@ def walk(
     leaves = frozenset()
     for root, _, files in os.walk(directory):
         root = ExtantDir(root)
-        leaves |= frozenset({F.test(root / f) for f in files})
+        leaves |= frozenset({F.chk(root / f) for f in files})
     return leaves
 
 
 # TODO: Remove `resolve: bool` parameter, and test symlinks before resolving.
 @beartype
-def test(
+def chk(
     path: Path,
     resolve: bool = True,
 ) -> Union[ExtantFile, ExtantDir, EmptyDir, ExtantStrangePath, NoPath, NoFile, Symlink]:
@@ -250,7 +250,7 @@ def copyfile(source: ExtantFile, target: Union[ExtantFile, NoFile]) -> ExtantFil
 def rglob(root: ExtantDir, pattern: str) -> List[ExtantFile]:
     """Call root.rglob() and returns only files."""
     files = filter(
-        lambda p: isinstance(p, ExtantFile), map(F.test, root.rglob(pattern))
+        lambda p: isinstance(p, ExtantFile), map(F.chk, root.rglob(pattern))
     )
     return list(files)
 
@@ -262,13 +262,13 @@ def is_empty(directory: ExtantDir) -> bool:
 
 
 @beartype
-def workdir(repo: git.Repo) -> ExtantDir:
+def root(repo: git.Repo) -> ExtantDir:
     """Get working directory of a repo."""
     return ExtantDir(repo.working_dir).resolve()
 
 
 @beartype
-def git_dir(repo: git.Repo) -> ExtantDir:
+def gitd(repo: git.Repo) -> ExtantDir:
     """Get git directory of a repo."""
     return ExtantDir(repo.git_dir).resolve()
 
