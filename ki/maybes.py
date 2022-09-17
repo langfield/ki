@@ -211,7 +211,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
     config_file = M.xfile(ki_dir / CONFIG_FILE, info=CONFIG_FILE_INFO)
     hashes_file = M.xfile(ki_dir / HASHES_FILE, info=HASHES_FILE_INFO)
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    last_push_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
+    lca_file = M.xfile(ki_dir / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
     # Check that collection file exists.
     config = configparser.ConfigParser()
@@ -228,7 +228,7 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
         config_file,
         hashes_file,
         models_file,
-        last_push_file,
+        lca_file,
     )
 
 

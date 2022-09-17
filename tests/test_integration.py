@@ -778,7 +778,7 @@ def test_pull_displays_errors_from_rev():
         clone(runner, ORIGINAL.col_file)
 
         kirepo: KiRepo = M.kirepo(F.test(Path(ORIGINAL.repodir)))
-        kirepo.last_push_file.write_text("gibberish")
+        kirepo.lca_file.write_text("gibberish")
 
         # Edit collection.
         shutil.copyfile(EDITED.path, ORIGINAL.col_file)
@@ -1299,7 +1299,7 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
-def test_push_displays_informative_error_when_last_push_file_is_missing():
+def test_push_displays_informative_error_when_lca_file_is_missing():
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1308,8 +1308,8 @@ def test_push_displays_informative_error_when_last_push_file_is_missing():
         clone(runner, ORIGINAL.col_file)
         repo = git.Repo(ORIGINAL.repodir)
 
-        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
-        os.remove(last_push_path)
+        lca_path = Path(repo.working_dir) / ".ki" / "last_push"
+        os.remove(lca_path)
 
         # We should get a missing file error.
         os.chdir(ORIGINAL.repodir)

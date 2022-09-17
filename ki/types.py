@@ -157,7 +157,7 @@ class KiRepo:
     config_file: ExtantFile
     hashes_file: ExtantFile
     models_file: ExtantFile
-    last_push_file: ExtantFile
+    lca_file: ExtantFile
 
 
 @beartype

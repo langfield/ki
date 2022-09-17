@@ -1834,7 +1834,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
             verbose=verbose,
         )
         kirepo: KiRepo = M.kirepo(targetdir)
-        F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        F.write(kirepo.lca_file, kirepo.repo.head.commit.hexsha)
         kirepo.repo.close()
         gc.collect()
     except Exception as err:
@@ -1968,8 +1968,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     Load the git repository at `anki_remote_root`, force pull (preferring
     'theirs', i.e. the new stuff from the sqlite3 database) changes from that
     repository (which is cloned straight from the collection, which in general
-    may have new changes) into `last_push_repo`, and then pull `last_push_repo`
-    into the main repository.
+    may have new changes) into `lca_repo`, and then pull `lca_repo` into the
+    main repository.
 
     We pull in this sequence in order to avoid merge conflicts. Since we first
     pull into a snapshot of the repository as it looked when we last pushed to
@@ -2000,10 +2000,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     md5sum: str = F.md5(kirepo.col_file)
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
-    # successful `push()`.
-    sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
+    # successful `push()`, which is the last common ancestor, or 'LCA'.
+    sha: str = kirepo.lca_file.read_text(encoding="UTF-8")
     rev: Rev = M.rev(kirepo.repo, sha=sha)
-    last_push_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
+    lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
@@ -2018,10 +2018,10 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     )
 
     # Create git remote pointing to `remote_repo`, which represents the current
-    # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
-    anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
+    # state of the Anki SQLite3 database, and pull it into `lca_repo`.
+    anki_remote = lca_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
     unsub_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    last_push_root: ExtantDir = F.workdir(last_push_repo)
+    lca_root: ExtantDir = F.workdir(lca_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
@@ -2033,7 +2033,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # out the commit that *was* recorded in the submodule file at the rev of
     # the last push.
     unsub_repo.git.submodule("update")
-    last_push_repo.git.submodule("update")
+    lca_repo.git.submodule("update")
     unsub_repo = unsubmodule_repo(unsub_repo)
     patches_dir: ExtantDir = F.mkdtemp()
     anki_remote.fetch()
@@ -2072,20 +2072,20 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # relative path of a submodule root directory to the top-level root
     # directory of the ki repository, to `git.Repo` objects for each submodule.
     subrepos: Dict[Path, git.Repo] = {}
-    for sm in last_push_repo.submodules:
+    for sm in lca_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
             sm_root: ExtantDir = F.workdir(sm_repo)
 
             # Get submodule root relative to ki repository root.
-            sm_rel_root: Path = sm_root.relative_to(last_push_root)
+            sm_rel_root: Path = sm_root.relative_to(lca_root)
             subrepos[sm_rel_root] = sm_repo
 
             # Remove submodules directories from remote repo.
             if os.path.isdir(anki_remote_root / sm_rel_root):
                 remote_repo.git.rm(["-r", str(sm_rel_root)])
 
-    if len(last_push_repo.submodules) > 0:
+    if len(lca_repo.submodules) > 0:
         remote_repo.git.add(all=True)
         remote_repo.index.commit("Remove submodule directories.")
 
@@ -2164,7 +2164,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # TODO: What if a submodule was deleted (or added) entirely?
     #
-    # New commits in submodules within `last_push_repo` are be pulled into the
+    # New commits in submodules within `lca_repo` are be pulled into the
     # submodules within `kirepo.repo`. This is done by adding a remote pointing
     # to the patched submodule in each corresponding submodule in the main
     # repository, and then pulling from that remote. Then the remote is
@@ -2174,7 +2174,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo: git.Repo = sm.module()
             sm_rel_root: Path = F.workdir(sm_repo).relative_to(kirepo.root)
 
-            # Note that `subrepos` are the submodules of `last_push_repo`.
+            # Note that `subrepos` are the submodules of `lca_repo`.
             if sm_rel_root in subrepos:
                 remote_sm: git.Repo = subrepos[sm_rel_root]
                 branch: str = sm_branches[sm_rel_root]
@@ -2204,57 +2204,57 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 remote_sm.close()
             sm_repo.close()
 
-    # Commit new submodules commits in `last_push_repo`.
+    # Commit new submodules commits in `lca_repo`.
     if len(patched_submodules) > 0:
-        last_push_repo.git.add(all=True)
-        last_push_repo.index.commit(msg)
+        lca_repo.git.add(all=True)
+        lca_repo.index.commit(msg)
 
     # Handle deleted files, preferring `theirs`.
     deletes = 0
     del_msg = "Remove files deleted in remote.\n\n"
-    fetch_head = last_push_repo.commit("FETCH_HEAD")
-    diff_index = last_push_repo.commit("HEAD").diff(fetch_head)
+    fetch_head = lca_repo.commit("FETCH_HEAD")
+    diff_index = lca_repo.commit("HEAD").diff(fetch_head)
     for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
 
         # Don't remove gitmodules.
         if diff.a_path == GITMODULES_FILE:
             continue
 
-        a_path: Path = F.test(last_push_root / diff.a_path)
+        a_path: Path = F.test(lca_root / diff.a_path)
         if isinstance(a_path, ExtantFile):
-            last_push_repo.git.rm(diff.a_path)
+            lca_repo.git.rm(diff.a_path)
             del_msg += f"Remove '{a_path}'\n"
             deletes += 1
 
     if deletes > 0:
-        last_push_repo.git.add(all=True)
-        last_push_repo.index.commit(del_msg)
+        lca_repo.git.add(all=True)
+        lca_repo.index.commit(del_msg)
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
-    last_push_repo.close()
-    last_push_root: NoFile = F.rmtree(F.workdir(last_push_repo))
-    del last_push_repo
+    git_copy = F.copytree(F.git_dir(lca_repo), F.test(F.mkdtemp() / "GIT"))
+    lca_repo.close()
+    lca_root: NoFile = F.rmtree(F.workdir(lca_repo))
+    del lca_repo
     remote_root: ExtantDir = F.workdir(remote_repo)
-    last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
+    lca_root: ExtantDir = F.copytree(remote_root, lca_root)
 
-    last_push_repo: git.Repo = M.repo(last_push_root)
-    git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
-    del last_push_repo
+    lca_repo: git.Repo = M.repo(lca_root)
+    git_dir: NoPath = F.rmtree(F.git_dir(lca_repo))
+    del lca_repo
     F.copytree(git_copy, F.test(git_dir))
 
-    last_push_repo: git.Repo = M.repo(last_push_root)
-    last_push_repo.git.add(all=True)
-    last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+    lca_repo: git.Repo = M.repo(lca_root)
+    lca_repo.git.add(all=True)
+    lca_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
 
-    # Create remote pointing to `last_push_repo` and pull into `repo`. Note
+    # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
     # fast-forward only updates the branch pointer.
-    last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
+    lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
     git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
-    kirepo.repo.delete_remote(last_push_remote)
+    kirepo.repo.delete_remote(lca_remote)
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
@@ -2497,7 +2497,7 @@ def push_deltas(
 
     # Update the commit SHA of most recent successful PUSH.
     head: Rev = M.head(kirepo.repo)
-    kirepo.last_push_file.write_text(head.sha)
+    kirepo.lca_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.
     unlock(con)
