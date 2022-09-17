@@ -49,8 +49,8 @@ from ki import (
     Notetype,
     ColNote,
     Delta,
-    ExtantDir,
-    ExtantFile,
+    Dir,
+    File,
     EmptyDir,
     NotetypeMismatchError,
     UnhealthyNoteWarning,
@@ -86,7 +86,7 @@ from ki.types import (
     NoFile,
     NoPath,
     Leaves,
-    ExtantStrangePath,
+    PseudoFile,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
     MissingNotetypeError,
@@ -119,7 +119,7 @@ from ki.transformer import NoteTransformer
 class SampleCollection:
     """A test collection with all names and paths constructed."""
 
-    col_file: ExtantFile
+    col_file: File
     path: Path
     stem: str
     suffix: str
@@ -307,7 +307,7 @@ def invoke(*args, **kwargs):
 @beartype
 def clone(
     runner: CliRunner,
-    collection: ExtantFile,
+    collection: File,
     directory: str = "",
     verbose: bool = False,
 ) -> str:
@@ -353,7 +353,7 @@ def is_git_repo(path: str) -> bool:
 
 
 @beartype
-def randomly_swap_1_bit(path: ExtantFile) -> None:
+def randomly_swap_1_bit(path: File) -> None:
     """Randomly swap a bit in a file."""
     # Read in bytes.
     with open(path, "rb") as file:
@@ -383,9 +383,9 @@ def checksum_git_repository(path: str) -> str:
 
 
 @beartype
-def get_notes(collection: ExtantFile) -> List[ColNote]:
+def get_notes(collection: File) -> List[ColNote]:
     """Get a list of notes from a path."""
-    cwd: ExtantDir = F.cwd()
+    cwd: Dir = F.cwd()
     col = Collection(collection)
     F.chdir(cwd)
 
@@ -398,7 +398,7 @@ def get_notes(collection: ExtantFile) -> List[ColNote]:
 
 
 @beartype
-def get_repo_with_submodules(runner: CliRunner, col_file: ExtantFile) -> git.Repo:
+def get_repo_with_submodules(runner: CliRunner, col_file: File) -> git.Repo:
     """Return repo with committed submodule."""
     # Clone collection in cwd.
     ORIGINAL = get_test_collection("original")
@@ -475,7 +475,7 @@ def test_is_anki_note():
         assert is_anki_note(mdtxt) is False
         assert is_anki_note(nd) is False
 
-        note_file: ExtantFile = F.touch(root, "note.md")
+        note_file: File = F.touch(root, "note.md")
 
         note_file.write_text("", encoding="UTF-8")
         assert is_anki_note(note_file) is False
@@ -494,8 +494,8 @@ def test_is_anki_note():
 
 
 @beartype
-def open_collection(col_file: ExtantFile) -> Collection:
-    cwd: ExtantDir = F.cwd()
+def open_collection(col_file: File) -> Collection:
+    cwd: Dir = F.cwd()
     col = Collection(col_file)
     F.chdir(cwd)
     return col
@@ -755,22 +755,22 @@ def test_get_note_path_produces_nonempty_filenames():
 
     runner = CliRunner()
     with runner.isolated_filesystem():
-        deck_dir: ExtantDir = F.force_mkdir(Path("a"))
+        deck_dir: Dir = F.force_mkdir(Path("a"))
 
         payload = get_note_payload(colnote, {})
-        path: ExtantFile = get_note_path(colnote, deck_dir)
+        path: File = get_note_path(colnote, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
         col, empty_colnote = get_colnote_with_sortf_text("")
         payload = get_note_payload(empty_colnote, {})
-        path: ExtantFile = get_note_path(empty_colnote, deck_dir)
+        path: File = get_note_path(empty_colnote, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
 
         col, empty = get_basic_colnote_with_fields("", "")
         payload = get_note_payload(empty, {})
-        path: ExtantFile = get_note_path(empty, deck_dir)
+        path: File = get_note_path(empty, deck_dir)
 
 
 @beartype
@@ -791,7 +791,7 @@ def get_diff2_args() -> DiffReposArgs:
     a `GitChangeType.ADDED`, then we should do that in `ORIGINAL.repodir`
     before calling this function.
     """
-    cwd: ExtantDir = F.cwd()
+    cwd: Dir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
     lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
@@ -803,12 +803,12 @@ def get_diff2_args() -> DiffReposArgs:
         kirepo.col_file, remote_root, msg, silent=True, verbose=False
     )
     git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
-    remote_root: ExtantDir = F.root(remote_repo)
+    remote_root: Dir = F.root(remote_repo)
     remote_repo.close()
     remote_root: NoFile = F.rmtree(remote_root)
-    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+    remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-    git_dir: ExtantDir = F.gitd(remote_repo)
+    git_dir: Dir = F.gitd(remote_repo)
     remote_repo.close()
     git_dir: NoPath = F.rmtree(git_dir)
     F.copytree(git_copy, F.chk(git_dir))
@@ -1103,8 +1103,8 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
         assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
-        true_md5 = F.md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(File(cloned_note_path))
+        true_md5 = F.md5(File(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -1169,7 +1169,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1178,7 +1178,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI)
         (targetdir / KI).touch()
         with pytest.raises(Exception) as error:
@@ -1188,7 +1188,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/backups` directory doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI / BACKUPS_DIR)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1198,7 +1198,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/backups` is a file instead of a directory.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         F.rmtree(targetdir / KI / BACKUPS_DIR)
         (targetdir / KI / BACKUPS_DIR).touch()
         with pytest.raises(Exception) as error:
@@ -1210,7 +1210,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/config` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1220,7 +1220,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/config` is a directory instead of a file.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / CONFIG_FILE)
         os.mkdir(targetdir / KI / CONFIG_FILE)
         with pytest.raises(Exception) as error:
@@ -1231,7 +1231,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/hashes` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / KI / HASHES_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1241,7 +1241,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where `.ki/models` file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         os.remove(targetdir / MODELS_FILE)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1251,7 +1251,7 @@ def test_maybe_kirepo_displays_nice_errors(tmp_path: Path):
 
         # Case where collection file doesn't exist.
         clone(runner, ORIGINAL.col_file)
-        targetdir: ExtantDir = F.chk(Path(ORIGINAL.repodir))
+        targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
         os.remove(ORIGINAL.col_file)
         with pytest.raises(Exception) as error:
             M.kirepo(targetdir)
@@ -1268,7 +1268,7 @@ def test_get_target(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkdir("file")
         Path("file/subfile").touch()
-        col_file: ExtantFile = F.touch(F.cwd(), "file.anki2")
+        col_file: File = F.touch(F.cwd(), "file.anki2")
         with pytest.raises(TargetExistsError) as error:
             get_target(F.cwd(), col_file, "")
         assert "fatal: destination path" in str(error.exconly())
@@ -1491,7 +1491,7 @@ def test_filter_note_path(tmp_path: Path):
         path = directory / "file"
         path.touch()
         patterns: List[str] = ["directory"]
-        root: ExtantDir = F.cwd()
+        root: Dir = F.cwd()
         warning = get_note_warnings(
             path, root, ignore_files=set(), ignore_dirs=set(patterns)
         )
@@ -1571,13 +1571,13 @@ def test_ftest_handles_strange_paths(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         os.mkfifo("pipe")
         pipe = F.chk(Path("pipe"))
-        assert isinstance(pipe, ExtantStrangePath)
+        assert isinstance(pipe, PseudoFile)
 
 
 def test_fparent_handles_fs_root():
     root: str = os.path.abspath(os.sep)
     parent = F.parent(F.chk(Path(root)))
-    assert isinstance(parent, ExtantDir)
+    assert isinstance(parent, Dir)
     assert str(parent) == root
 
 
@@ -1626,12 +1626,12 @@ def test_copy_media_files_finds_notetype_media():
     with runner.isolated_filesystem():
 
         media = copy_media_files(col, F.mkdtemp(), silent=True)
-        media_files: Set[ExtantFile] = set()
+        media_files: Set[File] = set()
         for media_set in media.values():
             media_files = media_files | media_set
         assert len(media_files) == 2
         media_files = sorted(list(media_files))
-        von_neumann: ExtantFile = media_files[1]
+        von_neumann: File = media_files[1]
         assert "_vonNeumann" in str(von_neumann)
 
 
@@ -1716,7 +1716,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        targetdir: ExtantDir = F.mkdir(F.chk(Path("collection")))
+        targetdir: Dir = F.mkdir(F.chk(Path("collection")))
         colnote = ColNote(
             n=note,
             new=True,
@@ -1728,7 +1728,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
         )
         payload: str = "payload"
         note_path: NoFile = get_note_path(colnote, targetdir)
-        note_path: ExtantFile = F.write(note_path, payload)
+        note_path: File = F.write(note_path, payload)
 
 
 @pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")

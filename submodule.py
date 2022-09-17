@@ -9,7 +9,7 @@ from beartype import beartype
 from beartype.typing import List
 
 from ki import copy_repo, BRANCH_NAME
-from ki.types import ExtantDir, Rev
+from ki.types import Dir, Rev
 import ki.maybes as M
 import ki.functional as F
 
@@ -57,7 +57,7 @@ def main() -> None:
     repo: git.Repo = kirepo.repo
     head: Rev = M.head(repo)
     copy: git.Repo = cp_repo(head, f"submodule-{head.sha}")
-    copyroot: ExtantDir = F.root(copy)
+    copyroot: Dir = F.root(copy)
 
     # Harden all symlinks.
     _ = map(M.hardlink, F.walk(copyroot))

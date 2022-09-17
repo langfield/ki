@@ -18,14 +18,14 @@ import ki.maybes as M
 import ki.functional as F
 from ki.types import (
     MODELS_FILE,
-    ExtantFile,
-    ExtantDir,
+    File,
+    Dir,
     EmptyDir,
     NoPath,
     NoFile,
-    Symlink,
-    ExtantStrangePath,
-    LatentSymlink,
+    Link,
+    PseudoFile,
+    LatentLink,
     KiRepo,
     KiRev,
     Rev,
@@ -40,7 +40,7 @@ from ki.types import (
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
-    MaximumLatentSymlinkChainingDepthExceededError,
+    MaximumLatentLinkChainingDepthExceededError,
     GitFileModeParseError,
 )
 
@@ -127,9 +127,9 @@ def nofile(path: Path) -> NoFile:
 
 
 @beartype
-def xfile(path: Path, info: str = "") -> ExtantFile:
+def xfile(path: Path, info: str = "") -> File:
     """
-    Attempt to instantiate an ExtantFile.
+    Attempt to instantiate an File.
     """
     # Resolve path.
     path = path.resolve()
@@ -143,13 +143,13 @@ def xfile(path: Path, info: str = "") -> ExtantFile:
         raise StrangeExtantPathError(path, info)
 
     # Must be an extant file.
-    return ExtantFile(path)
+    return File(path)
 
 
 @beartype
-def xdir(path: Path, info: str = "") -> ExtantDir:
+def xdir(path: Path, info: str = "") -> Dir:
     """
-    Attempt to instantiate an ExtantDir.
+    Attempt to instantiate an Dir.
     """
     # Resolve path.
     path = path.resolve()
@@ -158,26 +158,26 @@ def xdir(path: Path, info: str = "") -> ExtantDir:
     if not path.exists():
         raise MissingDirectoryError(path, info)
     if path.is_dir():
-        return ExtantDir(path)
+        return Dir(path)
     if path.is_file():
         raise ExpectedDirectoryButGotFileError(path, info)
     raise StrangeExtantPathError(path, info)
 
 
 @beartype
-def emptydir(path: Path) -> ExtantDir:
+def emptydir(path: Path) -> Dir:
     """
-    Attempt to instantiate an ExtantDir.
+    Attempt to instantiate an Dir.
     """
     # Check if it's an extant directory.
-    directory: ExtantDir = M.xdir(path)
+    directory: Dir = M.xdir(path)
     if F.is_empty(directory):
         return EmptyDir(Path(directory).resolve())
     raise ExpectedEmptyDirectoryButGotNonEmptyDirectoryError(directory)
 
 
 @beartype
-def repo(root: ExtantDir) -> git.Repo:
+def repo(root: Dir) -> git.Repo:
     """Read a git repo safely."""
     try:
         repository = git.Repo(root)
@@ -189,13 +189,13 @@ def repo(root: ExtantDir) -> git.Repo:
 
 
 @beartype
-def kirepo(cwd: ExtantDir) -> KiRepo:
+def kirepo(cwd: Dir) -> KiRepo:
     """Get the containing ki repository of `path`."""
     current = cwd
 
     while not F.is_root(current):
         kid = F.chk(current / KI)
-        if isinstance(kid, ExtantDir):
+        if isinstance(kid, Dir):
             break
         current = F.parent(current)
 
@@ -263,7 +263,7 @@ def head_ki(kirepository: KiRepo) -> KiRev:
 
 
 @beartype
-def collection(col_file: ExtantFile) -> Collection:
+def collection(col_file: File) -> Collection:
     """Open a collection or raise a pretty exception."""
     try:
         col = Collection(col_file)
@@ -273,26 +273,26 @@ def collection(col_file: ExtantFile) -> Collection:
 
 
 @beartype
-def linktarget(orig: ExtantFile) -> ExtantFile:
+def linktarget(orig: File) -> File:
     """Follow a latent symlink inside a git repo, or return regular file unchanged."""
     # Check file mode, and follow symlink if applicable.
     depth = 0
     file = orig
     while M.filemode(file) == 120000:
         target: str = file.read_text(encoding="UTF-8")
-        parent: ExtantDir = F.parent(file)
+        parent: Dir = F.parent(file)
         file = M.xfile(parent / target)
         depth += 1
         if depth > 999:
-            raise MaximumLatentSymlinkChainingDepthExceededError(orig, depth)
+            raise MaximumLatentLinkChainingDepthExceededError(orig, depth)
     return file
 
 
 @beartype
-def hardlink(link: Union[ExtantFile, Symlink]) -> ExtantFile:
+def hardlink(link: Union[File, Link]) -> File:
     """Replace a possibly latent symlink with its target."""
     # Treat true POSIX symlink case.
-    if isinstance(link, Symlink):
+    if isinstance(link, Link):
         tgt = F.chk(link.resolve())
         return F.copyfile(tgt, link)
 
@@ -300,14 +300,12 @@ def hardlink(link: Union[ExtantFile, Symlink]) -> ExtantFile:
     tgt = M.linktarget(link)
     if tgt != link:
         link: NoFile = F.unlink(link)
-        link: ExtantFile = F.copyfile(tgt, link)
+        link: File = F.copyfile(tgt, link)
     return link
 
 
 @beartype
-def filemode(
-    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
-) -> int:
+def filemode(file: Union[File, Dir, PseudoFile, Link, LatentLink]) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.

@@ -29,8 +29,8 @@ from ki.types import (
     KiRepo,
     Notetype,
     ColNote,
-    ExtantDir,
-    ExtantFile,
+    Dir,
+    File,
     MissingFileError,
     TargetExistsError,
     NotKiRepoError,
@@ -296,7 +296,7 @@ def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFi
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        directory = ExtantDir(Path("directory"))
+        directory = Dir(Path("directory"))
         collision = PathCreationCollisionError(directory, "token")
         mocker.patch("ki.F.fmkleaves", side_effect=collision)
 
@@ -476,8 +476,8 @@ def test_clone_generates_expected_notes():
         assert os.path.isdir(os.path.join(ORIGINAL.repodir, "Default"))
 
         # Compute hashes.
-        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
-        true_md5 = F.md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(File(cloned_note_path))
+        true_md5 = F.md5(File(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -499,8 +499,8 @@ def test_clone_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
-        true_md5 = F.md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(File(cloned_note_path))
+        true_md5 = F.md5(File(true_note_path))
 
         assert cloned_md5 == true_md5
 

@@ -73,14 +73,14 @@ import ki.maybes as M
 import ki.functional as F
 from ki.types import (
     MODELS_FILE,
-    ExtantFile,
-    ExtantDir,
+    File,
+    Dir,
     EmptyDir,
     NoPath,
     NoFile,
-    Symlink,
-    LatentSymlink,
-    ExtantStrangePath,
+    Link,
+    LatentLink,
+    PseudoFile,
     GitChangeType,
     Patch,
     Delta,
@@ -178,7 +178,7 @@ BASE91_TABLE = list(ALHPANUMERICS + SYMBOLS)
 
 
 @beartype
-def lock(col_file: ExtantFile) -> sqlite3.Connection:
+def lock(col_file: File) -> sqlite3.Connection:
     """Check that lock can be acquired on a SQLite3 database given a path."""
     try:
         con = sqlite3.connect(col_file, timeout=0.1)
@@ -210,7 +210,7 @@ def cp_repo(rev: Rev, suffix: str) -> git.Repo:
 
     # Annihilate the .ki subdirectory.
     kid = F.chk(F.root(ephem) / KI)
-    if isinstance(kid, ExtantDir):
+    if isinstance(kid, Dir):
         F.rmtree(kid)
 
     # Do a reset --hard to the given SHA.
@@ -250,7 +250,7 @@ def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
 
 
 @beartype
-def is_anki_note(path: ExtantFile) -> bool:
+def is_anki_note(path: File) -> bool:
     """Check if file is a `ki`-style markdown note."""
     # Ought to have markdown file extension.
     if path.suffix != ".md":
@@ -270,7 +270,7 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 @beartype
 def get_note_warnings(
-    path: Path, root: ExtantDir, ignore_files: Set[str], ignore_dirs: Set[str]
+    path: Path, root: Dir, ignore_files: Set[str], ignore_dirs: Set[str]
 ) -> Optional[Warning]:
     """
     Filter out paths in a git repository diff that do not correspond to Anki
@@ -300,7 +300,7 @@ def get_note_warnings(
     # If `path` is an extant file (not a directory) and NOT a note, ignore it.
     abspath = (root / path).resolve()
     if abspath.exists() and abspath.is_file():
-        file = ExtantFile(abspath)
+        file = File(abspath)
         if not is_anki_note(file):
             return NotAnkiNoteWarning(file)
 
@@ -330,7 +330,7 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
             repo.git.rm(gitmodules_path, ignore_unmatch=True)
 
         sm_git_path = F.chk(sm_path / GIT)
-        if isinstance(sm_git_path, ExtantDir):
+        if isinstance(sm_git_path, Dir):
             F.rmtree(sm_git_path)
         else:
             (sm_path / GIT).unlink(missing_ok=True)
@@ -407,14 +407,14 @@ def diff2(
             b_relpath = Path(b_relpath)
 
             if change_type == GitChangeType.DELETED:
-                if not isinstance(a_path, ExtantFile):
+                if not isinstance(a_path, File):
                     deltas.append(DeletedFileNotFoundWarning(a_relpath))
                     continue
 
                 deltas.append(Delta(change_type, a_path, a_relpath))
                 continue
 
-            if not isinstance(b_path, ExtantFile):
+            if not isinstance(b_path, File):
                 deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
                 continue
 
@@ -719,7 +719,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 
 
 @beartype
-def get_note_path(colnote: ColNote, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
+def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = colnote.sortf_text
 
@@ -782,7 +782,7 @@ def backup(kirepo: KiRepo) -> int:
     # thus that is extraordinarily improbable. So the only thing we have to
     # check for is that we haven't already written a backup file to this
     # location.
-    if isinstance(backup_file, ExtantFile):
+    if isinstance(backup_file, File):
         return 1
 
     F.copyfile(kirepo.col_file, F.chk(kirepo.backups_dir / name))
@@ -790,9 +790,7 @@ def backup(kirepo: KiRepo) -> int:
 
 
 @beartype
-def append_md5sum(
-    kid: ExtantDir, tag: str, md5sum: str, silent: bool = False
-) -> None:
+def append_md5sum(kid: Dir, tag: str, md5sum: str, silent: bool = False) -> None:
     """Append an md5sum hash to the hashes file."""
     hashes_file = kid / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
@@ -800,7 +798,7 @@ def append_md5sum(
 
 
 @beartype
-def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
+def create_deck_dir(deck_name: str, targetdir: Dir) -> Dir:
     """
     Construct path to deck directory and create it, allowing the case in which
     the directory already exists because we already created one of its
@@ -1003,7 +1001,7 @@ def copy_media_files(
     col: Collection,
     media_target_dir: EmptyDir,
     silent: bool,
-) -> Dict[int, Set[ExtantFile]]:
+) -> Dict[int, Set[File]]:
     """
     Get a list of extant media files used in notes and notetypes, copy those
     media files to the top-level `_media/` directory in the repository root,
@@ -1055,11 +1053,11 @@ def copy_media_files(
     # can assume it is a nonempty string, which is all we need for the
     # following code to be safe.
     media_dir = F.chk(Path(col.media.dir()))
-    if not isinstance(media_dir, ExtantDir):
+    if not isinstance(media_dir, Dir):
         raise MissingMediaDirectoryError(col.path, media_dir)
 
     # Find only used media files.
-    media: Dict[int, Set[ExtantFile]] = {}
+    media: Dict[int, Set[File]] = {}
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
 
@@ -1070,7 +1068,7 @@ def copy_media_files(
             if file != os.path.basename(file):
                 continue
             media_file = F.chk(media_dir / file)
-            if isinstance(media_file, ExtantFile):
+            if isinstance(media_file, File):
                 target_file = F.chk(media_target_dir / media_file.name)
                 copied_file = F.copyfile(media_file, target_file)
                 media[row.nid] = media.get(row.nid, set()) | set([copied_file])
@@ -1094,7 +1092,7 @@ def copy_media_files(
                     # This path certainly ought to exist, since `fname` was
                     # obtained from an `os.listdir()` call.
                     media_file = F.chk(media_dir / fname)
-                    if isinstance(media_file, ExtantFile):
+                    if isinstance(media_file, File):
                         target_file = F.chk(media_target_dir / media_file.name)
                         copied_file = F.copyfile(media_file, target_file)
                         notetype_media = media.get(NOTETYPE_NID, set())
@@ -1125,17 +1123,17 @@ def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
 
 @beartype
 def write_repository(
-    col_file: ExtantFile,
-    targetdir: ExtantDir,
+    col_file: File,
+    targetdir: Dir,
     leaves: Leaves,
     media_target_dir: EmptyDir,
     silent: bool,
     verbose: bool,
-) -> Set[LatentSymlink]:
+) -> Set[LatentLink]:
     """Write notes to appropriate directories in `targetdir`."""
 
     # Create config file.
-    config_file: ExtantFile = leaves.files[CONFIG_FILE]
+    config_file: File = leaves.files[CONFIG_FILE]
     config = configparser.ConfigParser()
     config["remote"] = {"path": col_file}
     with open(config_file, "w", encoding="UTF-8") as config_f:
@@ -1145,11 +1143,11 @@ def write_repository(
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
-    tidy_field_files: Dict[str, ExtantFile] = {}
+    tidy_field_files: Dict[str, File] = {}
     decks: Dict[str, List[ColNote]] = {}
 
     # Open collection using a `Maybe`.
-    cwd: ExtantDir = F.cwd()
+    cwd: Dir = F.cwd()
     col: Collection = M.collection(col_file)
     F.chdir(cwd)
 
@@ -1171,7 +1169,7 @@ def write_repository(
 
     tidy_html_recursively(root, silent)
 
-    latent_links: Set[LatentSymlink] = write_decks(
+    latent_links: Set[LatentLink] = write_decks(
         col,
         targetdir,
         colnotes,
@@ -1189,12 +1187,12 @@ def write_repository(
 @beartype
 def write_decks(
     col: Collection,
-    targetdir: ExtantDir,
+    targetdir: Dir,
     colnotes: Dict[int, ColNote],
-    media: Dict[int, Set[ExtantFile]],
-    tidy_field_files: Dict[str, ExtantFile],
+    media: Dict[int, Set[File]],
+    tidy_field_files: Dict[str, File],
     silent: bool,
-) -> Set[LatentSymlink]:
+) -> Set[LatentLink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1254,7 +1252,7 @@ def write_decks(
     written_cids: Set[int] = set()
 
     # Map nids we've already written files for to a dataclass containing:
-    # - the corresponding `ExtantFile`
+    # - the corresponding `File`
     # - the deck id of the card for which we wrote it
     #
     # This deck id identifies the deck corresponding to the location where all
@@ -1262,13 +1260,13 @@ def write_decks(
     written_notes: Dict[int, WrittenNoteFile] = {}
 
     # All latent symlinks created on Windows whose file modes we must set.
-    latent_links: Set[LatentSymlink] = set()
+    latent_links: Set[LatentLink] = set()
 
     nodes: List[DeckTreeNode] = postorder(root)
     for node in postorder(root):
         node_cids: Set[int]
         node_notes: Dict[int, WrittenNoteFile]
-        node_latent_links: Set[LatentSymlink]
+        node_latent_links: Set[LatentLink]
         node_cids, node_notes, node_latent_links = write_deck_node_cards(
             node,
             col,
@@ -1283,7 +1281,7 @@ def write_decks(
         written_notes.update(node_notes)
         latent_links |= node_latent_links
 
-    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
+    media_links: Set[LatentLink] = chain_media_symlinks(root, col, targetdir, media)
     latent_links |= media_links
     return latent_links
 
@@ -1292,17 +1290,17 @@ def write_decks(
 def write_deck_node_cards(
     node: DeckTreeNode,
     col: Collection,
-    targetdir: ExtantDir,
+    targetdir: Dir,
     colnotes: Dict[int, ColNote],
-    tidy_field_files: Dict[str, ExtantFile],
+    tidy_field_files: Dict[str, File],
     models_map: Dict[int, NotetypeDict],
     written_cids: Set[int],
     written_notes: Dict[int, WrittenNoteFile],
-) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
+) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentLink]]:
     """Write all the cards to disk for a single `DeckTreeNode`."""
     written_cids = copy.deepcopy(written_cids)
     written_notes = copy.deepcopy(written_notes)
-    latent_links: Set[LatentSymlink] = set()
+    latent_links: Set[LatentLink] = set()
 
     # The name stored in a `DeckTreeNode` object is not the full name of
     # the deck, it is just the 'basename'. The `postorder()` function
@@ -1321,7 +1319,7 @@ def write_deck_node_cards(
         return set(), {}, set()
     name = col.decks.name(did)
 
-    deck_dir: ExtantDir = create_deck_dir(name, targetdir)
+    deck_dir: Dir = create_deck_dir(name, targetdir)
     children: Set[CardId] = set(col.decks.cids(did=did, children=False))
     descendants: List[CardId] = col.decks.cids(did=did, children=True)
     descendant_nids: Set[int] = {NOTETYPE_NID}
@@ -1359,7 +1357,7 @@ def write_deck_node_cards(
         if card.nid not in written_notes:
             payload: str = get_note_payload(colnote, tidy_field_files)
             note_path: NoFile = get_note_path(colnote, deck_dir)
-            note_path: ExtantFile = F.write(note_path, payload)
+            note_path: File = F.write(note_path, payload)
             written_notes[card.nid] = WrittenNoteFile(did, note_path)
         else:
             # If `card` is in the same deck as the card we wrote `written`
@@ -1378,15 +1376,15 @@ def write_deck_node_cards(
 
             payload: str = get_note_payload(colnote, tidy_field_files)
             note_path: NoFile = get_note_path(colnote, deck_dir, name)
-            abs_target: ExtantFile = written_notes[card.nid].file
+            abs_target: File = written_notes[card.nid].file
             distance = len(note_path.parent.relative_to(targetdir).parts)
             up_path = Path("../" * distance)
             relative: Path = abs_target.relative_to(targetdir)
             target: Path = up_path / relative
 
             try:
-                link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
-                if isinstance(link, LatentSymlink):
+                link: Union[Link, LatentLink] = F.symlink(note_path, target)
+                if isinstance(link, LatentLink):
                     latent_links.add(link)
             except OSError as _:
                 trace = traceback.format_exc(limit=3)
@@ -1405,9 +1403,9 @@ def write_deck_node_cards(
 def chain_media_symlinks(
     root: DeckTreeNode,
     col: Collection,
-    targetdir: ExtantDir,
-    media: Dict[int, Set[ExtantFile]],
-) -> Set[LatentSymlink]:
+    targetdir: Dir,
+    media: Dict[int, Set[File]],
+) -> Set[LatentLink]:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
 
     @beartype
@@ -1433,16 +1431,16 @@ def chain_media_symlinks(
             parents.update(subparents)
         return parents
 
-    media_latent_links: Set[LatentSymlink] = set()
-    media_dirs: Dict[str, ExtantDir] = {}
+    media_latent_links: Set[LatentLink] = set()
+    media_dirs: Dict[str, Dir] = {}
     parents: Dict[str, DeckTreeNode] = map_parents(root, col)
     for node in preorder(root):
         if node.name == "":
             continue
         did: int = node.deck_id
         fullname = col.decks.name(did)
-        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
-        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
+        deck_dir: Dir = create_deck_dir(fullname, targetdir)
+        deck_media_dir: Dir = F.force_mkdir(deck_dir / MEDIA)
         media_dirs[fullname] = deck_media_dir
         descendant_nids: Set[int] = {NOTETYPE_NID}
         descendants: List[CardId] = col.decks.cids(did=did, children=True)
@@ -1460,11 +1458,11 @@ def chain_media_symlinks(
                     parent_did: int = parent.deck_id
                     parent_fullname: str = col.decks.name(parent_did)
                     parent_media_dir = media_dirs[parent_fullname]
-                    abs_target: Symlink = F.chk(
+                    abs_target: Link = F.chk(
                         parent_media_dir / media_file.name, resolve=False
                     )
                 else:
-                    abs_target: ExtantFile = media_file
+                    abs_target: File = media_file
 
                 path = F.chk(deck_media_dir / media_file.name, resolve=False)
                 if not isinstance(path, NoFile):
@@ -1476,8 +1474,8 @@ def chain_media_symlinks(
                 target: Path = up_path / relative
 
                 try:
-                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
-                    if isinstance(link, LatentSymlink):
+                    link: Union[Link, LatentLink] = F.symlink(path, target)
+                    if isinstance(link, LatentLink):
                         media_latent_links.add(link)
                 except OSError as _:
                     trace = traceback.format_exc(limit=3)
@@ -1537,7 +1535,7 @@ def get_colnote_as_str(colnote: ColNote) -> str:
 
 
 @beartype
-def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) -> str:
+def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -> str:
     """
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
@@ -1583,7 +1581,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
 def git_pull(
     remote: str,
     branch: str,
-    cwd: ExtantDir,
+    cwd: Dir,
     unrelated: bool,
     theirs: bool,
     check: bool,
@@ -1619,7 +1617,7 @@ def warn(string: str) -> None:
 
 
 @beartype
-def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
+def tidy_html_recursively(root: Dir, silent: bool) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
@@ -1649,9 +1647,7 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 
 @beartype
-def get_target(
-    cwd: ExtantDir, col_file: ExtantFile, directory: str
-) -> Tuple[EmptyDir, bool]:
+def get_target(cwd: Dir, col_file: File, directory: str) -> Tuple[EmptyDir, bool]:
     """Create default target directory."""
     path = F.chk(Path(directory) if directory != "" else cwd / col_file.stem)
     new: bool = True
@@ -1806,10 +1802,10 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    col_file: ExtantFile = M.xfile(Path(collection))
+    col_file: File = M.xfile(Path(collection))
 
     @beartype
-    def cleanup(targetdir: ExtantDir, new: bool) -> Union[ExtantDir, EmptyDir, NoPath]:
+    def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
         """Cleans up after failed clone operations."""
         try:
             if new:
@@ -1844,7 +1840,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
 
 @beartype
 def _clone(
-    col_file: ExtantFile,
+    col_file: File,
     targetdir: EmptyDir,
     msg: str,
     silent: bool,
@@ -1890,7 +1886,7 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    latent_links: Set[LatentSymlink] = write_repository(
+    latent_links: Set[LatentLink] = write_repository(
         col_file,
         targetdir,
         leaves,
@@ -2021,7 +2017,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
     anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
     unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-    lca_root: ExtantDir = F.root(lca_repo)
+    lca_root: Dir = F.root(lca_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
@@ -2035,7 +2031,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     unsub_repo.git.submodule("update")
     lca_repo.git.submodule("update")
     unsub_repo = unsubmodule_repo(unsub_repo)
-    patches_dir: ExtantDir = F.mkdtemp()
+    patches_dir: Dir = F.mkdtemp()
     anki_remote.fetch()
     unsub_remote.fetch()
     raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
@@ -2075,7 +2071,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     for sm in lca_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
-            sm_root: ExtantDir = F.root(sm_repo)
+            sm_root: Dir = F.root(sm_repo)
 
             # Get submodule root relative to ki repository root.
             sm_rel_root: Path = sm_root.relative_to(F.root(lca_repo))
@@ -2116,7 +2112,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
                 # Strip trailing linefeeds from each line so that `git apply`
                 # is happy on Windows (equivalent to running `dos2unix`).
-                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
+                patch_path: File = F.write(patch_path, patch.diff.text)
                 if sys.platform == "win32":
                     with open(patch_path, "rb") as f:
                         patch_bytes = f.read()
@@ -2189,7 +2185,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 remote_sm.git.merge("tmp")
                 remote_sm.git.branch(["-D", "tmp"])
 
-                remote_target: ExtantDir = F.gitd(remote_sm)
+                remote_target: Dir = F.gitd(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
                 git_pull(
                     REMOTE_NAME,
@@ -2221,7 +2217,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             continue
 
         a_path: Path = F.chk(lca_root / diff.a_path)
-        if isinstance(a_path, ExtantFile):
+        if isinstance(a_path, File):
             lca_repo.git.rm(diff.a_path)
             del_msg += f"Remove '{a_path}'\n"
             deletes += 1
@@ -2236,8 +2232,8 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     lca_repo.close()
     lca_root: NoFile = F.rmtree(F.root(lca_repo))
     del lca_repo
-    remote_root: ExtantDir = F.root(remote_repo)
-    lca_root: ExtantDir = F.copytree(remote_root, lca_root)
+    remote_root: Dir = F.root(remote_repo)
+    lca_root: Dir = F.copytree(remote_root, lca_root)
 
     lca_repo: git.Repo = M.repo(lca_root)
     gitd: NoPath = F.rmtree(F.gitd(lca_repo))
@@ -2294,7 +2290,7 @@ def push(verbose: bool = False) -> PushResult:
         If the user needs to pull remote changes first.
     """
     # Check that we are inside a ki repository, and load collection.
-    cwd: ExtantDir = F.cwd()
+    cwd: Dir = F.cwd()
     kirepo: KiRepo = M.kirepo(cwd)
     con: sqlite3.Connection = lock(kirepo.col_file)
 
@@ -2322,7 +2318,7 @@ def push(verbose: bool = False) -> PushResult:
     remote_repo.close()
     remote_root: NoFile = F.rmtree(F.root(remote_repo))
     del remote_repo
-    remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
+    remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
 
     remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
     gitd: NoPath = F.rmtree(F.gitd(remote_repo))
@@ -2393,15 +2389,15 @@ def push_deltas(
     echo(f"Pushing to '{kirepo.col_file}'")
 
     # Copy collection to a temp directory.
-    temp_col_dir: ExtantDir = F.mkdtemp()
+    temp_col_dir: Dir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
     new_col_file: NoFile = F.chk(temp_col_dir / col_name)
-    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, new_col_file)
+    new_col_file: File = F.copyfile(kirepo.col_file, new_col_file)
     head: Rev = M.head(kirepo.repo)
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
-    cwd: ExtantDir = F.cwd()
+    cwd: Dir = F.cwd()
     col: Collection = M.collection(new_col_file)
     F.chdir(cwd)
 

@@ -29,15 +29,15 @@ DATABASE_LOCKED_MSG = "database is locked"
 # TYPES
 
 
-class ExtantFile(type(Path())):
+class File(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
 
 
-class ExtantDir(type(Path())):
+class Dir(type(Path())):
     """UNSAFE: Indicates that dir *was* extant when it was resolved."""
 
 
-class EmptyDir(ExtantDir):
+class EmptyDir(Dir):
     """UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved."""
 
 
@@ -49,18 +49,18 @@ class Singleton(type(Path())):
     """UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`)."""
 
 
-class ExtantStrangePath(type(Path())):
+class PseudoFile(type(Path())):
     """
     UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
     when it was resolved.
     """
 
 
-class Symlink(type(Path())):
+class Link(type(Path())):
     """UNSAFE: Indicates that this path was a symlink when tested."""
 
 
-class LatentSymlink(type(Path())):
+class LatentLink(type(Path())):
     """UNSAFE: A POSIX-style symlink created on Windows with mode 100644."""
 
 
@@ -69,7 +69,7 @@ class NoFile(NoPath):
 
     @property
     def parent(self):
-        return ExtantDir(super().parent)
+        return Dir(super().parent)
 
 
 # ENUMS
@@ -134,7 +134,7 @@ class Delta:
     """The git delta for a single file."""
 
     status: GitChangeType
-    path: ExtantFile
+    path: File
     relpath: Path
 
 
@@ -150,14 +150,14 @@ class KiRepo:
     """
 
     repo: git.Repo
-    root: ExtantDir
-    ki: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    lca_file: ExtantFile
+    root: Dir
+    ki: Dir
+    col_file: File
+    backups_dir: Dir
+    config_file: File
+    hashes_file: File
+    models_file: File
+    lca_file: File
 
 
 @beartype
@@ -244,14 +244,14 @@ class WrittenNoteFile:
     """Store a written file and its primary deck id."""
 
     did: int
-    file: ExtantFile
+    file: File
 
 
 @beartype
 @dataclass(frozen=True)
 class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
+    root: Dir
+    files: Dict[str, File]
     dirs: Dict[str, EmptyDir]
 
 
@@ -357,7 +357,7 @@ class NotKiRepoError(RuntimeError):
 
 class UpdatesRejectedError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
+    def __init__(self, col_file: File):
         msg = f"Failed to push some commits to '{col_file}'\n{HINT}"
         super().__init__(errwrap(msg))
 
@@ -392,7 +392,7 @@ class GitHeadRefNotFoundError(RuntimeError):
 
 class CollectionChecksumError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
+    def __init__(self, col_file: File):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
         super().__init__(errwrap(msg))
 
@@ -474,7 +474,7 @@ class UnnamedNotetypeError(RuntimeError):
 
 class SQLiteLockError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+    def __init__(self, col_file: File, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
             header = f"fatal: {DATABASE_LOCKED_MSG} (Anki must not be running)."
             super().__init__(header)
@@ -494,7 +494,7 @@ class SQLiteLockError(RuntimeError):
 
 class PathCreationCollisionError(RuntimeError):
     @beartype
-    def __init__(self, root: ExtantDir, token: str):
+    def __init__(self, root: Dir, token: str):
         header = "Collision in children names for population of empty directory "
         header += f"'{root}':"
         msg = f"""
@@ -586,9 +586,9 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f"{top}\n\n{errwrap(msg)}\n{details}")
 
 
-class MaximumLatentSymlinkChainingDepthExceededError(RuntimeError):
+class MaximumLatentLinkChainingDepthExceededError(RuntimeError):
     @beartype
-    def __init__(self, orig: ExtantFile, depth: int):
+    def __init__(self, orig: File, depth: int):
         top = f"Maximum latent symlink depth exceeded while resolving '{orig}'"
         msg = f"""
         Latent symlinks are regular files whose only contents are a path to
@@ -656,7 +656,7 @@ class UnPushedPathWarning(Warning):
 
 class NotAnkiNoteWarning(Warning):
     @beartype
-    def __init__(self, file: ExtantFile):
+    def __init__(self, file: File):
         msg = f"Warning: not Anki note '{file}'"
         super().__init__(msg)
 
@@ -725,9 +725,9 @@ class RenamedMediaFileWarning(Warning):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
-class MissingLatentSymlinkTarget(Warning):
+class MissingLatentLinkTarget(Warning):
     @beartype
-    def __init__(self, link: ExtantFile, tgt: str):
+    def __init__(self, link: File, tgt: str):
         top = f"Failed to locate target '{tgt}' of latent symlink '{link}'"
         msg = """
         Latent symlinks are regular files whose only contents are a path to
