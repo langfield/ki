@@ -44,8 +44,8 @@ from ki.types import (
     LatentSymlink,
     Singleton,
     ExtantStrangePath,
-    KiRepoRef,
-    RepoRef,
+    KiRev,
+    Rev,
     Leaves,
     PathCreationCollisionError,
 )
@@ -290,10 +290,10 @@ def md5(path: ExtantFile) -> str:
 
 
 @beartype
-def ref_exists(repo: git.Repo, ref: str) -> bool:
+def rev_exists(repo: git.Repo, rev: str) -> bool:
     """Check if git commit reference exists in repository."""
     try:
-        repo.git.rev_parse("--verify", ref)
+        repo.git.rev_parse("--verify", rev)
     except git.GitCommandError:
         return False
     return True
@@ -322,9 +322,9 @@ def slugify(value: str) -> str:
 
 
 @beartype
-def kirepo_ref_to_repo_ref(kirepo_ref: KiRepoRef) -> RepoRef:
-    """Convert a ki repository commit ref to a git repository commit ref."""
-    return RepoRef(kirepo_ref.kirepo.repo, kirepo_ref.sha)
+def ki_rev_to_rev(ki_rev: KiRev) -> Rev:
+    """Convert a ki repository commit rev to a git repository commit rev."""
+    return Rev(ki_rev.kirepo.repo, ki_rev.sha)
 
 
 @beartype

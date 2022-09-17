@@ -216,7 +216,7 @@ class ColNote:
 
 @beartype
 @dataclass(frozen=True)
-class KiRepoRef:
+class KiRev:
     """
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -228,7 +228,7 @@ class KiRepoRef:
 
 @beartype
 @dataclass(frozen=True)
-class RepoRef:
+class Rev:
     """
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -358,7 +358,7 @@ class NotKiRepoError(RuntimeError):
 class UpdatesRejectedError(RuntimeError):
     @beartype
     def __init__(self, col_file: ExtantFile):
-        msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
+        msg = f"Failed to push some commits to '{col_file}'\n{HINT}"
         super().__init__(errwrap(msg))
 
 
@@ -373,7 +373,7 @@ class TargetExistsError(RuntimeError):
 class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
-        msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        msg = f"Repo at '{repo.working_dir}' doesn't contain rev '{sha}'"
         super().__init__(errwrap(msg))
 
 
@@ -381,7 +381,7 @@ class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f"""
-        ValueError raised while trying to get ref 'HEAD' from repo at
+        ValueError raised while trying to get rev 'HEAD' from repo at
         '{repo.working_dir}': '{error}'. This may have occurred because there
         are no commits in the current repository. However, this should never be
         the case, because ki repositories must be instantiated with a 'ki clone

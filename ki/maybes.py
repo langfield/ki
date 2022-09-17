@@ -27,8 +27,8 @@ from ki.types import (
     ExtantStrangePath,
     LatentSymlink,
     KiRepo,
-    KiRepoRef,
-    RepoRef,
+    KiRev,
+    Rev,
     MissingFileError,
     MissingDirectoryError,
     ExpectedFileButGotDirectoryError,
@@ -233,33 +233,33 @@ def kirepo(cwd: ExtantDir) -> KiRepo:
 
 
 @beartype
-def repo_ref(repository: git.Repo, sha: str) -> RepoRef:
-    """Validate a commit SHA against a repository and return a `RepoRef`."""
-    if not F.ref_exists(repository, sha):
+def rev(repository: git.Repo, sha: str) -> Rev:
+    """Validate a commit SHA against a repository and return a `Rev`."""
+    if not F.rev_exists(repository, sha):
         raise GitRefNotFoundError(repository, sha)
-    return RepoRef(repository, sha)
+    return Rev(repository, sha)
 
 
 @beartype
-def head_repo_ref(repository: git.Repo) -> RepoRef:
-    """Return a `RepoRef` for HEAD of current branch."""
+def head(repository: git.Repo) -> Rev:
+    """Return a `Rev` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
-        ref = RepoRef(repository, repository.head.commit.hexsha)
+        rev = Rev(repository, repository.head.commit.hexsha)
     except ValueError as err:
         raise GitHeadRefNotFoundError(repository, err) from err
-    return ref
+    return rev
 
 
 @beartype
-def head_kirepo_ref(kirepository: KiRepo) -> KiRepoRef:
-    """Return a `KiRepoRef` for HEAD of current branch."""
+def head_ki(kirepository: KiRepo) -> KiRev:
+    """Return a `KiRev` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
-        ref = KiRepoRef(kirepository, kirepository.repo.head.commit.hexsha)
+        rev = KiRev(kirepository, kirepository.repo.head.commit.hexsha)
     except ValueError as err:
         raise GitHeadRefNotFoundError(kirepository.repo, err) from err
-    return ref
+    return rev
 
 
 @beartype

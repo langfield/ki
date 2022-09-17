@@ -55,9 +55,9 @@ from ki import (
     NotetypeMismatchError,
     UnhealthyNoteWarning,
     KiRepo,
-    KiRepoRef,
+    KiRev,
     get_note_warnings,
-    cpki,
+    cp_ki,
     get_note_payload,
     create_deck_dir,
     get_note_path,
@@ -795,8 +795,8 @@ def get_diff2_args() -> DiffReposArgs:
     kirepo: KiRepo = M.kirepo(cwd)
     lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
-    head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    head_kirepo: KiRepo = cpki(head, f"{HEAD_SUFFIX}-{md5sum}")
+    head: KiRev = M.head_ki(kirepo)
+    head_kirepo: KiRepo = cp_ki(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(
@@ -1339,17 +1339,17 @@ def test_push_note():
     assert "NonexistentModel" in str(error.exconly())
 
 
-def test_maybe_head_repo_ref():
+def test_maybe_head():
     runner = CliRunner()
     with runner.isolated_filesystem():
         repo = git.Repo.init("repo")
         with pytest.raises(GitHeadRefNotFoundError) as error:
-            M.head_repo_ref(repo)
-        err_snippet = "ValueError raised while trying to get ref 'HEAD' from repo"
+            M.head(repo)
+        err_snippet = "ValueError raised while trying to get rev 'HEAD' from repo"
         assert err_snippet in str(error.exconly())
 
 
-def test_maybe_head_kirepo_ref():
+def test_maybe_head_ki():
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1377,8 +1377,8 @@ def test_maybe_head_kirepo_ref():
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.test(Path(repo.working_dir)))
         with pytest.raises(GitHeadRefNotFoundError) as error:
-            M.head_kirepo_ref(kirepo)
-        err_snippet = "ValueError raised while trying to get ref 'HEAD' from repo"
+            M.head_ki(kirepo)
+        err_snippet = "ValueError raised while trying to get rev 'HEAD' from repo"
         assert err_snippet in str(error.exconly())
 
 
@@ -1453,14 +1453,14 @@ def test_nopath(tmp_path: Path):
             M.nopath(file)
 
 
-def test_cpki(tmp_path: Path):
+def test_cp_ki(tmp_path: Path):
     """
-    Do errors in `M.nopath()` call in `cpki()` get forwarded to
+    Do errors in `M.nopath()` call in `cp_ki()` get forwarded to
     the caller and printed nicely?
 
-    In `cpki()`, we construct a `NoPath` for the `.ki`
+    In `cp_ki()`, we construct a `NoPath` for the `.ki`
     subdirectory, which doesn't exist yet at that point, because
-    `cprepo()` is just a git clone operation, and the `.ki`
+    `cp_repo()` is just a git clone operation, and the `.ki`
     subdirectory is in the `.gitignore` file. It is possible but
     extraordinarily improbable that this path is created in between the
     `Repo.clone_from()` call and the `M.nopath()` call.
@@ -1477,9 +1477,9 @@ def test_cpki(tmp_path: Path):
         kirepo: KiRepo = M.kirepo(F.cwd())
         kirepo.repo.git.add(all=True)
         kirepo.repo.index.commit("Add ki directory.")
-        head: KiRepoRef = M.head_kirepo_ref(kirepo)
+        head: KiRev = M.head_ki(kirepo)
         with pytest.raises(ExpectedNonexistentPathError) as error:
-            cpki(head, suffix="suffix-md5")
+            cp_ki(head, suffix="suffix-md5")
         assert ".ki" in str(error.exconly())
 
 
@@ -1535,7 +1535,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         assert "1645010146011" in str(error.exconly())
 
 
-def test_cprepo_handles_submodules(tmp_path: Path):
+def test_cp_repo_handles_submodules(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -1555,11 +1555,11 @@ def test_cprepo_handles_submodules(tmp_path: Path):
         repo.index.commit(".")
 
         kirepo: KiRepo = M.kirepo(F.cwd())
-        head: KiRepoRef = M.head_kirepo_ref(kirepo)
+        head: KiRev = M.head_ki(kirepo)
 
         # Just want to check that this doesn't return an exception, so we
         # unwrap, but don't assert anything.
-        kirepo = cpki(head, suffix="suffix-md5")
+        kirepo = cp_ki(head, suffix="suffix-md5")
 
 
 @pytest.mark.skipif(
@@ -1654,7 +1654,7 @@ def test_get_test_collection_copies_media():
     assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
 
 
-def test_cprepo_preserves_git_symlink_file_modes(tmp_path: Path):
+def test_cp_repo_preserves_git_symlink_file_modes(tmp_path: Path):
     """Especially on Windows, are copied symlinks still mode 120000?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
     runner = CliRunner()
@@ -1669,9 +1669,9 @@ def test_cprepo_preserves_git_symlink_file_modes(tmp_path: Path):
         mode = M.filemode(onesec_file)
         assert mode == 120000
 
-        # Check that `cprepo()` keeps it as 120000.
-        ref = M.head_repo_ref(repo)
-        ephem = ki.cprepo(ref, "filemode-test")
+        # Check that `cp_repo()` keeps it as 120000.
+        rev = M.head(repo)
+        ephem = ki.cp_repo(rev, "filemode-test")
         onesec_file = F.workdir(ephem) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000

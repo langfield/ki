@@ -89,8 +89,8 @@ from ki.types import (
     Template,
     Notetype,
     ColNote,
-    KiRepoRef,
-    RepoRef,
+    KiRev,
+    Rev,
     Leaves,
     NoteDBRow,
     DeckNote,
@@ -202,11 +202,11 @@ def unlock(con: sqlite3.Connection) -> None:
 
 
 @beartype
-def cprepo(repo_ref: RepoRef, suffix: str) -> git.Repo:
+def cp_repo(rev: Rev, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into a temp directory ending in `../suffix/`.
     target: NoFile = F.test(F.mkdtemp() / suffix)
-    ephem = git.Repo(F.copytree(F.workdir(repo_ref.repo), target))
+    ephem = git.Repo(F.copytree(F.workdir(rev.repo), target))
 
     # Annihilate the .ki subdirectory.
     ki_dir = F.test(F.workdir(ephem) / KI)
@@ -214,24 +214,24 @@ def cprepo(repo_ref: RepoRef, suffix: str) -> git.Repo:
         F.rmtree(ki_dir)
 
     # Do a reset --hard to the given SHA.
-    ephem.git.reset(repo_ref.sha, hard=True)
+    ephem.git.reset(rev.sha, hard=True)
 
     return ephem
 
 
 @beartype
-def cpki(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
+def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
     """
-    Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
+    Given a KiRev, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
-    hash. Copies the .ki/ directory from `kirepo_ref.kirepo` without making any
+    hash. Copies the .ki/ directory from `ki_rev.kirepo` without making any
     changes.
 
     Parameters
     ----------
     suffix : pathlib.Path
         /tmp/.../ path suffix, e.g. `ki/local/`.
-    kirepo_ref : KiRepoRef
+    ki_rev : KiRev
         The ki repository to clone, and a commit for it.
 
     Returns
@@ -239,12 +239,12 @@ def cpki(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     KiRepo
         The cloned repository.
     """
-    ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
-    ephem: git.Repo = cprepo(ref, suffix)
+    rev: Rev = F.ki_rev_to_rev(ki_rev)
+    ephem: git.Repo = cp_repo(rev, suffix)
     ki_dir: Path = F.test(F.workdir(ephem) / KI)
     if not isinstance(ki_dir, NoFile):
         raise ExpectedNonexistentPathError(ki_dir)
-    F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
+    F.copytree(ki_rev.kirepo.ki_dir, ki_dir)
     kirepo: KiRepo = M.kirepo(F.workdir(ephem))
     return kirepo
 
@@ -352,9 +352,9 @@ def diff2(
     transformer: NoteTransformer,
 ) -> List[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
-    head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
+    head1: Rev = M.rev(repo, repo.commit("HEAD~1").hexsha)
     uuid = "%4x" % random.randrange(16**4)
-    head1_repo = cprepo(head1, suffix=f"HEAD~1-{uuid}")
+    head1_repo = cp_repo(head1, suffix=f"HEAD~1-{uuid}")
 
     # We diff from A~B.
     b_repo = repo
@@ -1999,12 +1999,12 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     """
     md5sum: str = F.md5(kirepo.col_file)
 
-    # Copy `repo` into a temp directory and `reset --hard` at ref of last
+    # Copy `repo` into a temp directory and `reset --hard` at rev of last
     # successful `push()`.
     sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
-    ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
-    last_push_repo: git.Repo = cprepo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
-    unsub_repo: git.Repo = cprepo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
+    rev: Rev = M.rev(kirepo.repo, sha=sha)
+    last_push_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
+    unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -2026,11 +2026,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
     # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `cprepo()` call
+    # last successful ki push in the main repository. Our `cp_repo()` call
     # does a `reset --hard` to the commit of the last push, but this does *not*
     # do an equivalent rollback for submodules. So they may contain new local
     # changes that we don't want. Calling `git submodule update` here checks
-    # out the commit that *was* recorded in the submodule file at the ref of
+    # out the commit that *was* recorded in the submodule file at the rev of
     # the last push.
     unsub_repo.git.submodule("update")
     last_push_repo.git.submodule("update")
@@ -2305,8 +2305,8 @@ def push(verbose: bool = False) -> PushResult:
         raise UpdatesRejectedError(kirepo.col_file)
 
     # =================== NEW PUSH ARCHITECTURE ====================
-    head: KiRepoRef = M.head_kirepo_ref(kirepo)
-    head_kirepo: KiRepo = cpki(head, f"{HEAD_SUFFIX}-{md5sum}")
+    head: KiRev = M.head_ki(kirepo)
+    head_kirepo: KiRepo = cp_ki(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
@@ -2398,7 +2398,7 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: NoFile = F.test(temp_col_dir / col_name)
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, new_col_file)
-    head: RepoRef = M.head_repo_ref(kirepo.repo)
+    head: Rev = M.head(kirepo.repo)
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
@@ -2496,7 +2496,7 @@ def push_deltas(
     append_md5sum(kirepo.ki_dir, kirepo.col_file.name, new_md5sum, silent=False)
 
     # Update the commit SHA of most recent successful PUSH.
-    head: RepoRef = M.head_repo_ref(kirepo.repo)
+    head: Rev = M.head(kirepo.repo)
     kirepo.last_push_file.write_text(head.sha)
 
     # Unlock Anki SQLite DB.

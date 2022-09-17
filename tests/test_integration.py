@@ -768,8 +768,8 @@ def test_pull_still_works_from_subdirectories():
         pull(runner)
 
 
-def test_pull_displays_errors_from_repo_ref():
-    """Does 'pull()' return early when the last push commit ref is bad?"""
+def test_pull_displays_errors_from_rev():
+    """Does 'pull()' return early when the last push commit rev is bad?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1366,14 +1366,14 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
         repo.index.commit(".")
 
         mocker.patch(
-            "ki.M.head_kirepo_ref",
+            "ki.M.head_ki",
             side_effect=GitHeadRefNotFoundError(repo, Exception("<exc>")),
         )
         with pytest.raises(GitHeadRefNotFoundError):
             push(runner)
 
 
-def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
+def test_push_displays_errors_from_head(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1387,7 +1387,7 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
         repo.index.commit(".")
 
         mocker.patch(
-            "ki.M.head_repo_ref",
+            "ki.M.head",
             side_effect=[
                 GitHeadRefNotFoundError(repo, Exception("<exc>")),
             ],
