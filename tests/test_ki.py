@@ -960,25 +960,9 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
 
         returncode: int = backup(kirepo)
         assert returncode == 0
-        calls = list(mock.call_args_list)
-        assert len(calls) == 1
-        call = calls[0]
-        args = call.args
-        assert len(call.args) == 1
-        displayed = call.args[0]
-        assert isinstance(displayed, str)
-        assert "Writing backup" in displayed
 
         returncode = backup(kirepo)
         assert returncode == 1
-        calls = list(mock.call_args_list)
-        assert len(calls) == 2
-        call = calls[-1]
-        args = call.args
-        assert len(call.args) == 1
-        displayed = call.args[0]
-        assert isinstance(displayed, str)
-        assert "Backup already exists" in displayed
 
 
 def test_git_pull():
@@ -1634,40 +1618,6 @@ def test_copy_media_files_returns_nice_errors():
         assert "bad Anki collection media directory" in str(error.exconly())
 
 
-def test_write_repository_displays_missing_media_warnings(mocker: MockerFixture):
-    MEDIACOL: SampleCollection = get_test_collection("media")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        targetdir = F.test(Path(MEDIACOL.repodir))
-        targetdir = F.mkdir(targetdir)
-        ki_dir = F.mkdir(F.test(Path(MEDIACOL.repodir) / KI))
-        media_dir = F.mkdir(F.test(Path(MEDIACOL.repodir) / MEDIA))
-        leaves: Leaves = F.fmkleaves(
-            ki_dir,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR},
-        )
-
-        # Remove the contents of the media directory.
-        col_media_dir = F.test(MEDIACOL.col_file.parent / MEDIACOL.media_directory_name)
-        for path in col_media_dir.iterdir():
-            if path.is_file():
-                os.remove(path)
-
-        mock = mocker.patch("click.secho")
-        write_repository(
-            MEDIACOL.col_file, targetdir, leaves, media_dir, silent=False, verbose=True
-        )
-        calls = list(mock.call_args_list)
-        args: List[str] = list(map(lambda call: str(call.args), calls))
-        displayed = "\n".join(args)
-
-        assert "Missing or bad media file" in displayed
-        assert MEDIACOL.media_directory_name in displayed
-        assert "1sec.mp3" in displayed
-
-
 def test_copy_media_files_finds_notetype_media():
     """Does `copy_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
@@ -1675,7 +1625,7 @@ def test_copy_media_files_finds_notetype_media():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        media, _ = copy_media_files(col, F.mkdtemp(), silent=True)
+        media = copy_media_files(col, F.mkdtemp(), silent=True)
         media_files: Set[ExtantFile] = set()
         for media_set in media.values():
             media_files = media_files | media_set

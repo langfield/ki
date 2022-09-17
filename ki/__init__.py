@@ -524,9 +524,6 @@ def diff2(
 
             deltas.append(Delta(change_type, b_path, b_relpath))
 
-    if VERBOSE:
-        echo(f"Diffing '{repo.working_dir}': '{head1.sha}' ~ '{head.hexsha}'")
-
     return deltas
 
 
@@ -880,10 +877,8 @@ def backup(kirepo: KiRepo) -> int:
     # check for is that we haven't already written a backup file to this
     # location.
     if isinstance(backup_file, ExtantFile):
-        echo("Backup already exists.")
         return 1
 
-    echo(f"Writing backup of .anki2 file to '{backup_file}'")
     F.copyfile(kirepo.col_file, F.test(kirepo.backups_dir / name))
     return 0
 
@@ -896,7 +891,6 @@ def append_md5sum(
     hashes_file = ki_dir / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
-    echo(f"Wrote md5sum to '{hashes_file}'", silent)
 
 
 @beartype
@@ -1103,7 +1097,7 @@ def copy_media_files(
     col: Collection,
     media_target_dir: EmptyDir,
     silent: bool,
-) -> Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
+) -> Dict[int, Set[ExtantFile]]:
     """
     Get a list of extant media files used in notes and notetypes, copy those
     media files to the top-level `_media/` directory in the repository root,
@@ -1158,9 +1152,8 @@ def copy_media_files(
     if not isinstance(media_dir, ExtantDir):
         raise MissingMediaDirectoryError(col.path, media_dir)
 
-    # Find only used media files, collecting warnings for bad paths.
+    # Find only used media files.
     media: Dict[int, Set[ExtantFile]] = {}
-    warnings: Set[Warning] = set()
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
 
@@ -1175,8 +1168,6 @@ def copy_media_files(
                 target_file = F.test(media_target_dir / media_file.name)
                 copied_file = F.copyfile(media_file, target_file)
                 media[row.nid] = media.get(row.nid, set()) | set([copied_file])
-            else:
-                warnings.add(MissingMediaFileWarning(col.path, media_file))
 
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
@@ -1204,7 +1195,7 @@ def copy_media_files(
                         media[NOTETYPE_NID] = notetype_media | set([copied_file])
                     break
 
-    return media, warnings
+    return media
 
 
 @beartype
@@ -1274,25 +1265,14 @@ def write_repository(
 
     tidy_html_recursively(root, silent)
 
-    media: Dict[int, Set[ExtantFile]]
-    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
-
     latent_links: Set[LatentSymlink] = write_decks(
         col,
         targetdir,
         colnotes,
-        media,
+        copy_media_files(col, media_target_dir, silent=silent),
         tidy_field_files,
         silent,
     )
-
-    num_displayed: int = 0
-    for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     F.rmtree(root)
     col.close(save=False)
@@ -1717,7 +1697,6 @@ def git_pull(
     if check and p.returncode != 0:
         click.secho(f"Error while pulling into '{cwd}'", fg="red")
         raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
-    echo(f"Pulling into '{cwd}'... done.", silent=silent)
 
 
 @beartype
@@ -1836,12 +1815,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
 
         # TODO: Consider waiting to parse `models` until after the
         # `add_dict()` call.
-        #
-        # Set the model id to `0`, and then add.
-        # TODO: What happens if we try to add a model with the same name as
-        # an existing model, but the two models are not the same,
-        # content-wise?
-        #
+
         # Check if a model already exists with this name, and get its `mid`.
         mid: Optional[int] = col.models.id_for_name(model.name)
 
@@ -1926,7 +1900,6 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    echo("Cloning.")
     col_file: ExtantFile = M.xfile(Path(collection))
 
     @beartype
@@ -1945,8 +1918,6 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         return F.test(targetdir)
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
-    targetdir: EmptyDir
-    new: bool
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
         _, _ = _clone(
@@ -1960,7 +1931,6 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
         kirepo.repo.close()
         gc.collect()
-        echo("Done.")
     except Exception as err:
         cleanup(targetdir, new)
         raise err
@@ -2000,8 +1970,6 @@ def _clone(
     md5sum : str
         The hash of the Anki collection file.
     """
-    echo(f"Found .anki2 file at '{col_file}'", silent=silent)
-
     # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
     # TODO: Consider writing a Maybe factory for all this.
     directories: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
@@ -2012,7 +1980,6 @@ def _clone(
     )
 
     md5sum = F.md5(col_file)
-    echo(f"Computed md5sum: {md5sum}", silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
@@ -2125,8 +2092,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         database.
     """
     md5sum: str = F.md5(kirepo.col_file)
-    echo(f"Pulling from '{kirepo.col_file}'", silent)
-    echo(f"Computed md5sum: {md5sum}", silent)
 
     # Copy `repo` into a temp directory and `reset --hard` at ref of last
     # successful `push()`.
@@ -2277,10 +2242,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 patched_submodules.add(sm_rel_root)
                 msg += f"  `{patch.a}`\n"
 
-    echo(f"Applied {len(patched_submodules)} patches within submodules.")
-    for sm_rel_root in patched_submodules:
-        echo(f"  Patched '{sm_rel_root}'")
-
     # Commit patches in submodules.
     for sm_repo in subrepos.values():
         sm_repo.git.add(all=True)
@@ -2365,7 +2326,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    echo(f"Copying blobs at HEAD='{sha}' to stage in '{last_push_root}'...")
     git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
     last_push_repo.close()
     last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
@@ -2373,13 +2333,11 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     remote_root: ExtantDir = F.working_dir(remote_repo)
     last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
 
-    echo(f"Copying git history from '{sha}' to stage...")
     last_push_repo: git.Repo = M.repo(last_push_root)
     git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
     del last_push_repo
     F.copytree(git_copy, F.test(git_dir))
 
-    echo(f"Committing stage repository contents in '{last_push_root}'...")
     last_push_repo: git.Repo = M.repo(last_push_root)
     last_push_repo.git.add(all=True)
     last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
@@ -2527,8 +2485,6 @@ def push_deltas(
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
-    echo(f"Computed md5sum: {md5sum}")
-    echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
 
     # Copy collection to a temp directory.
     temp_col_dir: ExtantDir = F.mkdtemp()
@@ -2536,10 +2492,7 @@ def push_deltas(
     col_name: str = kirepo.col_file.name
     new_col_file: NoFile = F.test(temp_col_dir / col_name)
     new_col_file: ExtantFile = F.copyfile(kirepo.col_file, new_col_file)
-
     head: RepoRef = M.head_repo_ref(kirepo.repo)
-    echo(f"Generating local .anki2 file from latest commit: {head.sha}")
-    echo(f"Writing changes to '{new_col_file}'...")
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
     cwd: ExtantDir = F.cwd()
