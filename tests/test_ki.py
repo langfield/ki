@@ -799,9 +799,7 @@ def get_diff2_args() -> DiffReposArgs:
     head_kirepo: KiRepo = cp_ki(head, f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(
-        kirepo.col_file, remote_root, msg, silent=True, verbose=False
-    )
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
     git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
     remote_root: Dir = F.root(remote_repo)
     remote_repo.close()
@@ -1015,7 +1013,7 @@ def test_tidy_html_recursively():
         try:
             os.environ["PATH"] = ""
             with pytest.raises(FileNotFoundError) as error:
-                tidy_html_recursively(root, False)
+                tidy_html_recursively(root)
             assert "'tidy'" in str(error.exconly())
         finally:
             os.environ["PATH"] = old_path
@@ -1093,8 +1091,6 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
             targetdir,
             leaves,
             media_dir,
-            silent=False,
-            verbose=False,
         )
 
         # Check that deck directory is created and all subdirectories.
@@ -1124,9 +1120,7 @@ def test_write_repository_handles_html():
             files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
             dirs={BACKUPS_DIR: BACKUPS_DIR},
         )
-        write_repository(
-            HTML.col_file, targetdir, leaves, media_dir, silent=False, verbose=False
-        )
+        write_repository(HTML.col_file, targetdir, leaves, media_dir)
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
@@ -1155,9 +1149,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
             "ki.get_colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
-            write_repository(
-                HTML.col_file, targetdir, leaves, media_dir, silent=False, verbose=False
-            )
+            write_repository(HTML.col_file, targetdir, leaves, media_dir)
         assert "'bad_field_key'" in str(error.exconly())
 
 
@@ -1368,11 +1360,9 @@ def test_maybe_head_ki():
         md5sum = F.md5(ORIGINAL.col_file)
         ignore_path = targetdir / GITIGNORE_FILE
         ignore_path.write_text(".ki/\n")
-        write_repository(
-            ORIGINAL.col_file, targetdir, leaves, media_dir, silent, verbose=False
-        )
+        write_repository(ORIGINAL.col_file, targetdir, leaves, media_dir)
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        append_md5sum(kid, ORIGINAL.col_file.name, md5sum, silent)
+        append_md5sum(kid, ORIGINAL.col_file.name, md5sum)
 
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.chk(Path(repo.working_dir)))
@@ -1511,7 +1501,7 @@ def test_get_models_recursively(tmp_path: Path):
             json.dump(MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd())
         with pytest.raises(NotetypeKeyError) as error:
-            get_models_recursively(kirepo, silent=True)
+            get_models_recursively(kirepo)
         assert "not found in notetype" in str(error.exconly())
         assert "flds" in str(error.exconly())
         assert "Basic" in str(error.exconly())
@@ -1530,7 +1520,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
             json.dump(NAMELESS_MODELS_DICT, models_f, ensure_ascii=False, indent=4)
         kirepo: KiRepo = M.kirepo(F.cwd())
         with pytest.raises(UnnamedNotetypeError) as error:
-            get_models_recursively(kirepo, silent=True)
+            get_models_recursively(kirepo)
         assert "Failed to find 'name' field" in str(error.exconly())
         assert "1645010146011" in str(error.exconly())
 
@@ -1613,7 +1603,7 @@ def test_copy_media_files_returns_nice_errors():
         F.rmtree(media_dir)
 
         with pytest.raises(MissingMediaDirectoryError) as error:
-            copy_media_files(col, F.mkdtemp(), silent=True)
+            copy_media_files(col, F.mkdtemp())
         assert "media.media" in str(error.exconly())
         assert "bad Anki collection media directory" in str(error.exconly())
 
@@ -1625,7 +1615,7 @@ def test_copy_media_files_finds_notetype_media():
     runner = CliRunner()
     with runner.isolated_filesystem():
 
-        media = copy_media_files(col, F.mkdtemp(), silent=True)
+        media = copy_media_files(col, F.mkdtemp())
         media_files: Set[File] = set()
         for media_set in media.values():
             media_files = media_files | media_set

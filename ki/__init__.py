@@ -500,7 +500,7 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
 
 
 @beartype
-def get_models_recursively(kirepo: KiRepo, silent: bool) -> Dict[str, Notetype]:
+def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     """
     Find and merge all `models.json` files recursively.
 
@@ -790,7 +790,7 @@ def backup(kirepo: KiRepo) -> int:
 
 
 @beartype
-def append_md5sum(kid: Dir, tag: str, md5sum: str, silent: bool = False) -> None:
+def append_md5sum(kid: Dir, tag: str, md5sum: str) -> None:
     """Append an md5sum hash to the hashes file."""
     hashes_file = kid / HASHES_FILE
     with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
@@ -1000,7 +1000,6 @@ def files_in_str(
 def copy_media_files(
     col: Collection,
     media_target_dir: EmptyDir,
-    silent: bool,
 ) -> Dict[int, Set[File]]:
     """
     Get a list of extant media files used in notes and notetypes, copy those
@@ -1127,8 +1126,6 @@ def write_repository(
     targetdir: Dir,
     leaves: Leaves,
     media_target_dir: EmptyDir,
-    silent: bool,
-    verbose: bool,
 ) -> Set[LatentLink]:
     """Write notes to appropriate directories in `targetdir`."""
 
@@ -1167,15 +1164,14 @@ def write_repository(
                 html_file: NoFile = F.chk(root / fid)
                 tidy_field_files[fid] = F.write(html_file, field_text)
 
-    tidy_html_recursively(root, silent)
+    tidy_html_recursively(root)
 
     latent_links: Set[LatentLink] = write_decks(
         col,
         targetdir,
         colnotes,
-        copy_media_files(col, media_target_dir, silent=silent),
+        copy_media_files(col, media_target_dir),
         tidy_field_files,
-        silent,
     )
 
     F.rmtree(root)
@@ -1191,7 +1187,6 @@ def write_decks(
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
     tidy_field_files: Dict[str, File],
-    silent: bool,
 ) -> Set[LatentLink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -1262,7 +1257,6 @@ def write_decks(
     # All latent symlinks created on Windows whose file modes we must set.
     latent_links: Set[LatentLink] = set()
 
-    nodes: List[DeckTreeNode] = postorder(root)
     for node in postorder(root):
         node_cids: Set[int]
         node_notes: Dict[int, WrittenNoteFile]
@@ -1617,7 +1611,7 @@ def warn(string: str) -> None:
 
 
 @beartype
-def tidy_html_recursively(root: Dir, silent: bool) -> None:
+def tidy_html_recursively(root: Dir) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
@@ -1789,8 +1783,7 @@ def ki() -> None:
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
-def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
+def clone(collection: str, directory: str = "") -> None:
     """
     Clone an Anki collection into a directory.
 
@@ -1822,13 +1815,7 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(
-            col_file,
-            targetdir,
-            msg="Initial commit",
-            silent=False,
-            verbose=verbose,
-        )
+        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.lca_file, kirepo.repo.head.commit.hexsha)
         kirepo.repo.close()
@@ -1844,7 +1831,6 @@ def _clone(
     targetdir: EmptyDir,
     msg: str,
     silent: bool,
-    verbose: bool,
 ) -> Tuple[git.Repo, str]:
     """
     Clone an Anki collection into a directory.
@@ -1891,8 +1877,6 @@ def _clone(
         targetdir,
         leaves,
         directories.dirs[MEDIA],
-        silent,
-        verbose,
     )
 
     # Initialize the main repository.
@@ -1930,7 +1914,7 @@ def _clone(
     repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
-    append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
+    append_md5sum(directories.dirs[KI], col_file.name, md5sum)
 
     return repo, md5sum
 
@@ -2010,7 +1994,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         anki_remote_root,
         msg,
         silent=silent,
-        verbose=False,
     )
 
     # Create git remote pointing to `remote_repo`, which represents the current
@@ -2254,7 +2237,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
-    append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum, silent=True)
+    append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
 
@@ -2306,13 +2289,7 @@ def push(verbose: bool = False) -> PushResult:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(
-        kirepo.col_file,
-        remote_root,
-        msg,
-        silent=True,
-        verbose=verbose,
-    )
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
 
     git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
     remote_repo.close()
@@ -2344,13 +2321,12 @@ def push(verbose: bool = False) -> PushResult:
     deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
 
     # Map model names to models.
-    models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
+    models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
 
     return push_deltas(
         deltas,
         models,
         kirepo,
-        md5sum,
         parser,
         transformer,
         head_kirepo,
@@ -2364,7 +2340,6 @@ def push_deltas(
     deltas: List[Union[Delta, Warning]],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
-    md5sum: str,
     parser: Lark,
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
@@ -2489,7 +2464,7 @@ def push_deltas(
 
     # Append to hashes file.
     new_md5sum = F.md5(kirepo.col_file)
-    append_md5sum(kirepo.ki, kirepo.col_file.name, new_md5sum, silent=False)
+    append_md5sum(kirepo.ki, kirepo.col_file.name, new_md5sum)
 
     # Update the commit SHA of most recent successful PUSH.
     head: Rev = M.head(kirepo.repo)
