@@ -803,7 +803,7 @@ def get_diff2_args() -> DiffReposArgs:
         kirepo.col_file, remote_root, msg, silent=True, verbose=False
     )
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-    remote_root: ExtantDir = F.working_dir(remote_repo)
+    remote_root: ExtantDir = F.workdir(remote_repo)
     remote_repo.close()
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
@@ -1665,14 +1665,14 @@ def test_cprepo_preserves_git_symlink_file_modes(tmp_path: Path):
 
         # Check that filemode is initially 120000.
         repo = git.Repo(MEDIACOL.repodir)
-        onesec_file = F.working_dir(repo) / "Default" / MEDIA / "1sec.mp3"
+        onesec_file = F.workdir(repo) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000
 
         # Check that `cprepo()` keeps it as 120000.
         ref = M.head_repo_ref(repo)
         ephem = ki.cprepo(ref, "filemode-test")
-        onesec_file = F.working_dir(ephem) / "Default" / MEDIA / "1sec.mp3"
+        onesec_file = F.workdir(ephem) / "Default" / MEDIA / "1sec.mp3"
         mode = M.filemode(onesec_file)
         assert mode == 120000
 

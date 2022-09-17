@@ -206,10 +206,10 @@ def cprepo(repo_ref: RepoRef, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
     # Copy the entire repo into a temp directory ending in `../suffix/`.
     target: NoFile = F.test(F.mkdtemp() / suffix)
-    ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
+    ephem = git.Repo(F.copytree(F.workdir(repo_ref.repo), target))
 
     # Annihilate the .ki subdirectory.
-    ki_dir = F.test(F.working_dir(ephem) / KI)
+    ki_dir = F.test(F.workdir(ephem) / KI)
     if isinstance(ki_dir, ExtantDir):
         F.rmtree(ki_dir)
 
@@ -241,11 +241,11 @@ def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
     """
     ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
     ephem: git.Repo = cprepo(ref, suffix)
-    ki_dir: Path = F.test(F.working_dir(ephem) / KI)
+    ki_dir: Path = F.test(F.workdir(ephem) / KI)
     if not isinstance(ki_dir, NoFile):
         raise ExpectedNonexistentPathError(ki_dir)
     F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
-    kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
+    kirepo: KiRepo = M.kirepo(F.workdir(ephem))
 
     return kirepo
 
@@ -319,7 +319,7 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
 
     UNSAFE: git.rm() calls.
     """
-    gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
+    gitmodules_path: Path = F.workdir(repo) / GITMODULES_FILE
     for sm in repo.submodules:
 
         # The submodule path is guaranteed to exist by gitpython.
@@ -363,8 +363,6 @@ def diff2(
 
     # Use a `DiffIndex` to get the changed files.
     deltas = []
-    a_dir = F.test(Path(a_repo.working_dir))
-    b_dir = F.test(Path(b_repo.working_dir))
 
     head = repo.commit("HEAD")
     diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
@@ -381,13 +379,13 @@ def diff2(
 
             a_warning: Optional[Warning] = get_note_warnings(
                 Path(a_relpath),
-                a_dir,
+                F.workdir(a_repo),
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
             b_warning: Optional[Warning] = get_note_warnings(
                 Path(b_relpath),
-                b_dir,
+                F.workdir(b_repo),
                 ignore_files=IGNORE_FILES,
                 ignore_dirs=IGNORE_DIRECTORIES,
             )
@@ -403,8 +401,8 @@ def diff2(
                 deltas.append(b_warning)
                 continue
 
-            a_path = F.test(a_dir / a_relpath)
-            b_path = F.test(b_dir / b_relpath)
+            a_path = F.test(F.workdir(a_repo) / a_relpath)
+            b_path = F.test(F.workdir(b_repo) / b_relpath)
 
             a_relpath = Path(a_relpath)
             b_relpath = Path(b_relpath)
@@ -1904,7 +1902,7 @@ def _clone(
 
     # Initialize the main repository.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-    root = F.working_dir(repo)
+    root = F.workdir(repo)
 
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
@@ -2024,7 +2022,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
     anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
     unsub_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    last_push_root: ExtantDir = F.working_dir(last_push_repo)
+    last_push_root: ExtantDir = F.workdir(last_push_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
@@ -2078,7 +2076,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     for sm in last_push_repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
-            sm_root: ExtantDir = F.working_dir(sm_repo)
+            sm_root: ExtantDir = F.workdir(sm_repo)
 
             # Get submodule root relative to ki repository root.
             sm_rel_root: Path = sm_root.relative_to(last_push_root)
@@ -2175,7 +2173,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     for sm in kirepo.repo.submodules:
         if sm.exists() and sm.module_exists():
             sm_repo: git.Repo = sm.module()
-            sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
+            sm_rel_root: Path = F.workdir(sm_repo).relative_to(kirepo.root)
 
             # Note that `subrepos` are the submodules of `last_push_repo`.
             if sm_rel_root in subrepos:
@@ -2197,7 +2195,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
                 git_pull(
                     REMOTE_NAME,
                     branch,
-                    F.working_dir(sm_repo),
+                    F.workdir(sm_repo),
                     False,
                     False,
                     False,
@@ -2237,9 +2235,9 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
     last_push_repo.close()
-    last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
+    last_push_root: NoFile = F.rmtree(F.workdir(last_push_repo))
     del last_push_repo
-    remote_root: ExtantDir = F.working_dir(remote_repo)
+    remote_root: ExtantDir = F.workdir(remote_repo)
     last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
 
     last_push_repo: git.Repo = M.repo(last_push_root)
@@ -2323,7 +2321,7 @@ def push(verbose: bool = False) -> PushResult:
 
     git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
     remote_repo.close()
-    remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
+    remote_root: NoFile = F.rmtree(F.workdir(remote_repo))
     del remote_repo
     remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
 

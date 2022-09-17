@@ -262,7 +262,7 @@ def is_empty(directory: ExtantDir) -> bool:
 
 
 @beartype
-def working_dir(repo: git.Repo) -> ExtantDir:
+def workdir(repo: git.Repo) -> ExtantDir:
     """Get working directory of a repo."""
     return ExtantDir(repo.working_dir).resolve()
 
