@@ -131,7 +131,13 @@ class NoteMetadata:
 @beartype
 @dataclass(frozen=True)
 class Delta:
-    """The git delta for a single file."""
+    """
+    The git delta for a single file.
+
+    We don't instead store a root and a relative path, because we need the
+    `File` object to avoid making unnecessary syscalls to check that stuff
+    exists.
+    """
 
     status: GitChangeType
     path: File
@@ -148,6 +154,8 @@ class KiRepo:
 
     Existence of collection path is guaranteed.
     """
+
+    # pylint: disable=invalid-name
 
     repo: git.Repo
     root: Dir

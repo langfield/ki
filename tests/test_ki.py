@@ -56,7 +56,7 @@ from ki import (
     UnhealthyNoteWarning,
     KiRepo,
     KiRev,
-    get_note_warnings,
+    is_ignorable,
     cp_ki,
     get_note_payload,
     create_deck_dir,
@@ -909,6 +909,7 @@ def test_diff2_handles_submodules():
         del args
         gc.collect()
 
+        deltas = list(deltas)
         assert len(deltas) == 1
         delta = deltas[0]
         assert isinstance(delta, Delta)
@@ -937,6 +938,7 @@ def test_diff2_handles_submodules():
         #
         # DEBUG    | ki:diff2:389 - submodule/Default/a.md -> Default/a.md
 
+        deltas = list(deltas)
         assert len(deltas) > 0
         for delta in deltas:
             assert delta.path.is_file()
@@ -1482,12 +1484,7 @@ def test_filter_note_path(tmp_path: Path):
         path.touch()
         patterns: List[str] = ["directory"]
         root: Dir = F.cwd()
-        warning = get_note_warnings(
-            path, root, ignore_files=set(), ignore_dirs=set(patterns)
-        )
-        assert isinstance(warning, Warning)
-        assert isinstance(warning, UnPushedPathWarning)
-        assert str(Path("directory") / "file") in str(warning)
+        assert is_ignorable(root=root, path=path) == True
 
 
 def test_get_models_recursively(tmp_path: Path):

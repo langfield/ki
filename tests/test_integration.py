@@ -1326,18 +1326,6 @@ def test_push_honors_ignore_patterns():
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
 
-        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-        with open(".gitignore", "a", encoding="UTF-8") as ignore_f:
-            ignore_f.write("\nelephant")
-
-        repo = git.Repo(".")
-        repo.git.add(all=True)
-        repo.index.commit(".")
-
-        out = push(runner, verbose=True)
-        assert "Warning: ignoring" in out
-        assert "matching ignore pattern '.gitignore'" in out
-
         # Add and commit a new file that is not a note.
         Path("dummy_file").touch()
 
@@ -1349,7 +1337,7 @@ def test_push_honors_ignore_patterns():
         # for every such file. In the future, these warnings should only be
         # displayed if a verbosity flag is set.
         out = push(runner, verbose=True)
-        assert "Warning: not Anki note" in out
+        assert "up to date" in out
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):

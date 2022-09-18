@@ -34,8 +34,11 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from itertools import chain
+from functools import partial
 from contextlib import redirect_stdout
 from dataclasses import dataclass
+from collections import namedtuple
 
 import git
 import click
@@ -67,6 +70,7 @@ from beartype.typing import (
     Sequence,
     Tuple,
     Iterator,
+    Iterable,
 )
 
 import ki.maybes as M
@@ -148,10 +152,10 @@ BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
-CHANGE_TYPES = "A D R M T".split()
+CHANGE_TYPES = list("ADRMT")
 TQDM_NUM_COLS = 80
 MAX_FILENAME_LEN = 60
-IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
+IGNORE_DIRS = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
@@ -170,11 +174,16 @@ FAILED = "Failed: exiting."
 
 WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
-SPINNER = "bouncingBall"
 VERBOSE = False
 ALHPANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 SYMBOLS = "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
 BASE91_TABLE = list(ALHPANUMERICS + SYMBOLS)
+
+ADDED = GitChangeType.ADDED
+RENAMED = GitChangeType.RENAMED
+DELETED = GitChangeType.DELETED
+MODIFIED = GitChangeType.MODIFIED
+TYPECHANGED = GitChangeType.TYPECHANGED
 
 
 @beartype
@@ -269,9 +278,7 @@ def is_anki_note(path: File) -> bool:
 
 
 @beartype
-def get_note_warnings(
-    path: Path, root: Dir, ignore_files: Set[str], ignore_dirs: Set[str]
-) -> Optional[Warning]:
+def is_ignorable(root: Dir, path: Path) -> bool:
     """
     Filter out paths in a git repository diff that do not correspond to Anki
     notes.
@@ -279,32 +286,22 @@ def get_note_warnings(
     We could do this purely using calls to `is_anki_note()`, but these are
     expensive, so we try to find matches without opening any files first.
     """
-    # If `path` is an exact match for one of the patterns in `patterns`, we
-    # immediately return a warning. Since the contents of a git repository diff
-    # are always going to be files, this alone will not correctly ignore
-    # directory names given in `patterns`.
-    if path.name in ignore_files | ignore_dirs:
-        return UnPushedPathWarning(path, path.name)
-
-    # If any of the patterns in `patterns` resolve to one of the parents of
+    # Ignore if `path` is an exact match for any of the patterns Since the
+    # contents of a git repository diff are always going to be files, this
+    # alone will not correctly ignore directory names given in `patterns`.
+    #
+    # If any of the patterns in `dirnames` resolve to one of the parents of
     # `path`, return a warning, so that we are able to filter out entire
     # directories.
-    components: Tuple[str, ...] = path.parts
-    dirnames: Set[str] = set(components) & ignore_dirs
-    for dirname in dirnames:
+    filenames, dirnames = IGNORE_FILES, IGNORE_DIRS
+    if path.name in filenames | dirnames or len(set(path.parts) & dirnames) > 0:
+        return True
 
-        # TODO: Surely this is a bug? This function should return an iterable
-        # of warnings.
-        return UnPushedPathWarning(path, dirname)
-
-    # If `path` is an extant file (not a directory) and NOT a note, ignore it.
-    abspath = (root / path).resolve()
-    if abspath.exists() and abspath.is_file():
-        file = File(abspath)
-        if not is_anki_note(file):
-            return NotAnkiNoteWarning(file)
-
-    return None
+    # If `path` is an extant file (not a directory) and *not* a note, ignore it.
+    file = F.chk(root / path)
+    if isinstance(file, File) and not is_anki_note(file):
+        return True
+    return False
 
 
 @beartype
@@ -345,92 +342,56 @@ def unsubmodule_repo(repo: git.Repo) -> git.Repo:
     return repo
 
 
+def mungediff(
+    parse: Callable[[Delta], DeckNote], a_root: Dir, b_root: Dir, d: git.Diff
+) -> Iterable[Union[Delta, Warning]]:
+    """Extract deltas and warnings from a collection of diffs."""
+    # Callables.
+    isfile: Callable[[Path], bool] = lambda p: isinstance(p, File)
+    is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
+    is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
+    a, b = d.a_path, d.b_path
+    a, b = a if a else b, b if b else a
+    if is_ignorable_a(Path(a)) or is_ignorable_b(Path(b)):
+        return []
+
+    # Get absolute and relative paths to 'a' and 'b'.
+    AB = namedtuple("AB", "a b")
+    files = AB(F.chk(a_root / a), F.chk(b_root / b))
+    rels = AB(Path(a), Path(b))
+
+    if d.change_type == DELETED.value:
+        if not isfile(files.a):
+            return [DeletedFileNotFoundWarning(rels.a)]
+        return [Delta(GitChangeType.DELETED, files.a, rels.a)]
+    if not isfile(files.b):
+        return [DiffTargetFileNotFoundWarning(rels.b)]
+    if d.change_type == RENAMED.value:
+        a_delta = Delta(GitChangeType.DELETED, files.a, rels.a)
+        b_delta = Delta(GitChangeType.ADDED, files.b, rels.b)
+        a_decknote, b_decknote = parse(a_delta), parse(b_delta)
+        if a_decknote.guid != b_decknote.guid:
+            return [a_delta, b_delta]
+    return [Delta(GitChangeType(d.change_type), files.b, rels.b)]
+
+
 @beartype
 def diff2(
     repo: git.Repo,
     parser: Lark,
     transformer: NoteTransformer,
-) -> List[Union[Delta, Warning]]:
+) -> Iterable[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
-    head1: Rev = M.rev(repo, repo.commit("HEAD~1").hexsha)
-    uuid = "%4x" % random.randrange(16**4)
-    head1_repo = cp_repo(head1, suffix=f"HEAD~1-{uuid}")
-
     # We diff from A~B.
-    b_repo = repo
-    a_repo = head1_repo
+    head1: Rev = M.rev(repo, repo.commit("HEAD~1").hexsha)
+    uuid = hex(random.randrange(16**4))[2:]
+    head1_repo = cp_repo(head1, suffix=f"HEAD~1-{uuid}")
+    a_root, b_root = F.root(head1_repo), F.root(repo)
+    diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
-    # Use a `DiffIndex` to get the changed files.
-    deltas = []
-
-    head = repo.commit("HEAD")
-    diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
-
-    for change_type in GitChangeType:
-
-        for diff in diff_index.iter_change_type(change_type.value):
-            a_relpath: str = diff.a_path
-            b_relpath: str = diff.b_path
-            if diff.a_path is None:
-                a_relpath = b_relpath
-            if diff.b_path is None:
-                b_relpath = a_relpath
-
-            a_warning: Optional[Warning] = get_note_warnings(
-                Path(a_relpath),
-                F.root(a_repo),
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-            b_warning: Optional[Warning] = get_note_warnings(
-                Path(b_relpath),
-                F.root(b_repo),
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-
-            if VERBOSE:
-                logger.debug(f"{a_relpath} -> {b_relpath}")
-                logger.debug(diff.diff.decode())
-
-            if a_warning is not None:
-                deltas.append(a_warning)
-                continue
-            if b_warning is not None:
-                deltas.append(b_warning)
-                continue
-
-            a_path = F.chk(F.root(a_repo) / a_relpath)
-            b_path = F.chk(F.root(b_repo) / b_relpath)
-
-            a_relpath = Path(a_relpath)
-            b_relpath = Path(b_relpath)
-
-            if change_type == GitChangeType.DELETED:
-                if not isinstance(a_path, File):
-                    deltas.append(DeletedFileNotFoundWarning(a_relpath))
-                    continue
-
-                deltas.append(Delta(change_type, a_path, a_relpath))
-                continue
-
-            if not isinstance(b_path, File):
-                deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
-                continue
-
-            if change_type == GitChangeType.RENAMED:
-                a_delta = Delta(GitChangeType.DELETED, a_path, a_relpath)
-                b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
-                a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
-                b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
-                if a_decknote.guid != b_decknote.guid:
-                    deltas.append(a_delta)
-                    deltas.append(b_delta)
-                    continue
-
-            deltas.append(Delta(change_type, b_path, b_relpath))
-
-    return deltas
+    # Get the diffs for each change type (e.g. 'DELETED').
+    parse = partial(parse_markdown_note, parser, transformer)
+    return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
 
 
 @beartype
@@ -2337,7 +2298,7 @@ def push(verbose: bool = False) -> PushResult:
 
 @beartype
 def push_deltas(
-    deltas: List[Union[Delta, Warning]],
+    deltas: Iterable[Union[Delta, Warning]],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
     parser: Lark,
@@ -2347,6 +2308,7 @@ def push_deltas(
     verbose: bool,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
+    deltas = list(deltas)
     warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
     deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
 
