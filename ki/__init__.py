@@ -238,15 +238,15 @@ def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
 
     Parameters
     ----------
-    suffix : pathlib.Path
-        /tmp/.../ path suffix, e.g. `ki/local/`.
     ki_rev : KiRev
         The ki repository to clone, and a commit for it.
+    suffix : str
+        /tmp/.../ path suffix, e.g. `ki/local/`.
 
     Returns
     -------
     KiRepo
-        The cloned repository.
+        The copied ki repository.
     """
     rev: Rev = F.ki_rev_to_rev(ki_rev)
     ephem: git.Repo = cp_repo(rev, suffix)
@@ -394,24 +394,17 @@ def display_fields_health_warning(note: Note) -> int:
 @beartype
 def get_guid(fields: List[str]) -> str:
     """Construct a new GUID for a note. Adapted from genanki's `guid_for()`."""
-    contents = "__".join(fields)
-
     # Get the first 8 bytes of the SHA256 of `contents` as an int.
     m = hashlib.sha256()
-    m.update(contents.encode("utf-8"))
-    hash_bytes = m.digest()[:8]
-    hash_int = 0
-    for b in hash_bytes:
-        hash_int <<= 8
-        hash_int += b
+    m.update("__".join(fields).encode("utf-8"))
+    x = reduce(lambda h, b: (h << 8) + b, m.digest()[:8], initializer=0)
 
     # convert to the weird base91 format that Anki uses
-    rv_reversed = []
-    while hash_int > 0:
-        rv_reversed.append(BASE91_TABLE[hash_int % len(BASE91_TABLE)])
-        hash_int //= len(BASE91_TABLE)
-
-    return "".join(reversed(rv_reversed))
+    chars = []
+    while x > 0:
+        chars.append(BASE91_TABLE[x % len(BASE91_TABLE)])
+        x //= len(BASE91_TABLE)
+    return "".join(reversed(chars))
 
 
 @beartype
