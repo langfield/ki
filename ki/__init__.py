@@ -224,7 +224,6 @@ def cp_repo(rev: Rev, suffix: str) -> git.Repo:
 
     # Do a reset --hard to the given SHA.
     ephem.git.reset(rev.sha, hard=True)
-
     return ephem
 
 
@@ -383,43 +382,20 @@ def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
     except KeyError as err:
         raise UnnamedNotetypeError(nt) from err
     try:
-        fields: Dict[int, Field] = {}
-        for fld in nt["flds"]:
-            ordinal = fld["ord"]
-            fields[ordinal] = Field(name=fld["name"], ord=ordinal)
-
-        templates: List[Template] = []
-        for tmpl in nt["tmpls"]:
-            templates.append(
-                Template(
-                    name=tmpl["name"],
-                    qfmt=tmpl["qfmt"],
-                    afmt=tmpl["afmt"],
-                    ord=tmpl["ord"],
-                )
-            )
-
-        # Guarantee that 'sortf' exists in `notetype.flds`.
-        sort_ordinal: int = nt["sortf"]
-        if sort_ordinal not in fields:
-
-            # If we get a KeyError here, it will be caught.
-            raise MissingFieldOrdinalError(sort_ordinal, nt["name"])
-
-        notetype = Notetype(
+        fields: Dict[int, Field] = {fld["ord"]: M.field(fld) for fld in nt["flds"]}
+        if nt["sortf"] not in fields:
+            raise MissingFieldOrdinalError(ord=nt["sortf"], model=nt["name"])
+        return Notetype(
             id=nt["id"],
             name=nt["name"],
             type=nt["type"],
             flds=list(fields.values()),
-            tmpls=templates,
-            sortf=fields[sort_ordinal],
+            tmpls=list(map(M.template, nt["tmpls"])),
+            sortf=fields[nt["sortf"]],
             dict=nt,
         )
-
     except KeyError as err:
-        key = str(err)
-        raise NotetypeKeyError(key, str(nt["name"])) from err
-    return notetype
+        raise NotetypeKeyError(key=str(err), name=str(nt["name"])) from err
 
 
 @beartype

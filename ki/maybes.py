@@ -9,7 +9,7 @@ from pathlib import Path
 
 import git
 from beartype import beartype
-from beartype.typing import Union
+from beartype.typing import Union, Dict, Any
 
 import anki
 from anki.collection import Collection
@@ -29,6 +29,8 @@ from ki.types import (
     KiRepo,
     KiRev,
     Rev,
+    Template,
+    Field,
     MissingFileError,
     MissingDirectoryError,
     ExpectedFileButGotDirectoryError,
@@ -320,3 +322,16 @@ def filemode(file: Union[File, Dir, PseudoFile, Link, LatentLink]) -> int:
     except Exception as err:
         raise GitFileModeParseError(file, out) from err
     return mode
+
+
+@beartype
+def template(t: Dict[str, Any]) -> Template:
+    """Construct a template."""
+    name, qfmt, afmt, ord = t["name"], t["qfmt"], t["afmt"], t["ord"]
+    return Template(name=name, qfmt=qfmt, afmt=afmt, ord=ord)
+
+
+@beartype
+def field(fld: Dict[str, Any]) -> Field:
+    """Construct a field."""
+    return Field(name=fld["name"], ord=fld["ord"])
