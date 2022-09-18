@@ -31,6 +31,10 @@ from ki.types import (
     Rev,
     Template,
     Field,
+    Notetype,
+    NotetypeKeyError,
+    UnnamedNotetypeError,
+    MissingFieldOrdinalError,
     MissingFileError,
     MissingDirectoryError,
     ExpectedFileButGotDirectoryError,
@@ -335,3 +339,46 @@ def template(t: Dict[str, Any]) -> Template:
 def field(fld: Dict[str, Any]) -> Field:
     """Construct a field."""
     return Field(name=fld["name"], ord=fld["ord"])
+
+
+@beartype
+def notetype(nt: Dict[str, Any]) -> Notetype:
+    """
+    Convert an Anki NotetypeDict into a Notetype dataclass.
+
+    Anki returns objects of type `NotetypeDict` (see pylib/anki/models.py)
+    when you call a method like `col.models.all()`. This is a dictionary
+    mapping strings to various stuff, and we read all its data into a python
+    dataclass here so that we can access it safely. Since we don't expect Anki
+    to ever give us 'invalid' notetypes (since we define 'valid' as being
+    processable by Anki), we return an exception if the parse fails.
+
+    Note on naming convention: Below, abbreviated variable names represent
+    dicts coming from Anki, like `nt: NotetypeDict` or `fld: FieldDict`.
+    Full words like `field: Field` represent ki dataclasses. The parameters
+    of the dataclasses, however, use abbreviations for consistency with Anki
+    map keys.
+    """
+    # If we can't even read the name of the notetype, then we can't print out a
+    # nice error message in the event of a `KeyError`. So we have to print out
+    # a different error message saying that the notetype doesn't have a name
+    # field.
+    try:
+        nt["name"]
+    except KeyError as err:
+        raise UnnamedNotetypeError(nt) from err
+    try:
+        fields: Dict[int, Field] = {fld["ord"]: M.field(fld) for fld in nt["flds"]}
+        if nt["sortf"] not in fields:
+            raise MissingFieldOrdinalError(ord=nt["sortf"], model=nt["name"])
+        return Notetype(
+            id=nt["id"],
+            name=nt["name"],
+            type=nt["type"],
+            flds=list(fields.values()),
+            tmpls=list(map(M.template, nt["tmpls"])),
+            sortf=fields[nt["sortf"]],
+            dict=nt,
+        )
+    except KeyError as err:
+        raise NotetypeKeyError(key=str(err), name=str(nt["name"])) from err

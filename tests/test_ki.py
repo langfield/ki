@@ -65,7 +65,6 @@ from ki import (
     get_colnote,
     backup,
     update_note,
-    parse_notetype_dict,
     display_fields_health_warning,
     is_anki_note,
     parse_markdown_note,
@@ -509,7 +508,7 @@ def test_update_note_raises_error_on_too_few_fields():
 
     # Note that "Back" field is missing.
     decknote = DeckNote("title", "0", "Default", "Basic", [], {"Front": field})
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
@@ -528,7 +527,7 @@ def test_update_note_raises_error_on_too_many_fields():
     fields = {"Front": field, "Back": field, "Left": field}
     decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
@@ -547,7 +546,7 @@ def test_update_note_raises_error_wrong_field_name():
     fields = {"Front": field, "Backus": field}
     decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     warnings = update_note(note, decknote, notetype, notetype)
     warning: Warning = warnings.pop()
     assert isinstance(warning, Warning)
@@ -568,7 +567,7 @@ def test_update_note_sets_tags():
     decknote = DeckNote("", "0", "Default", "Basic", ["tag"], fields)
 
     assert note.tags == []
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     update_note(note, decknote, notetype, notetype)
     assert note.tags == ["tag"]
 
@@ -586,7 +585,7 @@ def test_update_note_sets_deck():
     # work with cards instead of notes.
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "Default"
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     update_note(note, decknote, notetype, notetype)
     deck = col.decks.name(note.cards()[0].did)
     assert deck == "deck"
@@ -603,7 +602,7 @@ def test_update_note_sets_field_contents():
 
     assert "TITLE" not in note.fields[0]
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     update_note(note, decknote, notetype, notetype)
 
     assert note.fields[0] == "TITLE<br>data"
@@ -619,7 +618,7 @@ def test_update_note_removes_field_contents():
     decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
 
     assert "a" in note.fields[0]
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     update_note(note, decknote, notetype, notetype)
     assert "a" not in note.fields[0]
 
@@ -633,7 +632,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
     fields = {"Front": field, "Back": field}
     decknote = DeckNote("title", "0", "Nonexistent", "Default", [], fields)
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
 
     with pytest.raises(NotetypeMismatchError):
         update_note(note, decknote, notetype, notetype)
@@ -649,8 +648,8 @@ def test_display_fields_health_warning_catches_missing_clozes():
     decknote = DeckNote("title", "0", "Default", "Cloze", [], fields)
 
     clz: NotetypeDict = col.models.by_name("Cloze")
-    cloze: Notetype = parse_notetype_dict(clz)
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    cloze: Notetype = M.notetype(clz)
+    notetype: Notetype = M.notetype(note.note_type())
     warnings = update_note(note, decknote, notetype, cloze)
     warning = warnings.pop()
     assert isinstance(warning, Exception)
@@ -672,8 +671,8 @@ def test_update_note_changes_notetype():
     )
 
     rev: NotetypeDict = col.models.by_name("Basic (and reversed card)")
-    reverse: Notetype = parse_notetype_dict(rev)
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    reverse: Notetype = M.notetype(rev)
+    notetype: Notetype = M.notetype(note.note_type())
     update_note(note, decknote, notetype, reverse)
 
 
@@ -713,7 +712,7 @@ def get_colnote_with_sortf_text(sortf_text: str) -> Tuple[Collection, ColNote]:
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     deck = col.decks.name(note.cards()[0].did)
     return col, ColNote(
         n=note,
@@ -735,7 +734,7 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
     note["Back"] = back
     note.flush()
 
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
     deck = col.decks.name(note.cards()[0].did)
     return col, ColNote(
         n=note,
@@ -1390,13 +1389,13 @@ def test_push_note_handles_note_field_name_mismatches():
     assert "Expected a field" in str(warning)
 
 
-def test_parse_notetype_dict():
+def test_notetype():
     nt = NT
 
     # This field ordinal doesn't exist.
     nt["sortf"] = 3
     with pytest.raises(MissingFieldOrdinalError) as error:
-        parse_notetype_dict(nt)
+        M.notetype(nt)
     assert "3" in str(error.exconly())
 
 
@@ -1410,12 +1409,12 @@ def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
 
 
 @beartype
-def test_get_colnote_propagates_errors_from_parse_notetype_dict(mocker: MockerFixture):
+def test_get_colnote_propagates_errors_from_notetype(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
-    mocker.patch("ki.parse_notetype_dict", side_effect=UnnamedNotetypeError(NT))
+    mocker.patch("ki.M.notetype", side_effect=UnnamedNotetypeError(NT))
     with pytest.raises(UnnamedNotetypeError) as error:
         get_colnote(col, note.id)
     assert "Failed to find 'name' field" in str(error.exconly())
@@ -1698,7 +1697,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
         flags=0,
         data="",
     )
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
 
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):

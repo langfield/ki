@@ -1404,12 +1404,12 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
 
         col = open_collection(ORIGINAL.col_file)
         note = col.get_note(set(col.find_notes("")).pop())
-        _: Notetype = ki.parse_notetype_dict(note.note_type())
+        _: Notetype = ki.M.notetype(note.note_type())
         col.close()
 
         effects = [MissingFieldOrdinalError(3, "<notetype>")]
 
-        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+        mocker.patch("ki.M.notetype", side_effect=effects)
 
         with pytest.raises(MissingFieldOrdinalError):
             push(runner)
@@ -1435,13 +1435,13 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
 
         col = open_collection(ORIGINAL.col_file)
         note = col.get_note(set(col.find_notes("")).pop())
-        notetype: Notetype = ki.parse_notetype_dict(note.note_type())
+        notetype: Notetype = ki.M.notetype(note.note_type())
         col.close()
 
         effects = [notetype] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH
         effects += [MissingFieldOrdinalError(3, "<notetype>")]
 
-        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+        mocker.patch("ki.M.notetype", side_effect=effects)
 
         with pytest.raises(MissingFieldOrdinalError):
             out = push(runner)

@@ -146,6 +146,7 @@ logging.basicConfig(level=logging.INFO)
 T = TypeVar("T")
 
 # TODO: What if there is a deck called `_media`?
+UTF8 = "UTF-8"
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 300
@@ -263,7 +264,7 @@ def is_anki_note(path: File) -> bool:
     # Ought to have markdown file extension.
     if path.suffix != ".md":
         return False
-    with open(path, "r", encoding="UTF-8") as md_f:
+    with open(path, "r", encoding=UTF8) as md_f:
         lines = md_f.readlines()
     if len(lines) < 8:
         return False
@@ -356,77 +357,14 @@ def diff2(
 
 
 @beartype
-def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
-    """
-    Convert an Anki NotetypeDict into a Notetype dataclass.
-
-    Anki returns objects of type `NotetypeDict` (see pylib/anki/models.py)
-    when you call a method like `col.models.all()`. This is a dictionary
-    mapping strings to various stuff, and we read all its data into a python
-    dataclass here so that we can access it safely. Since we don't expect Anki
-    to ever give us 'invalid' notetypes (since we define 'valid' as being
-    processable by Anki), we return an exception if the parse fails.
-
-    Note on naming convention: Below, abbreviated variable names represent
-    dicts coming from Anki, like `nt: NotetypeDict` or `fld: FieldDict`.
-    Full words like `field: Field` represent ki dataclasses. The parameters
-    of the dataclasses, however, use abbreviations for consistency with Anki
-    map keys.
-    """
-    # If we can't even read the name of the notetype, then we can't print out a
-    # nice error message in the event of a `KeyError`. So we have to print out
-    # a different error message saying that the notetype doesn't have a name
-    # field.
-    try:
-        nt["name"]
-    except KeyError as err:
-        raise UnnamedNotetypeError(nt) from err
-    try:
-        fields: Dict[int, Field] = {fld["ord"]: M.field(fld) for fld in nt["flds"]}
-        if nt["sortf"] not in fields:
-            raise MissingFieldOrdinalError(ord=nt["sortf"], model=nt["name"])
-        return Notetype(
-            id=nt["id"],
-            name=nt["name"],
-            type=nt["type"],
-            flds=list(fields.values()),
-            tmpls=list(map(M.template, nt["tmpls"])),
-            sortf=fields[nt["sortf"]],
-            dict=nt,
-        )
-    except KeyError as err:
-        raise NotetypeKeyError(key=str(err), name=str(nt["name"])) from err
-
-
-@beartype
 def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     """
-    Find and merge all `models.json` files recursively.
-
-    Should we check for duplicates?
-
-    Returns
-    -------
-    Dict[int, Notetype]
-        A dictionary sending model names to Notetypes.
+    Find and merge all `models.json` files recursively. Returns a dictionary
+    sending model names to Notetypes.
     """
-    all_models: Dict[str, Notetype] = {}
-
-    # Load notetypes from json files.
-    for models_file in F.rglob(kirepo.root, MODELS_FILE):
-
-        with open(models_file, "r", encoding="UTF-8") as models_f:
-            new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
-
-        models: Dict[str, Notetype] = {}
-        for _, nt in new_nts.items():
-            notetype: Notetype = parse_notetype_dict(nt)
-            models[notetype.name] = notetype
-
-        # Add mappings to dictionary.
-        all_models.update(models)
-
-    return all_models
+    load = lambda f: map(M.notetype, json.load(open(f, "r", encoding=UTF8)).values())
+    notetypes = chain.from_iterable(map(load, F.rglob(kirepo.root, MODELS_FILE)))
+    return {notetype.name: notetype for notetype in notetypes}
 
 
 @beartype
@@ -481,7 +419,7 @@ def parse_markdown_note(
     parser: Lark, transformer: NoteTransformer, delta: Delta
 ) -> DeckNote:
     """Parse with lark."""
-    tree = parser.parse(delta.path.read_text(encoding="UTF-8"))
+    tree = parser.parse(delta.path.read_text(encoding=UTF8))
     flatnote: FlatNote = transformer.transform(tree)
     parts: Tuple[str, ...] = delta.relpath.parent.parts
     deck: str = "::".join(parts)
@@ -645,7 +583,7 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
         blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode("UTF-8"))
+        blake2.update(colnote.n.guid.encode(UTF8))
         slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
 
         # Note IDs are in milliseconds.
@@ -692,7 +630,7 @@ def backup(kirepo: KiRepo) -> int:
 def append_md5sum(kid: Dir, tag: str, md5sum: str) -> None:
     """Append an md5sum hash to the hashes file."""
     hashes_file = kid / HASHES_FILE
-    with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
+    with open(hashes_file, "a+", encoding=UTF8) as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
 
 
@@ -816,8 +754,8 @@ def push_note(
     # If we are updating an existing note, we need to know the old and new
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
-    old_notetype: Notetype = parse_notetype_dict(note.note_type())
-    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
+    old_notetype: Notetype = M.notetype(note.note_type())
+    new_notetype: Notetype = M.notetype(col.models.get(model_id))
     warnings = update_note(note, decknote, old_notetype, new_notetype)
 
     return warnings
@@ -830,7 +768,7 @@ def get_colnote(col: Collection, nid: int) -> ColNote:
         note = col.get_note(nid)
     except NotFoundError as err:
         raise MissingNoteIdError(nid) from err
-    notetype: Notetype = parse_notetype_dict(note.note_type())
+    notetype: Notetype = M.notetype(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
     # `push_note()`.
@@ -1032,7 +970,7 @@ def write_repository(
     config_file: File = leaves.files[CONFIG_FILE]
     config = configparser.ConfigParser()
     config["remote"] = {"path": col_file}
-    with open(config_file, "w", encoding="UTF-8") as config_f:
+    with open(config_file, "w", encoding=UTF8) as config_f:
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
@@ -1102,7 +1040,7 @@ def write_decks(
         models_map[nt_name_id.id] = col.models.get(nt_name_id.id)
 
     # Dump the models file for the whole repository.
-    with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
+    with open(targetdir / MODELS_FILE, "w", encoding=UTF8) as f:
         json.dump(models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
     # Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
@@ -1286,7 +1224,7 @@ def write_deck_node_cards(
     # TODO: Should this block be outside this function?
     # Write `models.json` for current deck.
     deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-    with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
+    with open(deck_dir / MODELS_FILE, "w", encoding=UTF8) as f:
         json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
 
     return written_cids, written_notes, latent_links
@@ -1451,7 +1389,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -> str
             # HTML5-tidy adds a newline after `<br>` in indent mode, so we
             # remove these, because `html_to_screen()` converts `<br>` tags to
             # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text(encoding="UTF-8")
+            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=UTF8)
             tidied_field_text = tidied_field_text.replace("<br>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br/>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br />\n", "\n")
@@ -1629,7 +1567,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
 
             # If we are trying to add a model that has the exact same content
             # and name as an existing model, skip it.
-            existing_model: Notetype = parse_notetype_dict(nt)
+            existing_model: Notetype = M.notetype(nt)
             if get_notetype_json(model) == get_notetype_json(existing_model):
                 continue
 
@@ -1650,7 +1588,7 @@ def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
         nt_copy["id"] = 0
         changes: OpChangesWithId = col.models.add_dict(nt_copy)
         nt: NotetypeDict = col.models.get(changes.id)
-        model: Notetype = parse_notetype_dict(nt)
+        model: Notetype = M.notetype(nt)
         echo(f"Added model '{model.name}'")
 
 
@@ -1829,7 +1767,7 @@ def pull() -> None:
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
@@ -1880,7 +1818,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
     # successful `push()`, which is the last common ancestor, or 'LCA'.
-    sha: str = kirepo.lca_file.read_text(encoding="UTF-8")
+    sha: str = kirepo.lca_file.read_text(encoding=UTF8)
     rev: Rev = M.rev(kirepo.repo, sha=sha)
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
@@ -2177,7 +2115,7 @@ def push(verbose: bool = False) -> PushResult:
     con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
@@ -2211,7 +2149,7 @@ def push(verbose: bool = False) -> PushResult:
     # be printed on initialization if the grammar file is missing. No
     # computation should be done, and none of the click commands should work.
     grammar_path = Path(__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
+    grammar = grammar_path.read_text(encoding=UTF8)
 
     # Instantiate parser.
     parser = Lark(grammar, start="note", parser="lalr")
