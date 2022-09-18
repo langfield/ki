@@ -70,7 +70,6 @@ from ki import (
     is_anki_note,
     parse_markdown_note,
     lock,
-    unsubmodule_repo,
     write_repository,
     get_target,
     push_note,
@@ -805,7 +804,7 @@ def get_diff2_args() -> DiffReposArgs:
     remote_repo.close()
     remote_root: NoFile = F.rmtree(remote_root)
     remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
-    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    remote_repo: git.Repo = F.unsubmodule(M.repo(remote_root))
     git_dir: Dir = F.gitd(remote_repo)
     remote_repo.close()
     git_dir: NoPath = F.rmtree(git_dir)
@@ -872,10 +871,10 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path: Path):
         assert "note123412341234.md" in str(warning)
 
 
-def test_unsubmodule_repo_removes_gitmodules(tmp_path: Path):
+def test_unsubmodule_removes_gitmodules(tmp_path: Path):
     """
     When you have a ki repo with submodules, does calling
-    `unsubmodule_repo()`on it remove them? We test this by checking if the
+    `F.unsubmodule()`on it remove them? We test this by checking if the
     `.gitmodules` file exists.
     """
     ORIGINAL = get_test_collection("original")
@@ -884,7 +883,7 @@ def test_unsubmodule_repo_removes_gitmodules(tmp_path: Path):
         repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
         gitmodules_path = Path(repo.working_dir) / ".gitmodules"
         assert gitmodules_path.exists()
-        unsubmodule_repo(repo)
+        F.unsubmodule(repo)
         assert not gitmodules_path.exists()
 
 

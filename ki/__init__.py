@@ -304,44 +304,6 @@ def is_ignorable(root: Dir, path: Path) -> bool:
     return False
 
 
-@beartype
-def unsubmodule_repo(repo: git.Repo) -> git.Repo:
-    """
-    Un-submodule all the git submodules (convert them to ordinary
-    subdirectories and destroy their commit history).  Commit the changes to
-    the main repository.
-
-    MUTATES REPO in-place!
-
-    UNSAFE: git.rm() calls.
-    """
-    gitmodules_path: Path = F.root(repo) / GITMODULES_FILE
-    for sm in repo.submodules:
-
-        # The submodule path is guaranteed to exist by gitpython.
-        sm_path = Path(sm.module().working_tree_dir)
-        repo.git.rm(sm_path, cached=True)
-
-        # Annihilate `.gitmodules` file.
-        if gitmodules_path.is_file:
-            repo.git.rm(gitmodules_path, ignore_unmatch=True)
-
-        sm_git_path = F.chk(sm_path / GIT)
-        if isinstance(sm_git_path, Dir):
-            F.rmtree(sm_git_path)
-        else:
-            (sm_path / GIT).unlink(missing_ok=True)
-
-        # Directory should still exist after `git.rm()`.
-        repo.git.add(sm_path)
-        _ = repo.index.commit(f"Add submodule `{sm.name}` as ordinary directory.")
-
-    if gitmodules_path.exists():
-        repo.git.rm(gitmodules_path)
-        _ = repo.index.commit("Remove `.gitmodules` file.")
-    return repo
-
-
 def mungediff(
     parse: Callable[[Delta], DeckNote], a_root: Dir, b_root: Dir, d: git.Diff
 ) -> Iterable[Union[Delta, Warning]]:
@@ -1974,7 +1936,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # the last push.
     unsub_repo.git.submodule("update")
     lca_repo.git.submodule("update")
-    unsub_repo = unsubmodule_repo(unsub_repo)
+    unsub_repo = F.unsubmodule(unsub_repo)
     patches_dir: Dir = F.mkdtemp()
     anki_remote.fetch()
     unsub_remote.fetch()
@@ -2258,7 +2220,7 @@ def push(verbose: bool = False) -> PushResult:
     del remote_repo
     remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
 
-    remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
+    remote_repo: git.Repo = F.unsubmodule(M.repo(remote_root))
     gitd: NoPath = F.rmtree(F.gitd(remote_repo))
     del remote_repo
     F.copytree(git_copy, F.chk(gitd))

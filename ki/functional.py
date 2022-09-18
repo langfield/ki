@@ -13,8 +13,9 @@ import hashlib
 import tempfile
 import functools
 import unicodedata
-from pathlib import Path
 from types import TracebackType
+from pathlib import Path
+from functools import partial
 
 import git
 
@@ -49,6 +50,9 @@ from ki.types import (
     Leaves,
     PathCreationCollisionError,
 )
+
+GIT = ".git"
+GITMODULES_FILE = ".gitmodules"
 
 SPINNER = "bouncingBall"
 HALO_ENABLED = True
@@ -374,3 +378,34 @@ def unlink(file: Union[File, Link, LatentLink]) -> NoFile:
     """Safely unlink a file."""
     os.unlink(file)
     return NoFile(file)
+
+
+@beartype
+def rmsm(repo: git.Repo, sm: git.Submodule) -> git.Commit:
+    """Remove a git submodule."""
+    # Remove the submodule root and delete its .git directory.
+    sm_root = Path(sm.module().working_tree_dir)
+    repo.git.rm(sm_root, cached=True)
+    gitd = F.chk(sm_root / GIT)
+    if isinstance(gitd, Dir):
+        F.rmtree(gitd)
+    else:
+        gitd.unlink(missing_ok=True)
+
+    # Directory `sm_root` should still exist after `git.rm()` call.
+    repo.git.add(sm_root)
+    return repo.index.commit(f"Add submodule `{sm.name}` as ordinary directory.")
+
+
+@beartype
+def unsubmodule(repo: git.Repo) -> git.Repo:
+    """
+    Un-submodule all the git submodules (converts them to ordinary subdirs and
+    destroys commit history). Commit the changes to the main repository.
+    """
+    _: List[git.Commit] = list(map(partial(F.rmsm, repo), repo.submodules))
+    gitmodules_file: Path = F.root(repo) / GITMODULES_FILE
+    if gitmodules_file.exists():
+        repo.git.rm(gitmodules_file)
+        _ = repo.index.commit("Remove `.gitmodules` file.")
+    return repo

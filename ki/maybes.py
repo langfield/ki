@@ -45,9 +45,9 @@ from ki.types import (
 )
 
 KI = ".ki"
-GIT = ".git"
+GIT = F.GIT
 GITIGNORE_FILE = ".gitignore"
-GITMODULES_FILE = ".gitmodules"
+GITMODULES_FILE = F.GITMODULES_FILE
 
 CONFIG_FILE = "config"
 HASHES_FILE = "hashes"
