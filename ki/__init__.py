@@ -71,6 +71,7 @@ from beartype.typing import (
     Tuple,
     Iterator,
     Iterable,
+    FrozenSet,
 )
 
 import ki.maybes as M
@@ -398,7 +399,7 @@ def get_guid(fields: List[str]) -> str:
     # Get the first 8 bytes of the SHA256 of `contents` as an int.
     m = hashlib.sha256()
     m.update("__".join(fields).encode("utf-8"))
-    x = reduce(lambda h, b: (h << 8) + b, m.digest()[:8], initializer=0)
+    x = reduce(lambda h, b: (h << 8) + b, m.digest()[:8], 0)
 
     # convert to the weird base91 format that Anki uses
     chars = []
@@ -815,10 +816,28 @@ def localmedia(s: str, regex: str) -> Iterable[str]:
 
 
 @beartype
-def files_in_str(col: Collection, s: str) -> Iterable[str]:
+def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
     s = (s.strip()).replace('"', "")
     return chain.from_iterable(map(partial(localmedia, s), col.media.regexps))
+
+
+@beartype
+def copymedia(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> FrozenSet[File]:
+    """
+    Copy a single note's media files and return the copies as a set.
+
+    Note that `src` is the media directory where the files originate, and `tgt`
+    is the media directory we're copying to.
+    """
+    isfile: Callable[[Path], bool] = lambda p: isinstance(p, File)
+
+    files: Iterable[str] = media_filenames_in_field(col, row.flds)
+    rootfiles = filter(lambda f: f == os.path.basename(f), files)
+    paths: Iterable[Path] = map(lambda f: F.chk(src / f), rootfiles)
+    medias: Iterable[File] = filter(isfile, paths)
+    srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
+    return frozenset(starmap(F.copyfile, srcdsts))
 
 
 @beartype
@@ -861,23 +880,11 @@ def copy_media_files(
     if not isinstance(media_dir, Dir):
         raise MissingMediaDirectoryError(col.path, media_dir)
 
-    # Find only used media files.
-    media: Dict[int, Set[File]] = {}
+    # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-
-    for row in rows:
-        for file in files_in_str(col, row.flds):
-
-            # Skip files in subdirs.
-            if file != os.path.basename(file):
-                continue
-            media_file = F.chk(media_dir / file)
-            if isinstance(media_file, File):
-                target_file = F.chk(media_target_dir / media_file.name)
-                copied_file = F.copyfile(media_file, target_file)
-                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
-
+    copyfn = partial(copymedia, col, media_dir, media_target_dir)
+    media: Dict[int, Set[File]] = {row.nid: copyfn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
     # Faster version.
