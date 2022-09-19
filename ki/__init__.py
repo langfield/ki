@@ -147,6 +147,7 @@ T = TypeVar("T")
 
 # TODO: What if there is a deck called `_media`?
 UTF8 = "UTF-8"
+URLS = "(https?|ftp)://"
 MEDIA = "_media"
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 300
@@ -806,21 +807,18 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
-def files_in_str(
-    col: Collection, string: str, include_remote: bool = False
-) -> list[str]:
+@beartype
+def localmedia(s: str, regex: str) -> Iterable[str]:
+    """Return local media filenames matching the given regex pattern."""
+    fnames = map(lambda m: m.group("fname"), re.finditer(regex, s))
+    return filter(lambda x: not re.match(URLS, x.lower()), fnames)
+
+
+@beartype
+def files_in_str(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
-    # Extract filenames.
-    files = []
-    for reg in col.media.regexps:
-        for match in re.finditer(reg, string):
-            fname = match.group("fname")
-            is_local = not re.match("(https?|ftp)://", fname.lower())
-            if is_local or include_remote:
-                fname = fname.strip()
-                fname = fname.replace('"', "")
-                files.append(fname)
-    return files
+    s = (s.strip()).replace('"', "")
+    return chain.from_iterable(map(partial(localmedia, s), col.media.regexps))
 
 
 @beartype
@@ -836,32 +834,13 @@ def copy_media_files(
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
 
-    SQLite3 notes table schema
-    --------------------------
-    CREATE TABLE notes (
-        id integer PRIMARY KEY,
-        guid text NOT NULL,
-        mid integer NOT NULL,
-        mod integer NOT NULL,
-        usn integer NOT NULL,
-        tags text NOT NULL,
-        flds text NOT NULL,
-        -- The use of type integer for sfld is deliberate, because it means
-        -- that integer values in this field will sort numerically.
-        sfld integer NOT NULL,
-        csum integer NOT NULL,
-        flags integer NOT NULL,
-        data text NOT NULL
-    );
-
     Parameters
     ----------
     col
         Anki collection.
-    silent
-        Whether to display stdout.
+    media_target_dir
+        Where media files are to be copied to.
     """
-
     # All note ids as a string for the SQL query.
     strnids = ids2str(list(col.find_notes(query="")))
 
