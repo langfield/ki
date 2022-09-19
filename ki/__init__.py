@@ -311,7 +311,6 @@ def mungediff(
 ) -> Iterable[Union[Delta, Warning]]:
     """Extract deltas and warnings from a collection of diffs."""
     # Callables.
-    isfile: Callable[[Path], bool] = lambda p: isinstance(p, File)
     is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
     is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
     a, b = d.a_path, d.b_path
@@ -325,10 +324,10 @@ def mungediff(
     rels = AB(Path(a), Path(b))
 
     if d.change_type == DELETED.value:
-        if not isfile(files.a):
+        if not F.isfile(files.a):
             return [DeletedFileNotFoundWarning(rels.a)]
         return [Delta(GitChangeType.DELETED, files.a, rels.a)]
-    if not isfile(files.b):
+    if not F.isfile(files.b):
         return [DiffTargetFileNotFoundWarning(rels.b)]
     if d.change_type == RENAMED.value:
         a_delta = Delta(GitChangeType.DELETED, files.a, rels.a)
@@ -825,17 +824,18 @@ def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
 @beartype
 def copymedia(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> FrozenSet[File]:
     """
-    Copy a single note's media files and return the copies as a set.
+    Copy a single note's media files and return the copies as a set. We do this
+    by first filtering for only 'rootfiles', i.e. excluding media files in
+    subdirectories of the media directory. Then we take only those which exist,
+    i.e. typecheck as `File`. Then we construct the source and destination
+    paths, and finally actually perform the copy op, returning the result.
 
     Note that `src` is the media directory where the files originate, and `tgt`
     is the media directory we're copying to.
     """
-    isfile: Callable[[Path], bool] = lambda p: isinstance(p, File)
-
     files: Iterable[str] = media_filenames_in_field(col, row.flds)
     rootfiles = filter(lambda f: f == os.path.basename(f), files)
-    paths: Iterable[Path] = map(lambda f: F.chk(src / f), rootfiles)
-    medias: Iterable[File] = filter(isfile, paths)
+    medias: Iterable[File] = filter(F.isfile, map(lambda f: F.chk(src / f), rootfiles))
     srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
     return frozenset(starmap(F.copyfile, srcdsts))
 

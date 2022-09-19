@@ -409,3 +409,9 @@ def unsubmodule(repo: git.Repo) -> git.Repo:
         repo.git.rm(gitmodules_file)
         _ = repo.index.commit("Remove `.gitmodules` file.")
     return repo
+
+
+@beartype
+def isfile(p: Path) -> bool:
+    """Check if `p` is a File."""
+    return isinstance(p, File)
