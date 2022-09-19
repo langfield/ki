@@ -822,7 +822,9 @@ def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
 
 
 @beartype
-def copymedia(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> FrozenSet[File]:
+def copy_note_media(
+    col: Collection, src: Dir, tgt: Dir, row: NoteDBRow
+) -> FrozenSet[File]:
     """
     Copy a single note's media files and return the copies as a set. We do this
     by first filtering for only 'rootfiles', i.e. excluding media files in
@@ -837,6 +839,17 @@ def copymedia(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> FrozenSet[
     rootfiles = filter(lambda f: f == os.path.basename(f), files)
     medias: Iterable[File] = filter(F.isfile, map(lambda f: F.chk(src / f), rootfiles))
     srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
+    return frozenset(starmap(F.copyfile, srcdsts))
+
+
+@beartype
+def copy_notetype_media(
+    src: Dir, tgt: Dir, paths: Set[Path], m: NotetypeDict
+) -> FrozenSet[File]:
+    """Copy media from notetype `m` from source to target, returning set of copies."""
+    matches: Iterable[Path] = filter(lambda p: hasmedia(m, str(p)), paths)
+    medias = filter(F.isfile, map(lambda p: F.chk(src / p), matches))
+    srcdsts = map(lambda f: (f, F.chk(tgt / f.name)), medias)
     return frozenset(starmap(F.copyfile, srcdsts))
 
 
@@ -883,39 +896,25 @@ def copy_media_files(
     # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-    copyfn = partial(copymedia, col, media_dir, media_target_dir)
-    media: Dict[int, Set[File]] = {row.nid: copyfn(row) for row in rows}
+    copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
+    media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
-    # Faster version.
+    # Copy notetype template media files.
     _, _, files = F.shallow_walk(media_dir)
-    fnames: List[Path] = [Path(file.name) for file in files]
-    for fname in fnames:
+    paths: Iterable[Path] = map(lambda f: Path(f.name), files)
+    paths = set(filter(lambda f: str(f).startswith("_"), paths))
+    models = filter(lambda m: int(m["id"]) in mids, col.models.all())
 
-        # Notetype template media files are *always* prefixed by underscores.
-        if str(fname).startswith("_"):
-
-            # Scan all models in mids for reference to fname.
-            for m in col.models.all():
-                if int(m["id"]) in mids and _modelHasMedia(m, str(fname)):
-
-                    # If the path referenced by `fname` doesn't exist or is not
-                    # a file, we do not display a warning or return an error.
-                    # This path certainly ought to exist, since `fname` was
-                    # obtained from an `os.listdir()` call.
-                    media_file = F.chk(media_dir / fname)
-                    if isinstance(media_file, File):
-                        target_file = F.chk(media_target_dir / media_file.name)
-                        copied_file = F.copyfile(media_file, target_file)
-                        notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
-                    break
+    nt_copy_fn = partial(copy_notetype_media, media_dir, media_target_dir, paths)
+    mediasets: Iterable[FrozenSet[File]] = map(nt_copy_fn, models)
+    media[NOTETYPE_NID] = reduce(lambda x, y: x.union(y), mediasets, set())
 
     return media
 
 
 @beartype
-def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
+def hasmedia(model: NotetypeDict, fname: str) -> bool:
     """
     Check if a notetype has media.
 
