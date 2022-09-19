@@ -34,8 +34,8 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
-from itertools import chain
-from functools import partial
+from itertools import chain, starmap
+from functools import partial, reduce
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from collections import namedtuple
@@ -451,6 +451,15 @@ def plain_to_html(plain: str) -> str:
 
 
 @beartype
+def update_field(decknote: DeckNote, note: Note, key: str, field: str) -> None:
+    """Update a field contained in `note`."""
+    try:
+        note[key] = plain_to_html(field)
+    except IndexError as err:
+        raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
+
+
+@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> List[Warning]:
@@ -476,29 +485,23 @@ def update_note(
     if decknote.model != new_notetype.name:
         raise NotetypeMismatchError(decknote, new_notetype)
 
+    nid = note.id
     note.tags = decknote.tags
     note.flush()
 
-    # Set the deck of the given note, and create a deck with this name if it
-    # doesn't already exist. See the comments/docstrings in the implementation
-    # of the `anki.decks.DeckManager.id()` method.
+    # Set the deck of the given note, as well as all its cards, and create a
+    # deck with this name if it doesn't already exist. See the
+    # comments/docstrings in the implementation of the
+    # `anki.decks.DeckManager.id()` method.
     newdid: int = note.col.decks.id(decknote.deck, create=True)
     cids = [c.id for c in note.cards()]
-
-    # Set deck for all cards of this note.
     if cids:
         note.col.set_deck(cids, newdid)
 
-    # Change notetype of note.
-    fmap: Dict[str, None] = {}
-    for field in old_notetype.flds:
-        fmap[field.ord] = None
-
-    # Change notetype (also clears all fields).
+    # Set notetype (also clears all fields).
     if old_notetype.id != new_notetype.id:
-        note.col.models.change(
-            old_notetype.dict, [note.id], new_notetype.dict, fmap, None
-        )
+        fmap = {field.ord: None for field in old_notetype.flds}
+        note.col.models.change(old_notetype.dict, [nid], new_notetype.dict, fmap, None)
         note.load()
 
     # Validate field keys against notetype.
@@ -506,28 +509,22 @@ def update_note(
     if len(warnings) > 0:
         return warnings
 
-    # Set field values. This is correct because every field name that appears
-    # in `new_notetype` is contained in `decknote.fields`, or else we would
-    # have printed a warning and returned above.
-    for key, field in decknote.fields.items():
-        if key not in note:
-            warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
-            continue
-        try:
-            note[key] = plain_to_html(field)
-        except IndexError as err:
-            raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
-
-    # Flush fields to collection object.
+    # Set field values and flush to collection database. This is correct
+    # because every field name that appears in `new_notetype` is contained in
+    # `decknote.fields`, or else we would have printed a warning and returned
+    # above.
+    missing = {key for key in decknote.fields if key not in note}
+    warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
+    fields = [(key, field) for key, field in decknote.fields.items() if key in note]
+    _ = set(starmap(partial(update_field, decknote, note), fields))
     note.flush()
 
     # Remove if unhealthy.
     health = display_fields_health_warning(note)
     if health != 0:
-        note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(note.id, health))
-
-    return warnings
+        note.col.remove_notes([nid])
+        warnings = chain(warnings, [UnhealthyNoteWarning(note.id, health)])
+    return list(warnings)
 
 
 @beartype
