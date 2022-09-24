@@ -39,7 +39,7 @@ from ki.types import (
     Field,
     ColNote,
     Deck,
-    ProspectiveLink,
+    PlannedLink,
     Notetype,
     NotetypeKeyError,
     UnnamedNotetypeError,
@@ -470,7 +470,7 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Deck:
 
 
 @beartype
-def winlink(targetd: Dir, l: ProspectiveLink) -> Optional[WindowsLink]:
+def winlink(targetd: Dir, l: PlannedLink) -> Optional[WindowsLink]:
     """Create the symlink `l` and return any windows links."""
     distance = len(l.link.parent.relative_to(targetd).parts)
     target: Path = Path("../" * distance) / l.tgt.relative_to(targetd)

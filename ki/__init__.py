@@ -103,8 +103,8 @@ from ki.types import (
     DeckNote,
     NoteMetadata,
     PushResult,
-    ProspectiveLinkPath,
-    ProspectiveLink,
+    PlannedLinkPath,
+    PlannedLink,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -1093,7 +1093,7 @@ def get_link(
 ) -> Optional[WindowsLink]:
     """Return a windows link for a card if one is necessary."""
     note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
-    return M.winlink(targetd, ProspectiveLink(link=note_path, tgt=file))
+    return M.winlink(targetd, PlannedLink(link=note_path, tgt=file))
 
 
 @beartype
@@ -1113,33 +1113,33 @@ def parentmap(root: Deck) -> Dict[str, Deck]:
 
 
 @beartype
-def link_path(deck: Deck, media_file: File) -> ProspectiveLinkPath:
-    """Get a prospective link path."""
+def link_path(deck: Deck, media_file: File) -> PlannedLinkPath:
+    """Get a planned link path."""
     link: Path = F.chk(deck.mediad / media_file.name, resolve=False)
-    return ProspectiveLinkPath(rootfile=media_file, link=link)
+    return PlannedLinkPath(rootfile=media_file, link=link)
 
 
 @beartype
-def prospective_link(
-    parents: Dict[str, Deck], deck: Deck, linkpath: ProspectiveLinkPath
-) -> ProspectiveLink:
+def planned_link(
+    parents: Dict[str, Deck], deck: Deck, linkpath: PlannedLinkPath
+) -> PlannedLink:
     """Get the target of the to-be-created media symlink."""
     parent: Deck = parents[deck.fullname]
     if parent.did == 0:
         tgt = linkpath.rootfile
     else:
         tgt = F.chk(parent.mediad / linkpath.rootfile.name, resolve=False)
-    return ProspectiveLink(link=linkpath.link, tgt=tgt)
+    return PlannedLink(link=linkpath.link, tgt=tgt)
 
 
 @beartype
-def get_prospective_links(
+def get_planned_links(
     parents: Dict[str, Deck], media: Dict[int, Set[File]], deck: Deck, nid: NoteId
-) -> Iterable[ProspectiveLink]:
-    """Get prospective symlink locations for a given note."""
-    linkpaths: Iterable[ProspectiveLinkPath] = map(partial(link_path, deck), media[nid])
+) -> Iterable[PlannedLink]:
+    """Get planned symlink locations for a given note."""
+    linkpaths: Iterable[PlannedLinkPath] = map(partial(link_path, deck), media[nid])
     linkpaths = filter(lambda l: isinstance(l.link, NoFile), linkpaths)
-    return map(partial(prospective_link, parents, deck), linkpaths)
+    return map(partial(planned_link, parents, deck), linkpaths)
 
 
 @beartype
@@ -1158,7 +1158,7 @@ def chain_deck_media_symlinks(
     nids = filter(lambda nid: nid in media, nids)
 
     # Get link path and target for each media file, and create the links.
-    plinks = F.cat(map(partial(get_prospective_links, parents, media, deck), nids))
+    plinks = F.cat(map(partial(get_planned_links, parents, media, deck), nids))
     windows_links = map(partial(M.winlink, targetd), plinks)
 
     return filter(lambda l: l is not None, windows_links)
