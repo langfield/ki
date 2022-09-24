@@ -635,7 +635,7 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows(
         ]
         winlinks = set([str(link) for link in winlinks])
 
-        # Check that each latent symlink has the correct file mode.
+        # Check that each windows symlink has the correct file mode.
         repo = git.Repo(SYMLINKS.repodir)
         for entry in repo.commit().tree.traverse():
             path = entry.path

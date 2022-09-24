@@ -31,7 +31,7 @@ from ki.types import (
     NoFile,
     Link,
     PseudoFile,
-    LatentLink,
+    WindowsLink,
     KiRepo,
     KiRev,
     Rev,
@@ -57,7 +57,7 @@ from ki.types import (
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     AnkiAlreadyOpenError,
-    MaximumLatentLinkChainingDepthExceededError,
+    MaximumWindowsLinkChainingDepthExceededError,
     GitFileModeParseError,
 )
 
@@ -295,7 +295,7 @@ def collection(col_file: File) -> Collection:
 
 @beartype
 def linktarget(orig: File) -> File:
-    """Follow a latent symlink inside a git repo, or return regular file unchanged."""
+    """Follow a windows symlink inside a git repo, or return regular file unchanged."""
     # Check file mode, and follow symlink if applicable.
     depth = 0
     file = orig
@@ -305,19 +305,19 @@ def linktarget(orig: File) -> File:
         file = M.xfile(parent / target)
         depth += 1
         if depth > 999:
-            raise MaximumLatentLinkChainingDepthExceededError(orig, depth)
+            raise MaximumWindowsLinkChainingDepthExceededError(orig, depth)
     return file
 
 
 @beartype
 def hardlink(link: Union[File, Link]) -> File:
-    """Replace a possibly latent symlink with its target."""
+    """Replace a possibly windows symlink with its target."""
     # Treat true POSIX symlink case.
     if isinstance(link, Link):
         tgt = F.chk(link.resolve())
         return F.copyfile(tgt, link)
 
-    # Treat latent symlink case.
+    # Treat windows symlink case.
     tgt = M.linktarget(link)
     if tgt != link:
         link: NoFile = F.unlink(link)
@@ -326,7 +326,7 @@ def hardlink(link: Union[File, Link]) -> File:
 
 
 @beartype
-def filemode(file: Union[File, Dir, PseudoFile, Link, LatentLink]) -> int:
+def filemode(file: Union[File, Dir, PseudoFile, Link, WindowsLink]) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
@@ -470,13 +470,13 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Deck:
 
 
 @beartype
-def latentlink(targetd: Dir, l: ProspectiveLink) -> Optional[LatentLink]:
-    """Create the symlink `l` and return any latent links."""
+def winlink(targetd: Dir, l: ProspectiveLink) -> Optional[WindowsLink]:
+    """Create the symlink `l` and return any windows links."""
     distance = len(l.link.parent.relative_to(targetd).parts)
     target: Path = Path("../" * distance) / l.tgt.relative_to(targetd)
     try:
-        link: Union[Link, LatentLink] = F.symlink(l.link, target)
+        link: Union[Link, WindowsLink] = F.symlink(l.link, target)
     except OSError as _:
         trace = traceback.format_exc(limit=3)
         logger.warning(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
-    return link if isinstance(link, LatentLink) else None
+    return link if isinstance(link, WindowsLink) else None

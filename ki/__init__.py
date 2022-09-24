@@ -84,7 +84,7 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    LatentLink,
+    WindowsLink,
     PseudoFile,
     GitChangeType,
     Patch,
@@ -916,7 +916,7 @@ def write_repository(
     targetdir: Dir,
     leaves: Leaves,
     media_target_dir: EmptyDir,
-) -> Set[LatentLink]:
+) -> Set[WindowsLink]:
     """Write notes to appropriate directories in `targetdir`."""
 
     # Create config file.
@@ -939,7 +939,7 @@ def write_repository(
     tidy_field_files: Dict[str, File] = dict(F.cat(map(fields_fn, colnotes.values())))
     tidy_html_recursively(root)
 
-    latent_links: Set[LatentLink] = write_decks(
+    windows_links: Set[WindowsLink] = write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
@@ -950,7 +950,7 @@ def write_repository(
     F.rmtree(root)
     col.close(save=False)
 
-    return latent_links
+    return windows_links
 
 
 @beartype
@@ -969,7 +969,7 @@ def write_decks(
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
     tidy_field_files: Dict[str, File],
-) -> Set[LatentLink]:
+) -> Set[WindowsLink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1000,7 +1000,7 @@ def write_decks(
     `DeckManager.cids()` function, which has a `children: bool` parameter
     which toggles whether or not to get the card ids of subdecks or not.
 
-    Return all latent symlinks created on Windows whose file modes we must set.
+    Return all windows symlinks created on Windows whose file modes we must set.
     """
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
@@ -1021,12 +1021,12 @@ def write_decks(
     notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
     _: Set[Optional[T]] = set(map(partial(write_models, col, models), decks))
 
-    # Get only latent card symlinks (POSIX symlinks created on Windows).
+    # Get all POSIX-style symlinks created on Windows.
     cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
-    links: Iterable[Optional[LatentLink]] = map(lambda c: c.link, cardfiles)
-    latents: Set[LatentLink] = set(filter(lambda l: l is not None, links))
+    links: Iterable[Optional[WindowsLink]] = map(lambda c: c.link, cardfiles)
+    windows_links: Set[WindowsLink] = set(filter(lambda l: l is not None, links))
 
-    return latents | chain_media_symlinks(col, root, targetdir, media)
+    return windows_links | chain_media_symlinks(col, root, targetdir, media)
 
 
 @beartype
@@ -1067,7 +1067,7 @@ def write_card(
     else:
         existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file
-        link: Optional[LatentLink] = get_link(targetd, colnote, deckd, card, file)
+        link: Optional[WindowsLink] = get_link(targetd, colnote, deckd, card, file)
     cardfile = CardFile(card, link=link, file=file)
     return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
 
@@ -1090,10 +1090,10 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 @beartype
 def get_link(
     targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -> Optional[LatentLink]:
-    """Return a latent link for a card if one is necessary."""
+) -> Optional[WindowsLink]:
+    """Return a windows link for a card if one is necessary."""
     note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
-    return M.latentlink(targetd, ProspectiveLink(link=note_path, tgt=file))
+    return M.winlink(targetd, ProspectiveLink(link=note_path, tgt=file))
 
 
 @beartype
@@ -1149,7 +1149,7 @@ def chain_deck_media_symlinks(
     media: Dict[int, Set[File]],
     parents: Dict[str, Deck],
     deck: Deck,
-) -> Iterable[LatentLink]:
+) -> Iterable[WindowsLink]:
     """Create chained symlinks for a single deck."""
     # Get nids for all descendant notes with media.
     descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
@@ -1159,9 +1159,9 @@ def chain_deck_media_symlinks(
 
     # Get link path and target for each media file, and create the links.
     plinks = F.cat(map(partial(get_prospective_links, parents, media, deck), nids))
-    latents = map(partial(M.latentlink, targetd), plinks)
+    windows_links = map(partial(M.winlink, targetd), plinks)
 
-    return filter(lambda l: l is not None, latents)
+    return filter(lambda l: l is not None, windows_links)
 
 
 @beartype
@@ -1170,13 +1170,13 @@ def chain_media_symlinks(
     root: Deck,
     targetd: Dir,
     media: Dict[int, Set[File]],
-) -> Set[LatentLink]:
+) -> Set[WindowsLink]:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
     decks: Iterable[Deck] = filter(lambda d: d.did != 0, preorder(root))
     parents: Dict[str, Deck] = parentmap(root)
     chain_fn = partial(chain_deck_media_symlinks, col, targetd, media, parents)
-    latents: Iterable[LatentLink] = F.cat(map(chain_fn, decks))
-    return set(latents)
+    windows_links: Iterable[WindowsLink] = F.cat(map(chain_fn, decks))
+    return set(windows_links)
 
 
 @beartype
@@ -1573,7 +1573,7 @@ def _clone(
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    latent_links: Set[LatentLink] = write_repository(
+    windows_links: Set[WindowsLink] = write_repository(
         col_file,
         targetdir,
         leaves,
@@ -1587,10 +1587,10 @@ def _clone(
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # Use `git update-index` to set 120000 file mode on each latent symlink
-    # in `latent_links`.
+    # Use `git update-index` to set 120000 file mode on each windows symlink
+    # in `windows_links`.
     relative_links: Set[Path] = set()
-    for abslink in latent_links:
+    for abslink in windows_links:
         link = abslink.relative_to(root)
         relative_links.add(link)
 
@@ -2133,7 +2133,7 @@ def push_deltas(
     F.copyfile(new_col_file, col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 
-    # Add media files to collection and follow latent symlinks.
+    # Add media files to collection and follow windows symlinks.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
 

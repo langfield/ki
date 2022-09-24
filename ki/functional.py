@@ -45,7 +45,7 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    LatentLink,
+    WindowsLink,
     Singleton,
     PseudoFile,
     KiRev,
@@ -188,12 +188,12 @@ def write(path: Union[File, NoFile], text: str) -> File:
 
 
 @beartype
-def symlink(path: NoFile, target: Path) -> Union[Link, LatentLink]:
+def symlink(path: NoFile, target: Path) -> Union[Link, WindowsLink]:
     """Link `path` to `target`."""
     if sys.platform == "win32":
         with open(path, "w", encoding="UTF-8") as f:
             f.write(str(target.as_posix()))
-            return LatentLink(path)
+            return WindowsLink(path)
 
     # Treat POSIX systems.
     os.symlink(target, path)
@@ -379,7 +379,7 @@ def mkdir(path: NoPath) -> EmptyDir:
 
 
 @beartype
-def unlink(file: Union[File, Link, LatentLink]) -> NoFile:
+def unlink(file: Union[File, Link, WindowsLink]) -> NoFile:
     """Safely unlink a file."""
     os.unlink(file)
     return NoFile(file)

@@ -62,7 +62,7 @@ class Link(type(Path())):
     """UNSAFE: Indicates that this path was a symlink when tested."""
 
 
-class LatentLink(type(Path())):
+class WindowsLink(type(Path())):
     """UNSAFE: A POSIX-style symlink created on Windows with mode 100644."""
 
 
@@ -254,7 +254,7 @@ class CardFile:
     """A card written to disk, either as a link or a file."""
 
     card: Card
-    link: Optional[LatentLink]
+    link: Optional[WindowsLink]
     file: File
 
 
@@ -626,16 +626,16 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f"{top}\n\n{errwrap(msg)}\n{details}")
 
 
-class MaximumLatentLinkChainingDepthExceededError(RuntimeError):
+class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
     @beartype
     def __init__(self, orig: File, depth: int):
-        top = f"Maximum latent symlink depth exceeded while resolving '{orig}'"
+        top = f"Maximum windows symlink depth exceeded while resolving '{orig}'"
         msg = f"""
         Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another latent symlink). They are used to
+        some other file, (possibly another windows symlink). They are used to
         implement POSIX-compatible symlinks on Win32 systems where Developer
         Mode is not enabled. This error means that we tried to resolve this
-        link, and recursively followed subsequent latent symlinks to a
+        link, and recursively followed subsequent windows symlinks to a
         ludicrous depth ('{depth}'). There is possibly a cycle within the link
         graph, which indicates that the links were written incorrectly. In
         practice, this should never happen. Please report this bug on GitHub at
@@ -765,15 +765,15 @@ class RenamedMediaFileWarning(Warning):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
-class MissingLatentLinkTarget(Warning):
+class MissingWindowsLinkTarget(Warning):
     @beartype
     def __init__(self, link: File, tgt: str):
-        top = f"Failed to locate target '{tgt}' of latent symlink '{link}'"
+        top = f"Failed to locate target '{tgt}' of windows symlink '{link}'"
         msg = """
         Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another latent symlink). They are used to
+        some other file, (possibly another windows symlink). They are used to
         implement POSIX-compatible symlinks on Win32 systems where Developer
-        Mode is not enabled. This warning means that the target of a latent
+        Mode is not enabled. This warning means that the target of a windows
         symlink is not extant, and thus the link could not be resolved.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
