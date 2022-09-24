@@ -1092,18 +1092,8 @@ def get_link(
     targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
 ) -> Optional[LatentLink]:
     """Return a latent link for a card if one is necessary."""
-    # Get card template name.
-    template: TemplateDict = card.template()
-    name: str = template["name"]
-    note_path: NoFile = get_note_path(colnote, deckd, name)
-    distance = len(note_path.parent.relative_to(targetd).parts)
-    target: Path = Path("../" * distance) / file.relative_to(targetd)
-    try:
-        link: Union[Link, LatentLink] = F.symlink(note_path, target)
-    except OSError as _:
-        trace = traceback.format_exc(limit=3)
-        logger.warning(f"Failed to create symlink for cid '{card.id}'\n{trace}")
-    return link if isinstance(link, LatentLink) else None
+    note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
+    return M.latentlink(targetd, ProspectiveLink(link=note_path, tgt=file))
 
 
 @beartype
