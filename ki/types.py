@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import git
 import whatthepatch
+from anki.decks import DeckTreeNode
 from anki.collection import Note, Card
 
 from beartype import beartype
@@ -259,9 +260,31 @@ class CardFile:
 
 @beartype
 @dataclass(frozen=True)
-class DeckData:
+class Deck:
     did: DeckId
+    node: DeckTreeNode
     deckd: Dir
+    mediad: Dir
+    children: List["Deck"]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
+class ProspectiveLinkPath:
+    """A file in the root `_media/` directory and a not-yet-created link path."""
+
+    rootfile: File
+    link: Path
+
+
+@beartype
+@dataclass(frozen=True)
+class ProspectiveLink:
+    """A not-yet-created symlink path and its extant target."""
+
+    link: NoFile
+    tgt: Union[File, Link]
 
 
 @beartype

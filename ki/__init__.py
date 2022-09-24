@@ -10,7 +10,7 @@ decks in exactly the same way they work on large, complex software projects.
 """
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
-# pylint: disable=too-many-return-statements, too-many-lines
+# pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
 
 import os
 import re
@@ -97,12 +97,14 @@ from ki.types import (
     KiRev,
     Rev,
     Leaves,
-    DeckData,
+    Deck,
     CardFile,
     NoteDBRow,
     DeckNote,
     NoteMetadata,
     PushResult,
+    ProspectiveLinkPath,
+    ProspectiveLink,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -152,7 +154,7 @@ CardFileMap = Dict[DeckId, List[CardFile]]
 # TODO: What if there is a deck called `_media`?
 UTF8 = "UTF-8"
 URLS = "(https?|ftp)://"
-MEDIA = "_media"
+MEDIA = M.MEDIA
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
@@ -314,8 +316,8 @@ def mungediff(
 ) -> Iterable[Union[Delta, Warning]]:
     """Extract deltas and warnings from a collection of diffs."""
     # Callables.
-    is_ignorable_a: Callable[[Path], bool] = F.fix(is_ignorable, a_root)
-    is_ignorable_b: Callable[[Path], bool] = F.fix(is_ignorable, b_root)
+    is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
+    is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
     a, b = d.a_path, d.b_path
     a, b = a if a else b, b if b else a
     if is_ignorable_a(Path(a)) or is_ignorable_b(Path(b)):
@@ -356,8 +358,8 @@ def diff2(
     diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     # Get the diffs for each change type (e.g. 'DELETED').
-    parse = F.fix(parse_markdown_note, parser, transformer)
-    return chain(*map(F.fix(mungediff, parse, a_root, b_root), diffidx))
+    parse = partial(parse_markdown_note, parser, transformer)
+    return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
 
 
 @beartype
@@ -526,7 +528,7 @@ def update_note(
     missing = {key for key in decknote.fields if key not in note}
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
     fields = [(key, field) for key, field in decknote.fields.items() if key in note]
-    _ = set(starmap(F.fix(update_field, decknote, note), fields))
+    _ = set(starmap(partial(update_field, decknote, note), fields))
     note.flush()
 
     # Remove if unhealthy.
@@ -775,7 +777,7 @@ def localmedia(s: str, regex: str) -> Iterable[str]:
 def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
     s = (s.strip()).replace('"', "")
-    return F.cat(map(F.fix(localmedia, s), col.media.regexps))
+    return F.cat(map(partial(localmedia, s), col.media.regexps))
 
 
 @beartype
@@ -853,7 +855,7 @@ def copy_media_files(
     # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-    copy_fn = F.fix(copy_note_media, col, media_dir, media_target_dir)
+    copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
     media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
@@ -863,7 +865,7 @@ def copy_media_files(
     paths = set(filter(lambda f: str(f).startswith("_"), paths))
     models = filter(lambda m: int(m["id"]) in mids, col.models.all())
 
-    nt_copy_fn = F.fix(copy_notetype_media, media_dir, media_target_dir, paths)
+    nt_copy_fn = partial(copy_notetype_media, media_dir, media_target_dir, paths)
     mediasets: Iterable[FrozenSet[File]] = map(nt_copy_fn, models)
     media[NOTETYPE_NID] = reduce(lambda x, y: x.union(y), mediasets, set())
 
@@ -892,7 +894,7 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
 @beartype
 def write_fields(root: Dir, colnote: ColNote) -> Iterable[Tuple[str, File]]:
     """Write a note's fields to be tidied."""
-    results = starmap(F.fix(write_field, root, colnote.n.id), colnote.n.items())
+    results = starmap(partial(write_field, root, colnote.n.id), colnote.n.items())
     return filter(lambda f: f is not None, results)
 
 
@@ -933,7 +935,7 @@ def write_repository(
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
-    fields_fn = F.fix(write_fields, root)
+    fields_fn = partial(write_fields, root)
     tidy_field_files: Dict[str, File] = dict(F.cat(map(fields_fn, colnotes.values())))
     tidy_html_recursively(root)
 
@@ -952,7 +954,7 @@ def write_repository(
 
 
 @beartype
-def postorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+def postorder(node: Deck) -> List[Deck]:
     """
     Post-order traversal. Guarantees that we won't process a node until we've
     processed all its children.
@@ -1010,26 +1012,21 @@ def write_decks(
     with open(targetdir / MODELS_FILE, "w", encoding=UTF8) as f:
         json.dump(models, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-    # Construct an iterable of all deck nodes except the trivial deck.
-    root: DeckTreeNode = col.decks.deck_tree()
-    nodes: Iterable[DeckTreeNode] = filter(lambda n: n.name != "", postorder(root))
+    # Construct an iterable of all decks except the trivial deck.
+    root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
+    decks: Iterable[Deck] = filter(lambda d: d.fullname != "", postorder(root))
 
-    # Get deck id and deck directory for each node as a dataclass.
-    decks: Iterable[DeckData] = list(map(F.fix(M.deckdata, col, targetdir), nodes))
-
-    # Write cards to disk for each deck.
-    write = F.fix(write_deck, col, targetdir, colnotes, tidy_field_files)
+    # Write cards and models to disk for each deck.
+    write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
     notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
-
-    # Write models to disk for each deck.
-    _: Set[Optional[T]] = set(map(F.fix(write_models, col, models), decks))
+    _: Set[Optional[T]] = set(map(partial(write_models, col, models), decks))
 
     # Get only latent card symlinks (POSIX symlinks created on Windows).
     cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
     links: Iterable[Optional[LatentLink]] = map(lambda c: c.link, cardfiles)
     latents: Set[LatentLink] = set(filter(lambda l: l is not None, links))
 
-    return latents | chain_media_symlinks(root, col, targetdir, media)
+    return latents | chain_media_symlinks(col, root, targetdir, media)
 
 
 @beartype
@@ -1039,12 +1036,12 @@ def write_deck(
     colnotes: Dict[int, ColNote],
     fieldfiles: Dict[str, File],
     notefiles: Dict[NoteId, CardFileMap],
-    deck: DeckData,
+    deck: Deck,
 ) -> Dict[NoteId, CardFileMap]:
     """Write all the cards to disk for a single deck."""
     did: DeckId = deck.did
     cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = F.fix(write_card, colnotes, fieldfiles, targetd, deck.deckd)
+    write = partial(write_card, colnotes, fieldfiles, targetd, deck.deckd)
     return reduce(write, cards, notefiles)
 
 
@@ -1059,26 +1056,24 @@ def write_card(
 ) -> Dict[NoteId, CardFileMap]:
     """Write a single card to disk."""
     colnote: ColNote = colnotes[card.nid]
-    decks: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
-    cardfiles: List[CardFile] = decks.get(card.did, [])
-    if len(decks) == 0:
+    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
+    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
+    if len(cardfile_map) == 0:
         payload: str = get_note_payload(colnote, fieldfiles)
         note_path: NoFile = get_note_path(colnote, deckd)
         file, link = F.write(note_path, payload), None
     elif len(cardfiles) > 0:
         file, link = cardfiles[0].file, cardfiles[0].link
     else:
-        existing: CardFile = list(decks.values())[0][0]
+        existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file
         link: Optional[LatentLink] = get_link(targetd, colnote, deckd, card, file)
     cardfile = CardFile(card, link=link, file=file)
-    return notefiles | {card.nid: decks | {card.did: cardfiles + [cardfile]}}
+    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
 
 
 @beartype
-def write_models(
-    col: Collection, models: Dict[int, NotetypeDict], deck: DeckData
-) -> None:
+def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -> None:
     """Write the `models.json` file for the given deck."""
     did: int = deck.did
     deckd: Dir = deck.deckd
@@ -1112,88 +1107,86 @@ def get_link(
 
 
 @beartype
-def chain_media_symlinks(
-    root: DeckTreeNode,
+def preorder(node: Deck) -> List[Deck]:
+    """
+    Pre-order traversal. Guarantees that we won't process a node until
+    we've processed all its ancestors.
+    """
+    return reduce(lambda xs, x: xs + preorder(x), node.children, [node])
+
+
+@beartype
+def parentmap(root: Deck) -> Dict[str, Deck]:
+    """Map deck fullnames to parent `Deck`s."""
+    parents: Dict[str, Deck] = {child.fullname: root for child in root.children}
+    return parents | reduce(lambda x, y: x | y, map(parentmap, root.children), {})
+
+
+@beartype
+def link_path(deck: Deck, media_file: File) -> ProspectiveLinkPath:
+    """Get a prospective link path."""
+    link: Path = F.chk(deck.mediad / media_file.name, resolve=False)
+    return ProspectiveLinkPath(rootfile=media_file, link=link)
+
+
+@beartype
+def prospective_link(
+    parents: Dict[str, Deck], deck: Deck, linkpath: ProspectiveLinkPath
+) -> ProspectiveLink:
+    """Get the target of the to-be-created media symlink."""
+    parent: Deck = parents[deck.fullname]
+    if parent.did == 0:
+        tgt = linkpath.rootfile
+    else:
+        tgt = F.chk(parent.mediad / linkpath.rootfile.name, resolve=False)
+    return ProspectiveLink(link=linkpath.link, tgt=tgt)
+
+
+@beartype
+def get_prospective_links(
+    parents: Dict[str, Deck], media: Dict[int, Set[File]], deck: Deck, nid: NoteId
+) -> Iterable[ProspectiveLink]:
+    """Get prospective symlink locations for a given note."""
+    linkpaths: Iterable[ProspectiveLinkPath] = map(partial(link_path, deck), media[nid])
+    linkpaths = filter(lambda l: isinstance(l.link, NoFile), linkpaths)
+    return map(partial(prospective_link, parents, deck), linkpaths)
+
+
+@beartype
+def chain_deck_media_symlinks(
     col: Collection,
-    targetdir: Dir,
+    targetd: Dir,
+    media: Dict[int, Set[File]],
+    parents: Dict[str, Deck],
+    deck: Deck,
+) -> Iterable[LatentLink]:
+    """Create chained symlinks for a single deck."""
+    # Get nids for all descendant notes with media.
+    descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
+    cards: Iterable[Card] = map(col.get_card, descendants)
+    nids: Set[NoteId] = {NOTETYPE_NID} | set(map(lambda c: c.nid, cards))
+    nids = filter(lambda nid: nid in media, nids)
+
+    # Get link path and target for each media file, and create the links.
+    plinks = F.cat(map(partial(get_prospective_links, parents, media, deck), nids))
+    latents = map(partial(M.latentlink, targetd), plinks)
+
+    return filter(lambda l: l is not None, latents)
+
+
+@beartype
+def chain_media_symlinks(
+    col: Collection,
+    root: Deck,
+    targetd: Dir,
     media: Dict[int, Set[File]],
 ) -> Set[LatentLink]:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
-
-    @beartype
-    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
-        """
-        Pre-order traversal. Guarantees that we won't process a node until
-        we've processed all its ancestors.
-        """
-        traversal: List[DeckTreeNode] = [node]
-        for child in node.children:
-            traversal += preorder(child)
-        return traversal
-
-    @beartype
-    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
-        """Map deck names to parent `DeckTreeNode`s."""
-        parents: Dict[str, DeckTreeNode] = {}
-        for child in node.children:
-            did: int = child.deck_id
-            name: str = col.decks.name(did)
-            parents[name] = node
-            subparents = map_parents(child, col)
-            parents.update(subparents)
-        return parents
-
-    media_latent_links: Set[LatentLink] = set()
-    media_dirs: Dict[str, Dir] = {}
-    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
-    for node in preorder(root):
-        if node.name == "":
-            continue
-        did: int = node.deck_id
-        fullname = col.decks.name(did)
-        deck_dir: Dir = M.deckd(fullname, targetdir)
-        deck_media_dir: Dir = F.force_mkdir(deck_dir / MEDIA)
-        media_dirs[fullname] = deck_media_dir
-        descendant_nids: Set[int] = {NOTETYPE_NID}
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-
-        for nid in descendant_nids:
-            if nid not in media:
-                continue
-
-            for media_file in media[nid]:
-                parent: DeckTreeNode = parents[fullname]
-                if parent.name != "":
-                    parent_did: int = parent.deck_id
-                    parent_fullname: str = col.decks.name(parent_did)
-                    parent_media_dir = media_dirs[parent_fullname]
-                    abs_target: Link = F.chk(
-                        parent_media_dir / media_file.name, resolve=False
-                    )
-                else:
-                    abs_target: File = media_file
-
-                path = F.chk(deck_media_dir / media_file.name, resolve=False)
-                if not isinstance(path, NoFile):
-                    continue
-
-                distance = len(path.parent.relative_to(targetdir).parts)
-                up_path = Path("../" * distance)
-                relative: Path = abs_target.relative_to(targetdir)
-                target: Path = up_path / relative
-
-                try:
-                    link: Union[Link, LatentLink] = F.symlink(path, target)
-                    if isinstance(link, LatentLink):
-                        media_latent_links.add(link)
-                except OSError as _:
-                    trace = traceback.format_exc(limit=3)
-                    logger.warning(f"Failed to create symlink to media\n{trace}")
-
-    return media_latent_links
+    decks: Iterable[Deck] = filter(lambda d: d.did != 0, preorder(root))
+    parents: Dict[str, Deck] = parentmap(root)
+    chain_fn = partial(chain_deck_media_symlinks, col, targetd, media, parents)
+    latents: Iterable[LatentLink] = F.cat(map(chain_fn, decks))
+    return set(latents)
 
 
 @beartype

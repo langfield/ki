@@ -1480,7 +1480,7 @@ def test_filter_note_path(tmp_path: Path):
         path.touch()
         patterns: List[str] = ["directory"]
         root: Dir = F.cwd()
-        assert is_ignorable(root=root, path=path) == True
+        assert is_ignorable(root=root, path=path) is True
 
 
 def test_get_models_recursively(tmp_path: Path):

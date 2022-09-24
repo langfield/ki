@@ -5,13 +5,15 @@
 # pylint: disable=too-many-return-statements, too-many-lines, import-self
 
 import re
+import traceback
 import configparser
 from pathlib import Path
+from functools import partial
 
 import git
 from loguru import logger
 from beartype import beartype
-from beartype.typing import Union, Dict, Any
+from beartype.typing import Union, Dict, Any, Optional, List
 
 import anki
 from anki.decks import DeckTreeNode
@@ -36,7 +38,8 @@ from ki.types import (
     Template,
     Field,
     ColNote,
-    DeckData,
+    Deck,
+    ProspectiveLink,
     Notetype,
     NotetypeKeyError,
     UnnamedNotetypeError,
@@ -60,6 +63,7 @@ from ki.types import (
 
 KI = ".ki"
 GIT = F.GIT
+MEDIA = "_media"
 GITIGNORE_FILE = ".gitignore"
 GITMODULES_FILE = F.GITMODULES_FILE
 
@@ -448,8 +452,31 @@ def deckd(deck_name: str, targetdir: Dir) -> Dir:
 
 
 @beartype
-def deckdata(col: Collection, targetd: Dir, node: DeckTreeNode) -> DeckData:
+def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Deck:
     """Get the deck directory and did for a decknode."""
-    did = node.deck_id
-    deckd = M.deckd(col.decks.name(did), targetd)
-    return DeckData(did=did, deckd=deckd)
+    did = root.deck_id
+    name = col.decks.name(did)
+    deckd = M.deckd(name, targetd)
+    mediad: Dir = F.force_mkdir(deckd / MEDIA)
+    children: List[Deck] = list(map(partial(M.tree, col, targetd), root.children))
+    return Deck(
+        did=did,
+        node=root,
+        deckd=deckd,
+        mediad=mediad,
+        fullname=name,
+        children=children,
+    )
+
+
+@beartype
+def latentlink(targetd: Dir, l: ProspectiveLink) -> Optional[LatentLink]:
+    """Create the symlink `l` and return any latent links."""
+    distance = len(l.link.parent.relative_to(targetd).parts)
+    target: Path = Path("../" * distance) / l.tgt.relative_to(targetd)
+    try:
+        link: Union[Link, LatentLink] = F.symlink(l.link, target)
+    except OSError as _:
+        trace = traceback.format_exc(limit=3)
+        logger.warning(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
+    return link if isinstance(link, LatentLink) else None
