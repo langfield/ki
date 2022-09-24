@@ -271,15 +271,6 @@ class Deck:
 
 @beartype
 @dataclass(frozen=True)
-class PlannedLinkPath:
-    """A file in the root `_media/` directory and a not-yet-created link path."""
-
-    rootfile: File
-    link: Path
-
-
-@beartype
-@dataclass(frozen=True)
 class PlannedLink:
     """A not-yet-created symlink path and its extant target."""
 
