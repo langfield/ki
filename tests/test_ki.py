@@ -59,10 +59,8 @@ from ki import (
     is_ignorable,
     cp_ki,
     get_note_payload,
-    create_deck_dir,
     get_note_path,
     git_pull,
-    get_colnote,
     backup,
     update_note,
     display_fields_health_warning,
@@ -389,7 +387,7 @@ def get_notes(collection: File) -> List[ColNote]:
 
     notes: List[ColNote] = []
     for nid in set(col.find_notes("")):
-        colnote: ColNote = get_colnote(col, nid)
+        colnote: ColNote = M.colnote(col, nid)
         notes.append(colnote)
 
     return notes
@@ -1024,7 +1022,7 @@ def test_create_deck_dir():
     runner = CliRunner()
     with runner.isolated_filesystem():
         root = F.cwd()
-        path = create_deck_dir(deckname, root)
+        path = M.deckd(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
@@ -1034,7 +1032,7 @@ def test_create_deck_dir_strips_leading_periods():
     runner = CliRunner()
     with runner.isolated_filesystem():
         root = F.cwd()
-        path = create_deck_dir(deckname, root)
+        path = M.deckd(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
 
@@ -1043,7 +1041,7 @@ def test_get_note_payload():
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
-    colnote: ColNote = get_colnote(col, note.id)
+    colnote: ColNote = M.colnote(col, note.id)
     runner = CliRunner()
     with runner.isolated_filesystem():
 
@@ -1129,7 +1127,7 @@ def test_write_repository_handles_html():
 
 
 @beartype
-def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixture):
+def test_write_repository_propogates_errors_from_colnote(mocker: MockerFixture):
     """Do errors get forwarded nicdely?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     HTML: SampleCollection = get_test_collection("html")
@@ -1146,7 +1144,7 @@ def test_write_repository_propogates_errors_from_get_colnote(mocker: MockerFixtu
         )
 
         mocker.patch(
-            "ki.get_colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
+            "ki.M.colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
             write_repository(HTML.col_file, targetdir, leaves, media_dir)
@@ -1399,29 +1397,29 @@ def test_notetype():
     assert "3" in str(error.exconly())
 
 
-def test_get_colnote_prints_nice_error_when_nid_doesnt_exist():
+def test_colnote_prints_nice_error_when_nid_doesnt_exist():
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     nid = 44444444444444444
     with pytest.raises(MissingNoteIdError) as error:
-        get_colnote(col, nid)
+        M.colnote(col, nid)
     assert str(nid) in str(error.exconly())
 
 
 @beartype
-def test_get_colnote_propagates_errors_from_notetype(mocker: MockerFixture):
+def test_colnote_propagates_errors_from_notetype(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     mocker.patch("ki.M.notetype", side_effect=UnnamedNotetypeError(NT))
     with pytest.raises(UnnamedNotetypeError) as error:
-        get_colnote(col, note.id)
+        M.colnote(col, note.id)
     assert "Failed to find 'name' field" in str(error.exconly())
 
 
 @beartype
-def test_get_colnote_propagates_errors_key_errors_from_sort_field(
+def test_colnote_propagates_errors_key_errors_from_sort_field(
     mocker: MockerFixture,
 ):
     mocker.patch("anki.notes.Note.__getitem__", side_effect=KeyError("bad_field_key"))
@@ -1429,7 +1427,7 @@ def test_get_colnote_propagates_errors_key_errors_from_sort_field(
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
     with pytest.raises(NoteFieldKeyError) as error:
-        get_colnote(col, note.id)
+        M.colnote(col, note.id)
     assert "Expected field" in str(error.exconly())
     assert "'bad_field_key'" in str(error.exconly())
 

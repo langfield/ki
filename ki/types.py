@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import git
 import whatthepatch
-from anki.collection import Note
+from anki.collection import Note, Card
 
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
@@ -24,6 +24,7 @@ HINT = (
 )
 ERROR_MESSAGE_WIDTH = 69
 DATABASE_LOCKED_MSG = "database is locked"
+DeckId = int
 
 
 # TYPES
@@ -248,11 +249,19 @@ class Rev:
 
 @beartype
 @dataclass(frozen=True)
-class WrittenNoteFile:
-    """Store a written file and its primary deck id."""
+class CardFile:
+    """A card written to disk, either as a link or a file."""
 
-    did: int
+    card: Card
+    link: Optional[LatentLink]
     file: File
+
+
+@beartype
+@dataclass(frozen=True)
+class DeckData:
+    did: DeckId
+    deckd: Dir
 
 
 @beartype

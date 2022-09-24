@@ -48,7 +48,7 @@ from loguru import logger
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, CardId, TemplateDict
+from anki.cards import Card, TemplateDict
 from anki.decks import DeckTreeNode
 from anki.utils import ids2str
 from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
@@ -97,11 +97,12 @@ from ki.types import (
     KiRev,
     Rev,
     Leaves,
+    DeckData,
+    CardFile,
     NoteDBRow,
     DeckNote,
     NoteMetadata,
     PushResult,
-    WrittenNoteFile,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -145,6 +146,8 @@ from ki.transformer import NoteTransformer, FlatNote
 logging.basicConfig(level=logging.INFO)
 
 T = TypeVar("T")
+NoteId, DeckId, CardId = int, int, int
+CardFileMap = Dict[DeckId, List[CardFile]]
 
 # TODO: What if there is a deck called `_media`?
 UTF8 = "UTF-8"
@@ -311,8 +314,8 @@ def mungediff(
 ) -> Iterable[Union[Delta, Warning]]:
     """Extract deltas and warnings from a collection of diffs."""
     # Callables.
-    is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
-    is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
+    is_ignorable_a: Callable[[Path], bool] = F.fix(is_ignorable, a_root)
+    is_ignorable_b: Callable[[Path], bool] = F.fix(is_ignorable, b_root)
     a, b = d.a_path, d.b_path
     a, b = a if a else b, b if b else a
     if is_ignorable_a(Path(a)) or is_ignorable_b(Path(b)):
@@ -353,8 +356,8 @@ def diff2(
     diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     # Get the diffs for each change type (e.g. 'DELETED').
-    parse = partial(parse_markdown_note, parser, transformer)
-    return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
+    parse = F.fix(parse_markdown_note, parser, transformer)
+    return chain(*map(F.fix(mungediff, parse, a_root, b_root), diffidx))
 
 
 @beartype
@@ -363,8 +366,14 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     Find and merge all `models.json` files recursively. Returns a dictionary
     sending model names to Notetypes.
     """
-    load = lambda f: map(M.notetype, json.load(open(f, "r", encoding=UTF8)).values())
-    notetypes = chain.from_iterable(map(load, F.rglob(kirepo.root, MODELS_FILE)))
+
+    @beartype
+    def load(file: File) -> Iterable[Notetype]:
+        """Load a models file."""
+        with open(file, "r", encoding=UTF8) as f:
+            return map(M.notetype, json.load(f).values())
+
+    notetypes = F.cat(map(load, F.rglob(kirepo.root, MODELS_FILE)))
     return {notetype.name: notetype for notetype in notetypes}
 
 
@@ -517,7 +526,7 @@ def update_note(
     missing = {key for key in decknote.fields if key not in note}
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
     fields = [(key, field) for key, field in decknote.fields.items() if key in note]
-    _ = set(starmap(partial(update_field, decknote, note), fields))
+    _ = set(starmap(F.fix(update_field, decknote, note), fields))
     note.flush()
 
     # Remove if unhealthy.
@@ -623,21 +632,6 @@ def append_md5sum(kid: Dir, tag: str, md5sum: str) -> None:
     hashes_file = kid / HASHES_FILE
     with open(hashes_file, "a+", encoding=UTF8) as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
-
-
-@beartype
-def create_deck_dir(deck_name: str, targetdir: Dir) -> Dir:
-    """
-    Construct path to deck directory and create it, allowing the case in which
-    the directory already exists because we already created one of its
-    children, in which case this function is a no-op.
-    """
-    # Strip leading periods so we don't get hidden folders.
-    components = deck_name.split("::")
-    components = [re.sub(r"^\.", r"", comp) for comp in components]
-    components = [re.sub(r"/", r"-", comp) for comp in components]
-    deck_path = Path(targetdir, *components)
-    return F.force_mkdir(deck_path)
 
 
 @beartype
@@ -753,43 +747,6 @@ def push_note(
 
 
 @beartype
-def get_colnote(col: Collection, nid: int) -> ColNote:
-    """Get a dataclass representation of an Anki note."""
-    try:
-        note = col.get_note(nid)
-    except NotFoundError as err:
-        raise MissingNoteIdError(nid) from err
-    notetype: Notetype = M.notetype(note.note_type())
-
-    # Get sort field content. See comment where we subscript in the same way in
-    # `push_note()`.
-    try:
-        sortf_text: str = note[notetype.sortf.name]
-    except KeyError as err:
-        raise NoteFieldKeyError(str(err), nid) from err
-
-    # TODO: Remove implicit assumption that all cards are in the same deck, and
-    # work with cards instead of notes.
-    try:
-        deck = col.decks.name(note.cards()[0].did)
-    except IndexError as err:
-        logger.error(f"{note.cards() = }")
-        logger.error(f"{note.guid = }")
-        logger.error(f"{note.id = }")
-        raise err
-    colnote = ColNote(
-        n=note,
-        new=False,
-        deck=deck,
-        title="",
-        markdown=False,
-        notetype=notetype,
-        sortf_text=sortf_text,
-    )
-    return colnote
-
-
-@beartype
 def get_header_lines(colnote) -> List[str]:
     """Get header of markdown representation of note."""
     lines = [
@@ -818,7 +775,7 @@ def localmedia(s: str, regex: str) -> Iterable[str]:
 def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
     s = (s.strip()).replace('"', "")
-    return chain.from_iterable(map(partial(localmedia, s), col.media.regexps))
+    return F.cat(map(F.fix(localmedia, s), col.media.regexps))
 
 
 @beartype
@@ -896,7 +853,7 @@ def copy_media_files(
     # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-    copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
+    copy_fn = F.fix(copy_note_media, col, media_dir, media_target_dir)
     media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
@@ -906,7 +863,7 @@ def copy_media_files(
     paths = set(filter(lambda f: str(f).startswith("_"), paths))
     models = filter(lambda m: int(m["id"]) in mids, col.models.all())
 
-    nt_copy_fn = partial(copy_notetype_media, media_dir, media_target_dir, paths)
+    nt_copy_fn = F.fix(copy_notetype_media, media_dir, media_target_dir, paths)
     mediasets: Iterable[FrozenSet[File]] = map(nt_copy_fn, models)
     media[NOTETYPE_NID] = reduce(lambda x, y: x.union(y), mediasets, set())
 
@@ -933,6 +890,25 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
 
 
 @beartype
+def write_fields(root: Dir, colnote: ColNote) -> Iterable[Tuple[str, File]]:
+    """Write a note's fields to be tidied."""
+    results = starmap(F.fix(write_field, root, colnote.n.id), colnote.n.items())
+    return filter(lambda f: f is not None, results)
+
+
+@beartype
+def write_field(
+    root: Dir, nid: int, name: str, text: str
+) -> Optional[Tuple[str, File]]:
+    """Write a field to a file (if tidying is needed) given its name and text."""
+    text: str = html_to_screen(text)
+    if re.search(HTML_REGEX, text):
+        fid: str = get_field_note_id(nid, name)
+        return fid, F.write(F.chk(root / fid), text)
+    return None
+
+
+@beartype
 def write_repository(
     col_file: File,
     targetdir: Dir,
@@ -952,44 +928,36 @@ def write_repository(
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
-    tidy_field_files: Dict[str, File] = {}
-    decks: Dict[str, List[ColNote]] = {}
-
-    # Open collection using a `Maybe`.
-    cwd: Dir = F.cwd()
-    col: Collection = M.collection(col_file)
-    F.chdir(cwd)
-
     # ColNote-containing data structure, to be passed to `write_decks()`.
-    colnotes: Dict[int, ColNote] = {}
-
-    # Query all note ids, get the deck from each note, and construct a map
-    # sending deck names to lists of notes.
-    for nid in col.find_notes(query=""):
-        colnote: ColNote = get_colnote(col, nid)
-        colnotes[nid] = colnote
-        decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for field_name, field_text in colnote.n.items():
-            field_text: str = html_to_screen(field_text)
-            if re.search(HTML_REGEX, field_text):
-                fid: str = get_field_note_id(nid, field_name)
-                html_file: NoFile = F.chk(root / fid)
-                tidy_field_files[fid] = F.write(html_file, field_text)
-
+    col: Collection = M.collection(col_file)
+    nids: Iterable[int] = col.find_notes(query="")
+    colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
+    media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
+    fields_fn = F.fix(write_fields, root)
+    tidy_field_files: Dict[str, File] = dict(F.cat(map(fields_fn, colnotes.values())))
     tidy_html_recursively(root)
 
     latent_links: Set[LatentLink] = write_decks(
-        col,
-        targetdir,
-        colnotes,
-        copy_media_files(col, media_target_dir),
-        tidy_field_files,
+        col=col,
+        targetdir=targetdir,
+        colnotes=colnotes,
+        media=media,
+        tidy_field_files=tidy_field_files,
     )
 
     F.rmtree(root)
     col.close(save=False)
 
     return latent_links
+
+
+@beartype
+def postorder(node: DeckTreeNode) -> List[DeckTreeNode]:
+    """
+    Post-order traversal. Guarantees that we won't process a node until we've
+    processed all its children.
+    """
+    return reduce(lambda xs, x: xs + postorder(x), node.children, []) + [node]
 
 
 @beartype
@@ -1005,204 +973,142 @@ def write_decks(
     will make it easier to keep things purely functional, accumulating the
     model ids of the children in each node. For this, we must construct a tree
     from the deck names.
+
+    Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
+
+    It must do the following for each deck:
+    - create the deck directory
+    - write the models.json file
+    - create and populate the media directory
+    - write the note payload for each note in the correct deck, exactly once
+
+    In other words, for each deck, we need to write all of its:
+    - models
+    - media
+    - notes
+
+    The first two are cumulative: we want the models and media of subdecks to
+    be included in their ancestors. The notes, however, should not be
+    cumulative. Indeed, we want each note to appear exactly once in the
+    entire repository, making allowances for the case where a single note's
+    cards are spread across multiple decks, in which case we must create a
+    symlink.
+
+    And actually, both of these cases are nicely taken care of for us by the
+    `DeckManager.cids()` function, which has a `children: bool` parameter
+    which toggles whether or not to get the card ids of subdecks or not.
+
+    Return all latent symlinks created on Windows whose file modes we must set.
     """
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
     # from the Anki DB.
-    models_map: Dict[int, NotetypeDict] = {}
-    for nt_name_id in col.models.all_names_and_ids():
-        models_map[nt_name_id.id] = col.models.get(nt_name_id.id)
-
+    #
     # Dump the models file for the whole repository.
+    models = {m.id: col.models.get(m.id) for m in col.models.all_names_and_ids()}
     with open(targetdir / MODELS_FILE, "w", encoding=UTF8) as f:
-        json.dump(models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+        json.dump(models, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-    # Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
-    #
-    # It must do the following for each deck:
-    # - create the deck directory
-    # - write the models.json file
-    # - create and populate the media directory
-    # - write the note payload for each note in the correct deck, exactly once
-    #
-    # In other words, for each deck, we need to write all of its:
-    # - models
-    # - media
-    # - notes
-    #
-    # The first two are cumulative: we want the models and media of subdecks to
-    # be included in their ancestors. The notes, however, should not be
-    # cumulative. Indeed, we want each note to appear exactly once in the
-    # entire repository, making allowances for the case where a single note's
-    # cards are spread across multiple decks, in which case we must create a
-    # symlink.
-    #
-    # And actually, both of these cases are nicely taken care of for us by the
-    # `DeckManager.cids()` function, which has a `children: bool` parameter
-    # which toggles whether or not to get the card ids of subdecks or not.
+    # Construct an iterable of all deck nodes except the trivial deck.
     root: DeckTreeNode = col.decks.deck_tree()
+    nodes: Iterable[DeckTreeNode] = filter(lambda n: n.name != "", postorder(root))
 
-    @beartype
-    def postorder(node: DeckTreeNode) -> List[DeckTreeNode]:
-        """
-        Post-order traversal. Guarantees that we won't process a node until
-        we've processed all its children.
-        """
-        traversal: List[DeckTreeNode] = []
-        for child in node.children:
-            traversal += postorder(child)
-        traversal += [node]
-        return traversal
+    # Get deck id and deck directory for each node as a dataclass.
+    decks: Iterable[DeckData] = list(map(F.fix(M.deckdata, col, targetdir), nodes))
 
-    # All card ids we've already processed.
-    written_cids: Set[int] = set()
+    # Write cards to disk for each deck.
+    write = F.fix(write_deck, col, targetdir, colnotes, tidy_field_files)
+    notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
 
-    # Map nids we've already written files for to a dataclass containing:
-    # - the corresponding `File`
-    # - the deck id of the card for which we wrote it
-    #
-    # This deck id identifies the deck corresponding to the location where all
-    # the symlinks should point.
-    written_notes: Dict[int, WrittenNoteFile] = {}
+    # Write models to disk for each deck.
+    _: Set[Optional[T]] = set(map(F.fix(write_models, col, models), decks))
 
-    # All latent symlinks created on Windows whose file modes we must set.
-    latent_links: Set[LatentLink] = set()
+    # Get only latent card symlinks (POSIX symlinks created on Windows).
+    cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
+    links: Iterable[Optional[LatentLink]] = map(lambda c: c.link, cardfiles)
+    latents: Set[LatentLink] = set(filter(lambda l: l is not None, links))
 
-    for node in postorder(root):
-        node_cids: Set[int]
-        node_notes: Dict[int, WrittenNoteFile]
-        node_latent_links: Set[LatentLink]
-        node_cids, node_notes, node_latent_links = write_deck_node_cards(
-            node,
-            col,
-            targetdir,
-            colnotes,
-            tidy_field_files,
-            models_map,
-            written_cids,
-            written_notes,
-        )
-        written_cids |= node_cids
-        written_notes.update(node_notes)
-        latent_links |= node_latent_links
-
-    media_links: Set[LatentLink] = chain_media_symlinks(root, col, targetdir, media)
-    latent_links |= media_links
-    return latent_links
+    return latents | chain_media_symlinks(root, col, targetdir, media)
 
 
 @beartype
-def write_deck_node_cards(
-    node: DeckTreeNode,
+def write_deck(
     col: Collection,
-    targetdir: Dir,
+    targetd: Dir,
     colnotes: Dict[int, ColNote],
-    tidy_field_files: Dict[str, File],
-    models_map: Dict[int, NotetypeDict],
-    written_cids: Set[int],
-    written_notes: Dict[int, WrittenNoteFile],
-) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentLink]]:
-    """Write all the cards to disk for a single `DeckTreeNode`."""
-    written_cids = copy.deepcopy(written_cids)
-    written_notes = copy.deepcopy(written_notes)
-    latent_links: Set[LatentLink] = set()
+    fieldfiles: Dict[str, File],
+    notefiles: Dict[NoteId, CardFileMap],
+    deck: DeckData,
+) -> Dict[NoteId, CardFileMap]:
+    """Write all the cards to disk for a single deck."""
+    did: DeckId = deck.did
+    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
+    write = F.fix(write_card, colnotes, fieldfiles, targetd, deck.deckd)
+    return reduce(write, cards, notefiles)
 
-    # The name stored in a `DeckTreeNode` object is not the full name of
-    # the deck, it is just the 'basename'. The `postorder()` function
-    # returns a deck with `did == 0` at the end of each call, probably
-    # because this is the implicit parent deck of all top-level decks. This
-    # deck empirically always has the empty string as its name. This is
-    # likely an Anki implementation detail. As a result, we ignore any deck
-    # with empty basename. We do this as opposed to ignoring decks with
-    # `did == 0` because it seems less likely to change if the Anki devs
-    # decide to mess with the implementation. Empty deck names will always
-    # be reserved, but they might e.g. decide ``did == -1`` makes more
-    # sense.
-    did: int = node.deck_id
-    basename: str = node.name
-    if basename == "":
-        return set(), {}, set()
-    name = col.decks.name(did)
 
-    deck_dir: Dir = create_deck_dir(name, targetdir)
-    children: Set[CardId] = set(col.decks.cids(did=did, children=False))
+@beartype
+def write_card(
+    colnotes: Dict[int, ColNote],
+    fieldfiles: Dict[str, File],
+    targetd: Dir,
+    deckd: Dir,
+    notefiles: Dict[NoteId, CardFileMap],
+    card: Card,
+) -> Dict[NoteId, CardFileMap]:
+    """Write a single card to disk."""
+    colnote: ColNote = colnotes[card.nid]
+    decks: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
+    cardfiles: List[CardFile] = decks.get(card.did, [])
+    if len(decks) == 0:
+        payload: str = get_note_payload(colnote, fieldfiles)
+        note_path: NoFile = get_note_path(colnote, deckd)
+        file, link = F.write(note_path, payload), None
+    elif len(cardfiles) > 0:
+        file, link = cardfiles[0].file, cardfiles[0].link
+    else:
+        existing: CardFile = list(decks.values())[0][0]
+        file: File = existing.file
+        link: Optional[LatentLink] = get_link(targetd, colnote, deckd, card, file)
+    cardfile = CardFile(card, link=link, file=file)
+    return notefiles | {card.nid: decks | {card.did: cardfiles + [cardfile]}}
+
+
+@beartype
+def write_models(
+    col: Collection, models: Dict[int, NotetypeDict], deck: DeckData
+) -> None:
+    """Write the `models.json` file for the given deck."""
+    did: int = deck.did
+    deckd: Dir = deck.deckd
     descendants: List[CardId] = col.decks.cids(did=did, children=True)
-    descendant_nids: Set[int] = {NOTETYPE_NID}
-    descendant_mids: Set[int] = set()
+    cards: List[Card] = list(map(col.get_card, descendants))
+    descendant_mids: Set[int] = {c.note().mid for c in cards}
 
-    for cid in descendants:
-        card: Card = col.get_card(cid)
-        descendant_nids.add(card.nid)
-        descendant_mids.add(card.note().mid)
-
-        # Card writes should not be cumulative, so we only perform them if
-        # `cid` is the card id of a card that is in the deck corresponding
-        # to `node`, but not in any of its children.
-        if cid not in children:
-            continue
-
-        # We only even consider writing *anything* (file or symlink) to
-        # disk after checking that we haven't already processed this
-        # particular card id. If we have, then we only need to bother with
-        # the cumulative stuff above (nids and mids, which we keep track of
-        # in order to write out models and media).
-        #
-        # TODO: This fixes a very serious bug. Write a test to capture the
-        # issue. Use the Japanese Core 2000 deck as a template if needed.
-        if cid in written_cids:
-            continue
-        written_cids.add(cid)
-
-        # We only write the payload if we haven't seen this note before.
-        # Otherwise, this must be a different card generated from the same
-        # note, so we symlink to the location where we've already written
-        # it to disk.
-        colnote: ColNote = colnotes[card.nid]
-
-        if card.nid not in written_notes:
-            payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, deck_dir)
-            note_path: File = F.write(note_path, payload)
-            written_notes[card.nid] = WrittenNoteFile(did, note_path)
-        else:
-            # If `card` is in the same deck as the card we wrote `written`
-            # for, then there is no need to create a symlink, because the
-            # note file is already there, in the correct deck directory.
-            #
-            # TODO: This fixes a very serious bug. Write a test to capture the
-            # issue. Use the Japanese Core 2000 deck as a template if needed.
-            written: WrittenNoteFile = written_notes[card.nid]
-            if card.did == written.did:
-                continue
-
-            # Get card template name.
-            template: TemplateDict = card.template()
-            name: str = template["name"]
-
-            payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, deck_dir, name)
-            abs_target: File = written_notes[card.nid].file
-            distance = len(note_path.parent.relative_to(targetdir).parts)
-            up_path = Path("../" * distance)
-            relative: Path = abs_target.relative_to(targetdir)
-            target: Path = up_path / relative
-
-            try:
-                link: Union[Link, LatentLink] = F.symlink(note_path, target)
-                if isinstance(link, LatentLink):
-                    latent_links.add(link)
-            except OSError as _:
-                trace = traceback.format_exc(limit=3)
-                logger.warning(f"Failed to create symlink for cid '{cid}'\n{trace}")
-
-    # TODO: Should this block be outside this function?
     # Write `models.json` for current deck.
-    deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-    with open(deck_dir / MODELS_FILE, "w", encoding=UTF8) as f:
-        json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+    deck_models = {mid: models[mid] for mid in descendant_mids}
+    with open(deckd / MODELS_FILE, "w", encoding=UTF8) as f:
+        json.dump(deck_models, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-    return written_cids, written_notes, latent_links
+
+@beartype
+def get_link(
+    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
+) -> Optional[LatentLink]:
+    """Return a latent link for a card if one is necessary."""
+    # Get card template name.
+    template: TemplateDict = card.template()
+    name: str = template["name"]
+    note_path: NoFile = get_note_path(colnote, deckd, name)
+    distance = len(note_path.parent.relative_to(targetd).parts)
+    target: Path = Path("../" * distance) / file.relative_to(targetd)
+    try:
+        link: Union[Link, LatentLink] = F.symlink(note_path, target)
+    except OSError as _:
+        trace = traceback.format_exc(limit=3)
+        logger.warning(f"Failed to create symlink for cid '{card.id}'\n{trace}")
+    return link if isinstance(link, LatentLink) else None
 
 
 @beartype
@@ -1245,7 +1151,7 @@ def chain_media_symlinks(
             continue
         did: int = node.deck_id
         fullname = col.decks.name(did)
-        deck_dir: Dir = create_deck_dir(fullname, targetdir)
+        deck_dir: Dir = M.deckd(fullname, targetdir)
         deck_media_dir: Dir = F.force_mkdir(deck_dir / MEDIA)
         media_dirs[fullname] = deck_media_dir
         descendant_nids: Set[int] = {NOTETYPE_NID}
@@ -2185,9 +2091,7 @@ def push_deltas(
     head: Rev = M.head(kirepo.repo)
 
     # Open collection, holding cwd constant (otherwise Anki changes it).
-    cwd: Dir = F.cwd()
     col: Collection = M.collection(new_col_file)
-    F.chdir(cwd)
 
     # Add new models to the collection.
     add_models(col, models)

@@ -15,6 +15,7 @@ import functools
 import unicodedata
 from types import TracebackType
 from pathlib import Path
+from itertools import chain
 from functools import partial
 
 import git
@@ -32,6 +33,8 @@ from beartype.typing import (
     Any,
     Type,
     FrozenSet,
+    Iterable,
+    TypeVar,
 )
 
 import ki.functional as F
@@ -50,6 +53,8 @@ from ki.types import (
     Leaves,
     PathCreationCollisionError,
 )
+
+T = TypeVar("T")
 
 GIT = ".git"
 GITMODULES_FILE = ".gitmodules"
@@ -415,3 +420,15 @@ def unsubmodule(repo: git.Repo) -> git.Repo:
 def isfile(p: Path) -> bool:
     """Check if `p` is a File."""
     return isinstance(p, File)
+
+
+@beartype
+def cat(xs: Iterable[Iterable[T]]) -> Iterable[T]:
+    """Concatenate some iterables."""
+    return chain.from_iterable(xs)
+
+
+@beartype
+def fix(f: Callable[[Any, ...], Any], *args: Any) -> Callable[[Any, ...], Any]:
+    """A synonym for `functools.partial()`."""
+    return partial(f, *args)

@@ -4,14 +4,18 @@
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, import-self
 
+import re
 import configparser
 from pathlib import Path
 
 import git
+from loguru import logger
 from beartype import beartype
 from beartype.typing import Union, Dict, Any
 
 import anki
+from anki.decks import DeckTreeNode
+from anki.errors import NotFoundError
 from anki.collection import Collection
 
 import ki.maybes as M
@@ -31,10 +35,14 @@ from ki.types import (
     Rev,
     Template,
     Field,
+    ColNote,
+    DeckData,
     Notetype,
     NotetypeKeyError,
     UnnamedNotetypeError,
     MissingFieldOrdinalError,
+    MissingNoteIdError,
+    NoteFieldKeyError,
     MissingFileError,
     MissingDirectoryError,
     ExpectedFileButGotDirectoryError,
@@ -271,10 +279,13 @@ def head_ki(kirepository: KiRepo) -> KiRev:
 @beartype
 def collection(col_file: File) -> Collection:
     """Open a collection or raise a pretty exception."""
+    cwd: Dir = F.cwd()
     try:
         col = Collection(col_file)
     except anki.errors.DBError as err:
         raise AnkiAlreadyOpenError(str(err)) from err
+    finally:
+        F.chdir(cwd)
     return col
 
 
@@ -382,3 +393,63 @@ def notetype(nt: Dict[str, Any]) -> Notetype:
         )
     except KeyError as err:
         raise NotetypeKeyError(key=str(err), name=str(nt["name"])) from err
+
+
+@beartype
+def colnote(col: Collection, nid: int) -> ColNote:
+    """Get a dataclass representation of an Anki note."""
+    try:
+        note = col.get_note(nid)
+    except NotFoundError as err:
+        raise MissingNoteIdError(nid) from err
+    notetype: Notetype = M.notetype(note.note_type())
+
+    # Get sort field content. See comment where we subscript in the same way in
+    # `push_note()`.
+    try:
+        sortf_text: str = note[notetype.sortf.name]
+    except KeyError as err:
+        raise NoteFieldKeyError(str(err), nid) from err
+
+    # TODO: Remove implicit assumption that all cards are in the same deck, and
+    # work with cards instead of notes.
+    try:
+        deck = col.decks.name(note.cards()[0].did)
+    except IndexError as err:
+        logger.error(f"{note.cards() = }")
+        logger.error(f"{note.guid = }")
+        logger.error(f"{note.id = }")
+        raise err
+    colnote = ColNote(
+        n=note,
+        new=False,
+        deck=deck,
+        title="",
+        markdown=False,
+        notetype=notetype,
+        sortf_text=sortf_text,
+    )
+    return colnote
+
+
+@beartype
+def deckd(deck_name: str, targetdir: Dir) -> Dir:
+    """
+    Construct path to deck directory and create it, allowing the case in which
+    the directory already exists because we already created one of its
+    children, in which case this function is a no-op.
+    """
+    # Strip leading periods so we don't get hidden folders.
+    components = deck_name.split("::")
+    components = [re.sub(r"^\.", r"", comp) for comp in components]
+    components = [re.sub(r"/", r"-", comp) for comp in components]
+    deck_path = Path(targetdir, *components)
+    return F.force_mkdir(deck_path)
+
+
+@beartype
+def deckdata(col: Collection, targetd: Dir, node: DeckTreeNode) -> DeckData:
+    """Get the deck directory and did for a decknode."""
+    did = node.deck_id
+    deckd = M.deckd(col.decks.name(did), targetd)
+    return DeckData(did=did, deckd=deckd)
