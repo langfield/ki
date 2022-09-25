@@ -56,6 +56,7 @@ from ki import (
     UnhealthyNoteWarning,
     KiRepo,
     KiRev,
+    DotKi,
     is_ignorable,
     cp_ki,
     get_note_payload,
@@ -81,7 +82,6 @@ from ki import (
 from ki.types import (
     NoFile,
     NoPath,
-    Leaves,
     PseudoFile,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
@@ -94,7 +94,6 @@ from ki.types import (
     NotetypeKeyError,
     UnnamedNotetypeError,
     NoteFieldKeyError,
-    PathCreationCollisionError,
     ExpectedDirectoryButGotFileError,
     GitHeadRefNotFoundError,
     MissingMediaDirectoryError,
@@ -1076,20 +1075,10 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
 
         targetdir = F.chk(Path(MULTIDECK.repodir))
         targetdir = F.mkdir(targetdir)
-        kid = F.mkdir(F.chk(Path(MULTIDECK.repodir) / KI))
-        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
-        leaves: Leaves = F.fmkleaves(
-            kid,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR},
-        )
 
-        write_repository(
-            MULTIDECK.col_file,
-            targetdir,
-            leaves,
-            media_dir,
-        )
+        kidir, mediadir = M.empty_kirepo(targetdir)
+        dotki: DotKi = M.dotki(kidir)
+        windows_links = write_repository(MULTIDECK.col_file, targetdir, dotki, mediadir)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK.repodir, "Default"))
@@ -1111,14 +1100,10 @@ def test_write_repository_handles_html():
     with runner.isolated_filesystem():
 
         targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
-        kid = F.mkdir(F.chk(Path(HTML.repodir) / KI))
-        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
-        leaves: Leaves = F.fmkleaves(
-            kid,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR},
-        )
-        write_repository(HTML.col_file, targetdir, leaves, media_dir)
+
+        kidir, mediadir = M.empty_kirepo(targetdir)
+        dotki: DotKi = M.dotki(kidir)
+        windows_links = write_repository(HTML.col_file, targetdir, dotki, mediadir)
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
@@ -1135,19 +1120,14 @@ def test_write_repository_propogates_errors_from_colnote(mocker: MockerFixture):
     with runner.isolated_filesystem():
 
         targetdir = F.mkdir(F.chk(Path(HTML.repodir)))
-        kid = F.mkdir(F.chk(Path(HTML.repodir) / KI))
-        media_dir = F.mkdir(F.chk(Path(MULTIDECK.repodir) / MEDIA))
-        leaves: Leaves = F.fmkleaves(
-            kid,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR},
-        )
+        kidir, mediadir = M.empty_kirepo(targetdir)
+        dotki: DotKi = M.dotki(kidir)
 
         mocker.patch(
             "ki.M.colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
-            write_repository(HTML.col_file, targetdir, leaves, media_dir)
+            windows_links = write_repository(HTML.col_file, targetdir, dotki, mediadir)
         assert "'bad_field_key'" in str(error.exconly())
 
 
@@ -1347,20 +1327,17 @@ def test_maybe_head_ki():
         # Initialize the kirepo *without* committing.
         os.mkdir("original")
         targetdir = F.chk(Path("original"))
-        silent = False
-        kid: EmptyDir = F.mksubdir(targetdir, Path(KI))
-        media_dir = F.mkdir(F.chk(targetdir / MEDIA))
-        leaves: Leaves = F.fmkleaves(
-            kid,
-            files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-            dirs={BACKUPS_DIR: BACKUPS_DIR},
-        )
+
+        kidir, mediadir = M.empty_kirepo(targetdir)
+        dotki: DotKi = M.dotki(kidir)
         md5sum = F.md5(ORIGINAL.col_file)
-        ignore_path = targetdir / GITIGNORE_FILE
-        ignore_path.write_text(".ki/\n")
-        write_repository(ORIGINAL.col_file, targetdir, leaves, media_dir)
+        (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
+
+        # Write notes to disk.
+        windows_links = write_repository(ORIGINAL.col_file, targetdir, dotki, mediadir)
+
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        append_md5sum(kid, ORIGINAL.col_file.name, md5sum)
+        append_md5sum(kidir, ORIGINAL.col_file.name, md5sum)
 
         # Since we didn't commit, there will be no HEAD.
         kirepo = M.kirepo(F.chk(Path(repo.working_dir)))
@@ -1562,26 +1539,6 @@ def test_fparent_handles_fs_root():
     parent = F.parent(F.chk(Path(root)))
     assert isinstance(parent, Dir)
     assert str(parent) == root
-
-
-def test_fmkleaves_handles_collisions(tmp_path: Path):
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        root = F.chk(F.cwd())
-        with pytest.raises(PathCreationCollisionError) as error:
-            F.fmkleaves(root, files={"a": "a", "b": "a"})
-        assert "'a'" in str(error.exconly())
-        assert len(os.listdir(".")) == 0
-
-        with pytest.raises(PathCreationCollisionError) as error:
-            F.fmkleaves(root, files={"a": "a"}, dirs={"b": "a"})
-        assert "'a'" in str(error.exconly())
-        assert len(os.listdir(".")) == 0
-
-        with pytest.raises(PathCreationCollisionError) as error:
-            F.fmkleaves(root, dirs={"a": "a", "b": "a"})
-        assert "'a'" in str(error.exconly())
-        assert len(os.listdir(".")) == 0
 
 
 def test_copy_media_files_returns_nice_errors():

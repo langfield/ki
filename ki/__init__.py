@@ -96,8 +96,8 @@ from ki.types import (
     ColNote,
     KiRev,
     Rev,
-    Leaves,
     Deck,
+    DotKi,
     CardFile,
     NoteDBRow,
     DeckNote,
@@ -117,6 +117,7 @@ from ki.types import (
     NotAnkiNoteWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
+    NotetypeCollisionWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
     SQLiteLockError,
@@ -131,6 +132,7 @@ from ki.types import (
     GitFileModeParseError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
+    notetype_json,
 )
 from ki.maybes import (
     GIT,
@@ -168,6 +170,9 @@ HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
 REMOTE_SUFFIX = Path("ki-remote")
 FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
+
+TIDY_CMD = "tidy -q -m -i -omit -utf8"
+TIDY_OPTS = "--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes"
 
 GENERATED_HTML_SENTINEL = "data-original-markdown"
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
@@ -913,16 +918,14 @@ def write_field(
 def write_repository(
     col_file: File,
     targetdir: Dir,
-    leaves: Leaves,
+    dotki: DotKi,
     media_target_dir: EmptyDir,
 ) -> Set[WindowsLink]:
     """Write notes to appropriate directories in `targetdir`."""
-
     # Create config file.
-    config_file: File = leaves.files[CONFIG_FILE]
     config = configparser.ConfigParser()
     config["remote"] = {"path": col_file}
-    with open(config_file, "w", encoding=UTF8) as config_f:
+    with open(dotki.config, "w", encoding=UTF8) as config_f:
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
@@ -1161,8 +1164,8 @@ def symlink_media(
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
     decks: Iterable[Deck] = filter(lambda d: d.did != 0, preorder(root))
     parents: Dict[str, Deck] = parentmap(root)
-    chain_fn = partial(symlink_deck_media, col, targetd, media, parents)
-    windows_links: Iterable[WindowsLink] = F.cat(map(chain_fn, decks))
+    symlink_fn = partial(symlink_deck_media, col, targetd, media, parents)
+    windows_links: Iterable[WindowsLink] = F.cat(map(symlink_fn, decks))
     return set(windows_links)
 
 
@@ -1305,23 +1308,7 @@ def tidy_html_recursively(root: Dir) -> None:
     for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
         # TODO: Should we fail silently here, so as to not bother user with
         # tidy warnings?
-        command = [
-            "tidy",
-            "-q",
-            "-m",
-            "-i",
-            "-omit",
-            "-utf8",
-            "--tidy-mark",
-            "no",
-            "--show-body-only",
-            "yes",
-            "--wrap",
-            "68",
-            "--wrap-attributes",
-            "yes",
-        ]
-        command += batch
+        command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
         try:
             subprocess.run(command, check=False, capture_output=True)
         except FileNotFoundError as err:
@@ -1377,70 +1364,40 @@ def echo_note_change_types(deltas: List[Delta]) -> None:
 
 
 @beartype
-def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
-    """Add all new models."""
+def add_model(col: Collection, model: Notetype) -> None:
+    """Add a model to the database."""
+    # Check if a model already exists with this name, and get its `mid`.
+    mid: Optional[int] = col.models.id_for_name(model.name)
 
-    @beartype
-    def get_notetype_json(notetype: Notetype) -> str:
-        dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-        dictionary.pop("id")
-        inner = dictionary["dict"]
-        inner.pop("id")
-        inner.pop("mod")
-        dictionary["dict"] = inner
-        return json.dumps(dictionary, sort_keys=True, indent=4)
+    # TODO: This function is unfinished. We need to add new notetypes (and
+    # rename them) only if they are 'new', where new means they are different
+    # from anything else already in the DB, in the content-addressed sense. If
+    # they are new, then we must indicate that the notes we are adding actually
+    # have these new notetypes. For this, it may make sense to use the hash of
+    # the notetype everywhere (i.e. in the note file) rather than the name or
+    # mid.
+    #
+    # If a model already exists with this name, parse it, and check if its hash
+    # is identical to the model we are trying to add.
+    if mid is not None:
+        nt: NotetypeDict = col.models.get(mid)
 
-    @beartype
-    def notetype_hash_repr(notetype: Notetype) -> str:
-        s = get_notetype_json(notetype)
-        return f"JSON for '{notetype.id}':\n{s}"
+        # If we are trying to add a model that has the exact same content and
+        # name as an existing model, skip it.
+        existing: Notetype = M.notetype(nt)
+        if notetype_json(model) == notetype_json(existing):
+            return
 
-    for model in models.values():
+        # If the hashes don't match, then we somehow need to update
+        # `decknote.model` for the relevant notes.
+        warn(str(NotetypeCollisionWarning(model, existing)))
 
-        # TODO: Consider waiting to parse `models` until after the
-        # `add_dict()` call.
-
-        # Check if a model already exists with this name, and get its `mid`.
-        mid: Optional[int] = col.models.id_for_name(model.name)
-
-        # TODO: This block is unfinished. We need to add new notetypes (and
-        # rename them) only if they are 'new', where new means they are
-        # different from anything else already in the DB, in the
-        # content-addressed sense. If they are new, then we must indicate that
-        # the notes we are adding actually have these new notetypes. For this,
-        # it may make sense to use the hash of the notetype everywhere (i.e. in
-        # the note file) rather than the name or mid.
-        #
-        # If a model already exists with this name, parse it, and check if its
-        # hash is identical to the model we are trying to add.
-        if mid is not None:
-            nt: NotetypeDict = col.models.get(mid)
-
-            # If we are trying to add a model that has the exact same content
-            # and name as an existing model, skip it.
-            existing_model: Notetype = M.notetype(nt)
-            if get_notetype_json(model) == get_notetype_json(existing_model):
-                continue
-
-            logger.warning(
-                f"Collision: New model '{model.name}' has same name "
-                f"as existing model with mid '{mid}', but hashes differ."
-            )
-            logger.warning(notetype_hash_repr(model))
-            logger.warning(notetype_hash_repr(existing_model))
-
-            # If the hashes don't match, then we somehow need to update
-            # `decknote.model` for the relevant notes.
-
-            # TODO: Consider using the hash of the notetype instead of its
-            # name.
-
-        nt_copy: NotetypeDict = copy.deepcopy(model.dict)
-        nt_copy["id"] = 0
-        changes: OpChangesWithId = col.models.add_dict(nt_copy)
-        nt: NotetypeDict = col.models.get(changes.id)
-        model: Notetype = M.notetype(nt)
-        echo(f"Added model '{model.name}'")
+    nt_copy: NotetypeDict = copy.deepcopy(model.dict)
+    nt_copy["id"] = 0
+    changes: OpChangesWithId = col.models.add_dict(nt_copy)
+    nt: NotetypeDict = col.models.get(changes.id)
+    model: Notetype = M.notetype(nt)
+    echo(f"Added model '{model.name}'")
 
 
 @beartype
@@ -1546,31 +1503,19 @@ def _clone(
     md5sum : str
         The hash of the Anki collection file.
     """
-    # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
-    # TODO: Consider writing a Maybe factory for all this.
-    directories: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
-    leaves: Leaves = F.fmkleaves(
-        directories.dirs[KI],
-        files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-        dirs={BACKUPS_DIR: BACKUPS_DIR},
-    )
-
+    # Initialize empty ki repo.
+    kidir, mediadir = M.empty_kirepo(targetdir)
+    dotki: DotKi = M.dotki(kidir)
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    windows_links: Set[WindowsLink] = write_repository(
-        col_file,
-        targetdir,
-        leaves,
-        directories.dirs[MEDIA],
-    )
+    windows_links = write_repository(col_file, targetdir, dotki, mediadir)
 
-    # Initialize the main repository.
+    # Initialize as git repo and commit contents.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     root = F.root(repo)
-
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
@@ -1602,7 +1547,7 @@ def _clone(
     repo.git.commit(message=msg, amend=True)
 
     # Store a checksum of the Anki collection file in the hashes file.
-    append_md5sum(directories.dirs[KI], col_file.name, md5sum)
+    append_md5sum(kidir, col_file.name, md5sum)
 
     return repo, md5sum
 
@@ -2064,7 +2009,7 @@ def push_deltas(
     col: Collection = M.collection(new_col_file)
 
     # Add new models to the collection.
-    add_models(col, models)
+    set(map(partial(add_model, col), models.values()))
 
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)

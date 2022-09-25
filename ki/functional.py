@@ -50,8 +50,6 @@ from ki.types import (
     PseudoFile,
     KiRev,
     Rev,
-    Leaves,
-    PathCreationCollisionError,
 )
 
 T = TypeVar("T")
@@ -332,43 +330,6 @@ def slugify(value: str) -> str:
 def ki_rev_to_rev(ki_rev: KiRev) -> Rev:
     """Convert a ki repository commit rev to a git repository commit rev."""
     return Rev(ki_rev.kirepo.repo, ki_rev.sha)
-
-
-@beartype
-def fmkleaves(
-    root: EmptyDir,
-    *,
-    files: Optional[Dict[str, str]] = None,
-    dirs: Optional[Dict[str, str]] = None,
-) -> Leaves:
-    """Safely populate an empty directory with empty files and empty subdirectories."""
-    # Check that there are no collisions, returning an appropriate error if one
-    # is found.
-    leaves: Set[str] = set()
-    if files is not None:
-        for key, token in files.items():
-            if str(token) in leaves:
-                raise PathCreationCollisionError(root, str(token))
-            leaves.add(str(token))
-    if dirs is not None:
-        for key, token in dirs.items():
-            # We lie to the `F.mksubdir` call and tell it the root is empty
-            # on every iteration.
-            if str(token) in leaves:
-                raise PathCreationCollisionError(root, str(token))
-            leaves.add(str(token))
-
-    # Actually populate the directory.
-    new_files: Dict[str, File] = {}
-    new_dirs: Dict[str, EmptyDir] = {}
-    if files is not None:
-        for key, token in files.items():
-            new_files[key] = F.touch(root, token)
-    if dirs is not None:
-        for key, token in dirs.items():
-            new_dirs[key] = F.mksubdir(EmptyDir(root), singleton(token))
-
-    return Leaves(root, new_files, new_dirs)
 
 
 @beartype

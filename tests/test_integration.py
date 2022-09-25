@@ -36,7 +36,6 @@ from ki.types import (
     NotKiRepoError,
     UpdatesRejectedError,
     SQLiteLockError,
-    PathCreationCollisionError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     CollectionChecksumError,
@@ -287,21 +286,6 @@ def test_clone_creates_directory():
         clone(runner, ORIGINAL.col_file)
 
         assert os.path.isdir(ORIGINAL.repodir)
-
-
-@beartype
-def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
-    """Do errors get displayed nicely?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        directory = Dir(Path("directory"))
-        collision = PathCreationCollisionError(directory, "token")
-        mocker.patch("ki.F.fmkleaves", side_effect=collision)
-
-        with pytest.raises(PathCreationCollisionError):
-            clone(runner, ORIGINAL.col_file)
 
 
 def test_clone_handles_html():
@@ -785,26 +769,6 @@ def test_pull_displays_errors_from_rev():
 
         os.chdir(ORIGINAL.repodir)
         with pytest.raises(GitRefNotFoundError):
-            pull(runner)
-
-
-def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-
-        # Edit collection.
-        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-        directory = F.force_mkdir(Path("directory"))
-        collision = PathCreationCollisionError(directory, "token")
-        mocker.patch("ki.F.fmkleaves", side_effect=collision)
-
-        os.chdir(ORIGINAL.repodir)
-        with pytest.raises(PathCreationCollisionError):
             pull(runner)
 
 

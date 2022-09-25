@@ -13,7 +13,7 @@ from functools import partial
 import git
 from loguru import logger
 from beartype import beartype
-from beartype.typing import Union, Dict, Any, Optional, List
+from beartype.typing import Union, Dict, Any, Optional, List, Tuple
 
 import anki
 from anki.decks import DeckTreeNode
@@ -39,6 +39,7 @@ from ki.types import (
     Field,
     ColNote,
     Deck,
+    DotKi,
     PlannedLink,
     Notetype,
     NotetypeKeyError,
@@ -480,3 +481,20 @@ def winlink(targetd: Dir, l: PlannedLink) -> Optional[WindowsLink]:
         trace = traceback.format_exc(limit=3)
         logger.warning(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
     return link if isinstance(link, WindowsLink) else None
+
+
+@beartype
+def empty_kirepo(root: EmptyDir) -> Tuple[EmptyDir, EmptyDir]:
+    """Initialize subdirs for a ki repo."""
+    kidir = F.mksubdir(root, Path(KI))
+    mediadir = F.mksubdir(EmptyDir(root), Path(MEDIA))
+    return kidir, mediadir
+
+
+@beartype
+def dotki(kidir: EmptyDir) -> DotKi:
+    """Create empty metadata files in `.ki/`."""
+    config = F.touch(kidir, CONFIG_FILE)
+    last_push = F.touch(kidir, LAST_PUSH_FILE)
+    backups = F.mksubdir(kidir, Path(BACKUPS_DIR))
+    return DotKi(config=config, last_push=last_push, backups=backups)

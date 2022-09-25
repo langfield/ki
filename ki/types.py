@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Types for ki."""
+import json
 import sqlite3
 import textwrap
+import dataclasses
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
@@ -280,10 +282,10 @@ class PlannedLink:
 
 @beartype
 @dataclass(frozen=True)
-class Leaves:
-    root: Dir
-    files: Dict[str, File]
-    dirs: Dict[str, EmptyDir]
+class DotKi:
+    config: File
+    last_push: File
+    backups: EmptyDir
 
 
 @beartype
@@ -300,6 +302,26 @@ class NoteDBRow:
     csum: int
     flags: int
     data: str
+
+
+@beartype
+def notetype_json(notetype: Notetype) -> str:
+    """Return the JSON for a notetype as a string."""
+    dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+    dictionary.pop("id")
+    inner = dictionary["dict"]
+    inner.pop("id")
+    inner.pop("mod")
+    dictionary["dict"] = inner
+    return json.dumps(dictionary, sort_keys=True, indent=4)
+
+
+@beartype
+def nt_str(notetype: Notetype) -> str:
+    """Display a notetype and its JSON."""
+    # pylint: disable=invalid-name
+    s = notetype_json(notetype)
+    return f"JSON for '{notetype.id}':\n{s}"
 
 
 # EXCEPTIONS
@@ -519,21 +541,6 @@ class SQLiteLockError(RuntimeError):
         pointing to the wrong location. (The latter may occur in the unlikely
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
-        """
-        super().__init__(f"{header}\n{errwrap(msg)}")
-
-
-class PathCreationCollisionError(RuntimeError):
-    @beartype
-    def __init__(self, root: Dir, token: str):
-        header = "Collision in children names for population of empty directory "
-        header += f"'{root}':"
-        msg = f"""
-        Attempted to create two children (files or directories) of the empty
-        directory specified above with the same name ('{token}'). This should
-        *never* happen, as population of empty directories only happens in
-        calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
-        directory, whose contents all ought to be distinct.
         """
         super().__init__(f"{header}\n{errwrap(msg)}")
 
@@ -768,3 +775,13 @@ class MissingWindowsLinkTarget(Warning):
         symlink is not extant, and thus the link could not be resolved.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class NotetypeCollisionWarning(Warning):
+    @beartype
+    def __init__(self, model: Notetype, existing: Notetype):
+        msg = """
+        Collision: new notetype '{model.name}' has same name as existing
+        notetype with mid '{existing.id}', but hashes differ.
+        """
+        super().__init__(f"{errwrap(msg)}\n\n{nt_str(model)}\n\n{nt_str(existing)}")
