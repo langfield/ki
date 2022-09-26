@@ -1,3 +1,4 @@
+click
 anki==2.1.51
 gitpython @ git+https://github.com/langfield/gitpython.git@main#egg=gitpython
 lark==1.1.2
