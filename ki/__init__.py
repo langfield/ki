@@ -1802,20 +1802,11 @@ def _pull(kirepo: KiRepo) -> None:
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    git_copy = F.copytree(F.gitd(lca_repo), F.chk(F.mkdtemp() / "GIT"))
-    lca_repo.close()
-    lca_root: NoFile = F.rmtree(F.root(lca_repo))
-    del lca_repo
+    # TODO: There is an unsub-like process above performed on `remote_repo`,
+    # can we just pass unsub=True here instead?
     remote_root: Dir = F.root(remote_repo)
-    lca_root: Dir = F.copytree(remote_root, lca_root)
-
-    lca_repo: git.Repo = M.repo(lca_root)
-    gitd: NoPath = F.rmtree(F.gitd(lca_repo))
-    del lca_repo
-    F.copytree(git_copy, F.chk(gitd))
-
-    lca_repo: git.Repo = M.repo(lca_root)
-    F.commitall(lca_repo, f"Pull changes from repository at `{kirepo.root}`")
+    lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
+    F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
 
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
@@ -1881,18 +1872,7 @@ def push(verbose: bool = False) -> PushResult:
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
 
-    git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
-    remote_repo.close()
-    remote_root: NoFile = F.rmtree(F.root(remote_repo))
-    del remote_repo
-    remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
-
-    remote_repo: git.Repo = F.unsubmodule(M.repo(remote_root))
-    gitd: NoPath = F.rmtree(F.gitd(remote_repo))
-    del remote_repo
-    F.copytree(git_copy, F.chk(gitd))
-
-    remote_repo: git.Repo = M.repo(remote_root)
+    remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 

@@ -526,3 +526,24 @@ def submodules(repo: git.Repo) -> Dict[Path, Submodule]:
     sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
     subs: Iterable[Submodule] = map(partial(M.submodule, repo), sms)
     return {s.rel_root: s for s in subs}
+
+
+@beartype
+def gitcopy(repo: git.Repo, remote_root: Dir, unsub: bool) -> git.Repo:
+    """Replace all files in `repo` with contents of `remote_root`."""
+    git_copy = F.copytree(F.gitd(repo), F.chk(F.mkdtemp() / "GIT"))
+    repo.close()
+    root: NoFile = F.rmtree(F.root(repo))
+    del repo
+    root: Dir = F.copytree(remote_root, root)
+
+    repo: git.Repo = M.repo(root)
+    if unsub:
+        repo = F.unsubmodule(repo)
+    gitd: NoPath = F.rmtree(F.gitd(repo))
+    del repo
+    F.copytree(git_copy, F.chk(gitd))
+
+    # Note that we do not commit, so changes are in working tree.
+    repo: git.Repo = M.repo(root)
+    return repo
