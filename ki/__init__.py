@@ -104,6 +104,7 @@ from ki.types import (
     NoteMetadata,
     PushResult,
     PlannedLink,
+    Submodule,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -1433,33 +1434,13 @@ def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
 
 
 @beartype
-@dataclass(frozen=True)
-class SubmoduleRepoAndRelPath:
-    sm_repo: git.Repo
-    sm_rel_root: Path
-
-
-@beartype
-def sm_repo_path(parent_repo: git.Repo, sm: git.Submodule) -> SubmoduleRepoAndRelPath:
-    """
-    Construct a map that sends submodule relative roots, that is, the relative
-    path of a submodule root directory to the top-level root directory of the
-    ki repository, to `git.Repo` objects for each submodule.
-    """
-    sm_repo: git.Repo = sm.module()
-    sm_root: Dir = F.root(sm_repo)
-    sm_rel_root: Path = sm_root.relative_to(F.root(parent_repo))
-    return SubmoduleRepoAndRelPath(sm_repo=sm_repo, sm_rel_root=sm_rel_root)
-
-
-@beartype
 def rm_remote_sm(
-    repo: git.Repo, smp: SubmoduleRepoAndRelPath
-) -> SubmoduleRepoAndRelPath:
+    repo: git.Repo, sub: Submodule
+) -> Submodule:
     """Remove submodule directory from given repo."""
-    if os.path.isdir(F.root(repo) / smp.sm_rel_root):
-        repo.git.rm(["-r", str(smp.sm_rel_root)])
-    return smp
+    if os.path.isdir(F.root(repo) / sub.rel_root):
+        repo.git.rm(["-r", str(sub.rel_root)])
+    return sub
 
 
 @beartype
@@ -1476,7 +1457,7 @@ def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
 
 @beartype
 def apply(
-    patch_dir: Dir, subrepos: Dict[Path, git.Repo], patch: Patch
+    patch_dir: Dir, subrepos: Dict[Path, Submodule], patch: Patch
 ) -> Iterable[Path]:
     """Apply a patch within the relevant submodule repositories."""
     # Consider only repos containing patch, ignore submodule 'file' itself.
@@ -1491,7 +1472,7 @@ def apply(
 def apply_in_subrepo(
     patch_dir: Dir,
     patch: Patch,
-    subrepos: Dict[Path, git.Repo],
+    subrepos: Dict[Path, Submodule],
     sm_rel_root: Path,
 ) -> Path:
     """Apply a patch within a submodule."""
@@ -1521,7 +1502,7 @@ def apply_in_subrepo(
     # Then -p<n> flag tells `git apply` to drop the first n leading path
     # components from both diff paths. So if n is 2, we map `a/dog/cat` ->
     # `cat`.
-    sm_repo = subrepos[sm_rel_root]
+    sm_repo: git.Repo = subrepos[sm_rel_root].sm_repo
     sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
     return patch.a
 
@@ -1529,9 +1510,8 @@ def apply_in_subrepo(
 @beartype
 def pull_sm(
     subrepos: Dict[Path, git.Repo],
-    sm_branches: Dict[Path, str],
-    smp: SubmoduleRepoAndRelPath,
-) -> SubmoduleRepoAndRelPath:
+    sub: Submodule,
+) -> Submodule:
     """
     Safely pull changes within a submodule.
 
@@ -1541,10 +1521,10 @@ def pull_sm(
     repository, and then pulling from that remote. Then the remote is deleted.
     """
     # TODO: What if a submodule was deleted (or added) entirely?
-    sm_repo = smp.sm_repo
-    sm_rel_root = smp.sm_rel_root
-    remote_sm: git.Repo = subrepos[sm_rel_root]
-    branch: str = sm_branches[sm_rel_root]
+    sm_repo = sub.sm_repo
+    sm_rel_root = sub.rel_root
+    remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
+    branch: str = sub.branch
 
     # TODO: What's in `upstream` that isn't already in `branch`?
     remote_sm.git.branch("upstream")
@@ -1561,7 +1541,7 @@ def pull_sm(
     sm_repo.delete_remote(sm_remote)
     remote_sm.close()
     sm_repo.close()
-    return smp
+    return sub
 
 
 @click.group()
@@ -1795,11 +1775,8 @@ def _pull(kirepo: KiRepo) -> None:
     # Remove submodules from `remote_repo` and map the roots of each submodule
     # (relative to the working directory of `lca_repo`) to the submodule repos
     # themselves.
-    sms: Iterable[git.Submodule] = lca_repo.submodules
-    sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
-    smps: Iterable[SubmoduleRepoAndRelPath] = map(partial(sm_repo_path, lca_repo), sms)
-    rm = partial(rm_remote_sm, remote_repo)
-    subrepos: Dict[Path, git.Repo] = {s.sm_rel_root: s.sm_repo for s in map(rm, smps)}
+    subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
+    _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
     if len(lca_repo.submodules) > 0:
         remote_repo.git.add(all=True)
         remote_repo.index.commit("Remove submodule directories.")
@@ -1810,25 +1787,14 @@ def _pull(kirepo: KiRepo) -> None:
     msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
 
     # Commit patches in submodules.
-    for sm_repo in subrepos.values():
-        sm_repo.git.add(all=True)
-        sm_repo.index.commit(msg)
-
-    # Get active branches of each submodule.
-    sm_branches: Dict[Path, str] = {}
-    for sm_rel_root, sm_repo in subrepos.items():
-        try:
-            sm_branches[sm_rel_root] = sm_repo.active_branch.name
-        except TypeError:
-            head: git.Head = next(iter(sm_repo.branches))
-            sm_branches[sm_rel_root] = head.name
+    for sub in subrepos.values():
+        sub.sm_repo.git.add(all=True)
+        sub.sm_repo.index.commit(msg)
 
     # Pull changes from remote into each submodule.
-    sms: Iterable[git.Submodule] = kirepo.repo.submodules
-    sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
-    smps = map(partial(sm_repo_path, kirepo.repo), sms)
-    smps = filter(lambda smp: smp.sm_rel_root in subrepos, smps)
-    _ = set(map(partial(pull_sm, subrepos, sm_branches), smps))
+    subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
+    subs = filter(lambda s: s.rel_root in subrepos, subs)
+    _ = set(map(partial(pull_sm, subrepos), subs))
 
     # Commit new submodules commits in `lca_repo`.
     if len(patch_paths) > 0:

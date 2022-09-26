@@ -42,6 +42,7 @@ from ki.types import (
     DotKi,
     PlannedLink,
     Notetype,
+    Submodule,
     NotetypeKeyError,
     UnnamedNotetypeError,
     MissingFieldOrdinalError,
@@ -498,3 +499,29 @@ def dotki(kidir: EmptyDir) -> DotKi:
     last_push = F.touch(kidir, LAST_PUSH_FILE)
     backups = F.mksubdir(kidir, Path(BACKUPS_DIR))
     return DotKi(config=config, last_push=last_push, backups=backups)
+
+
+@beartype
+def submodule(parent_repo: git.Repo, sm: git.Submodule) -> Submodule:
+    """
+    Construct a map that sends submodule relative roots, that is, the relative
+    path of a submodule root directory to the top-level root directory of the
+    ki repository, to `git.Repo` objects for each submodule.
+    """
+    sm_repo: git.Repo = sm.module()
+    sm_root: Dir = F.root(sm_repo)
+    sm_rel_root: Path = sm_root.relative_to(F.root(parent_repo))
+    try:
+        branch = sm_repo.active_branch.name
+    except TypeError:
+        head: git.Head = next(iter(sm_repo.branches))
+        branch = head.name
+    return Submodule(sm=sm, sm_repo=sm_repo, rel_root=sm_rel_root, branch=branch)
+
+@beartype
+def submodules(repo: git.Repo) -> Dict[Path, Submodule]:
+    """Map submodule relative roots to `Submodule`s."""
+    sms: Iterable[git.Submodule] = repo.submodules
+    sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
+    subs: Iterable[Submodule] = map(partial(M.submodule, repo), sms)
+    return {s.rel_root: s for s in subs}

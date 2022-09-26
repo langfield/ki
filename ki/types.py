@@ -290,6 +290,15 @@ class DotKi:
 
 @beartype
 @dataclass(frozen=True)
+class Submodule:
+    sm: git.Submodule
+    sm_repo: git.Repo
+    rel_root: Path
+    branch: str
+
+
+@beartype
+@dataclass(frozen=True)
 class NoteDBRow:
     nid: int
     guid: str
