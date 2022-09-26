@@ -29,7 +29,6 @@ from ki.types import (
     KiRepo,
     Notetype,
     ColNote,
-    Dir,
     File,
     MissingFileError,
     TargetExistsError,
@@ -593,9 +592,7 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         assert os.path.isfile(orig)
 
 
-def test_clone_writes_plaintext_posix_symlinks_on_windows(
-    tmp_path, mocker: MockerFixture
-):
+def test_clone_writes_plaintext_posix_symlinks_on_windows(tmp_path: Path):
     SYMLINKS: SampleCollection = get_test_collection("symlinks")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -617,7 +614,7 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows(
             Path("Default") / "C" / "sample_cloze-ol_3.md",
             Path("Default") / "C" / "sample_cloze-ol_4.md",
         ]
-        winlinks = set([str(link) for link in winlinks])
+        winlinks = {str(link) for link in winlinks}
 
         # Check that each windows symlink has the correct file mode.
         repo = git.Repo(SYMLINKS.repodir)

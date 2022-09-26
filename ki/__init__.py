@@ -1413,6 +1413,139 @@ def media_data(col: Collection, fname: str) -> bytes:
         return b""
 
 
+@beartype
+def unquote_diff_path(path: str) -> str:
+    """Unquote a diff/patch path."""
+    if len(path) <= 4:
+        return path
+    if path[0] == '"' and path[-1] == '"':
+        path = path.lstrip('"').rstrip('"')
+    if path[:2] in ("a/", "b/"):
+        path = path[2:]
+    return path
+
+
+@beartype
+def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
+    """Get all patches from HEAD to FETCH_HEAD in a flattened git repository."""
+    raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+
+    # Construct patches for every file in the flattenened/unsubmoduled checkout
+    # of the revision of the last successful `ki push`. Each patch is the diff
+    # between the relevant file in the flattened (all submodules converted to
+    # ordinary directories) repository and the same file in the Anki remote (a
+    # fresh `ki clone` of the current database).
+    patches: List[Patch] = []
+    f = io.StringIO()
+    with redirect_stdout(f):
+        for diff in whatthepatch.parse_patch(raw_unified_patch):
+            a_path = unquote_diff_path(diff.header.old_path)
+            b_path = unquote_diff_path(diff.header.new_path)
+            if a_path == DEV_NULL:
+                a_path = b_path
+            if b_path == DEV_NULL:
+                b_path = a_path
+            patch = Patch(Path(a_path), Path(b_path), diff)
+            patches.append(patch)
+    return patches
+
+
+@beartype
+@dataclass(frozen=True)
+class SubmoduleRepoAndRelPath:
+    sm_repo: git.Repo
+    sm_rel_root: Path
+
+
+@beartype
+def rm_remote_sm(
+    lca_repo: git.Repo,
+    remote_repo: git.Repo,
+    anki_remote_root: Dir,
+    sm: git.Submodule,
+) -> SubmoduleRepoAndRelPath:
+    """
+    Construct a map that sends submodule relative roots, that is, the relative
+    path of a submodule root directory to the top-level root directory of the
+    ki repository, to `git.Repo` objects for each submodule.
+    """
+    sm_repo: git.Repo = sm.module()
+    sm_root: Dir = F.root(sm_repo)
+
+    # Get submodule root relative to ki repository root.
+    sm_rel_root: Path = sm_root.relative_to(F.root(lca_repo))
+
+    # Remove submodules directories from remote repo.
+    if os.path.isdir(anki_remote_root / sm_rel_root):
+        remote_repo.git.rm(["-r", str(sm_rel_root)])
+
+    return SubmoduleRepoAndRelPath(sm_repo=sm_repo, sm_rel_root=sm_rel_root)
+
+
+@beartype
+def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
+    """Check if patch path is relative to the given root."""
+    # TODO: We must also treat case where we moved a file into or out of a
+    # submodule, but we just do this for now. In this case, we may have
+    # `patch.a` not be relative to the submodule root (if we moved a file into
+    # the sm dir), or vice-versa.
+    a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
+    b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
+    return a_in_submodule and b_in_submodule
+
+
+@beartype
+def apply(
+    patch_dir: Dir, subrepos: Dict[Path, git.Repo], patch: Patch
+) -> Iterable[Path]:
+    """Apply a patch within the relevant submodule repositories."""
+    # Consider only repos containing patch, ignore submodule 'file' itself.
+    sm_rel_roots = filter(lambda root: has_patch(patch, root), subrepos.keys())
+    sm_rel_roots = filter(lambda r: r not in (patch.a, patch.b), sm_rel_roots)
+    sm_rel_roots = list(sm_rel_roots)
+    subapply = partial(apply_in_subrepo, patch_dir, patch, subrepos)
+    return map(subapply, sm_rel_roots)
+
+
+@beartype
+def apply_in_subrepo(
+    patch_dir: Dir,
+    patch: Patch,
+    subrepos: Dict[Path, git.Repo],
+    sm_rel_root: Path,
+) -> Path:
+    """Apply a patch within a submodule."""
+    # Hash the patch to use as a filename.
+    blake2 = hashlib.blake2s()
+    blake2.update(patch.diff.text.encode())
+    patch_hash: str = blake2.hexdigest()
+    patch_path: NoFile = F.chk(patch_dir / patch_hash)
+
+    # We write as bytes so that it is not necessary to strip trailing linefeeds
+    # from each line so that `git apply` is happy on Windows (equivalent to
+    # running `dos2unix`).
+    patch_b: bytes = patch.diff.text.encode("UTF-8")
+    F.writeb(patch_path, patch_b)
+
+    # Number of leading path components to drop from diff paths.
+    parts: str = str(len(sm_rel_root.parts) + 1)
+
+    # TODO: More tests are needed to make sure that the `git apply` call is not
+    # flaky. In particular, we must treat new and deleted files.
+    #
+    # Note that it is unnecessary to use `--3way` here, because this submodule
+    # is supposed to represent a fast-forward from the last successful push to
+    # the current state of the remote.  There should be no nontrivial merging
+    # involved.
+    #
+    # Then -p<n> flag tells `git apply` to drop the first n leading path
+    # components from both diff paths. So if n is 2, we map `a/dog/cat` ->
+    # `cat`.
+    sm_repo = subrepos[sm_rel_root]
+    sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
+    return patch.a
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -1519,14 +1652,11 @@ def _clone(
     repo.git.add(all=True)
     _ = repo.index.commit(msg)
 
-    # Use `git update-index` to set 120000 file mode on each windows symlink
-    # in `windows_links`.
-    relative_links: Set[Path] = set()
+    # Use `git update-index` to set 120000 file mode on each windows symlink.
     for abslink in windows_links:
-        link = abslink.relative_to(root)
-        relative_links.add(link)
 
         # Convert to POSIX pathseps since that's what `git` wants.
+        link: str = abslink.relative_to(root).as_posix()
         githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
         target = f"120000,{githash},{link.as_posix()}"
         repo.git.update_index(target, add=True, cacheinfo=True)
@@ -1622,12 +1752,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(
-        kirepo.col_file,
-        anki_remote_root,
-        msg,
-        silent=silent,
-    )
+    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
@@ -1638,127 +1763,34 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
     # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `cp_repo()` call
-    # does a `reset --hard` to the commit of the last push, but this does *not*
-    # do an equivalent rollback for submodules. So they may contain new local
+    # last successful ki push in the main repository. Our `cp_repo()` call does
+    # a `reset --hard` to the commit of the last push, but this does *not* do
+    # an equivalent rollback for submodules. So they may contain new local
     # changes that we don't want. Calling `git submodule update` here checks
     # out the commit that *was* recorded in the submodule file at the rev of
     # the last push.
     unsub_repo.git.submodule("update")
     lca_repo.git.submodule("update")
     unsub_repo = F.unsubmodule(unsub_repo)
-    patches_dir: Dir = F.mkdtemp()
     anki_remote.fetch()
     unsub_remote.fetch()
-    raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+    patches: Iterable[Patch] = get_patches(unsub_repo)
 
-    @beartype
-    def unquote_diff_path(path: str) -> str:
-        if len(path) <= 4:
-            return path
-        if path[0] == '"' and path[-1] == '"':
-            path = path.lstrip('"').rstrip('"')
-        if path[:2] in ("a/", "b/"):
-            path = path[2:]
-        return path
-
-    # Construct patches for every file in the flattenened/unsubmoduled checkout
-    # of the revision of the last successful `ki push`. Each patch is the diff
-    # between the relevant file in the flattened (all submodules converted to
-    # ordinary directories) repository and the same file in the Anki remote (a
-    # fresh `ki clone` of the current database).
-    patches: List[Patch] = []
-    f = io.StringIO()
-    with redirect_stdout(f):
-        for diff in whatthepatch.parse_patch(raw_unified_patch):
-            a_path = unquote_diff_path(diff.header.old_path)
-            b_path = unquote_diff_path(diff.header.new_path)
-            if a_path == DEV_NULL:
-                a_path = b_path
-            if b_path == DEV_NULL:
-                b_path = a_path
-            patch = Patch(Path(a_path), Path(b_path), diff)
-            patches.append(patch)
-
-    # Construct a map that sends submodule relative roots, that is, the
-    # relative path of a submodule root directory to the top-level root
-    # directory of the ki repository, to `git.Repo` objects for each submodule.
-    subrepos: Dict[Path, git.Repo] = {}
-    for sm in lca_repo.submodules:
-        if sm.exists() and sm.module_exists():
-            sm_repo: git.Repo = sm.module()
-            sm_root: Dir = F.root(sm_repo)
-
-            # Get submodule root relative to ki repository root.
-            sm_rel_root: Path = sm_root.relative_to(F.root(lca_repo))
-            subrepos[sm_rel_root] = sm_repo
-
-            # Remove submodules directories from remote repo.
-            if os.path.isdir(anki_remote_root / sm_rel_root):
-                remote_repo.git.rm(["-r", str(sm_rel_root)])
-
+    # Remove submodules from `remote_repo` and map the roots of each submodule
+    # (relative to the working directory of `lca_repo`) to the submodule repos
+    # themselves.
+    sms: Iterable[git.Submodule] = lca_repo.submodules
+    sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
+    rm = partial(rm_remote_sm, lca_repo, remote_repo, anki_remote_root)
+    subrepos: Dict[Path, git.Repo] = {s.sm_rel_root: s.sm_repo for s in map(rm, sms)}
     if len(lca_repo.submodules) > 0:
         remote_repo.git.add(all=True)
         remote_repo.index.commit("Remove submodule directories.")
 
     # Apply patches within submodules.
-    msg = "Applying patches:\n\n"
-    patched_submodules: Set[Path] = set()
-    for patch in patches:
-        for sm_rel_root, sm_repo in subrepos.items():
-
-            # TODO: We must also treat case where we moved a file into or out
-            # of a submodule, but we just do this for now. In this case, we may
-            # have `patch.a` not be relative to the submodule root (if we moved
-            # a file into the sm dir), or vice-versa.
-            a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
-            b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
-
-            if a_in_submodule and b_in_submodule:
-
-                # Ignore the submodule 'file' itself.
-                if sm_rel_root in (patch.a, patch.b):
-                    continue
-
-                # Hash the patch to use as a filename.
-                blake2 = hashlib.blake2s()
-                blake2.update(patch.diff.text.encode())
-                patch_hash: str = blake2.hexdigest()
-                patch_path: NoFile = F.chk(patches_dir / patch_hash)
-
-                # Strip trailing linefeeds from each line so that `git apply`
-                # is happy on Windows (equivalent to running `dos2unix`).
-                patch_path: File = F.write(patch_path, patch.diff.text)
-                if sys.platform == "win32":
-                    with open(patch_path, "rb") as f:
-                        patch_bytes = f.read()
-                    reformatted_bytes = patch_bytes.replace(b"\r\n", b"\n")
-                    with open(patch_path, "wb") as f:
-                        f.write(reformatted_bytes)
-
-                # Number of leading path components to drop from diff paths.
-                num_parts = len(sm_rel_root.parts) + 1
-
-                # TODO: More tests are needed to make sure that the `git apply`
-                # call is not flaky. In particular, we must treat new and
-                # deleted files.
-                #
-                # Note that it is unnecessary to use `--3way` here, because
-                # this submodule is supposed to represent a fast-forward from
-                # the last successful push to the current state of the remote.
-                # There should be no nontrivial merging involved.
-                #
-                # Then -p<n> flag tells `git apply` to drop the first n leading
-                # path components from both diff paths. So if n is 2, we map
-                # `a/dog/cat` -> `cat`.
-                sm_repo.git.apply(
-                    patch_path,
-                    p=str(num_parts),
-                    allow_empty=True,
-                    verbose=True,
-                )
-                patched_submodules.add(sm_rel_root)
-                msg += f"  `{patch.a}`\n"
+    patch_dir: Dir = F.mkdtemp()
+    patch_paths = set(F.cat(map(partial(apply, patch_dir, subrepos), patches)))
+    msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
 
     # Commit patches in submodules.
     for sm_repo in subrepos.values():
@@ -1817,7 +1849,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
             sm_repo.close()
 
     # Commit new submodules commits in `lca_repo`.
-    if len(patched_submodules) > 0:
+    if len(patch_paths) > 0:
         lca_repo.git.add(all=True)
         lca_repo.index.commit(msg)
 

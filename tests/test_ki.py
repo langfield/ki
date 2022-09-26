@@ -40,7 +40,6 @@ from ki import (
     HASHES_FILE,
     MODELS_FILE,
     CONFIG_FILE,
-    LAST_PUSH_FILE,
     GITIGNORE_FILE,
     BACKUPS_DIR,
     NotetypeDict,
@@ -89,7 +88,6 @@ from ki.types import (
     MissingFieldOrdinalError,
     MissingNoteIdError,
     ExpectedNonexistentPathError,
-    UnPushedPathWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
@@ -746,25 +744,22 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
 
 def test_get_note_path_produces_nonempty_filenames():
     field_text = '<img src="card11front.jpg" />'
-    col, colnote = get_colnote_with_sortf_text(field_text)
+    _, colnote = get_colnote_with_sortf_text(field_text)
 
     runner = CliRunner()
     with runner.isolated_filesystem():
         deck_dir: Dir = F.force_mkdir(Path("a"))
 
-        payload = get_note_payload(colnote, {})
         path: File = get_note_path(colnote, deck_dir)
         assert path.name == "img-srccard11frontjpg.md"
 
         # Check that it even works if the field is empty.
-        col, empty_colnote = get_colnote_with_sortf_text("")
-        payload = get_note_payload(empty_colnote, {})
+        _, empty_colnote = get_colnote_with_sortf_text("")
         path: File = get_note_path(empty_colnote, deck_dir)
         assert ".md" in str(path)
         assert f"{os.sep}a{os.sep}" in str(path)
 
-        col, empty = get_basic_colnote_with_fields("", "")
-        payload = get_note_payload(empty, {})
+        _, empty = get_basic_colnote_with_fields("", "")
         path: File = get_note_path(empty, deck_dir)
 
 
@@ -951,7 +946,7 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
         os.chdir(ORIGINAL.repodir)
         kirepo: KiRepo = M.kirepo(F.cwd())
 
-        mock = mocker.patch("ki.echo")
+        mocker.patch("ki.echo")
 
         returncode: int = backup(kirepo)
         assert returncode == 0
@@ -989,12 +984,11 @@ def test_git_pull():
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     runner = CliRunner()
-    col, colnote = get_colnote_with_sortf_text("a")
+    _, colnote = get_colnote_with_sortf_text("a")
     with runner.isolated_filesystem():
         deck_dir = F.cwd()
         dupe_path = deck_dir / "a.md"
         dupe_path.write_text("ay")
-        payload = get_note_payload(colnote, {})
         note_path = get_note_path(colnote, deck_dir)
         assert str(note_path.name) == "a_1.md"
 
@@ -1078,7 +1072,7 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
 
         kidir, mediadir = M.empty_kirepo(targetdir)
         dotki: DotKi = M.dotki(kidir)
-        windows_links = write_repository(MULTIDECK.col_file, targetdir, dotki, mediadir)
+        _ = write_repository(MULTIDECK.col_file, targetdir, dotki, mediadir)
 
         # Check that deck directory is created and all subdirectories.
         assert os.path.isdir(os.path.join(MULTIDECK.repodir, "Default"))
@@ -1094,7 +1088,6 @@ def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
 
 def test_write_repository_handles_html():
     """Does generated repo handle html okay?"""
-    MULTIDECK: SampleCollection = get_test_collection("multideck")
     HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1103,7 +1096,7 @@ def test_write_repository_handles_html():
 
         kidir, mediadir = M.empty_kirepo(targetdir)
         dotki: DotKi = M.dotki(kidir)
-        windows_links = write_repository(HTML.col_file, targetdir, dotki, mediadir)
+        _ = write_repository(HTML.col_file, targetdir, dotki, mediadir)
 
         note_file = targetdir / "Default" / "あだ名.md"
         contents: str = note_file.read_text(encoding="UTF-8")
@@ -1114,7 +1107,6 @@ def test_write_repository_handles_html():
 @beartype
 def test_write_repository_propogates_errors_from_colnote(mocker: MockerFixture):
     """Do errors get forwarded nicdely?"""
-    MULTIDECK: SampleCollection = get_test_collection("multideck")
     HTML: SampleCollection = get_test_collection("html")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1127,7 +1119,7 @@ def test_write_repository_propogates_errors_from_colnote(mocker: MockerFixture):
             "ki.M.colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0)
         )
         with pytest.raises(NoteFieldKeyError) as error:
-            windows_links = write_repository(HTML.col_file, targetdir, dotki, mediadir)
+            _ = write_repository(HTML.col_file, targetdir, dotki, mediadir)
         assert "'bad_field_key'" in str(error.exconly())
 
 
@@ -1334,7 +1326,7 @@ def test_maybe_head_ki():
         (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
         # Write notes to disk.
-        windows_links = write_repository(ORIGINAL.col_file, targetdir, dotki, mediadir)
+        _ = write_repository(ORIGINAL.col_file, targetdir, dotki, mediadir)
 
         repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
         append_md5sum(kidir, ORIGINAL.col_file.name, md5sum)
@@ -1455,7 +1447,6 @@ def test_filter_note_path(tmp_path: Path):
         directory.mkdir()
         path = directory / "file"
         path.touch()
-        patterns: List[str] = ["directory"]
         root: Dir = F.cwd()
         assert is_ignorable(root=root, path=path) is True
 
@@ -1627,7 +1618,6 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
 
     nid = next(new_nids)
-    mod = next(new_nids)
     mid = 1645010146011
     guid = r"QM6kTt.Nt*"
     decknote = DeckNote(
@@ -1687,12 +1677,12 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     tgt = F.chk(tmp_path / "mwe")
     repodir = F.mkdir(tgt)
     repo = git.Repo.init(repodir, initial_branch=BRANCH_NAME)
-    deck = F.mkdir(F.chk(repodir / "a:b"))
+    _ = F.mkdir(F.chk(repodir / "a:b"))
     file = F.chk(tgt / "a:b" / "file")
-    file.write_text("a")
+    file.write_text("a", encoding="UTF-8")
     repo.git.add(all=True)
     repo.index.commit("Initial commit.")
-    file.write_text("b")
+    file.write_text("b", encoding="UTF-8")
     repo.git.add(all=True)
     repo.index.commit("Edit file.")
     diff2(repo, parser, transformer)

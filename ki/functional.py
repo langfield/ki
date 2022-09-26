@@ -25,9 +25,6 @@ from beartype.typing import (
     List,
     Union,
     Generator,
-    Optional,
-    Dict,
-    Set,
     Tuple,
     Callable,
     Any,
@@ -182,6 +179,14 @@ def write(path: Union[File, NoFile], text: str) -> File:
     """Write text to a file."""
     with open(path, "w+", encoding="UTF-8") as f:
         f.write(text)
+    return File(path)
+
+
+@beartype
+def writeb(path: Union[File, NoFile], bs: bytes) -> File:
+    """Write text to a file."""
+    with open(path, "wb") as f:
+        f.write(bs)
     return File(path)
 
 
@@ -387,9 +392,3 @@ def isfile(p: Path) -> bool:
 def cat(xs: Iterable[Iterable[T]]) -> Iterable[T]:
     """Concatenate some iterables."""
     return chain.from_iterable(xs)
-
-
-@beartype
-def fix(f: Callable[[Any, ...], Any], *args: Any) -> Callable[[Any, ...], Any]:
-    """A synonym for `functools.partial()`."""
-    return partial(f, *args)
