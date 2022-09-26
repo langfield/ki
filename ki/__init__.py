@@ -114,8 +114,6 @@ from ki.types import (
     NotetypeMismatchError,
     NoteFieldValidationWarning,
     UnhealthyNoteWarning,
-    UnPushedPathWarning,
-    NotAnkiNoteWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeCollisionWarning,
@@ -124,7 +122,6 @@ from ki.types import (
     SQLiteLockError,
     NoteFieldKeyError,
     MissingMediaDirectoryError,
-    MissingMediaFileWarning,
     ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
@@ -184,8 +181,6 @@ NOTETYPE_NID = -57
 
 MD = ".md"
 FAILED = "Failed: exiting."
-
-WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
 
 VERBOSE = False
 ALHPANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -1640,19 +1635,19 @@ def _clone(
     # Initialize as git repo and commit contents.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     root = F.root(repo)
-    _ = F.commitall(repo, msg)
+    F.commitall(repo, msg)
 
     # Use `git update-index` to set 120000 file mode on each windows symlink.
     for abslink in windows_links:
 
         # Convert to POSIX pathseps since that's what `git` wants.
         link: str = abslink.relative_to(root).as_posix()
-        githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
-        target = f"120000,{githash},{link.as_posix()}"
+        githash = repo.git.hash_object(["-w", f"{link}"])
+        target = f"120000,{githash},{link}"
         repo.git.update_index(target, add=True, cacheinfo=True)
 
     # We do *not* call `git.add()` here since we call `git.update_index()` above.
-    _ = repo.index.commit(msg)
+    repo.index.commit(msg)
 
     # On Windows, there are changes left in the working tree at this point
     # (because git sees that the mode of the actual underlying file is
@@ -1728,6 +1723,7 @@ def _pull(kirepo: KiRepo) -> None:
         very unlikely, since the caller acquires a lock on the SQLite3
         database.
     """
+    # pylint: disable=too-many-locals
     md5sum: str = F.md5(kirepo.col_file)
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
@@ -1823,9 +1819,8 @@ def _pull(kirepo: KiRepo) -> None:
 
 
 @ki.command()
-@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
 @beartype
-def push(verbose: bool = False) -> PushResult:
+def push() -> PushResult:
     """
     Push a ki repository into a .anki2 file.
 
@@ -1881,7 +1876,6 @@ def push(verbose: bool = False) -> PushResult:
         transformer,
         head_kirepo,
         con,
-        verbose,
     )
 
 
@@ -1894,7 +1888,6 @@ def write_collection(
     transformer: NoteTransformer,
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
-    verbose: bool,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     deltas = list(deltas)
@@ -1903,9 +1896,7 @@ def write_collection(
 
     # Display warnings from diff procedure.
     for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-    warnings = []
+        click.secho(str(warning), fg="yellow")
 
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
@@ -1948,6 +1939,7 @@ def write_collection(
 
     is_delete = lambda d: d.status == GitChangeType.DELETED
 
+    warnings = []
     for delta in deltas:
 
         # Parse the file at `delta.path` into a `DeckNote`, and
@@ -1965,13 +1957,8 @@ def write_collection(
         # may need to update the filename.
         warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
 
-    num_displayed: int = 0
     for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
+        click.secho(str(warning), fg="yellow")
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -2003,13 +1990,8 @@ def write_collection(
 
     col.close(save=True)
 
-    num_displayed: int = 0
     for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
+        click.secho(str(warning), fg="yellow")
 
     # Append to hashes file.
     new_md5sum = F.md5(kirepo.col_file)

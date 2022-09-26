@@ -694,20 +694,6 @@ class UnhealthyNoteWarning(Warning):
         super().__init__(top)
 
 
-class UnPushedPathWarning(Warning):
-    @beartype
-    def __init__(self, path: Path, pattern: str):
-        msg = f"Warning: ignoring '{path}' matching ignore pattern '{pattern}'"
-        super().__init__(msg)
-
-
-class NotAnkiNoteWarning(Warning):
-    @beartype
-    def __init__(self, file: File):
-        msg = f"Warning: not Anki note '{file}'"
-        super().__init__(msg)
-
-
 class DeletedFileNotFoundWarning(Warning):
     @beartype
     def __init__(self, path: Path):
@@ -743,21 +729,6 @@ class DiffTargetFileNotFoundWarning(Warning):
         necessary.
         """
         super().__init__(f"{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}")
-
-
-class MissingMediaFileWarning(Warning):
-    @beartype
-    def __init__(self, col_path: str, media_file: Path):
-        top = f"Missing or bad media file '{media_file}' "
-        top += f"while processing collection '{col_path}':"
-        msg = f"""
-        Expected an extant file at the location specified above, but got a
-        '{type(media_file)}'. This may indicate a corrupted Anki collection, as
-        all media filenames present in note fields should correspond to extant
-        files within the media directory (usually called 'collection.media/'
-        within the relevant Anki user profile directory).
-        """
-        super().__init__(f"{top}\n{errwrap(msg)}")
 
 
 class RenamedMediaFileWarning(Warning):

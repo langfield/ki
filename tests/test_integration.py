@@ -828,7 +828,7 @@ def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
         repo.git.add(all=True)
         repo.index.commit("Update submodule.")
 
-        out = push(runner, verbose=True)
+        out = push(runner)
 
         # Edit collection (implicitly removes submodule).
         shutil.copyfile(EDITED.path, ORIGINAL.col_file)
@@ -1295,9 +1295,8 @@ def test_push_honors_ignore_patterns():
         repo.index.commit(".")
 
         # Since the output is currently very verbose, we should print a warning
-        # for every such file. In the future, these warnings should only be
-        # displayed if a verbosity flag is set.
-        out = push(runner, verbose=True)
+        # for every such file.
+        out = push(runner)
         assert "up to date" in out
 
 
