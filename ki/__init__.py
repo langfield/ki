@@ -1641,8 +1641,7 @@ def _clone(
     # Initialize as git repo and commit contents.
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     root = F.root(repo)
-    repo.git.add(all=True)
-    _ = repo.index.commit(msg)
+    _ = F.commitall(repo, msg)
 
     # Use `git update-index` to set 120000 file mode on each windows symlink.
     for abslink in windows_links:
@@ -1739,7 +1738,7 @@ def _pull(kirepo: KiRepo) -> None:
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
-    # Ki clone collection into a temp directory at `anki_remote_root`.
+    # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
     remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
@@ -1772,18 +1771,13 @@ def _pull(kirepo: KiRepo) -> None:
     subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
     _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
     if len(lca_repo.submodules) > 0:
-        remote_repo.git.add(all=True)
-        remote_repo.index.commit("Remove submodule directories.")
+        F.commitall(remote_repo, msg="Remove submodule directories.")
 
-    # Apply patches within submodules.
+    # Apply and commit patches within submodules.
     patch_dir: Dir = F.mkdtemp()
     patch_paths = set(F.cat(map(partial(apply, patch_dir, subrepos), patches)))
     msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
-
-    # Commit patches in submodules.
-    for sub in subrepos.values():
-        sub.sm_repo.git.add(all=True)
-        sub.sm_repo.index.commit(msg)
+    _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
 
     # Pull changes from remote into each submodule.
     subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
@@ -1792,13 +1786,7 @@ def _pull(kirepo: KiRepo) -> None:
 
     # Commit new submodules commits in `lca_repo`.
     if len(patch_paths) > 0:
-        lca_repo.git.add(all=True)
-        lca_repo.index.commit(msg)
-
-    @beartype
-    def git_rm(repo: git.Repo, path: str) -> str:
-        repo.git.rm(path)
-        return path
+        F.commitall(lca_repo, msg=msg)
 
     # Handle deleted files, preferring `theirs`.
     diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
@@ -1806,13 +1794,11 @@ def _pull(kirepo: KiRepo) -> None:
     dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
     dels = filter(lambda d: F.isfile(F.chk(lca_root / d.a_path)), dels)
     a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
-    a_paths = set(map(partial(git_rm, lca_repo), a_paths))
+    a_paths = set(map(partial(F.git_rm, lca_repo), a_paths))
 
     if len(a_paths) > 0:
-        lines: Iterable[str] = map(lambda a: f"Remove '{a}'\n", a_paths)
-        msg = "Remove files deleted in remote.\n\n" + "".join(lines)
-        lca_repo.git.add(all=True)
-        lca_repo.index.commit(msg)
+        details: str = "".join(map(lambda a: f"Remove '{a}'\n", a_paths))
+        F.commitall(lca_repo, msg=f"Remove files deleted in remote.\n\n{details}")
 
     # =================== NEW PULL ARCHITECTURE ====================
 
@@ -1829,8 +1815,7 @@ def _pull(kirepo: KiRepo) -> None:
     F.copytree(git_copy, F.chk(gitd))
 
     lca_repo: git.Repo = M.repo(lca_root)
-    lca_repo.git.add(all=True)
-    lca_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+    F.commitall(lca_repo, f"Pull changes from repository at `{kirepo.root}`")
 
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
@@ -1908,8 +1893,7 @@ def push(verbose: bool = False) -> PushResult:
     F.copytree(git_copy, F.chk(gitd))
 
     remote_repo: git.Repo = M.repo(remote_root)
-    remote_repo.git.add(all=True)
-    remote_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+    F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
     # Read grammar.

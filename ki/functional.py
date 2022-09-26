@@ -392,3 +392,17 @@ def isfile(p: Path) -> bool:
 def cat(xs: Iterable[Iterable[T]]) -> Iterable[T]:
     """Concatenate some iterables."""
     return chain.from_iterable(xs)
+
+
+@beartype
+def commitall(repo: git.Repo, msg: str) -> git.Commit:
+    """Commit all contents of a git repository."""
+    repo.git.add(all=True)
+    return repo.index.commit(msg)
+
+
+@beartype
+def git_rm(repo: git.Repo, path: str) -> str:
+    """Remove a path in a repo."""
+    repo.git.rm(path)
+    return path
