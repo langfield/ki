@@ -7,9 +7,11 @@ import json
 import time
 import random
 import shutil
+import sqlite3
 import tempfile
 import itertools
 from pathlib import Path
+from functools import partial
 from dataclasses import dataclass
 
 import git
@@ -18,7 +20,6 @@ import bitstring
 import checksumdir
 from lark import Lark
 from lark.exceptions import UnexpectedToken
-from loguru import logger
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
 
@@ -26,7 +27,7 @@ import anki.collection
 from anki.collection import Collection, Note
 
 from beartype import beartype
-from beartype.typing import List, Union, Set, Iterator, Tuple
+from beartype.typing import List, Union, Set, Iterator, Tuple, Callable
 
 import ki
 import ki.maybes as M
@@ -34,6 +35,7 @@ import ki.functional as F
 from ki import (
     BRANCH_NAME,
     KI,
+    UTF8,
     MEDIA,
     HEAD_SUFFIX,
     REMOTE_SUFFIX,
@@ -60,12 +62,11 @@ from ki import (
     cp_ki,
     get_note_payload,
     get_note_path,
-    git_pull,
     backup,
     update_note,
     display_fields_health_warning,
     is_anki_note,
-    parse_markdown_note,
+    parse_note,
     lock,
     write_repository,
     get_target,
@@ -80,7 +81,6 @@ from ki import (
 )
 from ki.types import (
     NoFile,
-    NoPath,
     PseudoFile,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
@@ -98,6 +98,7 @@ from ki.types import (
     TargetExistsError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
+    UpdatesRejectedError,
 )
 from ki.transformer import NoteTransformer
 
@@ -422,7 +423,7 @@ def get_repo_with_submodules(runner: CliRunner, col_file: File) -> git.Repo:
 # UTILS
 
 
-def test_parse_markdown_note():
+def test_parse_note():
     """Does ki raise an error when it fails to parse nid?"""
     # Read grammar.
     # UNSAFE! Should we assume this always exists? A nice error message should
@@ -437,7 +438,7 @@ def test_parse_markdown_note():
 
     with pytest.raises(UnexpectedToken):
         delta = Delta(GitChangeType.ADDED, F.chk(Path(NOTE_6_PATH)), Path("a/b"))
-        parse_markdown_note(parser, transformer, delta)
+        parse_note(parser, transformer, delta)
 
 
 def test_get_batches():
@@ -764,7 +765,7 @@ def test_get_note_path_produces_nonempty_filenames():
 
 
 @beartype
-def get_diff2_args() -> DiffReposArgs:
+def get_diff2_args() -> Tuple[git.Repo, Callable[[Delta], DeckNote]]:
     """
     A test 'fixture' (not really a pytest fixture, but a setup function) to be
     called when we need to test `diff2()`.
@@ -781,34 +782,21 @@ def get_diff2_args() -> DiffReposArgs:
     a `GitChangeType.ADDED`, then we should do that in `ORIGINAL.repodir`
     before calling this function.
     """
-    cwd: Dir = F.cwd()
-    kirepo: KiRepo = M.kirepo(cwd)
-    lock(kirepo.col_file)
+    kirepo: KiRepo = M.kirepo(F.cwd())
     md5sum: str = F.md5(kirepo.col_file)
-    head: KiRev = M.head_ki(kirepo)
-    head_kirepo: KiRepo = cp_ki(head, f"{HEAD_SUFFIX}-{md5sum}")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
+    hashes = list(filter(lambda l: l != "", hashes))
+    if md5sum not in hashes[-1]:
+        raise UpdatesRejectedError(kirepo.col_file)
+    head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
     remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
-    git_copy = F.copytree(F.gitd(remote_repo), F.chk(F.mkdtemp() / "GIT"))
-    remote_root: Dir = F.root(remote_repo)
-    remote_repo.close()
-    remote_root: NoFile = F.rmtree(remote_root)
-    remote_root: Dir = F.copytree(head_kirepo.root, remote_root)
-    remote_repo: git.Repo = F.unsubmodule(M.repo(remote_root))
-    git_dir: Dir = F.gitd(remote_repo)
-    remote_repo.close()
-    git_dir: NoPath = F.rmtree(git_dir)
-    F.copytree(git_copy, F.chk(git_dir))
-    remote_repo: git.Repo = M.repo(remote_root)
-    remote_repo.git.add(all=True)
-    remote_repo.index.commit(f"Pull changes from repository at '{kirepo.root}'")
-    grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
-    parser = Lark(grammar, start="note", parser="lalr")
-    transformer = NoteTransformer()
-
-    return DiffReposArgs(remote_repo, parser, transformer)
+    remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
+    F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
+    parser, transformer = M.parser_and_transformer()
+    parse: Callable[[Delta], DeckNote] = partial(parse_note, parser, transformer)
+    return remote_repo, parse
 
 
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmp_path: Path):
@@ -819,13 +807,7 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmp_path: Path):
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
-
-        args: DiffReposArgs = get_diff2_args()
-        deltas: List[Delta] = diff2(
-            args.repo,
-            args.parser,
-            args.transformer,
-        )
+        deltas: List[Delta] = diff2(*get_diff2_args())
 
         changed = [str(delta.path) for delta in deltas]
         assert changed == []
@@ -845,15 +827,12 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmp_path: Path):
         repo.git.add(all=True)
         repo.index.commit("CommitMessage")
 
-        args: DiffReposArgs = get_diff2_args()
+        args = get_diff2_args()
+        remote_repo = args[0]
 
-        os.remove(Path(args.repo.working_dir) / NOTE_2)
+        os.remove(Path(remote_repo.working_dir) / NOTE_2)
 
-        deltas: List[Union[Delta, Warning]] = diff2(
-            args.repo,
-            args.parser,
-            args.transformer,
-        )
+        deltas: List[Union[Delta, Warning]] = diff2(*args)
         del args
         gc.collect()
         warnings = [d for d in deltas if isinstance(d, DiffTargetFileNotFoundWarning)]
@@ -890,13 +869,7 @@ def test_diff2_handles_submodules():
 
         os.chdir(ORIGINAL.repodir)
 
-        args: DiffReposArgs = get_diff2_args()
-        deltas: List[Delta] = diff2(
-            args.repo,
-            args.parser,
-            args.transformer,
-        )
-        del args
+        deltas: List[Delta] = diff2(*get_diff2_args())
         gc.collect()
 
         deltas = list(deltas)
@@ -914,13 +887,7 @@ def test_diff2_handles_submodules():
         repo.git.add(all=True)
         _ = repo.index.commit("Remove submodule.")
 
-        args: DiffReposArgs = get_diff2_args()
-        deltas: List[Delta] = diff2(
-            args.repo,
-            args.parser,
-            args.transformer,
-        )
-        del args
+        deltas: List[Delta] = diff2(*get_diff2_args())
         gc.collect()
         deltas = [d for d in deltas if isinstance(d, Delta)]
 
@@ -1659,4 +1626,5 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     file.write_text("b", encoding="UTF-8")
     repo.git.add(all=True)
     repo.index.commit("Edit file.")
-    diff2(repo, parser, transformer)
+    parse = partial(parse_note, parser, transformer)
+    diff2(repo, parse)

@@ -347,8 +347,7 @@ def mungediff(
 @beartype
 def diff2(
     repo: git.Repo,
-    parser: Lark,
-    transformer: NoteTransformer,
+    parse: Callable[[Delta], DeckNote],
 ) -> Iterable[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
     # We diff from A~B.
@@ -359,7 +358,6 @@ def diff2(
     diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     # Get the diffs for each change type (e.g. 'DELETED').
-    parse = partial(parse_markdown_note, parser, transformer)
     return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
 
 
@@ -421,7 +419,7 @@ def get_guid(fields: List[str]) -> str:
 
 
 @beartype
-def parse_markdown_note(
+def parse_note(
     parser: Lark, transformer: NoteTransformer, delta: Delta
 ) -> DeckNote:
     """Parse with lark."""
@@ -1872,7 +1870,8 @@ def push() -> PushResult:
     # =================== NEW PUSH ARCHITECTURE ====================
 
     parser, transformer = M.parser_and_transformer()
-    xs, ys = tee(diff2(remote_repo, parser, transformer))
+    parse: Callable[[Delta], DeckNote] = partial(parse_note, parser, transformer)
+    xs, ys = tee(diff2(remote_repo, parse))
     deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
     warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
     _ = set(map(lambda w: warn(str(w)), warnings))
@@ -1884,15 +1883,7 @@ def push() -> PushResult:
 
     echo(f"Pushing to '{kirepo.col_file}'")
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
-    return write_collection(
-        deltas,
-        models,
-        kirepo,
-        parser,
-        transformer,
-        head_kirepo,
-        con,
-    )
+    return write_collection(deltas, models, kirepo, parse, head_kirepo, con)
 
 
 @beartype
@@ -1900,8 +1891,7 @@ def write_collection(
     deltas: Iterable[Delta],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
-    parser: Lark,
-    transformer: NoteTransformer,
+    parse: Callable[[Delta], DeckNote],
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> PushResult:
@@ -1936,7 +1926,6 @@ def write_collection(
     guids: Dict[str, NoteMetadata] = get_note_metadata(col)
 
     # Parse to-be-deleted notes and remove them from collection.
-    parse = partial(parse_markdown_note, parser, transformer)
     del_guids: Iterable[str] = map(lambda dd: dd.guid, map(parse, dels))
     del_guids = filter(lambda g: g in guids, del_guids)
     del_nids: Iterable[NoteId] = map(lambda g: guids[g].nid, del_guids)
