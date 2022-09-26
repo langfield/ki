@@ -13,7 +13,7 @@ from functools import partial
 import git
 from loguru import logger
 from beartype import beartype
-from beartype.typing import Union, Dict, Any, Optional, List, Tuple
+from beartype.typing import Union, Dict, Any, Optional, List, Tuple, Iterable
 
 import anki
 from anki.decks import DeckTreeNode
@@ -517,6 +517,7 @@ def submodule(parent_repo: git.Repo, sm: git.Submodule) -> Submodule:
         head: git.Head = next(iter(sm_repo.branches))
         branch = head.name
     return Submodule(sm=sm, sm_repo=sm_repo, rel_root=sm_rel_root, branch=branch)
+
 
 @beartype
 def submodules(repo: git.Repo) -> Dict[Path, Submodule]:

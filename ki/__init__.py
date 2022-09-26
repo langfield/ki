@@ -1434,9 +1434,7 @@ def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
 
 
 @beartype
-def rm_remote_sm(
-    repo: git.Repo, sub: Submodule
-) -> Submodule:
+def rm_remote_sm(repo: git.Repo, sub: Submodule) -> Submodule:
     """Remove submodule directory from given repo."""
     if os.path.isdir(F.root(repo) / sub.rel_root):
         repo.git.rm(["-r", str(sub.rel_root)])
@@ -1461,19 +1459,16 @@ def apply(
 ) -> Iterable[Path]:
     """Apply a patch within the relevant submodule repositories."""
     # Consider only repos containing patch, ignore submodule 'file' itself.
-    sm_rel_roots = filter(lambda root: has_patch(patch, root), subrepos.keys())
-    sm_rel_roots = filter(lambda r: r not in (patch.a, patch.b), sm_rel_roots)
-    sm_rel_roots = list(sm_rel_roots)
-    subapply = partial(apply_in_subrepo, patch_dir, patch, subrepos)
-    return map(subapply, sm_rel_roots)
+    subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
+    subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
+    return map(partial(apply_in_subrepo, patch_dir, patch), subs)
 
 
 @beartype
 def apply_in_subrepo(
     patch_dir: Dir,
     patch: Patch,
-    subrepos: Dict[Path, Submodule],
-    sm_rel_root: Path,
+    sub: Submodule,
 ) -> Path:
     """Apply a patch within a submodule."""
     # Hash the patch to use as a filename.
@@ -1489,7 +1484,7 @@ def apply_in_subrepo(
     F.writeb(patch_path, patch_b)
 
     # Number of leading path components to drop from diff paths.
-    parts: str = str(len(sm_rel_root.parts) + 1)
+    parts: str = str(len(sub.rel_root.parts) + 1)
 
     # TODO: More tests are needed to make sure that the `git apply` call is not
     # flaky. In particular, we must treat new and deleted files.
@@ -1502,8 +1497,7 @@ def apply_in_subrepo(
     # Then -p<n> flag tells `git apply` to drop the first n leading path
     # components from both diff paths. So if n is 2, we map `a/dog/cat` ->
     # `cat`.
-    sm_repo: git.Repo = subrepos[sm_rel_root].sm_repo
-    sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
+    sub.sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
     return patch.a
 
 
