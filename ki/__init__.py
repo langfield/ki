@@ -1454,13 +1454,12 @@ def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
 
 
 @beartype
-def apply(
-    patch_dir: Dir, subrepos: Dict[Path, Submodule], patch: Patch
-) -> Iterable[Path]:
+def apply(subrepos: Dict[Path, Submodule], patch: Patch) -> Iterable[Path]:
     """Apply a patch within the relevant submodule repositories."""
     # Consider only repos containing patch, ignore submodule 'file' itself.
     subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
     subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
+    patch_dir: Dir = F.mkdtemp()
     return map(partial(apply_in_subrepo, patch_dir, patch), subs)
 
 
@@ -1733,8 +1732,7 @@ def _pull(kirepo: KiRepo) -> None:
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
     # successful `push()`, which is the last common ancestor, or 'LCA'.
-    sha: str = kirepo.lca_file.read_text(encoding=UTF8)
-    rev: Rev = M.rev(kirepo.repo, sha=sha)
+    rev: Rev = M.rev(kirepo.repo, sha=kirepo.lca_file.read_text(encoding=UTF8))
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
@@ -1747,7 +1745,6 @@ def _pull(kirepo: KiRepo) -> None:
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
     anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
     unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-    lca_root: Dir = F.root(lca_repo)
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
@@ -1774,8 +1771,7 @@ def _pull(kirepo: KiRepo) -> None:
         F.commitall(remote_repo, msg="Remove submodule directories.")
 
     # Apply and commit patches within submodules.
-    patch_dir: Dir = F.mkdtemp()
-    patch_paths = set(F.cat(map(partial(apply, patch_dir, subrepos), patches)))
+    patch_paths = set(F.cat(map(partial(apply, subrepos), patches)))
     msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
     _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
 
@@ -1792,7 +1788,7 @@ def _pull(kirepo: KiRepo) -> None:
     diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
     dels: Iterable[git.Diff] = diffidx.iter_change_type(DELETED.value)
     dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
-    dels = filter(lambda d: F.isfile(F.chk(lca_root / d.a_path)), dels)
+    dels = filter(lambda d: F.isfile(F.chk(F.root(lca_repo) / d.a_path)), dels)
     a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
     a_paths = set(map(partial(F.git_rm, lca_repo), a_paths))
 
@@ -1854,8 +1850,7 @@ def push(verbose: bool = False) -> PushResult:
         If the user needs to pull remote changes first.
     """
     # Check that we are inside a ki repository, and load collection.
-    cwd: Dir = F.cwd()
-    kirepo: KiRepo = M.kirepo(cwd)
+    kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
@@ -1865,8 +1860,7 @@ def push(verbose: bool = False) -> PushResult:
         raise UpdatesRejectedError(kirepo.col_file)
 
     # =================== NEW PUSH ARCHITECTURE ====================
-    head: KiRev = M.head_ki(kirepo)
-    head_kirepo: KiRepo = cp_ki(head, f"{HEAD_SUFFIX}-{md5sum}")
+    head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
@@ -1876,23 +1870,10 @@ def push(verbose: bool = False) -> PushResult:
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
-    # Read grammar.
-    # TODO:! Should we assume this always exists? A nice error message should
-    # be printed on initialization if the grammar file is missing. No
-    # computation should be done, and none of the click commands should work.
-    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding=UTF8)
-
-    # Instantiate parser.
-    parser = Lark(grammar, start="note", parser="lalr")
-    transformer = NoteTransformer()
-
-    deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
-
-    # Map model names to models.
+    parser, transformer = M.parser_and_transformer()
+    deltas: Iterable[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
-
-    return push_deltas(
+    return write_collection(
         deltas,
         models,
         kirepo,
@@ -1905,7 +1886,7 @@ def push(verbose: bool = False) -> PushResult:
 
 
 @beartype
-def push_deltas(
+def write_collection(
     deltas: Iterable[Union[Delta, Warning]],
     models: Dict[str, Notetype],
     kirepo: KiRepo,

@@ -1345,7 +1345,7 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
             push(runner)
 
 
-def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
+def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_model_adding(
     mocker: MockerFixture,
 ):
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1376,7 +1376,7 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
             push(runner)
 
 
-def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_flatnote_to_anki(
+def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
     ORIGINAL: SampleCollection = get_test_collection("original")

@@ -11,6 +11,7 @@ from pathlib import Path
 from functools import partial
 
 import git
+from lark import Lark
 from loguru import logger
 from beartype import beartype
 from beartype.typing import Union, Dict, Any, Optional, List, Tuple, Iterable
@@ -62,6 +63,7 @@ from ki.types import (
     MaximumWindowsLinkChainingDepthExceededError,
     GitFileModeParseError,
 )
+from ki.transformer import NoteTransformer
 
 KI = ".ki"
 GIT = F.GIT
@@ -547,3 +549,18 @@ def gitcopy(repo: git.Repo, remote_root: Dir, unsub: bool) -> git.Repo:
     # Note that we do not commit, so changes are in working tree.
     repo: git.Repo = M.repo(root)
     return repo
+
+
+@beartype
+def parser_and_transformer() -> Tuple[Lark, NoteTransformer]:
+    """Read grammar."""
+    # TODO: Should we assume this always exists? A nice error message should be
+    # printed on initialization if the grammar file is missing. No computation
+    # should be done, and none of the click commands should work.
+    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+
+    # Instantiate parser.
+    parser = Lark(grammar, start="note", parser="lalr")
+    transformer = NoteTransformer()
+    return parser, transformer
