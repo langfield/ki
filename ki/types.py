@@ -299,6 +299,25 @@ class Submodule:
 
 @beartype
 @dataclass(frozen=True)
+class MediaBytes:
+    """A media file, its old bytes (from collection) and new bytes (from file)."""
+
+    file: File
+    old: bytes
+    new: bytes
+
+
+@beartype
+@dataclass(frozen=True)
+class AddedMedia:
+    """An added media file and its (possibly changed) filename."""
+
+    file: File
+    new_name: str
+
+
+@beartype
+@dataclass(frozen=True)
 class NoteDBRow:
     nid: int
     guid: str

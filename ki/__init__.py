@@ -106,6 +106,8 @@ from ki.types import (
     PushResult,
     PlannedLink,
     Submodule,
+    MediaBytes,
+    AddedMedia,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -419,9 +421,7 @@ def get_guid(fields: List[str]) -> str:
 
 
 @beartype
-def parse_note(
-    parser: Lark, transformer: NoteTransformer, delta: Delta
-) -> DeckNote:
+def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> DeckNote:
     """Parse with lark."""
     tree = parser.parse(delta.path.read_text(encoding=UTF8))
     flatnote: FlatNote = transformer.transform(tree)
@@ -1370,7 +1370,7 @@ def add_model(col: Collection, model: Notetype) -> None:
 
 
 @beartype
-def media_data(col: Collection, fname: str) -> bytes:
+def mediadata(col: Collection, fname: str) -> bytes:
     """Get media file content as bytes (empty if missing)."""
     if not col.media.have(fname):
         return b""
@@ -1534,6 +1534,20 @@ def get_note_metadata(col: Collection) -> Dict[str, NoteMetadata]:
     for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
         guids[guid] = NoteMetadata(nid, mod, mid)
     return guids
+
+
+@beartype
+def mediabytes(col: Collection, file: File) -> MediaBytes:
+    """Get old bytes (from collection) and new bytes (from file) for media file."""
+    old: bytes = mediadata(col, file.name)
+    new: bytes = file.read_bytes()
+    return MediaBytes(file=file, old=old, new=new)
+
+
+@beartype
+def addmedia(col: Collection, m: MediaBytes) -> AddedMedia:
+    """Add a media file to collection (possibly renaming)."""
+    return AddedMedia(file=m.file, new_name=col.media.add_file(m.file))
 
 
 @click.group()
@@ -1949,25 +1963,18 @@ def write_collection(
     # Add media files to collection and follow windows symlinks.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
+    media_files = map(M.linktarget, media_files)
+    mbytes: Iterable[MediaBytes] = map(partial(mediabytes, col), media_files)
 
-    # Follow symlinks.
-    warnings = []
-    for media_file in map(M.linktarget, media_files):
+    # Skip media files whose twin in collection has same name and same data.
+    mbytes = filter(lambda m: m.old == b"" or m.old != m.new, mbytes)
 
-        # Skip media files with the same name and the same data.
-        old: bytes = media_data(col, media_file.name)
-        if old and old == media_file.read_bytes():
-            continue
-
-        # Add (and possibly rename) media paths.
-        new_media_filename: str = col.media.add_file(media_file)
-        if new_media_filename != media_file.name:
-            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
-            warnings.append(warning)
-
-    col.close(save=True)
-
+    # Add (and possibly rename) media paths.
+    added_media: Iterable[AddedMedia] = map(partial(addmedia, col), mbytes)
+    renames = filter(lambda a: a.file.name != a.new_name, added_media)
+    warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
     _ = set(map(lambda w: warn(str(w)), warnings))
+    col.close(save=True)
 
     # Append to hashes file.
     new_md5sum = F.md5(kirepo.col_file)
