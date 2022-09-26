@@ -775,6 +775,7 @@ def localmedia(s: str, regex: str) -> Iterable[str]:
 @beartype
 def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
+    # TODO: This must be split into two lines to properly strip newlines.
     s = (s.strip()).replace('"', "")
     return F.cat(map(partial(localmedia, s), col.media.regexps))
 

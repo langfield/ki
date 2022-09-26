@@ -38,6 +38,9 @@ jobs:
       - name: Install ki
         run: |
           pip install .
-      - name: Test with pytest
+      - name: Unit tests
         run: |
-          pytest -vv --timeout=120 tests/
+          pytest -vv --timeout=120 tests/test_ki.py tests/test_parser.py
+      - name: Integration tests
+        run: |
+          pytest -vv --timeout=120 tests/test_integration.py

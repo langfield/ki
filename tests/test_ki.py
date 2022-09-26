@@ -78,6 +78,7 @@ from ki import (
     _clone,
     add_db_note,
     tidy_html_recursively,
+    media_filenames_in_field,
 )
 from ki.types import (
     NoFile,
@@ -1628,3 +1629,12 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     repo.index.commit("Edit file.")
     parse = partial(parse_note, parser, transformer)
     diff2(repo, parse)
+
+
+def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
+    """Are newlines stripped from all found media filenames?"""
+    s = "<img src=\nfile.png>"
+    mock = mocker.MagicMock()
+    mock.__class__ = Collection
+    fnames: Iterable[str] = media_filenames_in_field(mock, s)
+    assert not any(map(lambda f: "\n" in f, fnames))
