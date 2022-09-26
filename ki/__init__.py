@@ -1440,12 +1440,7 @@ class SubmoduleRepoAndRelPath:
 
 
 @beartype
-def rm_remote_sm(
-    lca_repo: git.Repo,
-    remote_repo: git.Repo,
-    anki_remote_root: Dir,
-    sm: git.Submodule,
-) -> SubmoduleRepoAndRelPath:
+def sm_repo_path(parent_repo: git.Repo, sm: git.Submodule) -> SubmoduleRepoAndRelPath:
     """
     Construct a map that sends submodule relative roots, that is, the relative
     path of a submodule root directory to the top-level root directory of the
@@ -1453,15 +1448,18 @@ def rm_remote_sm(
     """
     sm_repo: git.Repo = sm.module()
     sm_root: Dir = F.root(sm_repo)
-
-    # Get submodule root relative to ki repository root.
-    sm_rel_root: Path = sm_root.relative_to(F.root(lca_repo))
-
-    # Remove submodules directories from remote repo.
-    if os.path.isdir(anki_remote_root / sm_rel_root):
-        remote_repo.git.rm(["-r", str(sm_rel_root)])
-
+    sm_rel_root: Path = sm_root.relative_to(F.root(parent_repo))
     return SubmoduleRepoAndRelPath(sm_repo=sm_repo, sm_rel_root=sm_rel_root)
+
+
+@beartype
+def rm_remote_sm(
+    repo: git.Repo, smp: SubmoduleRepoAndRelPath
+) -> SubmoduleRepoAndRelPath:
+    """Remove submodule directory from given repo."""
+    if os.path.isdir(F.root(repo) / smp.sm_rel_root):
+        repo.git.rm(["-r", str(smp.sm_rel_root)])
+    return smp
 
 
 @beartype
@@ -1526,6 +1524,44 @@ def apply_in_subrepo(
     sm_repo = subrepos[sm_rel_root]
     sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
     return patch.a
+
+
+@beartype
+def pull_sm(
+    subrepos: Dict[Path, git.Repo],
+    sm_branches: Dict[Path, str],
+    smp: SubmoduleRepoAndRelPath,
+) -> SubmoduleRepoAndRelPath:
+    """
+    Safely pull changes within a submodule.
+
+    New commits in submodules within `lca_repo` are be pulled into the
+    submodules within `kirepo.repo`. This is done by adding a remote pointing
+    to the patched submodule in each corresponding submodule in the main
+    repository, and then pulling from that remote. Then the remote is deleted.
+    """
+    # TODO: What if a submodule was deleted (or added) entirely?
+    sm_repo = smp.sm_repo
+    sm_rel_root = smp.sm_rel_root
+    remote_sm: git.Repo = subrepos[sm_rel_root]
+    branch: str = sm_branches[sm_rel_root]
+
+    # TODO: What's in `upstream` that isn't already in `branch`?
+    remote_sm.git.branch("upstream")
+
+    # Simulate a `git merge --strategy=theirs upstream`.
+    remote_sm.git.checkout(["-b", "tmp", "upstream"])
+    remote_sm.git.merge(["-s", "ours", branch])
+    remote_sm.git.checkout(branch)
+    remote_sm.git.merge("tmp")
+    remote_sm.git.branch(["-D", "tmp"])
+
+    sm_remote = sm_repo.create_remote(REMOTE_NAME, F.gitd(remote_sm))
+    echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
+    sm_repo.delete_remote(sm_remote)
+    remote_sm.close()
+    sm_repo.close()
+    return smp
 
 
 @click.group()
@@ -1761,8 +1797,9 @@ def _pull(kirepo: KiRepo) -> None:
     # themselves.
     sms: Iterable[git.Submodule] = lca_repo.submodules
     sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
-    rm = partial(rm_remote_sm, lca_repo, remote_repo, anki_remote_root)
-    subrepos: Dict[Path, git.Repo] = {s.sm_rel_root: s.sm_repo for s in map(rm, sms)}
+    smps: Iterable[SubmoduleRepoAndRelPath] = map(partial(sm_repo_path, lca_repo), sms)
+    rm = partial(rm_remote_sm, remote_repo)
+    subrepos: Dict[Path, git.Repo] = {s.sm_rel_root: s.sm_repo for s in map(rm, smps)}
     if len(lca_repo.submodules) > 0:
         remote_repo.git.add(all=True)
         remote_repo.index.commit("Remove submodule directories.")
@@ -1786,65 +1823,36 @@ def _pull(kirepo: KiRepo) -> None:
             head: git.Head = next(iter(sm_repo.branches))
             sm_branches[sm_rel_root] = head.name
 
-    # TODO: What if a submodule was deleted (or added) entirely?
-    #
-    # New commits in submodules within `lca_repo` are be pulled into the
-    # submodules within `kirepo.repo`. This is done by adding a remote pointing
-    # to the patched submodule in each corresponding submodule in the main
-    # repository, and then pulling from that remote. Then the remote is
-    # deleted.
-    for sm in kirepo.repo.submodules:
-        if sm.exists() and sm.module_exists():
-            sm_repo: git.Repo = sm.module()
-            sm_rel_root: Path = F.root(sm_repo).relative_to(kirepo.root)
-
-            # Note that `subrepos` are the submodules of `lca_repo`.
-            if sm_rel_root in subrepos:
-                remote_sm: git.Repo = subrepos[sm_rel_root]
-                branch: str = sm_branches[sm_rel_root]
-
-                # TODO: What's in `upstream` that isn't already in `branch`?
-                remote_sm.git.branch("upstream")
-
-                # Simulate a `git merge --strategy=theirs upstream`.
-                remote_sm.git.checkout(["-b", "tmp", "upstream"])
-                remote_sm.git.merge(["-s", "ours", branch])
-                remote_sm.git.checkout(branch)
-                remote_sm.git.merge("tmp")
-                remote_sm.git.branch(["-D", "tmp"])
-
-                remote_target: Dir = F.gitd(remote_sm)
-                sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
-                echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
-                sm_repo.delete_remote(sm_remote)
-                remote_sm.close()
-            sm_repo.close()
+    # Pull changes from remote into each submodule.
+    sms: Iterable[git.Submodule] = kirepo.repo.submodules
+    sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
+    smps = map(partial(sm_repo_path, kirepo.repo), sms)
+    smps = filter(lambda smp: smp.sm_rel_root in subrepos, smps)
+    _ = set(map(partial(pull_sm, subrepos, sm_branches), smps))
 
     # Commit new submodules commits in `lca_repo`.
     if len(patch_paths) > 0:
         lca_repo.git.add(all=True)
         lca_repo.index.commit(msg)
 
+    @beartype
+    def git_rm(repo: git.Repo, path: str) -> str:
+        repo.git.rm(path)
+        return path
+
     # Handle deleted files, preferring `theirs`.
-    deletes = 0
-    del_msg = "Remove files deleted in remote.\n\n"
-    fetch_head = lca_repo.commit("FETCH_HEAD")
-    diff_index = lca_repo.commit("HEAD").diff(fetch_head)
-    for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
+    diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
+    dels: Iterable[git.Diff] = diffidx.iter_change_type(DELETED.value)
+    dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
+    dels = filter(lambda d: F.isfile(F.chk(lca_root / d.a_path)), dels)
+    a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
+    a_paths = set(map(partial(git_rm, lca_repo), a_paths))
 
-        # Don't remove gitmodules.
-        if diff.a_path == GITMODULES_FILE:
-            continue
-
-        a_path: Path = F.chk(lca_root / diff.a_path)
-        if isinstance(a_path, File):
-            lca_repo.git.rm(diff.a_path)
-            del_msg += f"Remove '{a_path}'\n"
-            deletes += 1
-
-    if deletes > 0:
+    if len(a_paths) > 0:
+        lines: Iterable[str] = map(lambda a: f"Remove '{a}'\n", a_paths)
+        msg = "Remove files deleted in remote.\n\n" + "".join(lines)
         lca_repo.git.add(all=True)
-        lca_repo.index.commit(del_msg)
+        lca_repo.index.commit(msg)
 
     # =================== NEW PULL ARCHITECTURE ====================
 
