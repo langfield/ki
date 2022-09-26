@@ -1271,7 +1271,7 @@ def test_push_note():
     decknote = DeckNote("title", "0", "Default", "NonexistentModel", [], fields)
     new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
     with pytest.raises(MissingNotetypeError) as error:
-        push_note(col, decknote, int(time.time_ns()), {}, new_nids)
+        push_note(col, int(time.time_ns()), {}, new_nids, decknote)
     assert "NonexistentModel" in str(error.exconly())
 
 
@@ -1322,7 +1322,7 @@ def test_push_note_handles_note_field_name_mismatches():
     fields = {"Front": field, "Backk": field}
     decknote = DeckNote("title", "0", "Default", "Basic", [], fields)
     new_nids: Iterator[int] = itertools.count(int(time.time_ns() / 1e6))
-    warnings = push_note(col, decknote, int(time.time_ns()), {}, new_nids)
+    warnings = push_note(col, int(time.time_ns()), {}, new_nids, decknote)
     assert len(warnings) == 1
     warning = warnings.pop()
     assert isinstance(warning, InconsistentFieldNamesWarning)

@@ -34,7 +34,7 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
-from itertools import chain, starmap
+from itertools import chain, starmap, tee
 from functools import partial, reduce
 from contextlib import redirect_stdout
 from dataclasses import dataclass
@@ -45,6 +45,7 @@ import click
 import whatthepatch
 from lark import Lark
 from loguru import logger
+from more_itertools import peekable
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
@@ -698,10 +699,10 @@ def add_db_note(
 @beartype
 def push_note(
     col: Collection,
-    decknote: DeckNote,
     timestamp_ns: int,
     guids: Dict[str, NoteMetadata],
     new_nids: Iterator[int],
+    decknote: DeckNote,
 ) -> List[Warning]:
     """
     Update the Anki `Note` object in `col` corresponding to `decknote`,
@@ -1308,37 +1309,29 @@ def get_target(cwd: Dir, col_file: File, directory: str) -> Tuple[EmptyDir, bool
 
 
 @beartype
-def echo_note_change_types(deltas: List[Delta]) -> None:
+def echo_note_change_types(deltas: Iterable[Delta]) -> None:
     """Write a table of git change types for notes to stdout."""
     is_change_type = lambda t: lambda d: d.status == t
 
-    adds = list(filter(is_change_type(GitChangeType.ADDED), deltas))
-    deletes = list(filter(is_change_type(GitChangeType.DELETED), deltas))
-    renames = list(filter(is_change_type(GitChangeType.RENAMED), deltas))
-    modifies = list(filter(is_change_type(GitChangeType.MODIFIED), deltas))
-    typechanges = list(filter(is_change_type(GitChangeType.TYPECHANGED), deltas))
+    vs, ws, xs, ys, zs = tee(deltas, 5)
+    adds = list(filter(is_change_type(ADDED), vs))
+    deletes = list(filter(is_change_type(DELETED), ws))
+    renames = list(filter(is_change_type(RENAMED), xs))
+    modifies = list(filter(is_change_type(MODIFIED), ys))
+    types = list(filter(is_change_type(TYPECHANGED), zs))
 
-    WORD_PAD = 15
-    COUNT_PAD = 9
-    add_info: str = "ADD".ljust(WORD_PAD) + str(len(adds)).rjust(COUNT_PAD)
-    delete_info: str = "DELETE".ljust(WORD_PAD) + str(len(deletes)).rjust(COUNT_PAD)
-    modification_info: str = "MODIFY".ljust(WORD_PAD) + str(len(modifies)).rjust(
-        COUNT_PAD
-    )
-    rename_info: str = "RENAME".ljust(WORD_PAD) + str(len(renames)).rjust(COUNT_PAD)
-    typechange_info: str = "TYPE CHANGE".ljust(WORD_PAD) + str(len(typechanges)).rjust(
-        COUNT_PAD
-    )
+    LPAD, RPAD = 15, 9
+    add_info: str = "ADD".ljust(LPAD) + str(len(adds)).rjust(RPAD)
+    delete_info: str = "DELETE".ljust(LPAD) + str(len(deletes)).rjust(RPAD)
+    modification_info: str = "MODIFY".ljust(LPAD) + str(len(modifies)).rjust(RPAD)
+    rename_info: str = "RENAME".ljust(LPAD) + str(len(renames)).rjust(RPAD)
+    type_info: str = "TYPE CHANGE".ljust(LPAD) + str(len(types)).rjust(RPAD)
 
-    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("=" * (LPAD + RPAD))
     echo("Note change types")
-    echo("-" * (WORD_PAD + COUNT_PAD))
-    echo(add_info)
-    echo(delete_info)
-    echo(modification_info)
-    echo(rename_info)
-    echo(typechange_info)
-    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("-" * (LPAD + RPAD))
+    echo(f"{add_info}\n{delete_info}\n{modification_info}\n{rename_info}\n{type_info}")
+    echo("=" * (LPAD + RPAD))
 
 
 @beartype
@@ -1530,6 +1523,19 @@ def pull_sm(
     remote_sm.close()
     sm_repo.close()
     return sub
+
+
+@beartype
+def get_note_metadata(col: Collection) -> Dict[str, NoteMetadata]:
+    """
+    Construct a map from guid -> (nid, mod, mid), adapted from
+    `Anki2Importer._import_notes()`. Note that `mod` is the modification
+    timestamp, in epoch seconds (timestamp of when the note was last modified).
+    """
+    guids: Dict[str, NoteMetadata] = {}
+    for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
+        guids[guid] = NoteMetadata(nid, mod, mid)
+    return guids
 
 
 @click.group()
@@ -1866,7 +1872,17 @@ def push() -> PushResult:
     # =================== NEW PUSH ARCHITECTURE ====================
 
     parser, transformer = M.parser_and_transformer()
-    deltas: Iterable[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
+    xs, ys = tee(diff2(remote_repo, parser, transformer))
+    deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
+    warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
+    _ = set(map(lambda w: warn(str(w)), warnings))
+
+    # If there are no changes, quit.
+    if not deltas:
+        echo("ki push: up to date.")
+        return PushResult.UP_TO_DATE
+
+    echo(f"Pushing to '{kirepo.col_file}'")
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
     return write_collection(
         deltas,
@@ -1881,7 +1897,7 @@ def push() -> PushResult:
 
 @beartype
 def write_collection(
-    deltas: Iterable[Union[Delta, Warning]],
+    deltas: Iterable[Delta],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
     parser: Lark,
@@ -1890,21 +1906,6 @@ def write_collection(
     con: sqlite3.Connection,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
-    deltas = list(deltas)
-    warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
-    deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
-
-    # Display warnings from diff procedure.
-    for warning in warnings:
-        click.secho(str(warning), fg="yellow")
-
-    # If there are no changes, quit.
-    if len(set(deltas)) == 0:
-        echo("ki push: up to date.")
-        return PushResult.UP_TO_DATE
-
-    echo(f"Pushing to '{kirepo.col_file}'")
-
     # Copy collection to a temp directory.
     temp_col_dir: Dir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
@@ -1923,42 +1924,29 @@ def write_collection(
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset("HEAD", hard=True)
 
+    xs, ys, zs = tee(deltas, 3)
+
     # Display table of note change type counts.
-    echo_note_change_types(deltas)
+    echo_note_change_types(xs)
 
-    # Construct a map from guid -> (nid, mod, mid), adapted from
-    # `Anki2Importer._import_notes()`. Note that `mod` is the modification
-    # timestamp, in epoch seconds (timestamp of when the note was last
-    # modified).
-    guids: Dict[str, NoteMetadata] = {}
-    for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
-        guids[guid] = NoteMetadata(nid, mod, mid)
+    dels: Iterable[Delta] = filter(lambda d: d.status == DELETED, ys)
+    deltas: Iterable[Delta] = filter(lambda d: d.status != DELETED, zs)
 
+    # Map guid -> (nid, mod, mid).
+    guids: Dict[str, NoteMetadata] = get_note_metadata(col)
+
+    # Parse to-be-deleted notes and remove them from collection.
+    parse = partial(parse_markdown_note, parser, transformer)
+    del_guids: Iterable[str] = map(lambda dd: dd.guid, map(parse, dels))
+    del_guids = filter(lambda g: g in guids, del_guids)
+    del_nids: Iterable[NoteId] = map(lambda g: guids[g].nid, del_guids)
+    col.remove_notes(list(del_nids))
+
+    # Push changes for all other notes.
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
-
-    is_delete = lambda d: d.status == GitChangeType.DELETED
-
-    warnings = []
-    for delta in deltas:
-
-        # Parse the file at `delta.path` into a `DeckNote`, and
-        # add/edit/delete in collection.
-        decknote = parse_markdown_note(parser, transformer, delta)
-
-        if is_delete(delta):
-            if decknote.guid in guids:
-                col.remove_notes([guids[decknote.guid].nid])
-            continue
-
-        # TODO: If relevant prefix of sort field has changed, we should
-        # regenerate the file. Recall that the sort field is used to determine
-        # the filename. If the content of the sort field has changed, then we
-        # may need to update the filename.
-        warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
-
-    for warning in warnings:
-        click.secho(str(warning), fg="yellow")
+    push_decknote = partial(push_note, col, timestamp_ns, guids, new_nids)
+    _ = set(map(lambda w: warn(str(w)), map(push_decknote, map(parse, deltas))))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -1990,8 +1978,7 @@ def write_collection(
 
     col.close(save=True)
 
-    for warning in warnings:
-        click.secho(str(warning), fg="yellow")
+    _ = set(map(lambda w: warn(str(w)), warnings))
 
     # Append to hashes file.
     new_md5sum = F.md5(kirepo.col_file)
