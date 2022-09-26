@@ -1263,29 +1263,11 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -> str
 
 
 @beartype
-def git_pull(
-    remote: str,
-    branch: str,
-    cwd: Dir,
-    unrelated: bool,
-    theirs: bool,
-    check: bool,
-    silent: bool,
-) -> None:
+def git_pull(remote: str, branch: str, cwd: Dir) -> str:
     """Pull remote into branch using a subprocess call."""
-    args = ["git", "pull", "-v"]
-    if unrelated:
-        args += ["--allow-unrelated-histories"]
-    if theirs:
-        args += ["--strategy-option=theirs"]
-    args += ["--verbose"]
-    args += [remote, branch]
+    args = ["git", "pull", "-v", remote, branch]
     p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
-    echo(f"{p.stdout.decode()}", silent=silent)
-    echo(f"{p.stderr.decode()}", silent=silent)
-    if check and p.returncode != 0:
-        click.secho(f"Error while pulling into '{cwd}'", fg="red")
-        raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
+    return f"{p.stdout.decode()}\n{p.stderr.decode()}"
 
 
 @beartype
@@ -1699,12 +1681,12 @@ def pull() -> None:
         echo("ki pull: up to date.")
         return
 
-    _pull(kirepo, silent=False)
+    _pull(kirepo)
     unlock(con)
 
 
 @beartype
-def _pull(kirepo: KiRepo, silent: bool) -> None:
+def _pull(kirepo: KiRepo) -> None:
     """
     Pull into `kirepo` without checking if we are already up-to-date.
 
@@ -1730,8 +1712,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     ----------
     kirepo : KiRepo
         A dataclass representing the Ki repository in the cwd.
-    silent : bool
-        Whether to suppress progress information printed to stdout.
 
     Raises
     ------
@@ -1752,7 +1732,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # Ki clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent)
+    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
@@ -1835,15 +1815,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
 
                 remote_target: Dir = F.gitd(remote_sm)
                 sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
-                git_pull(
-                    REMOTE_NAME,
-                    branch,
-                    F.root(sm_repo),
-                    False,
-                    False,
-                    False,
-                    silent,
-                )
+                echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
                 sm_repo.delete_remote(sm_remote)
                 remote_sm.close()
             sm_repo.close()
@@ -1897,7 +1869,7 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     # fast-forward only updates the branch pointer.
     lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
+    echo(git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root))
     kirepo.repo.delete_remote(lca_remote)
 
     # Append the hash of the collection to the hashes file, and raise an error

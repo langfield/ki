@@ -955,32 +955,6 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
         assert returncode == 1
 
 
-def test_git_pull():
-    ORIGINAL = get_test_collection("original")
-    EDITED = get_test_collection("edited")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-
-        # Edit collection.
-        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-        os.chdir(ORIGINAL.repodir)
-
-        # Pull, poorly.
-        with pytest.raises(RuntimeError):
-            git_pull(
-                "anki",
-                "main",
-                cwd=F.cwd(),
-                unrelated=True,
-                theirs=True,
-                check=True,
-                silent=False,
-            )
-
-
 def test_get_note_path():
     """Do we add ordinals to generated filenames if there are duplicates?"""
     runner = CliRunner()
