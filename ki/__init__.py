@@ -769,13 +769,13 @@ def get_header_lines(colnote) -> List[str]:
 def localmedia(s: str, regex: str) -> Iterable[str]:
     """Return local media filenames matching the given regex pattern."""
     fnames = map(lambda m: m.group("fname"), re.finditer(regex, s))
+    fnames = map(lambda s: s.strip(), fnames)
     return filter(lambda x: not re.match(URLS, x.lower()), fnames)
 
 
 @beartype
 def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
-    # TODO: This must be split into two lines to properly strip newlines.
     s = (s.strip()).replace('"', "")
     return F.cat(map(partial(localmedia, s), col.media.regexps))
 

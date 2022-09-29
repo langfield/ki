@@ -1633,8 +1633,16 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
 
 def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
     """Are newlines stripped from all found media filenames?"""
-    s = "<img src=\nfile.png>"
+    s = 'Wie sieht die Linkstruktur von einem Hub in einem Web-Graphen aus?\x1fEin guter Hub zeigt auf viele Authorities:\n<div><img src=\n"paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg"></div>'
     mock = mocker.MagicMock()
     mock.__class__ = Collection
+    mock.media.regexps = [
+        "(?i)(\\[sound:(?P<fname>[^]]+)\\])",
+        "(?i)(<(?:img|audio)\\b[^>]* src=(?P<str>[\\\"'])(?P<fname>[^>]+?)(?P=str)[^>]*>)",
+        "(?i)(<(?:img|audio)\\b[^>]* src=(?!['\\\"])(?P<fname>[^ >]+)[^>]*?>)",
+        "(?i)(<object\\b[^>]* data=(?P<str>[\\\"'])(?P<fname>[^>]+?)(?P=str)[^>]*>)",
+        "(?i)(<object\\b[^>]* data=(?!['\\\"])(?P<fname>[^ >]+)[^>]*?>)",
+    ]
     fnames: Iterable[str] = media_filenames_in_field(mock, s)
     assert not any(map(lambda f: "\n" in f, fnames))
+    assert not any(map(lambda f: "\\n" in f, fnames))
