@@ -1917,23 +1917,22 @@ def write_collection(
     col_name: str = kirepo.col_file.name
     new_col_file: NoFile = F.chk(temp_col_dir / col_name)
     new_col_file: File = F.copyfile(kirepo.col_file, new_col_file)
-    head: Rev = M.head(kirepo.repo)
 
-    # Open collection, holding cwd constant (otherwise Anki changes it).
+    # Open collection and add new models to root `models.json` file.
     col: Collection = M.collection(new_col_file)
-
-    # Add new models to the collection.
     set(map(partial(add_model, col), models.values()))
 
+    # TODO: This seems *very* wrong. Should we be stashing the actual kirepo or
+    # `head_kirepo`? We don't want to be stashing the user's unstaged changes.
+    #
     # Stash both unstaged and staged files (including untracked).
     kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     kirepo.repo.git.reset("HEAD", hard=True)
 
+    # Display table of note change type counts and partition deltas into
+    # 'deletes' and 'not deletes'.
     xs, ys, zs = tee(deltas, 3)
-
-    # Display table of note change type counts.
     echo_note_change_types(xs)
-
     dels: Iterable[Delta] = filter(lambda d: d.status == DELETED, ys)
     deltas: Iterable[Delta] = filter(lambda d: d.status != DELETED, zs)
 
@@ -1957,8 +1956,7 @@ def write_collection(
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    col_file = F.chk(F.parent(kirepo.col_file) / col_name)
-    F.copyfile(new_col_file, col_file)
+    F.copyfile(new_col_file, kirepo.col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Add media files to collection and follow windows symlinks.
@@ -1977,14 +1975,10 @@ def write_collection(
     _ = set(map(lambda w: warn(str(w)), warnings))
     col.close(save=True)
 
-    # Append to hashes file.
-    new_md5sum = F.md5(kirepo.col_file)
-    append_md5sum(kirepo.ki, kirepo.col_file.name, new_md5sum)
+    # Append collection checksum to hashes file.
+    append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
 
-    # Update the commit SHA of most recent successful PUSH.
-    head: Rev = M.head(kirepo.repo)
-    kirepo.lca_file.write_text(head.sha)
-
-    # Unlock Anki SQLite DB.
+    # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
+    kirepo.lca_file.write_text(M.head_ki(kirepo).sha)
     unlock(con)
     return PushResult.NONTRIVIAL

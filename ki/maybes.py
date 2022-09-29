@@ -287,6 +287,7 @@ def head_ki(kirepository: KiRepo) -> KiRev:
 @beartype
 def collection(col_file: File) -> Collection:
     """Open a collection or raise a pretty exception."""
+    # We hold cwd constant (otherwise Anki changes it).
     cwd: Dir = F.cwd()
     try:
         col = Collection(col_file)

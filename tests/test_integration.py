@@ -1335,7 +1335,7 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
         repo.index.commit(".")
 
         mocker.patch(
-            "ki.M.head",
+            "ki.M.head_ki",
             side_effect=[
                 GitHeadRefNotFoundError(repo, Exception("<exc>")),
             ],
