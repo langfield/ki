@@ -405,10 +405,10 @@ def get_repo_with_submodules(runner: CliRunner, col_file: File) -> git.Repo:
     # Create submodule out of GITREPO_PATH.
     submodule_name = SUBMODULE_DIRNAME
     shutil.copytree(GITREPO_PATH, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
-    sm = git.Repo(submodule_name)
-    sm.git.add(all=True)
-    _ = sm.index.commit("Initial commit.")
+    sm_repo = git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
+    sm_repo.git.add(all=True)
+    _ = sm_repo.index.commit("Initial commit.")
+    sm_repo.close()
 
     # Add as a submodule.
     repo.git.submodule("add", Path(submodule_name).resolve())
