@@ -642,7 +642,6 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
     return f"{nid}{F.slugify(fieldname)}"
 
 
-# TODO: Use more refined types than `int`.
 @beartype
 def add_db_note(
     col: Collection,
@@ -1291,8 +1290,6 @@ def tidy_html_recursively(root: Dir) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
     for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
-        # TODO: Should we fail silently here, so as to not bother user with
-        # tidy warnings?
         command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
         try:
             subprocess.run(command, check=False, capture_output=True)
