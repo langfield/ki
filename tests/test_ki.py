@@ -79,6 +79,7 @@ from ki import (
     add_db_note,
     tidy_html_recursively,
     media_filenames_in_field,
+    write_decks,
 )
 from ki.types import (
     NoFile,
@@ -1646,3 +1647,13 @@ def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
     fnames: Iterable[str] = media_filenames_in_field(mock, s)
     assert not any(map(lambda f: "\n" in f, fnames))
     assert not any(map(lambda f: "\\n" in f, fnames))
+
+
+def test_write_decks_skips_root_deck(tmp_path: Path):
+    """Is `[no deck]` skipped (as it should be)?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    col = open_collection(ORIGINAL.col_file)
+    nids: Iterable[int] = col.find_notes(query="")
+    colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
+    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    assert not os.path.isdir(tmp_path / "[no deck]")
