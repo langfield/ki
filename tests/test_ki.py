@@ -80,6 +80,7 @@ from ki import (
     tidy_html_recursively,
     media_filenames_in_field,
     write_decks,
+    write_collection,
 )
 from ki.types import (
     NoFile,
@@ -1657,3 +1658,47 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
     assert not os.path.isdir(tmp_path / "[no deck]")
+
+
+def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_path: Path, mocker: MockerFixture):
+    """Do we preserve working tree changes during push ops?"""
+    # Create repo and commit some contents.
+    targetdir = Dir(tmp_path / "targetdir")
+    targetdir.mkdir()
+    col_file = File(tmp_path / "collection.anki2")
+    col_file.touch()
+    r: git.Repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    (targetdir / "file").write_text("a", encoding="UTF-8")
+    F.commitall(r, "a")
+
+    # Make working tree changes.
+    (targetdir / "file").write_text("b", encoding="UTF-8")
+
+    # Create mocks.
+    kirepo = mocker.MagicMock()
+    kirepo.repo = r
+    kirepo.col_file = col_file
+    parse = mocker.MagicMock()
+    head_kirepo = mocker.MagicMock()
+    con = mocker.MagicMock()
+
+    # Set class properties to fool @beartype.
+    head_kirepo.__class__ = KiRepo
+    kirepo.__class__ = KiRepo
+    con.__class__ = sqlite3.Connection
+
+    # Patch some irrelevant functions.
+    mocker.patch("ki.backup")
+    mocker.patch("ki.functional.rglob")
+    mocker.patch("ki.append_md5sum")
+
+    # Write collection.
+    _ = write_collection([], {}, kirepo, parse, head_kirepo, con)
+
+    # Check that unstaged working tree changes are still there.
+    diffs = set(r.index.diff(None))
+    assert len(diffs) == 1
+    diff = diffs.pop()
+    assert isinstance(diff, git.Diff)
+    assert diff.a_path == "file"
+    assert diff.b_path == "file"

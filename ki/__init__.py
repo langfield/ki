@@ -1929,12 +1929,9 @@ def write_collection(
     col: Collection = M.collection(new_col_file)
     set(map(partial(add_model, col), models.values()))
 
-    # TODO: This seems *very* wrong. Should we be stashing the actual kirepo or
-    # `head_kirepo`? We don't want to be stashing the user's unstaged changes.
-    #
     # Stash both unstaged and staged files (including untracked).
-    kirepo.repo.git.stash(include_untracked=True, keep_index=True)
-    kirepo.repo.git.reset("HEAD", hard=True)
+    head_kirepo.repo.git.stash(include_untracked=True, keep_index=True)
+    head_kirepo.repo.git.reset("HEAD", hard=True)
 
     # Display table of note change type counts and partition deltas into
     # 'deletes' and 'not deletes'.
