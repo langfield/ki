@@ -98,6 +98,7 @@ from ki.types import (
     KiRev,
     Rev,
     Deck,
+    Root,
     DotKi,
     CardFile,
     NoteDBRow,
@@ -952,12 +953,27 @@ def write_repository(
 
 
 @beartype
-def postorder(node: Deck) -> List[Deck]:
+def postorder(node: Union[Root, Deck]) -> List[Deck]:
     """
     Post-order traversal. Guarantees that we won't process a node until we've
     processed all its children.
     """
-    return reduce(lambda xs, x: xs + postorder(x), node.children, []) + [node]
+    descendants: List[Deck] = reduce(lambda xs, x: xs + postorder(x), node.children, [])
+    if isinstance(node, Root):
+        return descendants
+    return descendants + [node]
+
+
+@beartype
+def preorder(node: Union[Root, Deck]) -> List[Deck]:
+    """
+    Pre-order traversal. Guarantees that we won't process a node until
+    we've processed all its ancestors.
+    """
+    descendants: List[Deck] = reduce(lambda xs, x: xs + preorder(x), node.children, [])
+    if isinstance(node, Root):
+        return descendants
+    return [node] + descendants
 
 
 @beartype
@@ -1012,7 +1028,7 @@ def write_decks(
 
     # Construct an iterable of all decks except the trivial deck.
     root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
-    decks: Iterable[Deck] = filter(lambda d: d.fullname != "", postorder(root))
+    decks: List[Deck] = postorder(root)
 
     # Write cards and models to disk for each deck.
     write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
@@ -1095,32 +1111,23 @@ def get_link(
 
 
 @beartype
-def preorder(node: Deck) -> List[Deck]:
-    """
-    Pre-order traversal. Guarantees that we won't process a node until
-    we've processed all its ancestors.
-    """
-    return reduce(lambda xs, x: xs + preorder(x), node.children, [node])
-
-
-@beartype
-def parentmap(root: Deck) -> Dict[str, Deck]:
+def parentmap(root: Union[Root, Deck]) -> Dict[str, Union[Root, Deck]]:
     """Map deck fullnames to parent `Deck`s."""
-    parents: Dict[str, Deck] = {child.fullname: root for child in root.children}
+    parents = {child.fullname: root for child in root.children}
     return parents | reduce(lambda x, y: x | y, map(parentmap, root.children), {})
 
 
 @beartype
 def planned_link(
-    parents: Dict[str, Deck], deck: Deck, media_file: File
+    parents: Dict[str, Union[Root, Deck]], deck: Deck, media_file: File
 ) -> Optional[PlannedLink]:
     """Get the target of the to-be-created media symlink."""
     link: Path = F.chk(deck.mediad / media_file.name, resolve=False)
     if not isinstance(link, NoFile):
         return None
 
-    parent: Deck = parents[deck.fullname]
-    if parent.did == 0:
+    parent: Union[Root, Deck] = parents[deck.fullname]
+    if isinstance(parent, Root):
         tgt = media_file
     else:
         tgt = F.chk(parent.mediad / media_file.name, resolve=False)
@@ -1132,7 +1139,7 @@ def symlink_deck_media(
     col: Collection,
     targetd: Dir,
     media: Dict[int, Set[File]],
-    parents: Dict[str, Deck],
+    parents: Dict[str, Union[Root, Deck]],
     deck: Deck,
 ) -> Iterable[WindowsLink]:
     """Create chained symlinks for a single deck."""
@@ -1153,13 +1160,13 @@ def symlink_deck_media(
 @beartype
 def symlink_media(
     col: Collection,
-    root: Deck,
+    root: Root,
     targetd: Dir,
     media: Dict[int, Set[File]],
 ) -> Set[WindowsLink]:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
-    decks: Iterable[Deck] = filter(lambda d: d.did != 0, preorder(root))
-    parents: Dict[str, Deck] = parentmap(root)
+    decks: List[Deck] = preorder(root)
+    parents: Dict[str, Union[Root, Deck]] = parentmap(root)
     symlink_fn = partial(symlink_deck_media, col, targetd, media, parents)
     windows_links: Iterable[WindowsLink] = F.cat(map(symlink_fn, decks))
     return set(windows_links)

@@ -273,6 +273,17 @@ class Deck:
 
 @beartype
 @dataclass(frozen=True)
+class Root:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: None
+    mediad: None
+    children: List[Deck]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
 class PlannedLink:
     """A not-yet-created symlink path and its extant target."""
 

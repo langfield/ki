@@ -40,6 +40,7 @@ from ki.types import (
     Field,
     ColNote,
     Deck,
+    Root,
     DotKi,
     PlannedLink,
     Notetype,
@@ -457,13 +458,23 @@ def deckd(deck_name: str, targetdir: Dir) -> Dir:
 
 
 @beartype
-def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Deck:
+def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]:
     """Get the deck directory and did for a decknode."""
     did = root.deck_id
     name = col.decks.name(did)
+    children: List[Deck] = list(map(partial(M.tree, col, targetd), root.children))
+    if root.deck_id == 0:
+        deckd, mediad = None, None
+        return Root(
+            did=did,
+            node=root,
+            deckd=None,
+            mediad=None,
+            fullname=name,
+            children=children,
+        )
     deckd = M.deckd(name, targetd)
     mediad: Dir = F.force_mkdir(deckd / MEDIA)
-    children: List[Deck] = list(map(partial(M.tree, col, targetd), root.children))
     return Deck(
         did=did,
         node=root,
