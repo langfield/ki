@@ -117,7 +117,6 @@ from ki.types import (
     MissingNoteIdError,
     NotetypeMismatchError,
     NoteFieldValidationWarning,
-    UnhealthyNoteWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeCollisionWarning,
@@ -134,6 +133,10 @@ from ki.types import (
     GitFileModeParseError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
+    EmptyNoteWarning,
+    DuplicateNoteWarning,
+    UnhealthyNoteWarning,
+    MediaDirectoryDeckNameCollisionWarning,
     notetype_json,
 )
 from ki.maybes import (
@@ -154,7 +157,6 @@ T = TypeVar("T")
 NoteId, DeckId, CardId = int, int, int
 CardFileMap = Dict[DeckId, List[CardFile]]
 
-# TODO: What if there is a deck called `_media`?
 UTF8 = "UTF-8"
 URLS = "(https?|ftp)://"
 MEDIA = M.MEDIA
@@ -382,27 +384,16 @@ def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
 
 
 @beartype
-def display_fields_health_warning(note: Note) -> int:
-    """Display warnings when Anki's fields health check fails."""
+def check_fields_health(note: Note) -> List[Warning]:
+    """Construct warnings when Anki's fields health check fails."""
     health = note.fields_check()
     if health == 1:
-        warn(f"Found empty note '{note.id}'")
-        warn(f"Fields health check code: {health}")
-    elif health == 2:
-        duplication = (
-            "Failed to add note to collection. Notetype/fields of "
-            + f"note '{note.id}' are duplicate of existing note."
-        )
-        warn(duplication)
-        warn(f"First field:\n{html_to_screen(note.fields[0])}")
-        warn(f"Fields health check code: {health}")
-    elif health != 0:
-        death = (
-            f"fatal: Note '{note.id}' failed fields check with unknown "
-            + f"error code: {health}"
-        )
-        logger.error(death)
-    return health
+        return [EmptyNoteWarning(note, health)]
+    if health == 2:
+        return [DuplicateNoteWarning(note, health, html_to_screen(note.fields[0]))]
+    if health != 0:
+        return [UnhealthyNoteWarning(note, health)]
+    return []
 
 
 @beartype
@@ -474,7 +465,7 @@ def update_field(decknote: DeckNote, note: Note, key: str, field: str) -> None:
 @beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
-) -> List[Warning]:
+) -> Iterable[Warning]:
     """
     Change all the data of `note` to that given in `decknote`.
 
@@ -532,11 +523,10 @@ def update_note(
     note.flush()
 
     # Remove if unhealthy.
-    health = display_fields_health_warning(note)
-    if health != 0:
+    fwarns: List[Warning] = check_fields_health(note)
+    if len(fwarns) > 0:
         note.col.remove_notes([nid])
-        warnings = chain(warnings, [UnhealthyNoteWarning(note.id, health)])
-    return list(warnings)
+    return chain(warnings, fwarns)
 
 
 @beartype
@@ -701,7 +691,7 @@ def push_note(
     guids: Dict[str, NoteMetadata],
     new_nids: Iterator[int],
     decknote: DeckNote,
-) -> List[Warning]:
+) -> Iterable[Warning]:
     """
     Update the Anki `Note` object in `col` corresponding to `decknote`,
     creating it if it does not already exist.
@@ -742,9 +732,7 @@ def push_note(
     # accordingly.
     old_notetype: Notetype = M.notetype(note.note_type())
     new_notetype: Notetype = M.notetype(col.models.get(model_id))
-    warnings = update_note(note, decknote, old_notetype, new_notetype)
-
-    return warnings
+    return update_note(note, decknote, old_notetype, new_notetype)
 
 
 @beartype
@@ -1027,7 +1015,11 @@ def write_decks(
 
     # Construct an iterable of all decks except the trivial deck.
     root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
-    decks: List[Deck] = postorder(root)
+    xs, ys = tee(postorder(root), 2)
+    decks: List[Deck] = list(filter(lambda d: MEDIA not in d.fullname, xs))
+    bads: List[Deck] = list(filter(lambda d: MEDIA in d.fullname, ys))
+    if len(bads) > 0:
+        warn(MediaDirectoryDeckNameCollisionWarning())
 
     # Write cards and models to disk for each deck.
     write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
@@ -1280,9 +1272,9 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def warn(string: str) -> None:
+def warn(w: Warning) -> None:
     """Call `click.secho()` with formatting (yellow)."""
-    click.secho(f"WARNING: {string}", bold=True, fg="yellow")
+    click.secho(f"WARNING: {str(w)}", bold=True, fg="yellow")
 
 
 @beartype
@@ -1314,6 +1306,7 @@ def get_target(cwd: Dir, col_file: File, directory: str) -> Tuple[EmptyDir, bool
 @beartype
 def echo_note_change_types(deltas: Iterable[Delta]) -> None:
     """Write a table of git change types for notes to stdout."""
+    # pylint: disable=too-many-locals
     is_change_type = lambda t: lambda d: d.status == t
 
     vs, ws, xs, ys, zs = tee(deltas, 5)
@@ -1364,7 +1357,7 @@ def add_model(col: Collection, model: Notetype) -> None:
 
         # If the hashes don't match, then we somehow need to update
         # `decknote.model` for the relevant notes.
-        warn(str(NotetypeCollisionWarning(model, existing)))
+        warn(NotetypeCollisionWarning(model, existing))
 
     nt_copy: NotetypeDict = copy.deepcopy(model.dict)
     nt_copy["id"] = 0
@@ -1867,6 +1860,7 @@ def push() -> PushResult:
     UpdatesRejectedError
         If the user needs to pull remote changes first.
     """
+    # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -1893,7 +1887,7 @@ def push() -> PushResult:
     xs, ys = tee(diff2(remote_repo, parse))
     deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
     warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
-    _ = set(map(lambda w: warn(str(w)), warnings))
+    _ = set(map(warn, warnings))
 
     # If there are no changes, quit.
     if not deltas:
@@ -1915,6 +1909,7 @@ def write_collection(
     con: sqlite3.Connection,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
+    # pylint: disable=too-many-locals
     # Copy collection to a temp directory.
     temp_col_dir: Dir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
@@ -1949,8 +1944,8 @@ def write_collection(
     # Push changes for all other notes.
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
-    push_decknote = partial(push_note, col, timestamp_ns, guids, new_nids)
-    _ = set(map(lambda w: warn(str(w)), map(push_decknote, map(parse, deltas))))
+    push_fn = partial(push_note, col, timestamp_ns, guids, new_nids)
+    _ = set(map(warn, chain.from_iterable(map(push_fn, map(parse, deltas)))))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -1973,7 +1968,7 @@ def write_collection(
     added_media: Iterable[AddedMedia] = map(partial(addmedia, col), mbytes)
     renames = filter(lambda a: a.file.name != a.new_name, added_media)
     warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
-    _ = set(map(lambda w: warn(str(w)), warnings))
+    _ = set(map(warn, warnings))
     col.close(save=True)
 
     # Append collection checksum to hashes file.
