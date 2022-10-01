@@ -40,6 +40,7 @@ jobs:
           pip install .
 
       - name: Test package
+        run: |
           pytest -vv tests/test_package.py
 
       - name: Install test dependencies
