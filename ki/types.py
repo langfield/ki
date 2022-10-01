@@ -717,13 +717,6 @@ class InconsistentFieldNamesWarning(Warning):
         super().__init__(f"{top}\n{errwrap(msg)}")
 
 
-class UnhealthyNoteWarning(Warning):
-    @beartype
-    def __init__(self, nid: int, code: int):
-        top = f"Warning: Note '{nid}' failed fields check with error code '{code}'"
-        super().__init__(top)
-
-
 class DeletedFileNotFoundWarning(Warning):
     @beartype
     def __init__(self, path: Path):
@@ -795,3 +788,42 @@ class NotetypeCollisionWarning(Warning):
         notetype with mid '{existing.id}', but hashes differ.
         """
         super().__init__(f"{errwrap(msg)}\n\n{nt_str(model)}\n\n{nt_str(existing)}")
+
+
+class EmptyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f"Found empty note with nid '{note.id}'"
+        msg = f"""
+        Anki fields health check code: '{health}'
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class DuplicateNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int, rep: str):
+        top = "Failed to add duplicate note to collection"
+        msg = f"""
+        Notetype/fields of note with nid '{note.id}' are duplicate of existing note.
+        """
+        field = f"First field\n-----------\n{rep}"
+        code = f"Anki fields health check code: {health}"
+        super().__init__(f"{top}\n{errwrap(msg)}\n\n{field}\n\n{code}")
+
+
+class UnhealthyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f"Note with nid '{note.id}' failed fields check with unknown error code"
+        msg = f"""
+        Anki fields health check code: '{health}'
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class MediaDirectoryDeckNameCollisionWarning(Warning):
+    @beartype
+    def __init__(self):
+        top = f"Decks with name '_media' skipped as name is reserved"
+        super().__init__(f"{top}")

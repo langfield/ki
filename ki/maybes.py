@@ -12,7 +12,6 @@ from functools import partial
 
 import git
 from lark import Lark
-from loguru import logger
 from beartype import beartype
 from beartype.typing import Union, Dict, Any, Optional, List, Tuple, Iterable
 
@@ -426,9 +425,9 @@ def colnote(col: Collection, nid: int) -> ColNote:
     try:
         deck = col.decks.name(note.cards()[0].did)
     except IndexError as err:
-        logger.error(f"{note.cards() = }")
-        logger.error(f"{note.guid = }")
-        logger.error(f"{note.id = }")
+        F.red(f"{note.cards() = }")
+        F.red(f"{note.guid = }")
+        F.red(f"{note.id = }")
         raise err
     colnote = ColNote(
         n=note,
@@ -494,7 +493,7 @@ def winlink(targetd: Dir, l: PlannedLink) -> Optional[WindowsLink]:
         link: Union[Link, WindowsLink] = F.symlink(l.link, target)
     except OSError as _:
         trace = traceback.format_exc(limit=3)
-        logger.warning(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
+        F.yellow(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
     return link if isinstance(link, WindowsLink) else None
 
 

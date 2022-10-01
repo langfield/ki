@@ -64,7 +64,7 @@ from ki import (
     get_note_path,
     backup,
     update_note,
-    display_fields_health_warning,
+    check_fields_health,
     is_anki_note,
     parse_note,
     lock,
@@ -102,6 +102,8 @@ from ki.types import (
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
     UpdatesRejectedError,
+    MediaDirectoryDeckNameCollisionWarning,
+    EmptyNoteWarning,
 )
 from ki.transformer import NoteTransformer
 
@@ -637,7 +639,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name():
         update_note(note, decknote, notetype, notetype)
 
 
-def test_display_fields_health_warning_catches_missing_clozes():
+def test_check_fields_health_catches_missing_clozes():
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
@@ -650,12 +652,12 @@ def test_display_fields_health_warning_catches_missing_clozes():
     cloze: Notetype = M.notetype(clz)
     notetype: Notetype = M.notetype(note.note_type())
     warnings = update_note(note, decknote, notetype, cloze)
-    warning = warnings.pop()
+    warning = list(warnings).pop()
     assert isinstance(warning, Exception)
     assert isinstance(warning, UnhealthyNoteWarning)
 
-    msg = "Warning: Note '1645010162168' failed fields check with error code '3'"
-    assert str(warning) == msg
+    assert "'1645010162168'" in str(warning)
+    assert "Anki fields health check code: '3'" in str(warning)
 
 
 def test_update_note_changes_notetype():
@@ -675,14 +677,14 @@ def test_update_note_changes_notetype():
     update_note(note, decknote, notetype, reverse)
 
 
-def test_display_fields_health_warning_catches_empty_notes():
+def test_check_fields_health_catches_empty_notes():
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
 
     note.fields = []
-    health = display_fields_health_warning(note)
-    assert health == 1
+    w = check_fields_health(note)[0]
+    assert isinstance(w, EmptyNoteWarning)
 
 
 def test_slugify_handles_unicode():
@@ -1702,3 +1704,17 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_p
     assert isinstance(diff, git.Diff)
     assert diff.a_path == "file"
     assert diff.b_path == "file"
+
+
+def test_write_decks_warns_about_media_deck_name_collisions(tmp_path: Path, mocker: MockerFixture):
+    DECK: SampleCollection = get_test_collection("deck_with_same_name_as_media_directory")
+    col = open_collection(DECK.col_file)
+    nids: Iterable[int] = col.find_notes(query="")
+    colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
+    mock = mocker.patch("ki.warn")
+    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+
+    mock.assert_called_once()
+    args = mock.call_args
+    w = args.args[0]
+    assert isinstance(w, MediaDirectoryDeckNameCollisionWarning)

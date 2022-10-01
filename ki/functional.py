@@ -19,6 +19,7 @@ from itertools import chain
 from functools import partial
 
 import git
+from colorama import Fore, Style
 
 from beartype import beartype
 from beartype.typing import (
@@ -406,3 +407,15 @@ def git_rm(repo: git.Repo, path: str) -> str:
     """Remove a path in a repo."""
     repo.git.rm(path)
     return path
+
+
+@beartype
+def yellow(s: str) -> None:
+    """Print a message to the console in yellow."""
+    print(f"{Fore.YELLOW}{s}{Style.RESET_ALL}")
+
+
+@beartype
+def red(s: str) -> None:
+    """Print a message to the console in red."""
+    print(f"{Fore.RED}{s}{Style.RESET_ALL}")
