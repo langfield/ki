@@ -825,5 +825,5 @@ class UnhealthyNoteWarning(Warning):
 class MediaDirectoryDeckNameCollisionWarning(Warning):
     @beartype
     def __init__(self):
-        top = f"Decks with name '_media' skipped as name is reserved"
+        top = "Decks with name '_media' skipped as name is reserved"
         super().__init__(f"{top}")

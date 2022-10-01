@@ -12,6 +12,7 @@ import shutil
 import hashlib
 import tempfile
 import functools
+import subprocess
 import unicodedata
 from types import TracebackType
 from pathlib import Path
@@ -19,6 +20,7 @@ from itertools import chain
 from functools import partial
 
 import git
+from tqdm import tqdm
 from colorama import Fore, Style
 
 from beartype import beartype
@@ -52,13 +54,11 @@ from ki.types import (
 
 T = TypeVar("T")
 
+UTF8 = "UTF-8"
 GIT = ".git"
 GITMODULES_FILE = ".gitmodules"
-
-SPINNER = "bouncingBall"
-HALO_ENABLED = True
-if "KITEST" in os.environ and os.environ["KITEST"] == "1":
-    HALO_ENABLED = False
+PIPE = subprocess.PIPE
+STDOUT = subprocess.STDOUT
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -398,7 +398,21 @@ def cat(xs: Iterable[Iterable[T]]) -> Iterable[T]:
 @beartype
 def commitall(repo: git.Repo, msg: str) -> git.Commit:
     """Commit all contents of a git repository."""
-    repo.git.add(all=True)
+    cwd = F.root(repo)
+    file_cmd = "find . -type f | wc -l"
+    link_cmd = "find . -type l | wc -l"
+    p = subprocess.run(file_cmd, shell=True, cwd=cwd, check=True, capture_output=True)
+    q = subprocess.run(link_cmd, shell=True, cwd=cwd, check=True, capture_output=True)
+    nfiles = int(p.stdout.decode())
+    nlinks = int(q.stdout.decode())
+    total = nfiles + nlinks
+
+    args = ["git", "add", "-v", "."]
+    with subprocess.Popen(args, cwd=cwd, stdout=PIPE, stderr=STDOUT) as p:
+        progress: Iterable[str] = tqdm(p.stdout, ncols=80, total=total, leave=False)
+        progress.set_description("Git")
+        for _ in progress:
+            pass
     return repo.index.commit(msg)
 
 
@@ -419,3 +433,11 @@ def yellow(s: str) -> None:
 def red(s: str) -> None:
     """Print a message to the console in red."""
     print(f"{Fore.RED}{s}{Style.RESET_ALL}")
+
+
+@beartype
+def progressbar(xs: Iterable[T], s: str) -> Iterable[T]:
+    """Print a progress bar for an iterable."""
+    ys: Iterable[T] = tqdm(xs, ncols=80)
+    ys.set_description(s)
+    return ys

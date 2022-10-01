@@ -152,6 +152,8 @@ from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
 
+TQ = F.progressbar
+
 T = TypeVar("T")
 NoteId, DeckId, CardId = int, int, int
 CardFileMap = Dict[DeckId, List[CardFile]]
@@ -164,8 +166,6 @@ BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
-CHANGE_TYPES = list("ADRMT")
-TQDM_NUM_COLS = 80
 MAX_FILENAME_LEN = 60
 IGNORE_DIRS = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
@@ -177,7 +177,6 @@ FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
 TIDY_CMD = "tidy -q -m -i -omit -utf8"
 TIDY_OPTS = "--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes"
 
-GENERATED_HTML_SENTINEL = "data-original-markdown"
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 
 # This is the key for media files associated with notetypes instead of the
@@ -185,9 +184,7 @@ MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 NOTETYPE_NID = -57
 
 MD = ".md"
-FAILED = "Failed: exiting."
 
-VERBOSE = False
 ALHPANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 SYMBOLS = "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
 BASE91_TABLE = list(ALHPANUMERICS + SYMBOLS)
@@ -841,6 +838,7 @@ def copy_media_files(
     # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
+    rows = TQ(rows, "Media")
     copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
     media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
@@ -916,11 +914,11 @@ def write_repository(
 
     # ColNote-containing data structure, to be passed to `write_decks()`.
     col: Collection = M.collection(col_file)
-    nids: Iterable[int] = col.find_notes(query="")
+    nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
     fields_fn = partial(write_fields, root)
-    tidy_field_files: Dict[str, File] = dict(F.cat(map(fields_fn, colnotes.values())))
+    fieldfiles = dict(F.cat(map(fields_fn, TQ(colnotes.values(), "Fields"))))
     tidy_html_recursively(root)
 
     windows_links: Set[WindowsLink] = write_decks(
@@ -928,7 +926,7 @@ def write_repository(
         targetdir=targetdir,
         colnotes=colnotes,
         media=media,
-        tidy_field_files=tidy_field_files,
+        tidy_field_files=fieldfiles,
     )
 
     F.rmtree(root)
@@ -1014,10 +1012,11 @@ def write_decks(
     # Construct an iterable of all decks except the trivial deck.
     root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
     xs, ys = tee(postorder(root), 2)
-    decks: List[Deck] = list(filter(lambda d: MEDIA not in d.fullname, xs))
     bads: List[Deck] = list(filter(lambda d: MEDIA in d.fullname, ys))
     if len(bads) > 0:
         warn(MediaDirectoryDeckNameCollisionWarning())
+    decks: Iterable[Deck] = filter(lambda d: MEDIA not in d.fullname, xs)
+    decks = TQ(list(decks), "Decks")
 
     # Write cards and models to disk for each deck.
     write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
@@ -1168,11 +1167,7 @@ def html_to_screen(html: str) -> str:
     markdown file.
 
     Does very litle (just converts HTML-escaped special characters like `<br>`
-    tags or `&nbsp;`s to their UTF-8 equivalents) in the case where the
-    sentinel string does not appear. This string, `GENERATED_HTML_SENTINEL`,
-    indicates that a note was first created in a ki markdown file, and
-    therefore its HTML structure can be safely stripped out within calls to
-    `write_decks()`.
+    tags or `&nbsp;`s to their UTF-8 equivalents).
     """
     html = re.sub(r"\<style\>.*\<\/style\>", "", html, flags=re.S)
     plain = html
@@ -1197,18 +1192,6 @@ def html_to_screen(html: str) -> str:
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
     return plain.strip()
-
-
-@beartype
-def get_colnote_as_str(colnote: ColNote) -> str:
-    """Return string representation of a `ColNote`."""
-    lines = get_header_lines(colnote)
-    for field_name, field_text in colnote.n.items():
-        lines.append("### " + field_name)
-        lines.append(html_to_screen(field_text))
-        lines.append("")
-
-    return "\n".join(lines)
 
 
 @beartype
