@@ -44,7 +44,6 @@ import git
 import click
 import whatthepatch
 from lark import Lark
-from loguru import logger
 from more_itertools import peekable
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
@@ -581,9 +580,8 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
-
-        logger.warning(f"Slug for note with guid '{colnote.n.guid}' is empty...")
-        logger.warning(f"Using blake2 hash of guid as filename: '{slug}'")
+        F.yellow(f"Slug for note with guid '{colnote.n.guid}' is empty...")
+        F.yellow(f"Using blake2 hash of guid as filename: '{slug}'")
 
     if card_name != "":
         slug = f"{slug}_{card_name}"
