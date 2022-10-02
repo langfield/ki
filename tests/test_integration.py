@@ -1832,3 +1832,25 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         assert (
             '<img src="paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg">' in escaped
         )
+
+
+def test_push_is_idempotent():
+    """Are nontrivial push ops idempotent?"""
+    KOREAN: SampleCollection = get_test_collection("tiny_korean")
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+
+        # Clone collection in cwd.
+        clone(runner, KOREAN.col_file)
+        assert os.path.isdir(KOREAN.repodir)
+
+        os.chdir(KOREAN.repodir)
+        shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
+        repo = git.Repo(".")
+        F.commitall(repo, "msg")
+        push(runner)
+
+        repo.git.reset(["--hard", "HEAD~1"])
+        push(runner)
+        out = push(runner)
+        assert "up to date" in out

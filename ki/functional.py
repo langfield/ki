@@ -398,21 +398,7 @@ def cat(xs: Iterable[Iterable[T]]) -> Iterable[T]:
 @beartype
 def commitall(repo: git.Repo, msg: str) -> git.Commit:
     """Commit all contents of a git repository."""
-    cwd = F.root(repo)
-    file_cmd = "find . -type f | wc -l"
-    link_cmd = "find . -type l | wc -l"
-    p = subprocess.run(file_cmd, shell=True, cwd=cwd, check=True, capture_output=True)
-    q = subprocess.run(link_cmd, shell=True, cwd=cwd, check=True, capture_output=True)
-    nfiles = int(p.stdout.decode())
-    nlinks = int(q.stdout.decode())
-    total = nfiles + nlinks
-
-    args = ["git", "add", "-v", "."]
-    with subprocess.Popen(args, cwd=cwd, stdout=PIPE, stderr=STDOUT) as p:
-        progress: Iterable[str] = tqdm(p.stdout, ncols=80, total=total, leave=False)
-        progress.set_description("Git")
-        for _ in progress:
-            pass
+    repo.git.add(all=True)
     return repo.index.commit(msg)
 
 

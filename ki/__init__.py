@@ -704,7 +704,12 @@ def push_note(
 
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
-        note: Note = col.get_note(nid)
+        try:
+            note: Note = col.get_note(nid)
+        except NotFoundError as err:
+            print(f"{nid = }")
+            print(f"{decknote.guid = }")
+            raise err
     else:
         nid: int = next(new_nids)
         note: Note = add_db_note(
@@ -1918,15 +1923,16 @@ def write_collection(
 
     # Parse to-be-deleted notes and remove them from collection.
     del_guids: Iterable[str] = map(lambda dd: dd.guid, map(parse, dels))
-    del_guids = filter(lambda g: g in guids, del_guids)
+    del_guids = set(filter(lambda g: g in guids, del_guids))
     del_nids: Iterable[NoteId] = map(lambda g: guids[g].nid, del_guids)
     col.remove_notes(list(del_nids))
 
     # Push changes for all other notes.
+    guids = {k: v for k, v in guids.items() if k not in del_guids}
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
     push_fn = partial(push_note, col, timestamp_ns, guids, new_nids)
-    _ = set(map(warn, chain.from_iterable(map(push_fn, map(parse, deltas)))))
+    _ = set(map(warn, F.cat(map(push_fn, map(parse, deltas)))))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
