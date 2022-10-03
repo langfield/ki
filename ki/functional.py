@@ -123,6 +123,7 @@ def shallow_walk(
     directory: Dir,
 ) -> Tuple[Dir, List[Dir], List[File]]:
     """Walk only the top-level directory with `os.walk()`."""
+    # pylint: disable=redefined-outer-name
     root, dirs, files = next(os.walk(directory))
     root = Dir(root)
     dirs = [Dir(root / d) for d in dirs]
@@ -136,6 +137,7 @@ def walk(
     directory: Dir,
 ) -> FrozenSet[Union[File, PseudoFile, Link, NoFile]]:
     """Get all file-like leaves in a directory, recursively."""
+    # pylint: disable=redefined-outer-name
     leaves = frozenset()
     for root, _, files in os.walk(directory):
         root = Dir(root)
@@ -260,9 +262,9 @@ def copyfile(source: File, target: Union[File, NoFile]) -> File:
 
 
 @beartype
-def rglob(root: Dir, pattern: str) -> List[File]:
-    """Call root.rglob() and returns only files."""
-    files = filter(lambda p: isinstance(p, File), map(F.chk, root.rglob(pattern)))
+def rglob(d: Dir, pattern: str) -> List[File]:
+    """Call d.rglob() and returns only files."""
+    files = filter(lambda p: isinstance(p, File), map(F.chk, d.rglob(pattern)))
     return list(files)
 
 
@@ -358,11 +360,11 @@ def rmsm(repo: git.Repo, sm: git.Submodule) -> git.Commit:
     # Remove the submodule root and delete its .git directory.
     sm_root = Path(sm.module().working_tree_dir)
     repo.git.rm(sm_root, cached=True)
-    gitd = F.chk(sm_root / GIT)
-    if isinstance(gitd, Dir):
-        F.rmtree(gitd)
+    dotgit = F.chk(sm_root / GIT)
+    if isinstance(dotgit, Dir):
+        F.rmtree(dotgit)
     else:
-        gitd.unlink(missing_ok=True)
+        dotgit.unlink(missing_ok=True)
 
     # Directory `sm_root` should still exist after `git.rm()` call.
     repo.git.add(sm_root)

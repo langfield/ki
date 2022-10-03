@@ -169,7 +169,6 @@ class KiRepo:
     config_file: File
     hashes_file: File
     models_file: File
-    lca_file: File
 
 
 @beartype
@@ -295,7 +294,6 @@ class PlannedLink:
 @dataclass(frozen=True)
 class DotKi:
     config: File
-    last_push: File
     backups: EmptyDir
 
 

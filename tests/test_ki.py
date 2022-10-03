@@ -35,6 +35,7 @@ import ki.functional as F
 from ki import (
     BRANCH_NAME,
     KI,
+    LCA,
     UTF8,
     MEDIA,
     HEAD_SUFFIX,
@@ -1642,6 +1643,7 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_p
     r: git.Repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     (targetdir / "file").write_text("a", encoding="UTF-8")
     F.commitall(r, "a")
+    r.create_tag(LCA)
 
     # Make working tree changes.
     (targetdir / "file").write_text("b", encoding="UTF-8")

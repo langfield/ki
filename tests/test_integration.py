@@ -24,7 +24,7 @@ from beartype.typing import List
 import ki
 import ki.maybes as M
 import ki.functional as F
-from ki import MEDIA
+from ki import MEDIA, LCA
 from ki.types import (
     KiRepo,
     Notetype,
@@ -763,7 +763,7 @@ def test_pull_still_works_from_subdirectories():
 
 
 def test_pull_displays_errors_from_rev():
-    """Does 'pull()' return early when the last push commit rev is bad?"""
+    """Does 'pull()' return early when the last push tag is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -772,14 +772,15 @@ def test_pull_displays_errors_from_rev():
         clone(runner, ORIGINAL.col_file)
 
         kirepo: KiRepo = M.kirepo(F.chk(Path(ORIGINAL.repodir)))
-        kirepo.lca_file.write_text("gibberish")
+        kirepo.repo.delete_tag(LCA)
 
         # Edit collection.
         shutil.copyfile(EDITED.path, ORIGINAL.col_file)
 
         os.chdir(ORIGINAL.repodir)
-        with pytest.raises(GitRefNotFoundError):
+        with pytest.raises(ValueError) as err:
             pull(runner)
+        assert LCA in str(err)
 
 
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
@@ -1271,24 +1272,6 @@ def test_push_deletes_added_notes():
         contents = os.listdir(os.path.join(ORIGINAL.repodir, "Default"))
         notes = [path for path in contents if path[-3:] == ".md"]
         assert len(notes) == 2
-
-
-def test_push_displays_informative_error_when_lca_file_is_missing():
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-        repo = git.Repo(ORIGINAL.repodir)
-
-        lca_path = Path(repo.working_dir) / ".ki" / "last_push"
-        os.remove(lca_path)
-
-        # We should get a missing file error.
-        os.chdir(ORIGINAL.repodir)
-        with pytest.raises(MissingFileError):
-            push(runner)
 
 
 def test_push_honors_ignore_patterns():

@@ -74,7 +74,6 @@ GITMODULES_FILE = F.GITMODULES_FILE
 CONFIG_FILE = "config"
 HASHES_FILE = "hashes"
 BACKUPS_DIR = "backups"
-LAST_PUSH_FILE = "last_push"
 
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
@@ -105,12 +104,6 @@ This is the top-level '{MODELS_FILE}' file, which contains serialized notetypes
 for all notes in the current repository. Ki should always create this during
 cloning. If it has been manually deleted, try reverting to an earlier commit.
 Otherwise, it may indicate that the repository has become corrupted.
-"""
-
-LAST_PUSH_FILE_INFO = """
-This is the '.ki/last_push' file, used internally by ki to keep diffs and
-eliminate unnecessary merge conflicts during pull operations. It should never
-be missing, and if it is, the repository may have become corrupted.
 """
 
 COL_FILE_INFO = """
@@ -233,7 +226,6 @@ def kirepo(cwd: Dir) -> KiRepo:
     config_file = M.xfile(kid / CONFIG_FILE, info=CONFIG_FILE_INFO)
     hashes_file = M.xfile(kid / HASHES_FILE, info=HASHES_FILE_INFO)
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
-    lca_file = M.xfile(kid / LAST_PUSH_FILE, info=LAST_PUSH_FILE_INFO)
 
     # Check that collection file exists.
     config = configparser.ConfigParser()
@@ -250,7 +242,6 @@ def kirepo(cwd: Dir) -> KiRepo:
         config_file,
         hashes_file,
         models_file,
-        lca_file,
     )
 
 
@@ -267,10 +258,10 @@ def head(repository: git.Repo) -> Rev:
     """Return a `Rev` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
-        rev = Rev(repository, repository.head.commit.hexsha)
+        r = Rev(repository, repository.head.commit.hexsha)
     except ValueError as err:
         raise GitHeadRefNotFoundError(repository, err) from err
-    return rev
+    return r
 
 
 @beartype
@@ -278,10 +269,10 @@ def head_ki(kirepository: KiRepo) -> KiRev:
     """Return a `KiRev` for HEAD of current branch."""
     # GitPython raises a ValueError when references don't exist.
     try:
-        rev = KiRev(kirepository, kirepository.repo.head.commit.hexsha)
+        r = KiRev(kirepository, kirepository.repo.head.commit.hexsha)
     except ValueError as err:
         raise GitHeadRefNotFoundError(kirepository.repo, err) from err
-    return rev
+    return r
 
 
 @beartype
@@ -351,6 +342,7 @@ def filemode(file: Union[File, Dir, PseudoFile, Link, WindowsLink]) -> int:
 @beartype
 def template(t: Dict[str, Any]) -> Template:
     """Construct a template."""
+    # pylint: disable=redefined-builtin
     name, qfmt, afmt, ord = t["name"], t["qfmt"], t["afmt"], t["ord"]
     return Template(name=name, qfmt=qfmt, afmt=afmt, ord=ord)
 
@@ -411,12 +403,12 @@ def colnote(col: Collection, nid: int) -> ColNote:
         note = col.get_note(nid)
     except NotFoundError as err:
         raise MissingNoteIdError(nid) from err
-    notetype: Notetype = M.notetype(note.note_type())
+    nt: Notetype = M.notetype(note.note_type())
 
     # Get sort field content. See comment where we subscript in the same way in
     # `push_note()`.
     try:
-        sortf_text: str = note[notetype.sortf.name]
+        sortf_text: str = note[nt.sortf.name]
     except KeyError as err:
         raise NoteFieldKeyError(str(err), nid) from err
 
@@ -429,16 +421,15 @@ def colnote(col: Collection, nid: int) -> ColNote:
         F.red(f"{note.guid = }")
         F.red(f"{note.id = }")
         raise err
-    colnote = ColNote(
+    return ColNote(
         n=note,
         new=False,
         deck=deck,
         title="",
         markdown=False,
-        notetype=notetype,
+        notetype=nt,
         sortf_text=sortf_text,
     )
-    return colnote
 
 
 @beartype
@@ -463,7 +454,7 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]
     name = col.decks.name(did)
     children: List[Deck] = list(map(partial(M.tree, col, targetd), root.children))
     if root.deck_id == 0:
-        deckd, mediad = None, None
+        deckdir, mediadir = None, None
         return Root(
             did=did,
             node=root,
@@ -472,13 +463,13 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]
             fullname=name,
             children=children,
         )
-    deckd = M.deckd(name, targetd)
-    mediad: Dir = F.force_mkdir(deckd / MEDIA)
+    deckdir = M.deckd(name, targetd)
+    mediadir: Dir = F.force_mkdir(deckdir / MEDIA)
     return Deck(
         did=did,
         node=root,
-        deckd=deckd,
-        mediad=mediad,
+        deckd=deckdir,
+        mediad=mediadir,
         fullname=name,
         children=children,
     )
@@ -509,9 +500,8 @@ def empty_kirepo(root: EmptyDir) -> Tuple[EmptyDir, EmptyDir]:
 def dotki(kidir: EmptyDir) -> DotKi:
     """Create empty metadata files in `.ki/`."""
     config = F.touch(kidir, CONFIG_FILE)
-    last_push = F.touch(kidir, LAST_PUSH_FILE)
     backups = F.mksubdir(kidir, Path(BACKUPS_DIR))
-    return DotKi(config=config, last_push=last_push, backups=backups)
+    return DotKi(config=config, backups=backups)
 
 
 @beartype
@@ -527,39 +517,39 @@ def submodule(parent_repo: git.Repo, sm: git.Submodule) -> Submodule:
     try:
         branch = sm_repo.active_branch.name
     except TypeError:
-        head: git.Head = next(iter(sm_repo.branches))
-        branch = head.name
+        h: git.Head = next(iter(sm_repo.branches))
+        branch = h.name
     return Submodule(sm=sm, sm_repo=sm_repo, rel_root=sm_rel_root, branch=branch)
 
 
 @beartype
-def submodules(repo: git.Repo) -> Dict[Path, Submodule]:
+def submodules(r: git.Repo) -> Dict[Path, Submodule]:
     """Map submodule relative roots to `Submodule`s."""
-    sms: Iterable[git.Submodule] = repo.submodules
+    sms: Iterable[git.Submodule] = r.submodules
     sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
-    subs: Iterable[Submodule] = map(partial(M.submodule, repo), sms)
+    subs: Iterable[Submodule] = map(partial(M.submodule, r), sms)
     return {s.rel_root: s for s in subs}
 
 
 @beartype
-def gitcopy(repo: git.Repo, remote_root: Dir, unsub: bool) -> git.Repo:
-    """Replace all files in `repo` with contents of `remote_root`."""
-    git_copy = F.copytree(F.gitd(repo), F.chk(F.mkdtemp() / "GIT"))
-    repo.close()
-    root: NoFile = F.rmtree(F.root(repo))
-    del repo
+def gitcopy(r: git.Repo, remote_root: Dir, unsub: bool) -> git.Repo:
+    """Replace all files in `r` with contents of `remote_root`."""
+    git_copy = F.copytree(F.gitd(r), F.chk(F.mkdtemp() / "GIT"))
+    r.close()
+    root: NoFile = F.rmtree(F.root(r))
+    del r
     root: Dir = F.copytree(remote_root, root)
 
-    repo: git.Repo = M.repo(root)
+    r: git.Repo = M.repo(root)
     if unsub:
-        repo = F.unsubmodule(repo)
-    gitd: NoPath = F.rmtree(F.gitd(repo))
-    del repo
+        r = F.unsubmodule(r)
+    gitd: NoPath = F.rmtree(F.gitd(r))
+    del r
     F.copytree(git_copy, F.chk(gitd))
 
     # Note that we do not commit, so changes are in working tree.
-    repo: git.Repo = M.repo(root)
-    return repo
+    r: git.Repo = M.repo(root)
+    return r
 
 
 @beartype

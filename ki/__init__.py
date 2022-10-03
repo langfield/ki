@@ -146,7 +146,6 @@ from ki.maybes import (
     CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
-    LAST_PUSH_FILE,
 )
 from ki.transformer import NoteTransformer, FlatNote
 
@@ -173,6 +172,7 @@ HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
 REMOTE_SUFFIX = Path("ki-remote")
 FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
+LCA = "last-successful-ki-push"
 
 TIDY_CMD = "tidy -q -m -i -omit -utf8"
 TIDY_OPTS = "--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes"
@@ -997,6 +997,8 @@ def write_decks(
 
     Return all windows symlinks created on Windows whose file modes we must set.
     """
+    # pylint: disable=too-many-locals
+    #
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
@@ -1576,9 +1578,7 @@ def clone(collection: str, directory: str = "") -> None:
     try:
         _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
-        F.write(kirepo.lca_file, kirepo.repo.head.commit.hexsha)
-        kirepo.repo.git.add(KI)
-        kirepo.repo.index.commit("Add lca revision SHA.")
+        kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
         gc.collect()
     except Exception as err:
@@ -1726,7 +1726,7 @@ def _pull(kirepo: KiRepo) -> None:
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
     # successful `push()`, which is the last common ancestor, or 'LCA'.
-    rev: Rev = M.rev(kirepo.repo, sha=kirepo.lca_file.read_text(encoding=UTF8))
+    rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
@@ -1958,6 +1958,7 @@ def write_collection(
     append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
 
     # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
-    kirepo.lca_file.write_text(M.head_ki(kirepo).sha)
+    kirepo.repo.delete_tag(LCA)
+    kirepo.repo.create_tag(LCA)
     unlock(con)
     return PushResult.NONTRIVIAL
