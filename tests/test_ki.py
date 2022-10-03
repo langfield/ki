@@ -1356,36 +1356,6 @@ def test_nopath(tmp_path: Path):
             M.nopath(file)
 
 
-def test_cp_ki(tmp_path: Path):
-    """
-    Do errors in `M.nopath()` call in `cp_ki()` get forwarded to
-    the caller and printed nicely?
-
-    In `cp_ki()`, we construct a `NoPath` for the `.ki`
-    subdirectory, which doesn't exist yet at that point, because
-    `cp_repo()` is just a git clone operation, and the `.ki`
-    subdirectory is in the `.gitignore` file. It is possible but
-    extraordinarily improbable that this path is created in between the
-    `Repo.clone_from()` call and the `M.nopath()` call.
-
-    In this test function, we simulate this possibility by the deleting the
-    `.gitignore` file and committing the `.ki` subdirectory.
-    """
-    ORIGINAL = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        clone(runner, ORIGINAL.col_file)
-        os.chdir(ORIGINAL.repodir)
-        os.remove(".gitignore")
-        kirepo: KiRepo = M.kirepo(F.cwd())
-        kirepo.repo.git.add(all=True)
-        kirepo.repo.index.commit("Add ki directory.")
-        head: KiRev = M.head_ki(kirepo)
-        with pytest.raises(ExpectedNonexistentPathError) as error:
-            cp_ki(head, suffix="suffix-md5")
-        assert ".ki" in str(error.exconly())
-
-
 def test_filter_note_path(tmp_path: Path):
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):

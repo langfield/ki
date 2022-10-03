@@ -227,11 +227,6 @@ def cp_repo(rev: Rev, suffix: str) -> git.Repo:
     target: NoFile = F.chk(F.mkdtemp() / suffix)
     ephem = git.Repo(F.copytree(F.root(rev.repo), target))
 
-    # Annihilate the .ki subdirectory.
-    kid = F.chk(F.root(ephem) / KI)
-    if isinstance(kid, Dir):
-        F.rmtree(kid)
-
     # Do a reset --hard to the given SHA.
     ephem.git.reset(rev.sha, hard=True)
     return ephem
@@ -258,11 +253,9 @@ def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
         The copied ki repository.
     """
     rev: Rev = F.ki_rev_to_rev(ki_rev)
+    print(F.root(rev.repo))
     ephem: git.Repo = cp_repo(rev, suffix)
-    kid: Path = F.chk(F.root(ephem) / KI)
-    if not isinstance(kid, NoFile):
-        raise ExpectedNonexistentPathError(kid)
-    F.copytree(ki_rev.kirepo.ki, kid)
+    F.force_mkdir(F.root(ephem) / KI / BACKUPS_DIR)
     kirepo: KiRepo = M.kirepo(F.root(ephem))
     return kirepo
 
@@ -614,9 +607,9 @@ def backup(kirepo: KiRepo) -> int:
 
 
 @beartype
-def append_md5sum(kid: Dir, tag: str, md5sum: str) -> None:
+def append_md5sum(dotki: Dir, tag: str, md5sum: str) -> None:
     """Append an md5sum hash to the hashes file."""
-    hashes_file = kid / HASHES_FILE
+    hashes_file = dotki / HASHES_FILE
     with open(hashes_file, "a+", encoding=UTF8) as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
 
@@ -1584,6 +1577,8 @@ def clone(collection: str, directory: str = "") -> None:
         _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         F.write(kirepo.lca_file, kirepo.repo.head.commit.hexsha)
+        kirepo.repo.git.add(KI)
+        kirepo.repo.index.commit("Add lca revision SHA.")
         kirepo.repo.close()
         gc.collect()
     except Exception as err:
@@ -1629,7 +1624,7 @@ def _clone(
     dotki: DotKi = M.dotki(kidir)
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
-    (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
+    (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
 
     # Write notes to disk.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
@@ -1659,12 +1654,13 @@ def _clone(
     if repo.is_dirty():
         raise NonEmptyWorkingTreeError(repo)
 
-    # Squash last two commits together.
-    repo.git.reset(["--soft", "HEAD~1"])
-    repo.git.commit(message=msg, amend=True)
-
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(kidir, col_file.name, md5sum)
+
+    # Squash last two commits together.
+    repo.git.add([KI])
+    repo.git.reset(["--soft", "HEAD~1"])
+    repo.git.commit(message=msg, amend=True)
 
     return repo, md5sum
 

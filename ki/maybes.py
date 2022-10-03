@@ -151,7 +151,7 @@ def nofile(path: Path) -> NoFile:
 @beartype
 def xfile(path: Path, info: str = "") -> File:
     """
-    Attempt to instantiate an File.
+    Attempt to instantiate a File.
     """
     # Resolve path.
     path = path.resolve()
@@ -171,7 +171,7 @@ def xfile(path: Path, info: str = "") -> File:
 @beartype
 def xdir(path: Path, info: str = "") -> Dir:
     """
-    Attempt to instantiate an Dir.
+    Attempt to instantiate a Dir.
     """
     # Resolve path.
     path = path.resolve()
@@ -189,7 +189,7 @@ def xdir(path: Path, info: str = "") -> Dir:
 @beartype
 def emptydir(path: Path) -> Dir:
     """
-    Attempt to instantiate an Dir.
+    Attempt to instantiate an empty Dir.
     """
     # Check if it's an extant directory.
     directory: Dir = M.xdir(path)

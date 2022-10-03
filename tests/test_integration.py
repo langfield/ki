@@ -638,6 +638,19 @@ def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
         assert '<img src="Screenshot 2019-05-01 at 14.40.56.png">' in contents
 
 
+def test_clone_leaves_no_working_tree_changes(tmp_path: Path):
+    """Does everything get committed at the end of a `clone()`?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+
+        repo = git.Repo(ORIGINAL.repodir)
+        assert not repo.is_dirty()
+
+
 # PULL
 
 
@@ -674,11 +687,11 @@ def test_pull_fails_if_collection_file_is_corrupted():
             pull(runner)
 
 
-def test_pull_writes_changes_correctly():
+def test_pull_writes_changes_correctly(tmp_path: Path):
     """Does ki get the changes from modified collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
