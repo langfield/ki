@@ -1726,6 +1726,7 @@ def _pull(kirepo: KiRepo) -> None:
 
     # Copy `repo` into a temp directory and `reset --hard` at rev of last
     # successful `push()`, which is the last common ancestor, or 'LCA'.
+    head: Rev = M.head(kirepo.repo)
     rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
     unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
@@ -1806,11 +1807,19 @@ def _pull(kirepo: KiRepo) -> None:
     echo(git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root))
     kirepo.repo.delete_remote(lca_remote)
 
+    # The merge will have overwritten the hashes file with only the collection
+    # hash from the fresh clone of the remote, so we checkout its state from
+    # before the merge.
+    kirepo.repo.git.checkout([head.sha, "--", f"{KI}/{HASHES_FILE}"])
+
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
     append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
+
+    kirepo.repo.index.add(f"{KI}/{HASHES_FILE}")
+    kirepo.repo.index.commit("Update collection hashes file.")
 
 
 # PUSH

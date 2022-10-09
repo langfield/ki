@@ -178,7 +178,8 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
 
         # Pull edited collection.
         os.chdir(ORIGINAL.repodir)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(out)
         os.chdir("../")
 
         # Check that edited hash is written and old hash is still there.
@@ -971,6 +972,27 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
         if os.path.isdir("onlydeck"):
             for _, _, filenames in os.walk("onlydeck"):
                 assert len(filenames) == 0
+
+
+def test_pull_leaves_no_working_tree_changes(tmp_path: Path):
+    """Does everything get committed at the end of a `clone()`?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    DELETED: SampleCollection = get_test_collection("deleted")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+
+        # Edit collection.
+        shutil.copyfile(DELETED.path, ORIGINAL.col_file)
+
+        os.chdir(ORIGINAL.repodir)
+        pull(runner)
+        os.chdir("..")
+
+        repo = git.Repo(ORIGINAL.repodir)
+        assert not repo.is_dirty()
 
 
 # PUSH
@@ -1830,11 +1852,11 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         )
 
 
-def test_push_is_idempotent():
-    """Are nontrivial push ops idempotent?"""
+def test_push_rejects_updates_on_reset_to_prior_commit(tmp_path: Path):
+    """Does ki correctly verify md5sum?"""
     KOREAN: SampleCollection = get_test_collection("tiny_korean")
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
         clone(runner, KOREAN.col_file)
@@ -1846,7 +1868,10 @@ def test_push_is_idempotent():
         F.commitall(repo, "msg")
         push(runner)
 
+        # This actually *should* fail, because when we reset to the previous
+        # commit, we annihilate the record of the latest collection hash. Thus
+        # ki sees a collection which has changed since the last common ancestor
+        # revision, and thus updates are rejected.
         repo.git.reset(["--hard", "HEAD~1"])
-        push(runner)
-        out = push(runner)
-        assert "up to date" in out
+        with pytest.raises(UpdatesRejectedError):
+            push(runner)
