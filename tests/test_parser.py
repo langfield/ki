@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from tqdm import tqdm
 from loguru import logger
 from beartype import beartype
 
@@ -899,7 +898,7 @@ def parse_collection():
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
     grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start="file", parser="lalr", transformer=transformer)
-    for path in tqdm(set((Path.home() / "collection").iterdir())):
+    for path in set((Path.home() / "collection").iterdir()):
         if path.suffix == ".md":
             note = path.read_text(encoding="UTF-8")
             parser.parse(note)

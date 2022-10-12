@@ -3,4 +3,5 @@ pytest-mock
 pytest-timeout
 checksumdir==1.2.0
 bitstring==3.1.9
+loguru
 coverage

@@ -10,7 +10,7 @@ decks in exactly the same way they work on large, complex software projects.
 """
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
-# pylint: disable=too-many-return-statements, too-many-lines
+# pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
 
 import os
 import re
@@ -34,21 +34,21 @@ import subprocess
 import dataclasses
 import configparser
 from pathlib import Path
+from itertools import chain, starmap, tee
+from functools import partial, reduce
 from contextlib import redirect_stdout
 from dataclasses import dataclass
+from collections import namedtuple
 
 import git
 import click
 import whatthepatch
-import prettyprinter as pp
-from tqdm import tqdm
-from halo import Halo
 from lark import Lark
-from loguru import logger
+from more_itertools import peekable
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, CardId, TemplateDict
+from anki.cards import Card, TemplateDict
 from anki.decks import DeckTreeNode
 from anki.utils import ids2str
 from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
@@ -70,20 +70,22 @@ from beartype.typing import (
     Sequence,
     Tuple,
     Iterator,
+    Iterable,
+    FrozenSet,
 )
 
 import ki.maybes as M
 import ki.functional as F
 from ki.types import (
     MODELS_FILE,
-    ExtantFile,
-    ExtantDir,
+    File,
+    Dir,
     EmptyDir,
     NoPath,
     NoFile,
-    Symlink,
-    LatentSymlink,
-    ExtantStrangePath,
+    Link,
+    WindowsLink,
+    PseudoFile,
     GitChangeType,
     Patch,
     Delta,
@@ -92,14 +94,20 @@ from ki.types import (
     Template,
     Notetype,
     ColNote,
-    KiRepoRef,
-    RepoRef,
-    Leaves,
+    KiRev,
+    Rev,
+    Deck,
+    Root,
+    DotKi,
+    CardFile,
     NoteDBRow,
     DeckNote,
     NoteMetadata,
     PushResult,
-    WrittenNoteFile,
+    PlannedLink,
+    Submodule,
+    MediaBytes,
+    AddedMedia,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -108,17 +116,14 @@ from ki.types import (
     MissingNoteIdError,
     NotetypeMismatchError,
     NoteFieldValidationWarning,
-    UnhealthyNoteWarning,
-    UnPushedPathWarning,
-    NotAnkiNoteWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
+    NotetypeCollisionWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
     SQLiteLockError,
     NoteFieldKeyError,
     MissingMediaDirectoryError,
-    MissingMediaFileWarning,
     ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
@@ -127,6 +132,11 @@ from ki.types import (
     GitFileModeParseError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
+    EmptyNoteWarning,
+    DuplicateNoteWarning,
+    UnhealthyNoteWarning,
+    MediaDirectoryDeckNameCollisionWarning,
+    notetype_json,
 )
 from ki.maybes import (
     GIT,
@@ -136,32 +146,37 @@ from ki.maybes import (
     CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
-    LAST_PUSH_FILE,
 )
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
 
-T = TypeVar("T")
+TQ = F.progressbar
 
-# TODO: What if there is a deck called `_media`?
-MEDIA = "_media"
+T = TypeVar("T")
+NoteId, DeckId, CardId = int, int, int
+CardFileMap = Dict[DeckId, List[CardFile]]
+
+UTF8 = "UTF-8"
+URLS = "(https?|ftp)://"
+MEDIA = M.MEDIA
 DEV_NULL = "/dev/null"
 BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = "main"
-CHANGE_TYPES = "A D R M T".split()
-TQDM_NUM_COLS = 80
 MAX_FILENAME_LEN = 60
-IGNORE_DIRECTORIES = set([GIT, KI, MEDIA])
+IGNORE_DIRS = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
 REMOTE_SUFFIX = Path("ki-remote")
 FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
+LCA = "last-successful-ki-push"
 
-GENERATED_HTML_SENTINEL = "data-original-markdown"
+TIDY_CMD = "tidy -q -m -i -omit -utf8"
+TIDY_OPTS = "--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes"
+
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 
 # This is the key for media files associated with notetypes instead of the
@@ -169,111 +184,20 @@ MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 NOTETYPE_NID = -57
 
 MD = ".md"
-FAILED = "Failed: exiting."
 
-WARNING_IGNORE_LIST = [NotAnkiNoteWarning, UnPushedPathWarning, MissingMediaFileWarning]
+ALHPANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+SYMBOLS = "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+BASE91_TABLE = list(ALHPANUMERICS + SYMBOLS)
 
-SPINNER = "bouncingBall"
-VERBOSE = False
-PROFILE = False
-
-BASE91_TABLE = [
-    "a",
-    "b",
-    "c",
-    "d",
-    "e",
-    "f",
-    "g",
-    "h",
-    "i",
-    "j",
-    "k",
-    "l",
-    "m",
-    "n",
-    "o",
-    "p",
-    "q",
-    "r",
-    "s",
-    "t",
-    "u",
-    "v",
-    "w",
-    "x",
-    "y",
-    "z",
-    "A",
-    "B",
-    "C",
-    "D",
-    "E",
-    "F",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L",
-    "M",
-    "N",
-    "O",
-    "P",
-    "Q",
-    "R",
-    "S",
-    "T",
-    "U",
-    "V",
-    "W",
-    "X",
-    "Y",
-    "Z",
-    "0",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5",
-    "6",
-    "7",
-    "8",
-    "9",
-    "!",
-    "#",
-    "$",
-    "%",
-    "&",
-    "(",
-    ")",
-    "*",
-    "+",
-    ",",
-    "-",
-    ".",
-    "/",
-    ":",
-    ";",
-    "<",
-    "=",
-    ">",
-    "?",
-    "@",
-    "[",
-    "]",
-    "^",
-    "_",
-    "`",
-    "{",
-    "|",
-    "}",
-    "~",
-]
+ADDED = GitChangeType.ADDED
+RENAMED = GitChangeType.RENAMED
+DELETED = GitChangeType.DELETED
+MODIFIED = GitChangeType.MODIFIED
+TYPECHANGED = GitChangeType.TYPECHANGED
 
 
 @beartype
-def lock(col_file: ExtantFile) -> sqlite3.Connection:
+def lock(col_file: File) -> sqlite3.Connection:
     """Check that lock can be acquired on a SQLite3 database given a path."""
     try:
         con = sqlite3.connect(col_file, timeout=0.1)
@@ -297,61 +221,52 @@ def unlock(con: sqlite3.Connection) -> None:
 
 
 @beartype
-def copy_repo(repo_ref: RepoRef, suffix: str) -> git.Repo:
+def cp_repo(rev: Rev, suffix: str) -> git.Repo:
     """Get a temporary copy of a git repository in /tmp/<suffix>/."""
-    # Copy the entire repo into `<tmp_dir>/suffix/`.
-    target: NoFile = F.test(F.mkdtemp() / suffix)
-    ephem = git.Repo(F.copytree(F.working_dir(repo_ref.repo), target))
-
-    # Annihilate the .ki subdirectory.
-    ki_dir = F.test(F.working_dir(ephem) / KI)
-    if isinstance(ki_dir, ExtantDir):
-        F.rmtree(ki_dir)
+    # Copy the entire repo into a temp directory ending in `../suffix/`.
+    target: NoFile = F.chk(F.mkdtemp() / suffix)
+    ephem = git.Repo(F.copytree(F.root(rev.repo), target))
 
     # Do a reset --hard to the given SHA.
-    ephem.git.reset(repo_ref.sha, hard=True)
-
+    ephem.git.reset(rev.sha, hard=True)
     return ephem
 
 
 @beartype
-def copy_kirepo(kirepo_ref: KiRepoRef, suffix: str) -> KiRepo:
+def cp_ki(ki_rev: KiRev, suffix: str) -> KiRepo:
     """
-    Given a KiRepoRef, i.e. a pair of the form (kirepo, SHA), we clone
+    Given a KiRev, i.e. a pair of the form (kirepo, SHA), we clone
     `kirepo.repo` into a temp directory and hard reset to the given commit
-    hash. Copies the .ki/ directory from `kirepo_ref.kirepo` without making any
+    hash. Copies the .ki/ directory from `ki_rev.kirepo` without making any
     changes.
 
     Parameters
     ----------
-    suffix : pathlib.Path
-        /tmp/.../ path suffix, e.g. `ki/local/`.
-    kirepo_ref : KiRepoRef
+    ki_rev : KiRev
         The ki repository to clone, and a commit for it.
+    suffix : str
+        /tmp/.../ path suffix, e.g. `ki/local/`.
 
     Returns
     -------
     KiRepo
-        The cloned repository.
+        The copied ki repository.
     """
-    ref: RepoRef = F.kirepo_ref_to_repo_ref(kirepo_ref)
-    ephem: git.Repo = copy_repo(ref, suffix)
-    ki_dir: Path = F.test(F.working_dir(ephem) / KI)
-    if not isinstance(ki_dir, NoFile):
-        raise ExpectedNonexistentPathError(ki_dir)
-    F.copytree(kirepo_ref.kirepo.ki_dir, ki_dir)
-    kirepo: KiRepo = M.kirepo(F.working_dir(ephem))
-
+    rev: Rev = F.ki_rev_to_rev(ki_rev)
+    print(F.root(rev.repo))
+    ephem: git.Repo = cp_repo(rev, suffix)
+    F.force_mkdir(F.root(ephem) / KI / BACKUPS_DIR)
+    kirepo: KiRepo = M.kirepo(F.root(ephem))
     return kirepo
 
 
 @beartype
-def is_anki_note(path: ExtantFile) -> bool:
+def is_anki_note(path: File) -> bool:
     """Check if file is a `ki`-style markdown note."""
     # Ought to have markdown file extension.
     if path.suffix != ".md":
         return False
-    with open(path, "r", encoding="UTF-8") as md_f:
+    with open(path, "r", encoding=UTF8) as md_f:
         lines = md_f.readlines()
     if len(lines) < 8:
         return False
@@ -365,9 +280,7 @@ def is_anki_note(path: ExtantFile) -> bool:
 
 
 @beartype
-def get_note_warnings(
-    path: Path, root: ExtantDir, ignore_files: Set[str], ignore_dirs: Set[str]
-) -> Optional[Warning]:
+def is_ignorable(root: Dir, path: Path) -> bool:
     """
     Filter out paths in a git repository diff that do not correspond to Anki
     notes.
@@ -375,321 +288,123 @@ def get_note_warnings(
     We could do this purely using calls to `is_anki_note()`, but these are
     expensive, so we try to find matches without opening any files first.
     """
-    # If `path` is an exact match for one of the patterns in `patterns`, we
-    # immediately return a warning. Since the contents of a git repository diff
-    # are always going to be files, this alone will not correctly ignore
-    # directory names given in `patterns`.
-    if path.name in ignore_files | ignore_dirs:
-        return UnPushedPathWarning(path, path.name)
-
-    # If any of the patterns in `patterns` resolve to one of the parents of
+    # Ignore if `path` is an exact match for any of the patterns Since the
+    # contents of a git repository diff are always going to be files, this
+    # alone will not correctly ignore directory names given in `patterns`.
+    #
+    # If any of the patterns in `dirnames` resolve to one of the parents of
     # `path`, return a warning, so that we are able to filter out entire
     # directories.
-    components: Tuple[str, ...] = path.parts
-    dirnames: Set[str] = set(components) & ignore_dirs
-    for dirname in dirnames:
-        return UnPushedPathWarning(path, dirname)
+    filenames, dirnames = IGNORE_FILES, IGNORE_DIRS
+    if path.name in filenames | dirnames or len(set(path.parts) & dirnames) > 0:
+        return True
 
-    # If `path` is an extant file (not a directory) and NOT a note, ignore it.
-    abspath = (root / path).resolve()
-    if abspath.exists() and abspath.is_file():
-        file = ExtantFile(abspath)
-        if not is_anki_note(file):
-            return NotAnkiNoteWarning(file)
-
-    return None
+    # If `path` is an extant file (not a directory) and *not* a note, ignore it.
+    file = F.chk(root / path)
+    if isinstance(file, File) and not is_anki_note(file):
+        return True
+    return False
 
 
-@beartype
-def unsubmodule_repo(repo: git.Repo) -> git.Repo:
-    """
-    Un-submodule all the git submodules (convert them to ordinary
-    subdirectories and destroy their commit history).  Commit the changes to
-    the main repository.
+def mungediff(
+    parse: Callable[[Delta], DeckNote], a_root: Dir, b_root: Dir, d: git.Diff
+) -> Iterable[Union[Delta, Warning]]:
+    """Extract deltas and warnings from a collection of diffs."""
+    # Callables.
+    is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
+    is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
+    a, b = d.a_path, d.b_path
+    a, b = a if a else b, b if b else a
+    if is_ignorable_a(Path(a)) or is_ignorable_b(Path(b)):
+        return []
 
-    MUTATES REPO in-place!
+    # Get absolute and relative paths to 'a' and 'b'.
+    AB = namedtuple("AB", "a b")
+    files = AB(F.chk(a_root / a), F.chk(b_root / b))
+    rels = AB(Path(a), Path(b))
 
-    UNSAFE: git.rm() calls.
-    """
-    gitmodules_path: Path = Path(repo.working_dir) / GITMODULES_FILE
-    for sm in repo.submodules:
-
-        # The submodule path is guaranteed to exist by gitpython.
-        sm_path = Path(sm.module().working_tree_dir)
-        repo.git.rm(sm_path, cached=True)
-
-        # Annihilate `.gitmodules` file.
-        if gitmodules_path.is_file:
-            repo.git.rm(gitmodules_path, ignore_unmatch=True)
-
-        sm_git_path = F.test(sm_path / GIT)
-        if isinstance(sm_git_path, ExtantDir):
-            F.rmtree(sm_git_path)
-        else:
-            (sm_path / GIT).unlink(missing_ok=True)
-
-        # Directory should still exist after `git.rm()`.
-        repo.git.add(sm_path)
-        _ = repo.index.commit(f"Add submodule `{sm.name}` as ordinary directory.")
-
-    if gitmodules_path.exists():
-        repo.git.rm(gitmodules_path)
-        _ = repo.index.commit("Remove `.gitmodules` file.")
-    return repo
+    if d.change_type == DELETED.value:
+        if not F.isfile(files.a):
+            return [DeletedFileNotFoundWarning(rels.a)]
+        return [Delta(GitChangeType.DELETED, files.a, rels.a)]
+    if not F.isfile(files.b):
+        return [DiffTargetFileNotFoundWarning(rels.b)]
+    if d.change_type == RENAMED.value:
+        a_delta = Delta(GitChangeType.DELETED, files.a, rels.a)
+        b_delta = Delta(GitChangeType.ADDED, files.b, rels.b)
+        a_decknote, b_decknote = parse(a_delta), parse(b_delta)
+        if a_decknote.guid != b_decknote.guid:
+            return [a_delta, b_delta]
+    return [Delta(GitChangeType(d.change_type), files.b, rels.b)]
 
 
 @beartype
 def diff2(
     repo: git.Repo,
-    parser: Lark,
-    transformer: NoteTransformer,
-) -> List[Union[Delta, Warning]]:
+    parse: Callable[[Delta], DeckNote],
+) -> Iterable[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
-    with F.halo(text=f"Checking out repo '{F.working_dir(repo)}' at HEAD~1..."):
-        head1: RepoRef = M.repo_ref(repo, repo.commit("HEAD~1").hexsha)
-        # pylint: disable=consider-using-f-string
-        uuid = "%4x" % random.randrange(16**4)
-        # pylint: enable=consider-using-f-string
-        head1_repo = copy_repo(head1, suffix=f"HEAD~1-{uuid}")
-
     # We diff from A~B.
-    b_repo = repo
-    a_repo = head1_repo
+    head1: Rev = M.rev(repo, repo.commit("HEAD~1").hexsha)
+    uuid = hex(random.randrange(16**4))[2:]
+    head1_repo = cp_repo(head1, suffix=f"HEAD~1-{uuid}")
+    a_root, b_root = F.root(head1_repo), F.root(repo)
+    diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
-    # Use a `DiffIndex` to get the changed files.
-    deltas = []
-    a_dir = F.test(Path(a_repo.working_dir))
-    b_dir = F.test(Path(b_repo.working_dir))
-
-    head = repo.commit("HEAD")
-    with F.halo(text=f"Diffing '{head1.sha}' ~ '{head.hexsha}'..."):
-        diff_index = repo.commit("HEAD~1").diff(head, create_patch=VERBOSE)
-
-    for change_type in GitChangeType:
-
-        diffs = diff_index.iter_change_type(change_type.value)
-        bar = tqdm(diffs, ncols=TQDM_NUM_COLS, leave=False)
-        bar.set_description(f"{change_type}")
-        for diff in bar:
-            a_relpath: str = diff.a_path
-            b_relpath: str = diff.b_path
-            if diff.a_path is None:
-                a_relpath = b_relpath
-            if diff.b_path is None:
-                b_relpath = a_relpath
-
-            a_warning: Optional[Warning] = get_note_warnings(
-                Path(a_relpath),
-                a_dir,
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-            b_warning: Optional[Warning] = get_note_warnings(
-                Path(b_relpath),
-                b_dir,
-                ignore_files=IGNORE_FILES,
-                ignore_dirs=IGNORE_DIRECTORIES,
-            )
-
-            if VERBOSE:
-                logger.debug(f"{a_relpath} -> {b_relpath}")
-                logger.debug(diff.diff.decode())
-
-            if a_warning is not None:
-                deltas.append(a_warning)
-                continue
-            if b_warning is not None:
-                deltas.append(b_warning)
-                continue
-
-            a_path = F.test(a_dir / a_relpath)
-            b_path = F.test(b_dir / b_relpath)
-
-            a_relpath = Path(a_relpath)
-            b_relpath = Path(b_relpath)
-
-            if change_type == GitChangeType.DELETED:
-                if not isinstance(a_path, ExtantFile):
-                    deltas.append(DeletedFileNotFoundWarning(a_relpath))
-                    continue
-
-                deltas.append(Delta(change_type, a_path, a_relpath))
-                continue
-
-            if not isinstance(b_path, ExtantFile):
-                deltas.append(DiffTargetFileNotFoundWarning(b_relpath))
-                continue
-
-            if change_type == GitChangeType.RENAMED:
-                a_delta = Delta(GitChangeType.DELETED, a_path, a_relpath)
-                b_delta = Delta(GitChangeType.ADDED, b_path, b_relpath)
-                a_decknote: DeckNote = parse_markdown_note(parser, transformer, a_delta)
-                b_decknote: DeckNote = parse_markdown_note(parser, transformer, b_delta)
-                if a_decknote.guid != b_decknote.guid:
-                    deltas.append(a_delta)
-                    deltas.append(b_delta)
-                    continue
-
-            deltas.append(Delta(change_type, b_path, b_relpath))
-
-    if VERBOSE:
-        echo(f"Diffing '{repo.working_dir}': '{head1.sha}' ~ '{head.hexsha}'")
-
-    return deltas
+    # Get the diffs for each change type (e.g. 'DELETED').
+    return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
 
 
 @beartype
-def parse_notetype_dict(nt: Dict[str, Any]) -> Notetype:
+def get_models_recursively(kirepo: KiRepo) -> Dict[str, Notetype]:
     """
-    Convert an Anki NotetypeDict into a Notetype dataclass.
-
-    Anki returns objects of type `NotetypeDict` (see pylib/anki/models.py)
-    when you call a method like `col.models.all()`. This is a dictionary
-    mapping strings to various stuff, and we read all its data into a python
-    dataclass here so that we can access it safely. Since we don't expect Anki
-    to ever give us 'invalid' notetypes (since we define 'valid' as being
-    processable by Anki), we return an exception if the parse fails.
-
-    Note on naming convention: Below, abbreviated variable names represent
-    dicts coming from Anki, like `nt: NotetypeDict` or `fld: FieldDict`.
-    Full words like `field: Field` represent ki dataclasses. The parameters
-    of the dataclasses, however, use abbreviations for consistency with Anki
-    map keys.
+    Find and merge all `models.json` files recursively. Returns a dictionary
+    sending model names to Notetypes.
     """
-    # If we can't even read the name of the notetype, then we can't print out a
-    # nice error message in the event of a `KeyError`. So we have to print out
-    # a different error message saying that the notetype doesn't have a name
-    # field.
-    try:
-        nt["name"]
-    except KeyError as err:
-        raise UnnamedNotetypeError(nt) from err
-    try:
-        fields: Dict[int, Field] = {}
-        for fld in nt["flds"]:
-            ordinal = fld["ord"]
-            fields[ordinal] = Field(name=fld["name"], ord=ordinal)
 
-        templates: List[Template] = []
-        for tmpl in nt["tmpls"]:
-            templates.append(
-                Template(
-                    name=tmpl["name"],
-                    qfmt=tmpl["qfmt"],
-                    afmt=tmpl["afmt"],
-                    ord=tmpl["ord"],
-                )
-            )
+    @beartype
+    def load(file: File) -> Iterable[Notetype]:
+        """Load a models file."""
+        with open(file, "r", encoding=UTF8) as f:
+            return map(M.notetype, json.load(f).values())
 
-        # Guarantee that 'sortf' exists in `notetype.flds`.
-        sort_ordinal: int = nt["sortf"]
-        if sort_ordinal not in fields:
-
-            # If we get a KeyError here, it will be caught.
-            raise MissingFieldOrdinalError(sort_ordinal, nt["name"])
-
-        notetype = Notetype(
-            id=nt["id"],
-            name=nt["name"],
-            type=nt["type"],
-            flds=list(fields.values()),
-            tmpls=templates,
-            sortf=fields[sort_ordinal],
-            dict=nt,
-        )
-
-    except KeyError as err:
-        key = str(err)
-        raise NotetypeKeyError(key, str(nt["name"])) from err
-    return notetype
+    notetypes = F.cat(map(load, F.rglob(kirepo.root, MODELS_FILE)))
+    return {notetype.name: notetype for notetype in notetypes}
 
 
 @beartype
-def get_models_recursively(kirepo: KiRepo, silent: bool) -> Dict[str, Notetype]:
-    """
-    Find and merge all `models.json` files recursively.
-
-    Should we check for duplicates?
-
-    Returns
-    -------
-    Dict[int, Notetype]
-        A dictionary sending model names to Notetypes.
-    """
-    all_models: Dict[str, Notetype] = {}
-
-    # Load notetypes from json files.
-    bar = tqdm(F.rglob(kirepo.root, MODELS_FILE), ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Models")
-    for models_file in bar:
-
-        with open(models_file, "r", encoding="UTF-8") as models_f:
-            new_nts: Dict[int, Dict[str, Any]] = json.load(models_f)
-
-        models: Dict[str, Notetype] = {}
-        for _, nt in new_nts.items():
-            notetype: Notetype = parse_notetype_dict(nt)
-            models[notetype.name] = notetype
-
-        # Add mappings to dictionary.
-        all_models.update(models)
-
-    return all_models
-
-
-@beartype
-def display_fields_health_warning(note: Note) -> int:
-    """Display warnings when Anki's fields health check fails."""
+def check_fields_health(note: Note) -> List[Warning]:
+    """Construct warnings when Anki's fields health check fails."""
     health = note.fields_check()
     if health == 1:
-        warn(f"Found empty note '{note.id}'")
-        warn(f"Fields health check code: {health}")
-    elif health == 2:
-        duplication = (
-            "Failed to add note to collection. Notetype/fields of "
-            + f"note '{note.id}' are duplicate of existing note."
-        )
-        warn(duplication)
-        warn(f"First field:\n{html_to_screen(note.fields[0])}")
-        warn(f"Fields health check code: {health}")
-    elif health != 0:
-        death = (
-            f"fatal: Note '{note.id}' failed fields check with unknown "
-            + f"error code: {health}"
-        )
-        logger.error(death)
-    return health
+        return [EmptyNoteWarning(note, health)]
+    if health == 2:
+        return [DuplicateNoteWarning(note, health, html_to_screen(note.fields[0]))]
+    if health != 0:
+        return [UnhealthyNoteWarning(note, health)]
+    return []
 
 
 @beartype
 def get_guid(fields: List[str]) -> str:
     """Construct a new GUID for a note. Adapted from genanki's `guid_for()`."""
-    contents = "__".join(fields)
-
     # Get the first 8 bytes of the SHA256 of `contents` as an int.
     m = hashlib.sha256()
-    m.update(contents.encode("utf-8"))
-    hash_bytes = m.digest()[:8]
-    hash_int = 0
-    for b in hash_bytes:
-        hash_int <<= 8
-        hash_int += b
+    m.update("__".join(fields).encode("utf-8"))
+    x = reduce(lambda h, b: (h << 8) + b, m.digest()[:8], 0)
 
     # convert to the weird base91 format that Anki uses
-    rv_reversed = []
-    while hash_int > 0:
-        rv_reversed.append(BASE91_TABLE[hash_int % len(BASE91_TABLE)])
-        hash_int //= len(BASE91_TABLE)
-
-    return "".join(reversed(rv_reversed))
+    chars = []
+    while x > 0:
+        chars.append(BASE91_TABLE[x % len(BASE91_TABLE)])
+        x //= len(BASE91_TABLE)
+    return "".join(reversed(chars))
 
 
 @beartype
-def parse_markdown_note(
-    parser: Lark, transformer: NoteTransformer, delta: Delta
-) -> DeckNote:
+def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> DeckNote:
     """Parse with lark."""
-    tree = parser.parse(delta.path.read_text(encoding="UTF-8"))
+    tree = parser.parse(delta.path.read_text(encoding=UTF8))
     flatnote: FlatNote = transformer.transform(tree)
     parts: Tuple[str, ...] = delta.relpath.parent.parts
     deck: str = "::".join(parts)
@@ -728,9 +443,18 @@ def plain_to_html(plain: str) -> str:
 
 
 @beartype
+def update_field(decknote: DeckNote, note: Note, key: str, field: str) -> None:
+    """Update a field contained in `note`."""
+    try:
+        note[key] = plain_to_html(field)
+    except IndexError as err:
+        raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
+
+
+@beartype
 def update_note(
     note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
-) -> List[Warning]:
+) -> Iterable[Warning]:
     """
     Change all the data of `note` to that given in `decknote`.
 
@@ -753,29 +477,23 @@ def update_note(
     if decknote.model != new_notetype.name:
         raise NotetypeMismatchError(decknote, new_notetype)
 
+    nid = note.id
     note.tags = decknote.tags
     note.flush()
 
-    # Set the deck of the given note, and create a deck with this name if it
-    # doesn't already exist. See the comments/docstrings in the implementation
-    # of the `anki.decks.DeckManager.id()` method.
+    # Set the deck of the given note, as well as all its cards, and create a
+    # deck with this name if it doesn't already exist. See the
+    # comments/docstrings in the implementation of the
+    # `anki.decks.DeckManager.id()` method.
     newdid: int = note.col.decks.id(decknote.deck, create=True)
     cids = [c.id for c in note.cards()]
-
-    # Set deck for all cards of this note.
     if cids:
         note.col.set_deck(cids, newdid)
 
-    # Change notetype of note.
-    fmap: Dict[str, None] = {}
-    for field in old_notetype.flds:
-        fmap[field.ord] = None
-
-    # Change notetype (also clears all fields).
+    # Set notetype (also clears all fields).
     if old_notetype.id != new_notetype.id:
-        note.col.models.change(
-            old_notetype.dict, [note.id], new_notetype.dict, fmap, None
-        )
+        fmap = {field.ord: None for field in old_notetype.flds}
+        note.col.models.change(old_notetype.dict, [nid], new_notetype.dict, fmap, None)
         note.load()
 
     # Validate field keys against notetype.
@@ -783,28 +501,21 @@ def update_note(
     if len(warnings) > 0:
         return warnings
 
-    # Set field values. This is correct because every field name that appears
-    # in `new_notetype` is contained in `decknote.fields`, or else we would
-    # have printed a warning and returned above.
-    for key, field in decknote.fields.items():
-        if key not in note:
-            warnings.append(NoteFieldValidationWarning(note.id, key, new_notetype))
-            continue
-        try:
-            note[key] = plain_to_html(field)
-        except IndexError as err:
-            raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
-
-    # Flush fields to collection object.
+    # Set field values and flush to collection database. This is correct
+    # because every field name that appears in `new_notetype` is contained in
+    # `decknote.fields`, or else we would have printed a warning and returned
+    # above.
+    missing = {key for key in decknote.fields if key not in note}
+    warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
+    fields = [(key, field) for key, field in decknote.fields.items() if key in note]
+    _ = set(starmap(partial(update_field, decknote, note), fields))
     note.flush()
 
     # Remove if unhealthy.
-    health = display_fields_health_warning(note)
-    if health != 0:
-        note.col.remove_notes([note.id])
-        warnings.append(UnhealthyNoteWarning(note.id, health))
-
-    return warnings
+    fwarns: List[Warning] = check_fields_health(note)
+    if len(fwarns) > 0:
+        note.col.remove_notes([nid])
+    return chain(warnings, fwarns)
 
 
 @beartype
@@ -825,11 +536,8 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
     return warnings
 
 
-# TODO: This should use other fields when there is not enough content in the
-# first field to get a unique filename, if they exist. Note that we must still
-# treat the case where all fields are images!
 @beartype
-def get_note_path(colnote: ColNote, payload: str, deck_dir: ExtantDir, card_name: str = "") -> NoFile:
+def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
     field_text = colnote.sortf_text
 
@@ -856,25 +564,24 @@ def get_note_path(colnote: ColNote, payload: str, deck_dir: ExtantDir, card_name
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
         blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode("UTF-8"))
+        blake2.update(colnote.n.guid.encode(UTF8))
         slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
 
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
-
-        logger.warning(f"Slug for note with guid '{colnote.n.guid}' is empty...")
-        logger.warning(f"Using blake2 hash of guid as filename: '{slug}'")
+        F.yellow(f"Slug for note with guid '{colnote.n.guid}' is empty...")
+        F.yellow(f"Using blake2 hash of guid as filename: '{slug}'")
 
     if card_name != "":
         slug = f"{slug}_{card_name}"
     filename: str = f"{slug}{MD}"
-    note_path = F.test(deck_dir / filename, resolve=False)
+    note_path = F.chk(deck_dir / filename, resolve=False)
 
     i = 1
     while not isinstance(note_path, NoFile):
         filename = f"{slug}_{i}{MD}"
-        note_path = F.test(deck_dir / filename, resolve=False)
+        note_path = F.chk(deck_dir / filename, resolve=False)
         i += 1
 
     return note_path
@@ -885,46 +592,26 @@ def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
     md5sum = F.md5(kirepo.col_file)
     name = f"{md5sum}.anki2"
-    backup_file = F.test(kirepo.backups_dir / name)
+    backup_file = F.chk(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
     # `name`, since `name` contains the md5sum of the collection file, and
     # thus that is extraordinarily improbable. So the only thing we have to
     # check for is that we haven't already written a backup file to this
     # location.
-    if isinstance(backup_file, ExtantFile):
-        echo("Backup already exists.")
+    if isinstance(backup_file, File):
         return 1
 
-    echo(f"Writing backup of .anki2 file to '{backup_file}'")
-    F.copyfile(kirepo.col_file, kirepo.backups_dir, name)
+    F.copyfile(kirepo.col_file, F.chk(kirepo.backups_dir / name))
     return 0
 
 
 @beartype
-def append_md5sum(
-    ki_dir: ExtantDir, tag: str, md5sum: str, silent: bool = False
-) -> None:
+def append_md5sum(dotki: Dir, tag: str, md5sum: str) -> None:
     """Append an md5sum hash to the hashes file."""
-    hashes_file = ki_dir / HASHES_FILE
-    with open(hashes_file, "a+", encoding="UTF-8") as hashes_f:
+    hashes_file = dotki / HASHES_FILE
+    with open(hashes_file, "a+", encoding=UTF8) as hashes_f:
         hashes_f.write(f"{md5sum}  {tag}\n")
-    echo(f"Wrote md5sum to '{hashes_file}'", silent)
-
-
-@beartype
-def create_deck_dir(deck_name: str, targetdir: ExtantDir) -> ExtantDir:
-    """
-    Construct path to deck directory and create it, allowing the case in which
-    the directory already exists because we already created one of its
-    children, in which case this function is a no-op.
-    """
-    # Strip leading periods so we don't get hidden folders.
-    components = deck_name.split("::")
-    components = [re.sub(r"^\.", r"", comp) for comp in components]
-    components = [re.sub(r"/", r"-", comp) for comp in components]
-    deck_path = Path(targetdir, *components)
-    return F.force_mkdir(deck_path)
 
 
 @beartype
@@ -933,7 +620,6 @@ def get_field_note_id(nid: int, fieldname: str) -> str:
     return f"{nid}{F.slugify(fieldname)}"
 
 
-# TODO: Use more refined types than `int`.
 @beartype
 def add_db_note(
     col: Collection,
@@ -989,11 +675,11 @@ def add_db_note(
 @beartype
 def push_note(
     col: Collection,
-    decknote: DeckNote,
     timestamp_ns: int,
     guids: Dict[str, NoteMetadata],
     new_nids: Iterator[int],
-) -> List[Warning]:
+    decknote: DeckNote,
+) -> Iterable[Warning]:
     """
     Update the Anki `Note` object in `col` corresponding to `decknote`,
     creating it if it does not already exist.
@@ -1011,7 +697,12 @@ def push_note(
 
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
-        note: Note = col.get_note(nid)
+        try:
+            note: Note = col.get_note(nid)
+        except NotFoundError as err:
+            print(f"{nid = }")
+            print(f"{decknote.guid = }")
+            raise err
     else:
         nid: int = next(new_nids)
         note: Note = add_db_note(
@@ -1032,48 +723,9 @@ def push_note(
     # If we are updating an existing note, we need to know the old and new
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
-    old_notetype: Notetype = parse_notetype_dict(note.note_type())
-    new_notetype: Notetype = parse_notetype_dict(col.models.get(model_id))
-    warnings = update_note(note, decknote, old_notetype, new_notetype)
-
-    return warnings
-
-
-@beartype
-def get_colnote(col: Collection, nid: int) -> ColNote:
-    """Get a dataclass representation of an Anki note."""
-    try:
-        note = col.get_note(nid)
-    except NotFoundError as err:
-        raise MissingNoteIdError(nid) from err
-    notetype: Notetype = parse_notetype_dict(note.note_type())
-
-    # Get sort field content. See comment where we subscript in the same way in
-    # `push_note()`.
-    try:
-        sortf_text: str = note[notetype.sortf.name]
-    except KeyError as err:
-        raise NoteFieldKeyError(str(err), nid) from err
-
-    # TODO: Remove implicit assumption that all cards are in the same deck, and
-    # work with cards instead of notes.
-    try:
-        deck = col.decks.name(note.cards()[0].did)
-    except IndexError as err:
-        logger.error(f"{note.cards() = }")
-        logger.error(f"{note.guid = }")
-        logger.error(f"{note.id = }")
-        raise err
-    colnote = ColNote(
-        n=note,
-        new=False,
-        deck=deck,
-        title="",
-        markdown=False,
-        notetype=notetype,
-        sortf_text=sortf_text,
-    )
-    return colnote
+    old_notetype: Notetype = M.notetype(note.note_type())
+    new_notetype: Notetype = M.notetype(col.models.get(model_id))
+    return update_note(note, decknote, old_notetype, new_notetype)
 
 
 @beartype
@@ -1094,29 +746,58 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
-def files_in_str(
-    col: Collection, string: str, include_remote: bool = False
-) -> list[str]:
+@beartype
+def localmedia(s: str, regex: str) -> Iterable[str]:
+    """Return local media filenames matching the given regex pattern."""
+    fnames = map(lambda m: m.group("fname"), re.finditer(regex, s))
+    fnames = map(lambda s: s.strip(), fnames)
+    return filter(lambda x: not re.match(URLS, x.lower()), fnames)
+
+
+@beartype
+def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
-    # Extract filenames.
-    files = []
-    for reg in col.media.regexps:
-        for match in re.finditer(reg, string):
-            fname = match.group("fname")
-            is_local = not re.match("(https?|ftp)://", fname.lower())
-            if is_local or include_remote:
-                fname = fname.strip()
-                fname = fname.replace('"', "")
-                files.append(fname)
-    return files
+    s = (s.strip()).replace('"', "")
+    return F.cat(map(partial(localmedia, s), col.media.regexps))
+
+
+@beartype
+def copy_note_media(
+    col: Collection, src: Dir, tgt: Dir, row: NoteDBRow
+) -> FrozenSet[File]:
+    """
+    Copy a single note's media files and return the copies as a set. We do this
+    by first filtering for only 'rootfiles', i.e. excluding media files in
+    subdirectories of the media directory. Then we take only those which exist,
+    i.e. typecheck as `File`. Then we construct the source and destination
+    paths, and finally actually perform the copy op, returning the result.
+
+    Note that `src` is the media directory where the files originate, and `tgt`
+    is the media directory we're copying to.
+    """
+    files: Iterable[str] = media_filenames_in_field(col, row.flds)
+    rootfiles = filter(lambda f: f == os.path.basename(f), files)
+    medias: Iterable[File] = filter(F.isfile, map(lambda f: F.chk(src / f), rootfiles))
+    srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
+    return frozenset(starmap(F.copyfile, srcdsts))
+
+
+@beartype
+def copy_notetype_media(
+    src: Dir, tgt: Dir, paths: Set[Path], m: NotetypeDict
+) -> FrozenSet[File]:
+    """Copy media from notetype `m` from source to target, returning set of copies."""
+    matches: Iterable[Path] = filter(lambda p: hasmedia(m, str(p)), paths)
+    medias = filter(F.isfile, map(lambda p: F.chk(src / p), matches))
+    srcdsts = map(lambda f: (f, F.chk(tgt / f.name)), medias)
+    return frozenset(starmap(F.copyfile, srcdsts))
 
 
 @beartype
 def copy_media_files(
     col: Collection,
     media_target_dir: EmptyDir,
-    silent: bool,
-) -> Tuple[Dict[int, Set[ExtantFile]], Set[Warning]]:
+) -> Dict[int, Set[File]]:
     """
     Get a list of extant media files used in notes and notetypes, copy those
     media files to the top-level `_media/` directory in the repository root,
@@ -1125,32 +806,13 @@ def copy_media_files(
     Adapted from code in `anki/pylib/anki/exporting.py`. Specifically, the
     `AnkiExporter.exportInto()` function.
 
-    SQLite3 notes table schema
-    --------------------------
-    CREATE TABLE notes (
-        id integer PRIMARY KEY,
-        guid text NOT NULL,
-        mid integer NOT NULL,
-        mod integer NOT NULL,
-        usn integer NOT NULL,
-        tags text NOT NULL,
-        flds text NOT NULL,
-        -- The use of type integer for sfld is deliberate, because it means
-        -- that integer values in this field will sort numerically.
-        sfld integer NOT NULL,
-        csum integer NOT NULL,
-        flags integer NOT NULL,
-        data text NOT NULL
-    );
-
     Parameters
     ----------
     col
         Anki collection.
-    silent
-        Whether to display stdout.
+    media_target_dir
+        Where media files are to be copied to.
     """
-
     # All note ids as a string for the SQL query.
     strnids = ids2str(list(col.find_notes(query="")))
 
@@ -1167,63 +829,33 @@ def copy_media_files(
     # within ki, we have a guarantee that this will never be true, and thus we
     # can assume it is a nonempty string, which is all we need for the
     # following code to be safe.
-    media_dir = F.test(Path(col.media.dir()))
-    if not isinstance(media_dir, ExtantDir):
+    media_dir = F.chk(Path(col.media.dir()))
+    if not isinstance(media_dir, Dir):
         raise MissingMediaDirectoryError(col.path, media_dir)
 
-    # Find only used media files, collecting warnings for bad paths.
-    media: Dict[int, Set[ExtantFile]] = {}
-    warnings: Set[Warning] = set()
+    # Find media files that appear in note fields and copy them to the target.
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
-
-    bar = tqdm(rows, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Media")
-    for row in bar:
-        for file in files_in_str(col, row.flds):
-
-            # Skip files in subdirs.
-            if file != os.path.basename(file):
-                continue
-            media_file = F.test(media_dir / file)
-            if isinstance(media_file, ExtantFile):
-                copied_file = F.copyfile(media_file, media_target_dir, media_file.name)
-                media[row.nid] = media.get(row.nid, set()) | set([copied_file])
-            else:
-                warnings.add(MissingMediaFileWarning(col.path, media_file))
-
+    rows = TQ(rows, "Media")
+    copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
+    media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
-    # Faster version.
+    # Copy notetype template media files.
     _, _, files = F.shallow_walk(media_dir)
-    fnames: List[Path] = [Path(file.name) for file in files]
-    for fname in fnames:
+    paths: Iterable[Path] = map(lambda f: Path(f.name), files)
+    paths = set(filter(lambda f: str(f).startswith("_"), paths))
+    models = filter(lambda m: int(m["id"]) in mids, col.models.all())
 
-        # Notetype template media files are *always* prefixed by underscores.
-        if str(fname).startswith("_"):
+    nt_copy_fn = partial(copy_notetype_media, media_dir, media_target_dir, paths)
+    mediasets: Iterable[FrozenSet[File]] = map(nt_copy_fn, models)
+    media[NOTETYPE_NID] = reduce(lambda x, y: x.union(y), mediasets, set())
 
-            # Scan all models in mids for reference to fname.
-            for m in col.models.all():
-                if int(m["id"]) in mids and _modelHasMedia(m, str(fname)):
-
-                    # If the path referenced by `fname` doesn't exist or is not
-                    # a file, we do not display a warning or return an error.
-                    # This path certainly ought to exist, since `fname` was
-                    # obtained from an `os.listdir()` call.
-                    media_file = F.test(media_dir / fname)
-                    if isinstance(media_file, ExtantFile):
-                        copied_file = F.copyfile(
-                            media_file, media_target_dir, media_file.name
-                        )
-                        notetype_media = media.get(NOTETYPE_NID, set())
-                        media[NOTETYPE_NID] = notetype_media | set([copied_file])
-                    break
-
-    return media, warnings
+    return media
 
 
 @beartype
-def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
+def hasmedia(model: NotetypeDict, fname: str) -> bool:
     """
     Check if a notetype has media.
 
@@ -1242,384 +874,290 @@ def _modelHasMedia(model: NotetypeDict, fname: str) -> bool:
 
 
 @beartype
-def write_repository(
-    col_file: ExtantFile,
-    targetdir: ExtantDir,
-    leaves: Leaves,
-    media_target_dir: EmptyDir,
-    silent: bool,
-    verbose: bool,
-) -> Set[LatentSymlink]:
-    """Write notes to appropriate directories in `targetdir`."""
+def write_fields(root: Dir, colnote: ColNote) -> Iterable[Tuple[str, File]]:
+    """Write a note's fields to be tidied."""
+    results = starmap(partial(write_field, root, colnote.n.id), colnote.n.items())
+    return filter(lambda f: f is not None, results)
 
+
+@beartype
+def write_field(
+    root: Dir, nid: int, name: str, text: str
+) -> Optional[Tuple[str, File]]:
+    """Write a field to a file (if tidying is needed) given its name and text."""
+    text: str = html_to_screen(text)
+    if re.search(HTML_REGEX, text):
+        fid: str = get_field_note_id(nid, name)
+        return fid, F.write(F.chk(root / fid), text)
+    return None
+
+
+@beartype
+def write_repository(
+    col_file: File,
+    targetdir: Dir,
+    dotki: DotKi,
+    media_target_dir: EmptyDir,
+) -> Set[WindowsLink]:
+    """Write notes to appropriate directories in `targetdir`."""
     # Create config file.
-    config_file: ExtantFile = leaves.files[CONFIG_FILE]
     config = configparser.ConfigParser()
     config["remote"] = {"path": col_file}
-    with open(config_file, "w", encoding="UTF-8") as config_f:
+    with open(dotki.config, "w", encoding=UTF8) as config_f:
         config.write(config_f)
 
     # Create temp directory for htmlfield text files.
     tempdir: EmptyDir = F.mkdtemp()
     root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
 
-    tidy_field_files: Dict[str, ExtantFile] = {}
-    decks: Dict[str, List[ColNote]] = {}
-
-    # Open collection using a `Maybe`.
-    cwd: ExtantDir = F.cwd()
-    col: Collection = M.collection(col_file)
-    F.chdir(cwd)
-
     # ColNote-containing data structure, to be passed to `write_decks()`.
-    colnotes: Dict[int, ColNote] = {}
+    col: Collection = M.collection(col_file)
+    nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
+    colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
+    media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
+    fields_fn = partial(write_fields, root)
+    fieldfiles = dict(F.cat(map(fields_fn, TQ(colnotes.values(), "Fields"))))
+    tidy_html_recursively(root)
 
-    # Query all note ids, get the deck from each note, and construct a map
-    # sending deck names to lists of notes.
-    all_nids = list(col.find_notes(query=""))
-
-    bar = tqdm(all_nids, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("Notes")
-    for nid in bar:
-        colnote: ColNote = get_colnote(col, nid)
-        colnotes[nid] = colnote
-        decks[colnote.deck] = decks.get(colnote.deck, []) + [colnote]
-        for field_name, field_text in colnote.n.items():
-            field_text: str = html_to_screen(field_text)
-            if re.search(HTML_REGEX, field_text):
-                fid: str = get_field_note_id(nid, field_name)
-                html_file: NoFile = F.test(root / fid)
-                tidy_field_files[fid] = F.write(html_file, field_text)
-
-    tidy_html_recursively(root, silent)
-
-    media: Dict[int, Set[ExtantFile]]
-    media, warnings = copy_media_files(col, media_target_dir, silent=silent)
-
-    latent_links: Set[LatentSymlink] = write_decks(
-        col,
-        targetdir,
-        colnotes,
-        media,
-        tidy_field_files,
-        silent,
+    windows_links: Set[WindowsLink] = write_decks(
+        col=col,
+        targetdir=targetdir,
+        colnotes=colnotes,
+        media=media,
+        tidy_field_files=fieldfiles,
     )
-
-    num_displayed: int = 0
-    for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
 
     F.rmtree(root)
     col.close(save=False)
 
-    return latent_links
+    return windows_links
+
+
+@beartype
+def postorder(node: Union[Root, Deck]) -> List[Deck]:
+    """
+    Post-order traversal. Guarantees that we won't process a node until we've
+    processed all its children.
+    """
+    descendants: List[Deck] = reduce(lambda xs, x: xs + postorder(x), node.children, [])
+    if isinstance(node, Root):
+        return descendants
+    return descendants + [node]
+
+
+@beartype
+def preorder(node: Union[Root, Deck]) -> List[Deck]:
+    """
+    Pre-order traversal. Guarantees that we won't process a node until
+    we've processed all its ancestors.
+    """
+    descendants: List[Deck] = reduce(lambda xs, x: xs + preorder(x), node.children, [])
+    if isinstance(node, Root):
+        return descendants
+    return [node] + descendants
 
 
 @beartype
 def write_decks(
     col: Collection,
-    targetdir: ExtantDir,
+    targetdir: Dir,
     colnotes: Dict[int, ColNote],
-    media: Dict[int, Set[ExtantFile]],
-    tidy_field_files: Dict[str, ExtantFile],
-    silent: bool,
-) -> Set[LatentSymlink]:
+    media: Dict[int, Set[File]],
+    tidy_field_files: Dict[str, File],
+) -> Set[WindowsLink]:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
     model ids of the children in each node. For this, we must construct a tree
     from the deck names.
+
+    Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
+
+    It must do the following for each deck:
+    - create the deck directory
+    - write the models.json file
+    - create and populate the media directory
+    - write the note payload for each note in the correct deck, exactly once
+
+    In other words, for each deck, we need to write all of its:
+    - models
+    - media
+    - notes
+
+    The first two are cumulative: we want the models and media of subdecks to
+    be included in their ancestors. The notes, however, should not be
+    cumulative. Indeed, we want each note to appear exactly once in the
+    entire repository, making allowances for the case where a single note's
+    cards are spread across multiple decks, in which case we must create a
+    symlink.
+
+    And actually, both of these cases are nicely taken care of for us by the
+    `DeckManager.cids()` function, which has a `children: bool` parameter
+    which toggles whether or not to get the card ids of subdecks or not.
+
+    Return all windows symlinks created on Windows whose file modes we must set.
     """
+    # pylint: disable=too-many-locals
+    #
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
     # from the Anki DB.
-    models_map: Dict[int, NotetypeDict] = {}
-    for nt_name_id in col.models.all_names_and_ids():
-        models_map[nt_name_id.id] = col.models.get(nt_name_id.id)
-
+    #
     # Dump the models file for the whole repository.
-    with open(targetdir / MODELS_FILE, "w", encoding="UTF-8") as f:
-        json.dump(models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
+    models = {m.id: col.models.get(m.id) for m in col.models.all_names_and_ids()}
+    with open(targetdir / MODELS_FILE, "w", encoding=UTF8) as f:
+        json.dump(models, f, ensure_ascii=False, indent=4, sort_keys=True)
 
-    # Implement new `ColNote`-writing procedure, using `DeckTreeNode`s.
-    #
-    # It must do the following for each deck:
-    # - create the deck directory
-    # - write the models.json file
-    # - create and populate the media directory
-    # - write the note payload for each note in the correct deck, exactly once
-    #
-    # In other words, for each deck, we need to write all of its:
-    # - models
-    # - media
-    # - notes
-    #
-    # The first two are cumulative: we want the models and media of subdecks to
-    # be included in their ancestors. The notes, however, should not be
-    # cumulative. Indeed, we want each note to appear exactly once in the
-    # entire repository, making allowances for the case where a single note's
-    # cards are spread across multiple decks, in which case we must create a
-    # symlink.
-    #
-    # And actually, both of these cases are nicely taken care of for us by the
-    # `DeckManager.cids()` function, which has a `children: bool` parameter
-    # which toggles whether or not to get the card ids of subdecks or not.
-    root: DeckTreeNode = col.decks.deck_tree()
+    # Construct an iterable of all decks except the trivial deck.
+    root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
+    xs, ys = tee(postorder(root), 2)
+    bads: List[Deck] = list(filter(lambda d: MEDIA in d.fullname, ys))
+    if len(bads) > 0:
+        warn(MediaDirectoryDeckNameCollisionWarning())
+    decks: Iterable[Deck] = filter(lambda d: MEDIA not in d.fullname, xs)
+    decks = TQ(list(decks), "Decks")
 
-    @beartype
-    def postorder(node: DeckTreeNode) -> List[DeckTreeNode]:
-        """
-        Post-order traversal. Guarantees that we won't process a node until
-        we've processed all its children.
-        """
-        traversal: List[DeckTreeNode] = []
-        for child in node.children:
-            traversal += postorder(child)
-        traversal += [node]
-        return traversal
+    # Write cards and models to disk for each deck.
+    write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
+    notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
+    _: Set[Optional[T]] = set(map(partial(write_models, col, models), decks))
 
-    # All card ids we've already processed.
-    written_cids: Set[int] = set()
+    # Get all POSIX-style symlinks created on Windows.
+    cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
+    links: Iterable[Optional[WindowsLink]] = map(lambda c: c.link, cardfiles)
+    windows_links: Set[WindowsLink] = set(filter(lambda l: l is not None, links))
 
-    # Map nids we've already written files for to a dataclass containing:
-    # - the corresponding `ExtantFile`
-    # - the deck id of the card for which we wrote it
-    #
-    # This deck id identifies the deck corresponding to the location where all
-    # the symlinks should point.
-    written_notes: Dict[int, WrittenNoteFile] = {}
-
-    # All latent symlinks created on Windows whose file modes we must set.
-    latent_links: Set[LatentSymlink] = set()
-
-    nodes: List[DeckTreeNode] = postorder(root)
-
-    nodes_bar = tqdm(nodes, ncols=TQDM_NUM_COLS, leave=not silent)
-    nodes_bar.set_description("Decks")
-    for node in nodes_bar:
-        node_cids: Set[int]
-        node_notes: Dict[int, WrittenNoteFile]
-        node_latent_links: Set[LatentSymlink]
-        node_cids, node_notes, node_latent_links = write_deck_node_cards(
-            node,
-            col,
-            targetdir,
-            colnotes,
-            tidy_field_files,
-            models_map,
-            written_cids,
-            written_notes,
-        )
-        written_cids |= node_cids
-        written_notes.update(node_notes)
-        latent_links |= node_latent_links
-
-    media_links: Set[LatentSymlink] = chain_media_symlinks(root, col, targetdir, media)
-    latent_links |= media_links
-    return latent_links
+    return windows_links | symlink_media(col, root, targetdir, media)
 
 
 @beartype
-def write_deck_node_cards(
-    node: DeckTreeNode,
+def write_deck(
     col: Collection,
-    targetdir: ExtantDir,
+    targetd: Dir,
     colnotes: Dict[int, ColNote],
-    tidy_field_files: Dict[str, ExtantFile],
-    models_map: Dict[int, NotetypeDict],
-    written_cids: Set[int],
-    written_notes: Dict[int, WrittenNoteFile],
-) -> Tuple[Set[int], Dict[int, WrittenNoteFile], Set[LatentSymlink]]:
-    """Write all the cards to disk for a single `DeckTreeNode`."""
-    written_cids = copy.deepcopy(written_cids)
-    written_notes = copy.deepcopy(written_notes)
-    latent_links: Set[LatentSymlink] = set()
-
-    # The name stored in a `DeckTreeNode` object is not the full name of
-    # the deck, it is just the 'basename'. The `postorder()` function
-    # returns a deck with `did == 0` at the end of each call, probably
-    # because this is the implicit parent deck of all top-level decks. This
-    # deck empirically always has the empty string as its name. This is
-    # likely an Anki implementation detail. As a result, we ignore any deck
-    # with empty basename. We do this as opposed to ignoring decks with
-    # `did == 0` because it seems less likely to change if the Anki devs
-    # decide to mess with the implementation. Empty deck names will always
-    # be reserved, but they might e.g. decide ``did == -1`` makes more
-    # sense.
-    did: int = node.deck_id
-    basename: str = node.name
-    if basename == "":
-        return set(), {}, set()
-    name = col.decks.name(did)
-
-    deck_dir: ExtantDir = create_deck_dir(name, targetdir)
-    children: Set[CardId] = set(col.decks.cids(did=did, children=False))
-    descendants: List[CardId] = col.decks.cids(did=did, children=True)
-    descendant_nids: Set[int] = {NOTETYPE_NID}
-    descendant_mids: Set[int] = set()
-
-    for cid in descendants:
-        card: Card = col.get_card(cid)
-        descendant_nids.add(card.nid)
-        descendant_mids.add(card.note().mid)
-
-        # Card writes should not be cumulative, so we only perform them if
-        # `cid` is the card id of a card that is in the deck corresponding
-        # to `node`, but not in any of its children.
-        if cid not in children:
-            continue
-
-        # We only even consider writing *anything* (file or symlink) to
-        # disk after checking that we haven't already processed this
-        # particular card id. If we have, then we only need to bother with
-        # the cumulative stuff above (nids and mids, which we keep track of
-        # in order to write out models and media).
-        #
-        # TODO: This fixes a very serious bug. Write a test to capture the
-        # issue. Use the Japanese Core 2000 deck as a template if needed.
-        if cid in written_cids:
-            continue
-        written_cids.add(cid)
-
-        # We only write the payload if we haven't seen this note before.
-        # Otherwise, this must be a different card generated from the same
-        # note, so we symlink to the location where we've already written
-        # it to disk.
-        colnote: ColNote = colnotes[card.nid]
-
-        if card.nid not in written_notes:
-            payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, payload, deck_dir)
-            note_path: ExtantFile = F.write(note_path, payload)
-            written_notes[card.nid] = WrittenNoteFile(did, note_path)
-        else:
-            # If `card` is in the same deck as the card we wrote `written`
-            # for, then there is no need to create a symlink, because the
-            # note file is already there, in the correct deck directory.
-            #
-            # TODO: This fixes a very serious bug. Write a test to capture the
-            # issue. Use the Japanese Core 2000 deck as a template if needed.
-            written: WrittenNoteFile = written_notes[card.nid]
-            if card.did == written.did:
-                continue
-
-            # Get card template name.
-            template: TemplateDict = card.template()
-            name: str = template["name"]
-
-            payload: str = get_note_payload(colnote, tidy_field_files)
-            note_path: NoFile = get_note_path(colnote, payload, deck_dir, name)
-            abs_target: ExtantFile = written_notes[card.nid].file
-            distance = len(note_path.parent.relative_to(targetdir).parts)
-            up_path = Path("../" * distance)
-            relative: Path = abs_target.relative_to(targetdir)
-            target: Path = up_path / relative
-
-            try:
-                link: Union[Symlink, LatentSymlink] = F.symlink(note_path, target)
-                if isinstance(link, LatentSymlink):
-                    latent_links.add(link)
-            except OSError as _:
-                trace = traceback.format_exc(limit=3)
-                logger.warning(f"Failed to create symlink for cid '{cid}'\n{trace}")
-
-    # TODO: Should this block be outside this function?
-    # Write `models.json` for current deck.
-    deck_models_map = {mid: models_map[mid] for mid in descendant_mids}
-    with open(deck_dir / MODELS_FILE, "w", encoding="UTF-8") as f:
-        json.dump(deck_models_map, f, ensure_ascii=False, indent=4, sort_keys=True)
-
-    return written_cids, written_notes, latent_links
+    fieldfiles: Dict[str, File],
+    notefiles: Dict[NoteId, CardFileMap],
+    deck: Deck,
+) -> Dict[NoteId, CardFileMap]:
+    """Write all the cards to disk for a single deck."""
+    did: DeckId = deck.did
+    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
+    write = partial(write_card, colnotes, fieldfiles, targetd, deck.deckd)
+    return reduce(write, cards, notefiles)
 
 
 @beartype
-def chain_media_symlinks(
-    root: DeckTreeNode,
+def write_card(
+    colnotes: Dict[int, ColNote],
+    fieldfiles: Dict[str, File],
+    targetd: Dir,
+    deckd: Dir,
+    notefiles: Dict[NoteId, CardFileMap],
+    card: Card,
+) -> Dict[NoteId, CardFileMap]:
+    """Write a single card to disk."""
+    colnote: ColNote = colnotes[card.nid]
+    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
+    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
+    if len(cardfile_map) == 0:
+        payload: str = get_note_payload(colnote, fieldfiles)
+        note_path: NoFile = get_note_path(colnote, deckd)
+        file, link = F.write(note_path, payload), None
+    elif len(cardfiles) > 0:
+        file, link = cardfiles[0].file, cardfiles[0].link
+    else:
+        existing: CardFile = list(cardfile_map.values())[0][0]
+        file: File = existing.file
+        link: Optional[WindowsLink] = get_link(targetd, colnote, deckd, card, file)
+    cardfile = CardFile(card, link=link, file=file)
+    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
+
+
+@beartype
+def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -> None:
+    """Write the `models.json` file for the given deck."""
+    did: int = deck.did
+    deckd: Dir = deck.deckd
+    descendants: List[CardId] = col.decks.cids(did=did, children=True)
+    cards: List[Card] = list(map(col.get_card, descendants))
+    descendant_mids: Set[int] = {c.note().mid for c in cards}
+
+    # Write `models.json` for current deck.
+    deck_models = {mid: models[mid] for mid in descendant_mids}
+    with open(deckd / MODELS_FILE, "w", encoding=UTF8) as f:
+        json.dump(deck_models, f, ensure_ascii=False, indent=4, sort_keys=True)
+
+
+@beartype
+def get_link(
+    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
+) -> Optional[WindowsLink]:
+    """Return a windows link for a card if one is necessary."""
+    note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
+    return M.winlink(targetd, PlannedLink(link=note_path, tgt=file))
+
+
+@beartype
+def parentmap(root: Union[Root, Deck]) -> Dict[str, Union[Root, Deck]]:
+    """Map deck fullnames to parent `Deck`s."""
+    parents = {child.fullname: root for child in root.children}
+    return parents | reduce(lambda x, y: x | y, map(parentmap, root.children), {})
+
+
+@beartype
+def planned_link(
+    parents: Dict[str, Union[Root, Deck]], deck: Deck, media_file: File
+) -> Optional[PlannedLink]:
+    """Get the target of the to-be-created media symlink."""
+    link: Path = F.chk(deck.mediad / media_file.name, resolve=False)
+    if not isinstance(link, NoFile):
+        return None
+
+    parent: Union[Root, Deck] = parents[deck.fullname]
+    if isinstance(parent, Root):
+        tgt = media_file
+    else:
+        tgt = F.chk(parent.mediad / media_file.name, resolve=False)
+    return PlannedLink(link=link, tgt=tgt)
+
+
+@beartype
+def symlink_deck_media(
     col: Collection,
-    targetdir: ExtantDir,
-    media: Dict[int, Set[ExtantFile]],
-) -> Set[LatentSymlink]:
+    targetd: Dir,
+    media: Dict[int, Set[File]],
+    parents: Dict[str, Union[Root, Deck]],
+    deck: Deck,
+) -> Iterable[WindowsLink]:
+    """Create chained symlinks for a single deck."""
+    # Get nids for all descendant notes with media.
+    descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
+    cards: Iterable[Card] = map(col.get_card, descendants)
+    nids: Set[NoteId] = {NOTETYPE_NID} | set(map(lambda c: c.nid, cards))
+    nids = filter(lambda nid: nid in media, nids)
+
+    # Get link path and target for each media file, and create the links.
+    files: Iterable[File] = F.cat(map(lambda nid: media[nid], nids))
+    optional_plinks = map(partial(planned_link, parents, deck), files)
+    plinks: Iterable[PlannedLink] = filter(lambda l: l is not None, optional_plinks)
+    windows_links = map(partial(M.winlink, targetd), plinks)
+    return filter(lambda l: l is not None, windows_links)
+
+
+@beartype
+def symlink_media(
+    col: Collection,
+    root: Root,
+    targetd: Dir,
+    media: Dict[int, Set[File]],
+) -> Set[WindowsLink]:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
-
-    @beartype
-    def preorder(node: DeckTreeNode) -> List[DeckTreeNode]:
-        """
-        Pre-order traversal. Guarantees that we won't process a node until
-        we've processed all its ancestors.
-        """
-        traversal: List[DeckTreeNode] = [node]
-        for child in node.children:
-            traversal += preorder(child)
-        return traversal
-
-    @beartype
-    def map_parents(node: DeckTreeNode, col: Collection) -> Dict[str, DeckTreeNode]:
-        """Map deck names to parent `DeckTreeNode`s."""
-        parents: Dict[str, DeckTreeNode] = {}
-        for child in node.children:
-            did: int = child.deck_id
-            name: str = col.decks.name(did)
-            parents[name] = node
-            subparents = map_parents(child, col)
-            parents.update(subparents)
-        return parents
-
-    media_latent_links: Set[LatentSymlink] = set()
-    media_dirs: Dict[str, ExtantDir] = {}
-    parents: Dict[str, DeckTreeNode] = map_parents(root, col)
-    for node in preorder(root):
-        if node.name == "":
-            continue
-        did: int = node.deck_id
-        fullname = col.decks.name(did)
-        deck_dir: ExtantDir = create_deck_dir(fullname, targetdir)
-        deck_media_dir: ExtantDir = F.force_mkdir(deck_dir / MEDIA)
-        media_dirs[fullname] = deck_media_dir
-        descendant_nids: Set[int] = {NOTETYPE_NID}
-        descendants: List[CardId] = col.decks.cids(did=did, children=True)
-        for cid in descendants:
-            card: Card = col.get_card(cid)
-            descendant_nids.add(card.nid)
-
-        for nid in descendant_nids:
-            if nid not in media:
-                continue
-
-            for media_file in media[nid]:
-                parent: DeckTreeNode = parents[fullname]
-                if parent.name != "":
-                    parent_did: int = parent.deck_id
-                    parent_fullname: str = col.decks.name(parent_did)
-                    parent_media_dir = media_dirs[parent_fullname]
-                    abs_target: Symlink = F.test(
-                        parent_media_dir / media_file.name, resolve=False
-                    )
-                else:
-                    abs_target: ExtantFile = media_file
-
-                path = F.test(deck_media_dir / media_file.name, resolve=False)
-                if not isinstance(path, NoFile):
-                    continue
-
-                distance = len(path.parent.relative_to(targetdir).parts)
-                up_path = Path("../" * distance)
-                relative: Path = abs_target.relative_to(targetdir)
-                target: Path = up_path / relative
-
-                try:
-                    link: Union[Symlink, LatentSymlink] = F.symlink(path, target)
-                    if isinstance(link, LatentSymlink):
-                        media_latent_links.add(link)
-                except OSError as _:
-                    trace = traceback.format_exc(limit=3)
-                    logger.warning(f"Failed to create symlink to media\n{trace}")
-
-    return media_latent_links
+    decks: List[Deck] = preorder(root)
+    parents: Dict[str, Union[Root, Deck]] = parentmap(root)
+    symlink_fn = partial(symlink_deck_media, col, targetd, media, parents)
+    windows_links: Iterable[WindowsLink] = F.cat(map(symlink_fn, decks))
+    return set(windows_links)
 
 
 @beartype
@@ -1629,11 +1167,7 @@ def html_to_screen(html: str) -> str:
     markdown file.
 
     Does very litle (just converts HTML-escaped special characters like `<br>`
-    tags or `&nbsp;`s to their UTF-8 equivalents) in the case where the
-    sentinel string does not appear. This string, `GENERATED_HTML_SENTINEL`,
-    indicates that a note was first created in a ki markdown file, and
-    therefore its HTML structure can be safely stripped out within calls to
-    `write_decks()`.
+    tags or `&nbsp;`s to their UTF-8 equivalents).
     """
     html = re.sub(r"\<style\>.*\<\/style\>", "", html, flags=re.S)
     plain = html
@@ -1661,19 +1195,7 @@ def html_to_screen(html: str) -> str:
 
 
 @beartype
-def get_colnote_as_str(colnote: ColNote) -> str:
-    """Return string representation of a `ColNote`."""
-    lines = get_header_lines(colnote)
-    for field_name, field_text in colnote.n.items():
-        lines.append("### " + field_name)
-        lines.append(html_to_screen(field_text))
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-@beartype
-def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) -> str:
+def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -> str:
     """
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
@@ -1696,7 +1218,7 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
             # HTML5-tidy adds a newline after `<br>` in indent mode, so we
             # remove these, because `html_to_screen()` converts `<br>` tags to
             # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text(encoding="UTF-8")
+            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=UTF8)
             tidied_field_text = tidied_field_text.replace("<br>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br/>\n", "\n")
             tidied_field_text = tidied_field_text.replace("<br />\n", "\n")
@@ -1716,31 +1238,11 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, ExtantFile]) 
 
 
 @beartype
-def git_pull(
-    remote: str,
-    branch: str,
-    cwd: ExtantDir,
-    unrelated: bool,
-    theirs: bool,
-    check: bool,
-    silent: bool,
-) -> None:
+def git_pull(remote: str, branch: str, cwd: Dir) -> str:
     """Pull remote into branch using a subprocess call."""
-    with F.halo(f"Pulling into '{cwd}'..."):
-        args = ["git", "pull", "-v"]
-        if unrelated:
-            args += ["--allow-unrelated-histories"]
-        if theirs:
-            args += ["--strategy-option=theirs"]
-        args += ["--verbose"]
-        args += [remote, branch]
-        p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
-    echo(f"{p.stdout.decode()}", silent=silent)
-    echo(f"{p.stderr.decode()}", silent=silent)
-    if check and p.returncode != 0:
-        click.secho(f"Error while pulling into '{cwd}'", fg="red")
-        raise RuntimeError(f"Git failed with return code '{p.returncode}'.")
-    echo(f"Pulling into '{cwd}'... done.", silent=silent)
+    args = ["git", "pull", "-v", remote, branch]
+    p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
+    return f"{p.stdout.decode()}\n{p.stderr.decode()}"
 
 
 @beartype
@@ -1751,41 +1253,17 @@ def echo(string: str, silent: bool = False) -> None:
 
 
 @beartype
-def warn(string: str) -> None:
+def warn(w: Warning) -> None:
     """Call `click.secho()` with formatting (yellow)."""
-    click.secho(f"WARNING: {string}", bold=True, fg="yellow")
+    click.secho(f"WARNING: {str(w)}", bold=True, fg="yellow")
 
 
 @beartype
-def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
+def tidy_html_recursively(root: Dir) -> None:
     """Call html5-tidy on each file in `root`, editing in-place."""
     # Spin up subprocesses for tidying field HTML in-place.
-    batches: List[List[ExtantFile]] = list(
-        F.get_batches(F.rglob(root, "*"), BATCH_SIZE)
-    )
-
-    bar = tqdm(batches, ncols=TQDM_NUM_COLS, leave=not silent)
-    bar.set_description("HTML")
-    for batch in bar:
-        # TODO: Should we fail silently here, so as to not bother user with
-        # tidy warnings?
-        command = [
-            "tidy",
-            "-q",
-            "-m",
-            "-i",
-            "-omit",
-            "-utf8",
-            "--tidy-mark",
-            "no",
-            "--show-body-only",
-            "yes",
-            "--wrap",
-            "68",
-            "--wrap-attributes",
-            "yes",
-        ]
-        command += batch
+    for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
+        command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
         try:
             subprocess.run(command, check=False, capture_output=True)
         except FileNotFoundError as err:
@@ -1793,11 +1271,9 @@ def tidy_html_recursively(root: ExtantDir, silent: bool) -> None:
 
 
 @beartype
-def get_target(
-    cwd: ExtantDir, col_file: ExtantFile, directory: str
-) -> Tuple[EmptyDir, bool]:
+def get_target(cwd: Dir, col_file: File, directory: str) -> Tuple[EmptyDir, bool]:
     """Create default target directory."""
-    path = F.test(Path(directory) if directory != "" else cwd / col_file.stem)
+    path = F.chk(Path(directory) if directory != "" else cwd / col_file.stem)
     new: bool = True
     if isinstance(path, NoPath):
         path.mkdir(parents=True)
@@ -1809,113 +1285,71 @@ def get_target(
 
 
 @beartype
-def echo_note_change_types(deltas: List[Delta]) -> None:
+def echo_note_change_types(deltas: Iterable[Delta]) -> None:
     """Write a table of git change types for notes to stdout."""
+    # pylint: disable=too-many-locals
     is_change_type = lambda t: lambda d: d.status == t
 
-    adds = list(filter(is_change_type(GitChangeType.ADDED), deltas))
-    deletes = list(filter(is_change_type(GitChangeType.DELETED), deltas))
-    renames = list(filter(is_change_type(GitChangeType.RENAMED), deltas))
-    modifies = list(filter(is_change_type(GitChangeType.MODIFIED), deltas))
-    typechanges = list(filter(is_change_type(GitChangeType.TYPECHANGED), deltas))
+    vs, ws, xs, ys, zs = tee(deltas, 5)
+    adds = list(filter(is_change_type(ADDED), vs))
+    deletes = list(filter(is_change_type(DELETED), ws))
+    renames = list(filter(is_change_type(RENAMED), xs))
+    modifies = list(filter(is_change_type(MODIFIED), ys))
+    types = list(filter(is_change_type(TYPECHANGED), zs))
 
-    WORD_PAD = 15
-    COUNT_PAD = 9
-    add_info: str = "ADD".ljust(WORD_PAD) + str(len(adds)).rjust(COUNT_PAD)
-    delete_info: str = "DELETE".ljust(WORD_PAD) + str(len(deletes)).rjust(COUNT_PAD)
-    modification_info: str = "MODIFY".ljust(WORD_PAD) + str(len(modifies)).rjust(
-        COUNT_PAD
-    )
-    rename_info: str = "RENAME".ljust(WORD_PAD) + str(len(renames)).rjust(COUNT_PAD)
-    typechange_info: str = "TYPE CHANGE".ljust(WORD_PAD) + str(len(typechanges)).rjust(
-        COUNT_PAD
-    )
+    LPAD, RPAD = 15, 9
+    add_info: str = "ADD".ljust(LPAD) + str(len(adds)).rjust(RPAD)
+    delete_info: str = "DELETE".ljust(LPAD) + str(len(deletes)).rjust(RPAD)
+    modification_info: str = "MODIFY".ljust(LPAD) + str(len(modifies)).rjust(RPAD)
+    rename_info: str = "RENAME".ljust(LPAD) + str(len(renames)).rjust(RPAD)
+    type_info: str = "TYPE CHANGE".ljust(LPAD) + str(len(types)).rjust(RPAD)
 
-    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("=" * (LPAD + RPAD))
     echo("Note change types")
-    echo("-" * (WORD_PAD + COUNT_PAD))
-    echo(add_info)
-    echo(delete_info)
-    echo(modification_info)
-    echo(rename_info)
-    echo(typechange_info)
-    echo("=" * (WORD_PAD + COUNT_PAD))
+    echo("-" * (LPAD + RPAD))
+    echo(f"{add_info}\n{delete_info}\n{modification_info}\n{rename_info}\n{type_info}")
+    echo("=" * (LPAD + RPAD))
 
 
 @beartype
-def add_models(col: Collection, models: Dict[str, Notetype]) -> None:
-    """Add all new models."""
+def add_model(col: Collection, model: Notetype) -> None:
+    """Add a model to the database."""
+    # Check if a model already exists with this name, and get its `mid`.
+    mid: Optional[int] = col.models.id_for_name(model.name)
 
-    @beartype
-    def get_notetype_json(notetype: Notetype) -> str:
-        dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
-        dictionary.pop("id")
-        inner = dictionary["dict"]
-        inner.pop("id")
-        inner.pop("mod")
-        dictionary["dict"] = inner
-        return json.dumps(dictionary, sort_keys=True, indent=4)
+    # TODO: This function is unfinished. We need to add new notetypes (and
+    # rename them) only if they are 'new', where new means they are different
+    # from anything else already in the DB, in the content-addressed sense. If
+    # they are new, then we must indicate that the notes we are adding actually
+    # have these new notetypes. For this, it may make sense to use the hash of
+    # the notetype everywhere (i.e. in the note file) rather than the name or
+    # mid.
+    #
+    # If a model already exists with this name, parse it, and check if its hash
+    # is identical to the model we are trying to add.
+    if mid is not None:
+        nt: NotetypeDict = col.models.get(mid)
 
-    @beartype
-    def notetype_hash_repr(notetype: Notetype) -> str:
-        s = get_notetype_json(notetype)
-        return f"JSON for '{pp.pformat(notetype.id)}':\n{s}"
+        # If we are trying to add a model that has the exact same content and
+        # name as an existing model, skip it.
+        existing: Notetype = M.notetype(nt)
+        if notetype_json(model) == notetype_json(existing):
+            return
 
-    for model in models.values():
+        # If the hashes don't match, then we somehow need to update
+        # `decknote.model` for the relevant notes.
+        warn(NotetypeCollisionWarning(model, existing))
 
-        # TODO: Consider waiting to parse `models` until after the
-        # `add_dict()` call.
-        #
-        # Set the model id to `0`, and then add.
-        # TODO: What happens if we try to add a model with the same name as
-        # an existing model, but the two models are not the same,
-        # content-wise?
-        #
-        # Check if a model already exists with this name, and get its `mid`.
-        mid: Optional[int] = col.models.id_for_name(model.name)
-
-        # TODO: This block is unfinished. We need to add new notetypes (and
-        # rename them) only if they are 'new', where new means they are
-        # different from anything else already in the DB, in the
-        # content-addressed sense. If they are new, then we must indicate that
-        # the notes we are adding actually have these new notetypes. For this,
-        # it may make sense to use the hash of the notetype everywhere (i.e. in
-        # the note file) rather than the name or mid.
-        #
-        # If a model already exists with this name, parse it, and check if its
-        # hash is identical to the model we are trying to add.
-        if mid is not None:
-            nt: NotetypeDict = col.models.get(mid)
-
-            # If we are trying to add a model that has the exact same content
-            # and name as an existing model, skip it.
-            existing_model: Notetype = parse_notetype_dict(nt)
-            if get_notetype_json(model) == get_notetype_json(existing_model):
-                continue
-
-            logger.warning(
-                f"Collision: New model '{model.name}' has same name "
-                f"as existing model with mid '{mid}', but hashes differ."
-            )
-            logger.warning(notetype_hash_repr(model))
-            logger.warning(notetype_hash_repr(existing_model))
-
-            # If the hashes don't match, then we somehow need to update
-            # `decknote.model` for the relevant notes.
-
-            # TODO: Consider using the hash of the notetype instead of its
-            # name.
-
-        nt_copy: NotetypeDict = copy.deepcopy(model.dict)
-        nt_copy["id"] = 0
-        changes: OpChangesWithId = col.models.add_dict(nt_copy)
-        nt: NotetypeDict = col.models.get(changes.id)
-        model: Notetype = parse_notetype_dict(nt)
-        echo(f"Added model '{model.name}'")
+    nt_copy: NotetypeDict = copy.deepcopy(model.dict)
+    nt_copy["id"] = 0
+    changes: OpChangesWithId = col.models.add_dict(nt_copy)
+    nt: NotetypeDict = col.models.get(changes.id)
+    model: Notetype = M.notetype(nt)
+    echo(f"Added model '{model.name}'")
 
 
 @beartype
-def media_data(col: Collection, fname: str) -> bytes:
+def mediadata(col: Collection, fname: str) -> bytes:
     """Get media file content as bytes (empty if missing)."""
     if not col.media.have(fname):
         return b""
@@ -1928,23 +1362,171 @@ def media_data(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def filemode(
-    file: Union[ExtantFile, ExtantDir, ExtantStrangePath, Symlink, LatentSymlink]
-) -> int:
-    """Get git file mode."""
-    try:
-        # We must search from file upwards in case inside submodule.
-        repo = git.Repo(file, search_parent_directories=True)
-        out = repo.git.ls_files(["-s", str(file)])
+def unquote_diff_path(path: str) -> str:
+    """Unquote a diff/patch path."""
+    if len(path) <= 4:
+        return path
+    if path[0] == '"' and path[-1] == '"':
+        path = path.lstrip('"').rstrip('"')
+    if path[:2] in ("a/", "b/"):
+        path = path[2:]
+    return path
 
-        # Treat case where file is untracked.
-        if out == "":
-            return -1
 
-        mode: int = int(out.split()[0])
-    except Exception as err:
-        raise GitFileModeParseError(file, out) from err
-    return mode
+@beartype
+def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
+    """Get all patches from HEAD to FETCH_HEAD in a flattened git repository."""
+    raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+
+    # Construct patches for every file in the flattenened/unsubmoduled checkout
+    # of the revision of the last successful `ki push`. Each patch is the diff
+    # between the relevant file in the flattened (all submodules converted to
+    # ordinary directories) repository and the same file in the Anki remote (a
+    # fresh `ki clone` of the current database).
+    patches: List[Patch] = []
+    f = io.StringIO()
+    with redirect_stdout(f):
+        for diff in whatthepatch.parse_patch(raw_unified_patch):
+            a_path = unquote_diff_path(diff.header.old_path)
+            b_path = unquote_diff_path(diff.header.new_path)
+            if a_path == DEV_NULL:
+                a_path = b_path
+            if b_path == DEV_NULL:
+                b_path = a_path
+            patch = Patch(Path(a_path), Path(b_path), diff)
+            patches.append(patch)
+    return patches
+
+
+@beartype
+def rm_remote_sm(repo: git.Repo, sub: Submodule) -> Submodule:
+    """Remove submodule directory from given repo."""
+    if os.path.isdir(F.root(repo) / sub.rel_root):
+        repo.git.rm(["-r", str(sub.rel_root)])
+    return sub
+
+
+@beartype
+def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
+    """Check if patch path is relative to the given root."""
+    # TODO: We must also treat case where we moved a file into or out of a
+    # submodule, but we just do this for now. In this case, we may have
+    # `patch.a` not be relative to the submodule root (if we moved a file into
+    # the sm dir), or vice-versa.
+    a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
+    b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
+    return a_in_submodule and b_in_submodule
+
+
+@beartype
+def apply(subrepos: Dict[Path, Submodule], patch: Patch) -> Iterable[Path]:
+    """Apply a patch within the relevant submodule repositories."""
+    # Consider only repos containing patch, ignore submodule 'file' itself.
+    subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
+    subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
+    patch_dir: Dir = F.mkdtemp()
+    return map(partial(apply_in_subrepo, patch_dir, patch), subs)
+
+
+@beartype
+def apply_in_subrepo(
+    patch_dir: Dir,
+    patch: Patch,
+    sub: Submodule,
+) -> Path:
+    """Apply a patch within a submodule."""
+    # Hash the patch to use as a filename.
+    blake2 = hashlib.blake2s()
+    blake2.update(patch.diff.text.encode())
+    patch_hash: str = blake2.hexdigest()
+    patch_path: NoFile = F.chk(patch_dir / patch_hash)
+
+    # We write as bytes so that it is not necessary to strip trailing linefeeds
+    # from each line so that `git apply` is happy on Windows (equivalent to
+    # running `dos2unix`).
+    patch_b: bytes = patch.diff.text.encode("UTF-8")
+    F.writeb(patch_path, patch_b)
+
+    # Number of leading path components to drop from diff paths.
+    parts: str = str(len(sub.rel_root.parts) + 1)
+
+    # TODO: More tests are needed to make sure that the `git apply` call is not
+    # flaky. In particular, we must treat new and deleted files.
+    #
+    # Note that it is unnecessary to use `--3way` here, because this submodule
+    # is supposed to represent a fast-forward from the last successful push to
+    # the current state of the remote.  There should be no nontrivial merging
+    # involved.
+    #
+    # Then -p<n> flag tells `git apply` to drop the first n leading path
+    # components from both diff paths. So if n is 2, we map `a/dog/cat` ->
+    # `cat`.
+    sub.sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
+    return patch.a
+
+
+@beartype
+def pull_sm(
+    subrepos: Dict[Path, git.Repo],
+    sub: Submodule,
+) -> Submodule:
+    """
+    Safely pull changes within a submodule.
+
+    New commits in submodules within `lca_repo` are be pulled into the
+    submodules within `kirepo.repo`. This is done by adding a remote pointing
+    to the patched submodule in each corresponding submodule in the main
+    repository, and then pulling from that remote. Then the remote is deleted.
+    """
+    # TODO: What if a submodule was deleted (or added) entirely?
+    sm_repo = sub.sm_repo
+    sm_rel_root = sub.rel_root
+    remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
+    branch: str = sub.branch
+
+    # TODO: What's in `upstream` that isn't already in `branch`?
+    remote_sm.git.branch("upstream")
+
+    # Simulate a `git merge --strategy=theirs upstream`.
+    remote_sm.git.checkout(["-b", "tmp", "upstream"])
+    remote_sm.git.merge(["-s", "ours", branch])
+    remote_sm.git.checkout(branch)
+    remote_sm.git.merge("tmp")
+    remote_sm.git.branch(["-D", "tmp"])
+
+    sm_remote = sm_repo.create_remote(REMOTE_NAME, F.gitd(remote_sm))
+    echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
+    sm_repo.delete_remote(sm_remote)
+    remote_sm.close()
+    sm_repo.close()
+    return sub
+
+
+@beartype
+def get_note_metadata(col: Collection) -> Dict[str, NoteMetadata]:
+    """
+    Construct a map from guid -> (nid, mod, mid), adapted from
+    `Anki2Importer._import_notes()`. Note that `mod` is the modification
+    timestamp, in epoch seconds (timestamp of when the note was last modified).
+    """
+    guids: Dict[str, NoteMetadata] = {}
+    for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
+        guids[guid] = NoteMetadata(nid, mod, mid)
+    return guids
+
+
+@beartype
+def mediabytes(col: Collection, file: File) -> MediaBytes:
+    """Get old bytes (from collection) and new bytes (from file) for media file."""
+    old: bytes = mediadata(col, file.name)
+    new: bytes = file.read_bytes()
+    return MediaBytes(file=file, old=old, new=new)
+
+
+@beartype
+def addmedia(col: Collection, m: MediaBytes) -> AddedMedia:
+    """Add a media file to collection (possibly renaming)."""
+    return AddedMedia(file=m.file, new_name=col.media.add_file(m.file))
 
 
 @click.group()
@@ -1962,8 +1544,7 @@ def ki() -> None:
 @ki.command()
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
-@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
-def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
+def clone(collection: str, directory: str = "") -> None:
     """
     Clone an Anki collection into a directory.
 
@@ -1975,19 +1556,10 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
         An optional path to a directory to clone the collection into.
         Note: we check that this directory does not yet exist.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
-    echo("Cloning.")
-    col_file: ExtantFile = M.xfile(Path(collection))
+    col_file: File = M.xfile(Path(collection))
 
     @beartype
-    def cleanup(targetdir: ExtantDir, new: bool) -> Union[ExtantDir, EmptyDir, NoPath]:
+    def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
         """Cleans up after failed clone operations."""
         try:
             if new:
@@ -1999,42 +1571,27 @@ def clone(collection: str, directory: str = "", verbose: bool = False) -> None:
                 os.remove(file)
         except PermissionError as _:
             pass
-        return F.test(targetdir)
+        return F.chk(targetdir)
 
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
-    targetdir: EmptyDir
-    new: bool
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(
-            col_file,
-            targetdir,
-            msg="Initial commit",
-            silent=False,
-            verbose=verbose,
-        )
+        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
-        F.write(kirepo.last_push_file, kirepo.repo.head.commit.hexsha)
+        kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
         gc.collect()
-        echo("Done.")
     except Exception as err:
         cleanup(targetdir, new)
         raise err
 
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_clone_profile.html").resolve().write_text(s, encoding="UTF-8")
-
 
 @beartype
 def _clone(
-    col_file: ExtantFile,
+    col_file: File,
     targetdir: EmptyDir,
     msg: str,
     silent: bool,
-    verbose: bool,
 ) -> Tuple[git.Repo, str]:
     """
     Clone an Anki collection into a directory.
@@ -2062,69 +1619,48 @@ def _clone(
     md5sum : str
         The hash of the Anki collection file.
     """
-    echo(f"Found .anki2 file at '{col_file}'", silent=silent)
-
-    # Create `.ki/` and `_media/`, and create empty metadata files in `.ki/`.
-    # TODO: Consider writing a Maybe factory for all this.
-    directories: Leaves = F.fmkleaves(targetdir, dirs={KI: KI, MEDIA: MEDIA})
-    leaves: Leaves = F.fmkleaves(
-        directories.dirs[KI],
-        files={CONFIG_FILE: CONFIG_FILE, LAST_PUSH_FILE: LAST_PUSH_FILE},
-        dirs={BACKUPS_DIR: BACKUPS_DIR},
-    )
-
+    # Initialize empty ki repo.
+    kidir, mediadir = M.empty_kirepo(targetdir)
+    dotki: DotKi = M.dotki(kidir)
     md5sum = F.md5(col_file)
-    echo(f"Computed md5sum: {md5sum}", silent)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
-    (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
+    (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
 
     # Write notes to disk.
-    latent_links: Set[LatentSymlink] = write_repository(
-        col_file,
-        targetdir,
-        leaves,
-        directories.dirs[MEDIA],
-        silent,
-        verbose,
-    )
+    windows_links = write_repository(col_file, targetdir, dotki, mediadir)
 
-    # Initialize the main repository.
-    with F.halo("Initializing repository and committing contents..."):
-        repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
-        root = F.working_dir(repo)
+    # Initialize as git repo and commit contents.
+    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    root = F.root(repo)
+    F.commitall(repo, msg)
 
-        repo.git.add(all=True)
-        _ = repo.index.commit(msg)
+    # Use `git update-index` to set 120000 file mode on each windows symlink.
+    for abslink in windows_links:
 
-        # Use `git update-index` to set 120000 file mode on each latent symlink
-        # in `latent_links`.
-        relative_links: Set[Path] = set()
-        for abslink in latent_links:
-            link = abslink.relative_to(root)
-            relative_links.add(link)
+        # Convert to POSIX pathseps since that's what `git` wants.
+        link: str = abslink.relative_to(root).as_posix()
+        githash = repo.git.hash_object(["-w", f"{link}"])
+        target = f"120000,{githash},{link}"
+        repo.git.update_index(target, add=True, cacheinfo=True)
 
-            # Convert to POSIX pathseps since that's what `git` wants.
-            githash = repo.git.hash_object(["-w", f"{link.as_posix()}"])
-            target = f"120000,{githash},{link.as_posix()}"
-            repo.git.update_index(target, add=True, cacheinfo=True)
+    # We do *not* call `git.add()` here since we call `git.update_index()` above.
+    repo.index.commit(msg)
 
-        # We do *not* call `git.add()` here since we call `git.update_index()` above.
-        _ = repo.index.commit(msg)
-
-        # On Windows, there are changes left in the working tree at this point
-        # (because git sees that the mode of the actual underlying file is
-        # 100644), so we must stash them in order to ensure the repo is not
-        # left dirty.
-        repo.git.stash("save")
-        if repo.is_dirty():
-            raise NonEmptyWorkingTreeError(repo)
-
-        # Squash last two commits together.
-        repo.git.reset(["--soft", "HEAD~1"])
-        repo.git.commit(message=msg, amend=True)
+    # On Windows, there are changes left in the working tree at this point
+    # (because git sees that the mode of the actual underlying file is
+    # 100644), so we must stash them in order to ensure the repo is not
+    # left dirty.
+    repo.git.stash("save")
+    if repo.is_dirty():
+        raise NonEmptyWorkingTreeError(repo)
 
     # Store a checksum of the Anki collection file in the hashes file.
-    append_md5sum(directories.dirs[KI], col_file.name, md5sum, silent)
+    append_md5sum(kidir, col_file.name, md5sum)
+
+    # Squash last two commits together.
+    repo.git.add([KI])
+    repo.git.reset(["--soft", "HEAD~1"])
+    repo.git.commit(message=msg, amend=True)
 
     return repo, md5sum
 
@@ -2136,43 +1672,30 @@ def pull() -> None:
     Pull from a preconfigured remote Anki collection into an existing ki
     repository.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
         return
 
-    _pull(kirepo, silent=False)
+    _pull(kirepo)
     unlock(con)
-
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_pull_profile.html").resolve().write_text(s, encoding="UTF-8")
 
 
 @beartype
-def _pull(kirepo: KiRepo, silent: bool) -> None:
+def _pull(kirepo: KiRepo) -> None:
     """
     Pull into `kirepo` without checking if we are already up-to-date.
 
     Load the git repository at `anki_remote_root`, force pull (preferring
     'theirs', i.e. the new stuff from the sqlite3 database) changes from that
     repository (which is cloned straight from the collection, which in general
-    may have new changes) into `last_push_repo`, and then pull `last_push_repo`
-    into the main repository.
+    may have new changes) into `lca_repo`, and then pull `lca_repo` into the
+    main repository.
 
     We pull in this sequence in order to avoid merge conflicts. Since we first
     pull into a snapshot of the repository as it looked when we last pushed to
@@ -2190,8 +1713,6 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
     ----------
     kirepo : KiRepo
         A dataclass representing the Ki repository in the cwd.
-    silent : bool
-        Whether to suppress progress information printed to stdout.
 
     Raises
     ------
@@ -2200,303 +1721,113 @@ def _pull(kirepo: KiRepo, silent: bool) -> None:
         very unlikely, since the caller acquires a lock on the SQLite3
         database.
     """
+    # pylint: disable=too-many-locals
     md5sum: str = F.md5(kirepo.col_file)
-    echo(f"Pulling from '{kirepo.col_file}'", silent)
-    echo(f"Computed md5sum: {md5sum}", silent)
 
-    # Copy `repo` into a temp directory and `reset --hard` at ref of last
-    # successful `push()`.
-    sha: str = kirepo.last_push_file.read_text(encoding="UTF-8")
-    with F.halo(text=f"Checking out repo at '{sha}'..."):
-        ref: RepoRef = M.repo_ref(kirepo.repo, sha=sha)
-        last_push_repo: git.Repo = copy_repo(ref, f"{LOCAL_SUFFIX}-{md5sum}")
-        unsub_repo: git.Repo = copy_repo(ref, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
+    # Copy `repo` into a temp directory and `reset --hard` at rev of last
+    # successful `push()`, which is the last common ancestor, or 'LCA'.
+    head: Rev = M.head(kirepo.repo)
+    rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
+    lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
+    unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
-    # Ki clone collection into a temp directory at `anki_remote_root`.
+    # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(
-        kirepo.col_file,
-        anki_remote_root,
-        msg,
-        silent=silent,
-        verbose=False,
-    )
+    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
-    # state of the Anki SQLite3 database, and pull it into `last_push_repo`.
-    anki_remote = last_push_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, remote_repo.git_dir)
-    last_push_root: ExtantDir = F.working_dir(last_push_repo)
+    # state of the Anki SQLite3 database, and pull it into `lca_repo`.
+    anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
+    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
 
     # =================== NEW PULL ARCHITECTURE ====================
     # Update all submodules in `unsub_repo`. This is critically important,
     # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `copy_repo()` call
-    # does a `reset --hard` to the commit of the last push, but this does *not*
-    # do an equivalent rollback for submodules. So they may contain new local
+    # last successful ki push in the main repository. Our `cp_repo()` call does
+    # a `reset --hard` to the commit of the last push, but this does *not* do
+    # an equivalent rollback for submodules. So they may contain new local
     # changes that we don't want. Calling `git submodule update` here checks
-    # out the commit that *was* recorded in the submodule file at the ref of
+    # out the commit that *was* recorded in the submodule file at the rev of
     # the last push.
-    unsub_root = F.working_dir(unsub_repo)
-    with F.halo(text="Updating submodules in stage repositories..."):
-        unsub_repo.git.submodule("update")
-        last_push_repo.git.submodule("update")
-    with F.halo(text=f"Unsubmoduling repository at '{unsub_root}'..."):
-        unsub_repo = unsubmodule_repo(unsub_repo)
-    patches_dir: ExtantDir = F.mkdtemp()
-    with F.halo(text=f"Fetching from remote at '{remote_repo.working_dir}'..."):
-        anki_remote.fetch()
-        unsub_remote.fetch()
-    with F.halo(text=f"Diffing 'HEAD' ~ 'FETCH_HEAD' in '{unsub_root}'..."):
-        raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
+    unsub_repo.git.submodule("update")
+    lca_repo.git.submodule("update")
+    unsub_repo = F.unsubmodule(unsub_repo)
+    anki_remote.fetch()
+    unsub_remote.fetch()
+    patches: Iterable[Patch] = get_patches(unsub_repo)
 
-    @beartype
-    def unquote_diff_path(path: str) -> str:
-        if len(path) <= 4:
-            return path
-        if path[0] == '"' and path[-1] == '"':
-            path = path.lstrip('"').rstrip('"')
-        if path[:2] in ("a/", "b/"):
-            path = path[2:]
-        return path
+    # Remove submodules from `remote_repo` and map the roots of each submodule
+    # (relative to the working directory of `lca_repo`) to the submodule repos
+    # themselves.
+    subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
+    _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
+    if len(lca_repo.submodules) > 0:
+        F.commitall(remote_repo, msg="Remove submodule directories.")
 
-    # Construct patches for every file in the flattenened/unsubmoduled checkout
-    # of the revision of the last successful `ki push`. Each patch is the diff
-    # between the relevant file in the flattened (all submodules converted to
-    # ordinary directories) repository and the same file in the Anki remote (a
-    # fresh `ki clone` of the current database).
-    patches: List[Patch] = []
-    f = io.StringIO()
-    with F.halo(text="Generating submodule patches..."):
-        with redirect_stdout(f):
-            for diff in whatthepatch.parse_patch(raw_unified_patch):
-                a_path = unquote_diff_path(diff.header.old_path)
-                b_path = unquote_diff_path(diff.header.new_path)
-                if a_path == DEV_NULL:
-                    a_path = b_path
-                if b_path == DEV_NULL:
-                    b_path = a_path
-                patch = Patch(Path(a_path), Path(b_path), diff)
-                patches.append(patch)
+    # Apply and commit patches within submodules.
+    patch_paths = set(F.cat(map(partial(apply, subrepos), patches)))
+    msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
+    _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
 
-    # Construct a map that sends submodule relative roots, that is, the
-    # relative path of a submodule root directory to the top-level root
-    # directory of the ki repository, to `git.Repo` objects for each submodule.
-    subrepos: Dict[Path, git.Repo] = {}
-    for sm in last_push_repo.submodules:
-        if sm.exists() and sm.module_exists():
-            sm_repo: git.Repo = sm.module()
-            sm_root: ExtantDir = F.working_dir(sm_repo)
+    # Pull changes from remote into each submodule.
+    subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
+    subs = filter(lambda s: s.rel_root in subrepos, subs)
+    _ = set(map(partial(pull_sm, subrepos), subs))
 
-            # Get submodule root relative to ki repository root.
-            sm_rel_root: Path = sm_root.relative_to(last_push_root)
-            subrepos[sm_rel_root] = sm_repo
-
-            # Remove submodules directories from remote repo.
-            halotext = f"Removing submodule directory '{sm_rel_root}' from remote..."
-            if os.path.isdir(anki_remote_root / sm_rel_root):
-                with F.halo(text=halotext):
-                    remote_repo.git.rm(["-r", str(sm_rel_root)])
-
-    if len(last_push_repo.submodules) > 0:
-        with F.halo(text="Committing submodule directory removals..."):
-            remote_repo.git.add(all=True)
-            remote_repo.index.commit("Remove submodule directories.")
-
-    # Apply patches within submodules.
-    msg = "Applying patches:\n\n"
-    patches_bar = tqdm(patches, ncols=TQDM_NUM_COLS)
-    patches_bar.set_description("Patches")
-    patched_submodules: Set[Path] = set()
-    for patch in patches_bar:
-        for sm_rel_root, sm_repo in subrepos.items():
-
-            # TODO: We must also treat case where we moved a file into or out
-            # of a submodule, but we just do this for now. In this case, we may
-            # have `patch.a` not be relative to the submodule root (if we moved
-            # a file into the sm dir), or vice-versa.
-            a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
-            b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
-
-            if a_in_submodule and b_in_submodule:
-
-                # Ignore the submodule 'file' itself.
-                if sm_rel_root in (patch.a, patch.b):
-                    continue
-
-                # Hash the patch to use as a filename.
-                blake2 = hashlib.blake2s()
-                blake2.update(patch.diff.text.encode())
-                patch_hash: str = blake2.hexdigest()
-                patch_path: NoFile = F.test(patches_dir / patch_hash)
-
-                # Strip trailing linefeeds from each line so that `git apply`
-                # is happy on Windows (equivalent to running `dos2unix`).
-                patch_path: ExtantFile = F.write(patch_path, patch.diff.text)
-                if sys.platform == "win32":
-                    with open(patch_path, "rb") as f:
-                        patch_bytes = f.read()
-                    reformatted_bytes = patch_bytes.replace(b"\r\n", b"\n")
-                    with open(patch_path, "wb") as f:
-                        f.write(reformatted_bytes)
-
-                # Number of leading path components to drop from diff paths.
-                num_parts = len(sm_rel_root.parts) + 1
-
-                # TODO: More tests are needed to make sure that the `git apply`
-                # call is not flaky. In particular, we must treat new and
-                # deleted files.
-                #
-                # Note that it is unnecessary to use `--3way` here, because
-                # this submodule is supposed to represent a fast-forward from
-                # the last successful push to the current state of the remote.
-                # There should be no nontrivial merging involved.
-                #
-                # Then -p<n> flag tells `git apply` to drop the first n leading
-                # path components from both diff paths. So if n is 2, we map
-                # `a/dog/cat` -> `cat`.
-                sm_repo.git.apply(
-                    patch_path,
-                    p=str(num_parts),
-                    allow_empty=True,
-                    verbose=True,
-                )
-                patched_submodules.add(sm_rel_root)
-                msg += f"  `{patch.a}`\n"
-
-    echo(f"Applied {len(patched_submodules)} patches within submodules.")
-    for sm_rel_root in patched_submodules:
-        echo(f"  Patched '{sm_rel_root}'")
-
-    # Commit patches in submodules.
-    with F.halo(text="Committing applied patches to submodules..."):
-        for sm_repo in subrepos.values():
-            sm_repo.git.add(all=True)
-            sm_repo.index.commit(msg)
-
-    # Get active branches of each submodule.
-    sm_branches: Dict[Path, str] = {}
-    for sm_rel_root, sm_repo in subrepos.items():
-        try:
-            sm_branches[sm_rel_root] = sm_repo.active_branch.name
-        except TypeError:
-            head: git.Head = next(iter(sm_repo.branches))
-            sm_branches[sm_rel_root] = head.name
-
-    # TODO: What if a submodule was deleted (or added) entirely?
-    #
-    # New commits in submodules within `last_push_repo` are be pulled into the
-    # submodules within `kirepo.repo`. This is done by adding a remote pointing
-    # to the patched submodule in each corresponding submodule in the main
-    # repository, and then pulling from that remote. Then the remote is
-    # deleted.
-    for sm in kirepo.repo.submodules:
-        if sm.exists() and sm.module_exists():
-            sm_repo: git.Repo = sm.module()
-            sm_rel_root: Path = F.working_dir(sm_repo).relative_to(kirepo.root)
-
-            # Note that `subrepos` are the submodules of `last_push_repo`.
-            if sm_rel_root in subrepos:
-                remote_sm: git.Repo = subrepos[sm_rel_root]
-                branch: str = sm_branches[sm_rel_root]
-
-                # TODO: What's in `upstream` that isn't already in `branch`?
-                remote_sm.git.branch("upstream")
-
-                # Simulate a `git merge --strategy=theirs upstream`.
-                remote_sm.git.checkout(["-b", "tmp", "upstream"])
-                remote_sm.git.merge(["-s", "ours", branch])
-                remote_sm.git.checkout(branch)
-                remote_sm.git.merge("tmp")
-                remote_sm.git.branch(["-D", "tmp"])
-
-                remote_target: ExtantDir = F.git_dir(remote_sm)
-                sm_remote = sm_repo.create_remote(REMOTE_NAME, remote_target)
-                git_pull(
-                    REMOTE_NAME,
-                    branch,
-                    F.working_dir(sm_repo),
-                    False,
-                    False,
-                    False,
-                    silent,
-                )
-                sm_repo.delete_remote(sm_remote)
-                remote_sm.close()
-            sm_repo.close()
-
-    # Commit new submodules commits in `last_push_repo`.
-    if len(patched_submodules) > 0:
-        with F.halo(text=f"Committing new submodule commits to '{last_push_root}'..."):
-            last_push_repo.git.add(all=True)
-            last_push_repo.index.commit(msg)
+    # Commit new submodules commits in `lca_repo`.
+    if len(patch_paths) > 0:
+        F.commitall(lca_repo, msg=msg)
 
     # Handle deleted files, preferring `theirs`.
-    deletes = 0
-    del_msg = "Remove files deleted in remote.\n\n"
-    fetch_head = last_push_repo.commit("FETCH_HEAD")
-    diff_index = last_push_repo.commit("HEAD").diff(fetch_head)
-    for diff in diff_index.iter_change_type(GitChangeType.DELETED.value):
+    diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
+    dels: Iterable[git.Diff] = diffidx.iter_change_type(DELETED.value)
+    dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
+    dels = filter(lambda d: F.isfile(F.chk(F.root(lca_repo) / d.a_path)), dels)
+    a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
+    a_paths = set(map(partial(F.git_rm, lca_repo), a_paths))
 
-        # Don't remove gitmodules.
-        if diff.a_path == GITMODULES_FILE:
-            continue
-
-        a_path: Path = F.test(last_push_root / diff.a_path)
-        if isinstance(a_path, ExtantFile):
-            last_push_repo.git.rm(diff.a_path)
-            del_msg += f"Remove '{a_path}'\n"
-            deletes += 1
-
-    if deletes > 0:
-        with F.halo(text=f"Committing remote deletions to '{last_push_root}'..."):
-            last_push_repo.git.add(all=True)
-            last_push_repo.index.commit(del_msg)
+    if len(a_paths) > 0:
+        details: str = "".join(map(lambda a: f"Remove '{a}'\n", a_paths))
+        F.commitall(lca_repo, msg=f"Remove files deleted in remote.\n\n{details}")
 
     # =================== NEW PULL ARCHITECTURE ====================
 
-    echo(f"Copying blobs at HEAD='{sha}' to stage in '{last_push_root}'...")
-    git_copy = F.copytree(F.git_dir(last_push_repo), F.test(F.mkdtemp() / "GIT"))
-    last_push_repo.close()
-    last_push_root: NoFile = F.rmtree(F.working_dir(last_push_repo))
-    del last_push_repo
-    remote_root: ExtantDir = F.working_dir(remote_repo)
-    last_push_root: ExtantDir = F.copytree(remote_root, last_push_root)
+    # TODO: There is an unsub-like process above performed on `remote_repo`,
+    # can we just pass unsub=True here instead?
+    remote_root: Dir = F.root(remote_repo)
+    lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
+    F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
 
-    echo(f"Copying git history from '{sha}' to stage...")
-    last_push_repo: git.Repo = M.repo(last_push_root)
-    git_dir: NoPath = F.rmtree(F.git_dir(last_push_repo))
-    del last_push_repo
-    F.copytree(git_copy, F.test(git_dir))
-
-    echo(f"Committing stage repository contents in '{last_push_root}'...")
-    last_push_repo: git.Repo = M.repo(last_push_root)
-    last_push_repo.git.add(all=True)
-    last_push_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
-
-    # Create remote pointing to `last_push_repo` and pull into `repo`. Note
+    # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
     # fast-forward only updates the branch pointer.
-    last_push_remote = kirepo.repo.create_remote(REMOTE_NAME, last_push_repo.git_dir)
+    lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root, False, False, False, silent)
-    kirepo.repo.delete_remote(last_push_remote)
+    echo(git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root))
+    kirepo.repo.delete_remote(lca_remote)
+
+    # The merge will have overwritten the hashes file with only the collection
+    # hash from the fresh clone of the remote, so we checkout its state from
+    # before the merge.
+    kirepo.repo.git.checkout([head.sha, "--", f"{KI}/{HASHES_FILE}"])
 
     # Append the hash of the collection to the hashes file, and raise an error
     # if the collection was modified while we were pulling changes.
-    append_md5sum(kirepo.ki_dir, kirepo.col_file.name, md5sum, silent=True)
+    append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
+
+    kirepo.repo.index.add(f"{KI}/{HASHES_FILE}")
+    kirepo.repo.index.commit("Update collection hashes file.")
 
 
 # PUSH
 
 
 @ki.command()
-@click.option("--verbose", "-v", is_flag=True, help="Print more output.")
 @beartype
-def push(verbose: bool = False) -> PushResult:
+def push() -> PushResult:
     """
     Push a ki repository into a .anki2 file.
 
@@ -2520,251 +1851,123 @@ def push(verbose: bool = False) -> PushResult:
     UpdatesRejectedError
         If the user needs to pull remote changes first.
     """
-    if PROFILE:
-        # pylint: disable=import-outside-toplevel
-        from pyinstrument import Profiler
-
-        # pylint: enable=import-outside-toplevel
-        profiler = Profiler()
-        profiler.start()
-
-    pp.install_extras(exclude=["ipython", "django", "ipython_repr_pretty"])
-
+    # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
-    cwd: ExtantDir = F.cwd()
-    kirepo: KiRepo = M.kirepo(cwd)
+    kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
 
     md5sum: str = F.md5(kirepo.col_file)
-    hashes: List[str] = kirepo.hashes_file.read_text(encoding="UTF-8").split("\n")
+    hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
 
     # =================== NEW PUSH ARCHITECTURE ====================
-    with F.halo("Initializing stage repository..."):
-        head: KiRepoRef = M.head_kirepo_ref(kirepo)
-        head_kirepo: KiRepo = copy_kirepo(head, f"{HEAD_SUFFIX}-{md5sum}")
-        remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
+    head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
+    remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(
-        kirepo.col_file,
-        remote_root,
-        msg,
-        silent=True,
-        verbose=verbose,
-    )
+    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
 
-    with F.halo(f"Copying blobs at HEAD='{head.sha}' to stage in '{remote_root}'..."):
-        git_copy = F.copytree(F.git_dir(remote_repo), F.test(F.mkdtemp() / "GIT"))
-        remote_repo.close()
-        remote_root: NoFile = F.rmtree(F.working_dir(remote_repo))
-        del remote_repo
-        remote_root: ExtantDir = F.copytree(head_kirepo.root, remote_root)
-
-    with F.halo(f"Flattening stage repository submodules in '{remote_root}'..."):
-        remote_repo: git.Repo = unsubmodule_repo(M.repo(remote_root))
-        git_dir: NoPath = F.rmtree(F.git_dir(remote_repo))
-        del remote_repo
-        F.copytree(git_copy, F.test(git_dir))
-
-    with F.halo(f"Committing stage repository contents in '{remote_root}'..."):
-        remote_repo: git.Repo = M.repo(remote_root)
-        remote_repo.git.add(all=True)
-        remote_repo.index.commit(f"Pull changes from repository at `{kirepo.root}`")
+    remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
+    F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
-    # Read grammar.
-    # TODO:! Should we assume this always exists? A nice error message should
-    # be printed on initialization if the grammar file is missing. No
-    # computation should be done, and none of the click commands should work.
-    grammar_path = Path(__file__).resolve().parent / "grammar.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
-
-    # Instantiate parser.
-    parser = Lark(grammar, start="note", parser="lalr")
-    transformer = NoteTransformer()
-
-    deltas: List[Union[Delta, Warning]] = diff2(remote_repo, parser, transformer)
-
-    # Map model names to models.
-    models: Dict[str, Notetype] = get_models_recursively(head_kirepo, silent=True)
-
-    result: PushResult = push_deltas(
-        deltas,
-        models,
-        kirepo,
-        md5sum,
-        parser,
-        transformer,
-        head_kirepo,
-        con,
-        verbose,
-    )
-
-    if PROFILE:
-        profiler.stop()
-        s = profiler.output_html()
-        Path("ki_push_profile.html").resolve().write_text(s, encoding="UTF-8")
-
-    return result
-
-
-@beartype
-def push_deltas(
-    deltas: List[Union[Delta, Warning]],
-    models: Dict[str, Notetype],
-    kirepo: KiRepo,
-    md5sum: str,
-    parser: Lark,
-    transformer: NoteTransformer,
-    head_kirepo: KiRepo,
-    con: sqlite3.Connection,
-    verbose: bool,
-) -> PushResult:
-    """Push a list of `Delta`s to an Anki collection."""
-    warnings: List[Warning] = [delta for delta in deltas if isinstance(delta, Warning)]
-    deltas: List[Delta] = [delta for delta in deltas if isinstance(delta, Delta)]
-
-    # Display warnings from diff procedure.
-    for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-    warnings = []
+    parser, transformer = M.parser_and_transformer()
+    parse: Callable[[Delta], DeckNote] = partial(parse_note, parser, transformer)
+    xs, ys = tee(diff2(remote_repo, parse))
+    deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
+    warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
+    _ = set(map(warn, warnings))
 
     # If there are no changes, quit.
-    if len(set(deltas)) == 0:
+    if not deltas:
         echo("ki push: up to date.")
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
-    echo(f"Computed md5sum: {md5sum}")
-    echo(f"Verified md5sum matches latest hash in '{kirepo.hashes_file}'")
+    models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
+    return write_collection(deltas, models, kirepo, parse, head_kirepo, con)
 
+
+@beartype
+def write_collection(
+    deltas: Iterable[Delta],
+    models: Dict[str, Notetype],
+    kirepo: KiRepo,
+    parse: Callable[[Delta], DeckNote],
+    head_kirepo: KiRepo,
+    con: sqlite3.Connection,
+) -> PushResult:
+    """Push a list of `Delta`s to an Anki collection."""
+    # pylint: disable=too-many-locals
     # Copy collection to a temp directory.
-    temp_col_dir: ExtantDir = F.mkdtemp()
+    temp_col_dir: Dir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
     col_name: str = kirepo.col_file.name
-    new_col_file: ExtantFile = F.copyfile(kirepo.col_file, temp_col_dir, col_name)
+    new_col_file: NoFile = F.chk(temp_col_dir / col_name)
+    new_col_file: File = F.copyfile(kirepo.col_file, new_col_file)
 
-    head: RepoRef = M.head_repo_ref(kirepo.repo)
-    echo(f"Generating local .anki2 file from latest commit: {head.sha}")
-    echo(f"Writing changes to '{new_col_file}'...")
-
-    # Open collection, holding cwd constant (otherwise Anki changes it).
-    cwd: ExtantDir = F.cwd()
+    # Open collection and add new models to root `models.json` file.
     col: Collection = M.collection(new_col_file)
-    F.chdir(cwd)
-
-    # Add new models to the collection.
-    add_models(col, models)
+    set(map(partial(add_model, col), models.values()))
 
     # Stash both unstaged and staged files (including untracked).
-    kirepo.repo.git.stash(include_untracked=True, keep_index=True)
-    kirepo.repo.git.reset("HEAD", hard=True)
+    head_kirepo.repo.git.stash(include_untracked=True, keep_index=True)
+    head_kirepo.repo.git.reset("HEAD", hard=True)
 
-    # Display table of note change type counts.
-    echo_note_change_types(deltas)
+    # Display table of note change type counts and partition deltas into
+    # 'deletes' and 'not deletes'.
+    xs, ys, zs = tee(deltas, 3)
+    echo_note_change_types(xs)
+    dels: Iterable[Delta] = filter(lambda d: d.status == DELETED, ys)
+    deltas: Iterable[Delta] = filter(lambda d: d.status != DELETED, zs)
 
-    # Construct a map from guid -> (nid, mod, mid), adapted from
-    # `Anki2Importer._import_notes()`. Note that `mod` is the modification
-    # timestamp, in epoch seconds (timestamp of when the note was last
-    # modified).
-    guids: Dict[str, NoteMetadata] = {}
-    for nid, guid, mod, mid in col.db.execute("select id, guid, mod, mid from notes"):
-        guids[guid] = NoteMetadata(nid, mod, mid)
+    # Map guid -> (nid, mod, mid).
+    guids: Dict[str, NoteMetadata] = get_note_metadata(col)
 
+    # Parse to-be-deleted notes and remove them from collection.
+    del_guids: Iterable[str] = map(lambda dd: dd.guid, map(parse, dels))
+    del_guids = set(filter(lambda g: g in guids, del_guids))
+    del_nids: Iterable[NoteId] = map(lambda g: guids[g].nid, del_guids)
+    col.remove_notes(list(del_nids))
+
+    # Push changes for all other notes.
+    guids = {k: v for k, v in guids.items() if k not in del_guids}
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
-
-    is_delete = lambda d: d.status == GitChangeType.DELETED
-
-    bar = tqdm(deltas, ncols=TQDM_NUM_COLS)
-    bar.set_description("Deltas")
-    for delta in bar:
-
-        # Parse the file at `delta.path` into a `DeckNote`, and
-        # add/edit/delete in collection.
-        decknote = parse_markdown_note(parser, transformer, delta)
-
-        if is_delete(delta):
-            if decknote.guid in guids:
-                col.remove_notes([guids[decknote.guid].nid])
-            continue
-
-        # TODO: If relevant prefix of sort field has changed, we should
-        # regenerate the file. Recall that the sort field is used to determine
-        # the filename. If the content of the sort field has changed, then we
-        # may need to update the filename.
-        warnings += push_note(col, decknote, timestamp_ns, guids, new_nids)
-
-    num_displayed: int = 0
-    for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
+    push_fn = partial(push_note, col, timestamp_ns, guids, new_nids)
+    _ = set(map(warn, F.cat(map(push_fn, map(parse, deltas)))))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
-    new_col_file = F.copyfile(new_col_file, F.parent(kirepo.col_file), col_name)
+    F.copyfile(new_col_file, kirepo.col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 
-    # Add media files to collection.
+    # Add media files to collection and follow windows symlinks.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
+    media_files = map(M.linktarget, media_files)
+    mbytes: Iterable[MediaBytes] = map(partial(mediabytes, col), media_files)
 
-    warnings = []
+    # Skip media files whose twin in collection has same name and same data.
+    mbytes = filter(lambda m: m.old == b"" or m.old != m.new, mbytes)
 
-    bar = tqdm(media_files, ncols=TQDM_NUM_COLS, disable=False)
-    bar.set_description("Media")
-    for media_file in bar:
-
-        # Check file mode, and follow symlink if applicable.
-        mode: int = filemode(media_file)
-        if mode == 120000:
-            target: str = media_file.read_text(encoding="UTF-8")
-            parent: ExtantDir = F.parent(media_file)
-            media_file: ExtantFile = M.xfile(parent / target)
-
-        # Get bytes of new media file.
-        with open(media_file, "rb") as f:
-            new: bytes = f.read()
-
-        # Get bytes of existing media file (if it exists).
-        old: bytes = media_data(col, media_file.name)
-        if old and old == new:
-            continue
-
-        # Add (and possibly rename) media paths.
-        new_media_filename: str = col.media.add_file(media_file)
-        if new_media_filename != media_file.name:
-            warning = RenamedMediaFileWarning(media_file.name, new_media_filename)
-            warnings.append(warning)
-
+    # Add (and possibly rename) media paths.
+    added_media: Iterable[AddedMedia] = map(partial(addmedia, col), mbytes)
+    renames = filter(lambda a: a.file.name != a.new_name, added_media)
+    warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
+    _ = set(map(warn, warnings))
     col.close(save=True)
 
-    num_displayed: int = 0
-    for warning in warnings:
-        if verbose or type(warning) not in WARNING_IGNORE_LIST:
-            click.secho(str(warning), fg="yellow")
-            num_displayed += 1
-    num_suppressed: int = len(warnings) - num_displayed
-    echo(f"Warnings suppressed: {num_suppressed} (show with '--verbose')")
+    # Append collection checksum to hashes file.
+    append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
 
-    # Append to hashes file.
-    new_md5sum = F.md5(new_col_file)
-    append_md5sum(kirepo.ki_dir, new_col_file.name, new_md5sum, silent=False)
-
-    # Update the commit SHA of most recent successful PUSH.
-    head: RepoRef = M.head_repo_ref(kirepo.repo)
-    kirepo.last_push_file.write_text(head.sha)
-
-    # Unlock Anki SQLite DB.
+    # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
+    kirepo.repo.delete_tag(LCA)
+    kirepo.repo.create_tag(LCA)
     unlock(con)
     return PushResult.NONTRIVIAL

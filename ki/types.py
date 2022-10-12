@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Types for ki."""
+import json
 import sqlite3
 import textwrap
+import dataclasses
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
 import git
 import whatthepatch
-import prettyprinter as pp
-from anki.collection import Note
+from anki.decks import DeckTreeNode
+from anki.collection import Note, Card
 
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
@@ -25,20 +27,21 @@ HINT = (
 )
 ERROR_MESSAGE_WIDTH = 69
 DATABASE_LOCKED_MSG = "database is locked"
+DeckId = int
 
 
 # TYPES
 
 
-class ExtantFile(type(Path())):
+class File(type(Path())):
     """UNSAFE: Indicates that file *was* extant when it was resolved."""
 
 
-class ExtantDir(type(Path())):
+class Dir(type(Path())):
     """UNSAFE: Indicates that dir *was* extant when it was resolved."""
 
 
-class EmptyDir(ExtantDir):
+class EmptyDir(Dir):
     """UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved."""
 
 
@@ -50,18 +53,18 @@ class Singleton(type(Path())):
     """UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`)."""
 
 
-class ExtantStrangePath(type(Path())):
+class PseudoFile(type(Path())):
     """
     UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
     when it was resolved.
     """
 
 
-class Symlink(type(Path())):
+class Link(type(Path())):
     """UNSAFE: Indicates that this path was a symlink when tested."""
 
 
-class LatentSymlink(type(Path())):
+class WindowsLink(type(Path())):
     """UNSAFE: A POSIX-style symlink created on Windows with mode 100644."""
 
 
@@ -70,7 +73,7 @@ class NoFile(NoPath):
 
     @property
     def parent(self):
-        return ExtantDir(super().parent)
+        return Dir(super().parent)
 
 
 # ENUMS
@@ -132,10 +135,16 @@ class NoteMetadata:
 @beartype
 @dataclass(frozen=True)
 class Delta:
-    """The git delta for a single file."""
+    """
+    The git delta for a single file.
+
+    We don't instead store a root and a relative path, because we need the
+    `File` object to avoid making unnecessary syscalls to check that stuff
+    exists.
+    """
 
     status: GitChangeType
-    path: ExtantFile
+    path: File
     relpath: Path
 
 
@@ -150,15 +159,16 @@ class KiRepo:
     Existence of collection path is guaranteed.
     """
 
+    # pylint: disable=invalid-name
+
     repo: git.Repo
-    root: ExtantDir
-    ki_dir: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    last_push_file: ExtantFile
+    root: Dir
+    ki: Dir
+    col_file: File
+    backups_dir: Dir
+    config_file: File
+    hashes_file: File
+    models_file: File
 
 
 @beartype
@@ -217,7 +227,7 @@ class ColNote:
 
 @beartype
 @dataclass(frozen=True)
-class KiRepoRef:
+class KiRev:
     """
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -229,7 +239,7 @@ class KiRepoRef:
 
 @beartype
 @dataclass(frozen=True)
-class RepoRef:
+class Rev:
     """
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -241,19 +251,78 @@ class RepoRef:
 
 @beartype
 @dataclass(frozen=True)
-class WrittenNoteFile:
-    """Store a written file and its primary deck id."""
+class CardFile:
+    """A card written to disk, either as a link or a file."""
 
-    did: int
-    file: ExtantFile
+    card: Card
+    link: Optional[WindowsLink]
+    file: File
 
 
 @beartype
 @dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]
+class Deck:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: Dir
+    mediad: Dir
+    children: List["Deck"]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
+class Root:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: None
+    mediad: None
+    children: List[Deck]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
+class PlannedLink:
+    """A not-yet-created symlink path and its extant target."""
+
+    link: NoFile
+    tgt: Union[File, Link]
+
+
+@beartype
+@dataclass(frozen=True)
+class DotKi:
+    config: File
+    backups: EmptyDir
+
+
+@beartype
+@dataclass(frozen=True)
+class Submodule:
+    sm: git.Submodule
+    sm_repo: git.Repo
+    rel_root: Path
+    branch: str
+
+
+@beartype
+@dataclass(frozen=True)
+class MediaBytes:
+    """A media file, its old bytes (from collection) and new bytes (from file)."""
+
+    file: File
+    old: bytes
+    new: bytes
+
+
+@beartype
+@dataclass(frozen=True)
+class AddedMedia:
+    """An added media file and its (possibly changed) filename."""
+
+    file: File
+    new_name: str
 
 
 @beartype
@@ -270,6 +339,26 @@ class NoteDBRow:
     csum: int
     flags: int
     data: str
+
+
+@beartype
+def notetype_json(notetype: Notetype) -> str:
+    """Return the JSON for a notetype as a string."""
+    dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+    dictionary.pop("id")
+    inner = dictionary["dict"]
+    inner.pop("id")
+    inner.pop("mod")
+    dictionary["dict"] = inner
+    return json.dumps(dictionary, sort_keys=True, indent=4)
+
+
+@beartype
+def nt_str(notetype: Notetype) -> str:
+    """Display a notetype and its JSON."""
+    # pylint: disable=invalid-name
+    s = notetype_json(notetype)
+    return f"JSON for '{notetype.id}':\n{s}"
 
 
 # EXCEPTIONS
@@ -358,8 +447,8 @@ class NotKiRepoError(RuntimeError):
 
 class UpdatesRejectedError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f"Failed to push some refs to '{col_file}'\n{HINT}"
+    def __init__(self, col_file: File):
+        msg = f"Failed to push some commits to '{col_file}'\n{HINT}"
         super().__init__(errwrap(msg))
 
 
@@ -374,7 +463,7 @@ class TargetExistsError(RuntimeError):
 class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
-        msg = f"Repo at '{repo.working_dir}' doesn't contain ref '{sha}'"
+        msg = f"Repo at '{repo.working_dir}' doesn't contain rev '{sha}'"
         super().__init__(errwrap(msg))
 
 
@@ -382,7 +471,7 @@ class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f"""
-        ValueError raised while trying to get ref 'HEAD' from repo at
+        ValueError raised while trying to get rev 'HEAD' from repo at
         '{repo.working_dir}': '{error}'. This may have occurred because there
         are no commits in the current repository. However, this should never be
         the case, because ki repositories must be instantiated with a 'ki clone
@@ -393,7 +482,7 @@ class GitHeadRefNotFoundError(RuntimeError):
 
 class CollectionChecksumError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
+    def __init__(self, col_file: File):
         msg = f"Checksum mismatch on {col_file}. Was file changed?"
         super().__init__(errwrap(msg))
 
@@ -470,12 +559,12 @@ class UnnamedNotetypeError(RuntimeError):
         a '{MODELS_FILE}' file in the current repository (may be
         contained in a subdirectory):
         """
-        super().__init__(errwrap(msg) + "\n" + pp.pformat(nt))
+        super().__init__(errwrap(msg) + "\n" + str(nt))
 
 
 class SQLiteLockError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+    def __init__(self, col_file: File, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
             header = f"fatal: {DATABASE_LOCKED_MSG} (Anki must not be running)."
             super().__init__(header)
@@ -489,21 +578,6 @@ class SQLiteLockError(RuntimeError):
         pointing to the wrong location. (The latter may occur in the unlikely
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
-        """
-        super().__init__(f"{header}\n{errwrap(msg)}")
-
-
-class PathCreationCollisionError(RuntimeError):
-    @beartype
-    def __init__(self, root: ExtantDir, token: str):
-        header = "Collision in children names for population of empty directory "
-        header += f"'{root}':"
-        msg = f"""
-        Attempted to create two children (files or directories) of the empty
-        directory specified above with the same name ('{token}'). This should
-        *never* happen, as population of empty directories only happens in
-        calls to 'F.fmkleaves()', and this is only used to populate the '.ki/'
-        directory, whose contents all ought to be distinct.
         """
         super().__init__(f"{header}\n{errwrap(msg)}")
 
@@ -587,6 +661,24 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f"{top}\n\n{errwrap(msg)}\n{details}")
 
 
+class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
+    @beartype
+    def __init__(self, orig: File, depth: int):
+        top = f"Maximum windows symlink depth exceeded while resolving '{orig}'"
+        msg = f"""
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This error means that we tried to resolve this
+        link, and recursively followed subsequent windows symlinks to a
+        ludicrous depth ('{depth}'). There is possibly a cycle within the link
+        graph, which indicates that the links were written incorrectly. In
+        practice, this should never happen. Please report this bug on GitHub at
+        https://github.com/langfield/ki/issues.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
 # WARNINGS
 
 
@@ -621,27 +713,6 @@ class InconsistentFieldNamesWarning(Warning):
         '{y}' in note with GUID '{decknote.guid}'.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
-
-
-class UnhealthyNoteWarning(Warning):
-    @beartype
-    def __init__(self, nid: int, code: int):
-        top = f"Warning: Note '{nid}' failed fields check with error code '{code}'"
-        super().__init__(top)
-
-
-class UnPushedPathWarning(Warning):
-    @beartype
-    def __init__(self, path: Path, pattern: str):
-        msg = f"Warning: ignoring '{path}' matching ignore pattern '{pattern}'"
-        super().__init__(msg)
-
-
-class NotAnkiNoteWarning(Warning):
-    @beartype
-    def __init__(self, file: ExtantFile):
-        msg = f"Warning: not Anki note '{file}'"
-        super().__init__(msg)
 
 
 class DeletedFileNotFoundWarning(Warning):
@@ -681,21 +752,6 @@ class DiffTargetFileNotFoundWarning(Warning):
         super().__init__(f"{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}")
 
 
-class MissingMediaFileWarning(Warning):
-    @beartype
-    def __init__(self, col_path: str, media_file: Path):
-        top = f"Missing or bad media file '{media_file}' "
-        top += f"while processing collection '{col_path}':"
-        msg = f"""
-        Expected an extant file at the location specified above, but got a
-        '{type(media_file)}'. This may indicate a corrupted Anki collection, as
-        all media filenames present in note fields should correspond to extant
-        files within the media directory (usually called 'collection.media/'
-        within the relevant Anki user profile directory).
-        """
-        super().__init__(f"{top}\n{errwrap(msg)}")
-
-
 class RenamedMediaFileWarning(Warning):
     @beartype
     def __init__(self, src: str, dst: str):
@@ -706,3 +762,66 @@ class RenamedMediaFileWarning(Warning):
         some deduplication by renaming the new one.
         """
         super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class MissingWindowsLinkTarget(Warning):
+    @beartype
+    def __init__(self, link: File, tgt: str):
+        top = f"Failed to locate target '{tgt}' of windows symlink '{link}'"
+        msg = """
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This warning means that the target of a windows
+        symlink is not extant, and thus the link could not be resolved.
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class NotetypeCollisionWarning(Warning):
+    @beartype
+    def __init__(self, model: Notetype, existing: Notetype):
+        msg = """
+        Collision: new notetype '{model.name}' has same name as existing
+        notetype with mid '{existing.id}', but hashes differ.
+        """
+        super().__init__(f"{errwrap(msg)}\n\n{nt_str(model)}\n\n{nt_str(existing)}")
+
+
+class EmptyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f"Found empty note with nid '{note.id}'"
+        msg = f"""
+        Anki fields health check code: '{health}'
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class DuplicateNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int, rep: str):
+        top = "Failed to add duplicate note to collection"
+        msg = f"""
+        Notetype/fields of note with nid '{note.id}' are duplicate of existing note.
+        """
+        field = f"First field\n-----------\n{rep}"
+        code = f"Anki fields health check code: {health}"
+        super().__init__(f"{top}\n{errwrap(msg)}\n\n{field}\n\n{code}")
+
+
+class UnhealthyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f"Note with nid '{note.id}' failed fields check with unknown error code"
+        msg = f"""
+        Anki fields health check code: '{health}'
+        """
+        super().__init__(f"{top}\n{errwrap(msg)}")
+
+
+class MediaDirectoryDeckNameCollisionWarning(Warning):
+    @beartype
+    def __init__(self):
+        top = "Decks with name '_media' skipped as name is reserved"
+        super().__init__(f"{top}")

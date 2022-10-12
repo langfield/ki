@@ -4,8 +4,9 @@
 
 **Ki** is a
 [command-line](https://developer.mozilla.org/en-US/docs/Learn/Tools_and_testing/Understanding_client-side_tools/Command_line)
-tool for converting Anki collections and decks into
-[git repositories](https://git-scm.com/).
+tool for converting Anki collections and decks into [git
+repositories](https://git-scm.com/). Check out the
+[**documentation**](https://langfield.github.io/ki/)!
 
 * [Getting started](https://langfield.github.io/ki/)
 * [Demo video](https://asciinema.org/a/500300)
@@ -58,6 +59,9 @@ It also supports:
 * **Automatic backups** of your collection before every write to the
   [Anki database file](https://github.com/ankidroid/Anki-Android/wiki/Database-Structure)
   (you can find these in your repository in the `.ki/backups` directory).
+* **Automatic APKG releases** on every tagged commit via GitHub actions. Using
+  the included `compile.py` script, you can easily set up a workflow to build
+  and publish your deck `.apkg` binaries automatically!
 * Support for `Basic`, `Basic (and reversed)`, `Cloze`, `Cloze-Overlapper`, and
   any arbitrary notetypes you make.
 * Full version history of edits to all your notetypes.
@@ -105,38 +109,46 @@ It also supports:
 The following is an example of a markdown file automatically generated in the
 ki note format.
 
-```markdown
-## Note
-nid: 1655372139959
-model: iKnow! Sentences
-tags: 
-markdown: false
-
-### Expression
-あなたが来るのを<b>待っています</b>。
-
-### Meaning
-I am waiting for you to come.
-待つ -- wait, wait for
-
-### Reading
-あなた が くる の を <b>まって います</b>
-
-### Audio
-[sound:93014972e589032cfbeb9fba06bdecc6.mp3]
-
-### Image_URI
-<img src="346bb608be872c9066e8235cbf362327.jpg">
-
-### iKnowID
-sentence:247167
-
-### iKnowType
-sentence
+````markdown
+# Note
 ```
+guid: dc6H$t-~MK
+notetype: iKnow! Sentences
+```
+
+### Tags
+```
+languages
+japanese
+jp-sentences
+jp-transportation
+```
+
+## Expression
+駅からはタクシーに<b>乗って</b>ください。
+
+## Meaning
+Please take a taxi from the station.
+乗る -- ride, take
+
+## Reading
+えき からは たくしー に <b>のって</b> ください
+
+## Audio
+[sound:e3c984736d8b1c2bdc467f2a1c98659a.mp3]
+
+## Image_URI
+<img src="e2d8a60b59f2be8ebcbffafa165c7a0d.jpg">
+
+## iKnowID
+sentence:247153
+
+## iKnowType
+sentence
+````
 
 
 ### Credits
 
-Thanks to @husarcik for productive discussions about the architecture of this
-project!
+Thanks to @husarcik, @pwintz for productive discussions about the architecture
+of this project!

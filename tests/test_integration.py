@@ -13,7 +13,6 @@ from importlib.metadata import version
 
 import git
 import pytest
-import prettyprinter as pp
 from loguru import logger
 from pytest_mock import MockerFixture
 from click.testing import CliRunner
@@ -25,19 +24,17 @@ from beartype.typing import List
 import ki
 import ki.maybes as M
 import ki.functional as F
-from ki import MEDIA
+from ki import MEDIA, LCA
 from ki.types import (
     KiRepo,
     Notetype,
     ColNote,
-    ExtantDir,
-    ExtantFile,
+    File,
     MissingFileError,
     TargetExistsError,
     NotKiRepoError,
     UpdatesRejectedError,
     SQLiteLockError,
-    PathCreationCollisionError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
     CollectionChecksumError,
@@ -181,7 +178,8 @@ def test_computes_and_stores_md5sum(tmp_path: Path):
 
         # Pull edited collection.
         os.chdir(ORIGINAL.repodir)
-        pull(runner)
+        out = pull(runner)
+        logger.debug(out)
         os.chdir("../")
 
         # Check that edited hash is written and old hash is still there.
@@ -290,21 +288,6 @@ def test_clone_creates_directory():
         assert os.path.isdir(ORIGINAL.repodir)
 
 
-@beartype
-def test_clone_displays_errors_from_creation_of_kirepo_metadata(mocker: MockerFixture):
-    """Do errors get displayed nicely?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        directory = ExtantDir(Path("directory"))
-        collision = PathCreationCollisionError(directory, "token")
-        mocker.patch("ki.F.fmkleaves", side_effect=collision)
-
-        with pytest.raises(PathCreationCollisionError):
-            clone(runner, ORIGINAL.col_file)
-
-
 def test_clone_handles_html():
     """Does it tidy html and stuff?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -369,7 +352,7 @@ def test_clone_cleans_up_on_error():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        F.rmtree(F.test(Path(HTML.repodir)))
+        F.rmtree(F.chk(Path(HTML.repodir)))
         old_path = os.environ["PATH"]
         try:
             with pytest.raises(FileNotFoundError) as err:
@@ -407,7 +390,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
 
         clone(runner, HTML.col_file)
         assert os.path.isdir(HTML.repodir)
-        F.rmtree(F.test(Path(HTML.repodir)))
+        F.rmtree(F.chk(Path(HTML.repodir)))
         old_path = os.environ["PATH"]
 
         # In case where nothing is installed, we expect to fail on `tidy`
@@ -477,8 +460,8 @@ def test_clone_generates_expected_notes():
         assert os.path.isdir(os.path.join(ORIGINAL.repodir, "Default"))
 
         # Compute hashes.
-        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
-        true_md5 = F.md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(File(cloned_note_path))
+        true_md5 = F.md5(File(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -500,8 +483,8 @@ def test_clone_generates_deck_tree_correctly():
         assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
 
         # Compute hashes.
-        cloned_md5 = F.md5(ExtantFile(cloned_note_path))
-        true_md5 = F.md5(ExtantFile(true_note_path))
+        cloned_md5 = F.md5(File(cloned_note_path))
+        true_md5 = F.md5(File(true_note_path))
 
         assert cloned_md5 == true_md5
 
@@ -610,9 +593,7 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks(tmp_path: Path
         assert os.path.isfile(orig)
 
 
-def test_clone_writes_plaintext_posix_symlinks_on_windows(
-    tmp_path, mocker: MockerFixture
-):
+def test_clone_writes_plaintext_posix_symlinks_on_windows(tmp_path: Path):
     SYMLINKS: SampleCollection = get_test_collection("symlinks")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -634,9 +615,9 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows(
             Path("Default") / "C" / "sample_cloze-ol_3.md",
             Path("Default") / "C" / "sample_cloze-ol_4.md",
         ]
-        winlinks = set([str(link) for link in winlinks])
+        winlinks = {str(link) for link in winlinks}
 
-        # Check that each latent symlink has the correct file mode.
+        # Check that each windows symlink has the correct file mode.
         repo = git.Repo(SYMLINKS.repodir)
         for entry in repo.commit().tree.traverse():
             path = entry.path
@@ -656,6 +637,19 @@ def test_clone_url_decodes_media_src_attributes(tmp_path: Path):
         with open(path, "r", encoding="UTF-8") as f:
             contents: str = f.read()
         assert '<img src="Screenshot 2019-05-01 at 14.40.56.png">' in contents
+
+
+def test_clone_leaves_no_working_tree_changes(tmp_path: Path):
+    """Does everything get committed at the end of a `clone()`?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+
+        repo = git.Repo(ORIGINAL.repodir)
+        assert not repo.is_dirty()
 
 
 # PULL
@@ -694,11 +688,11 @@ def test_pull_fails_if_collection_file_is_corrupted():
             pull(runner)
 
 
-def test_pull_writes_changes_correctly():
+def test_pull_writes_changes_correctly(tmp_path: Path):
     """Does ki get the changes from modified collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(temp_dir=tmp_path):
 
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
@@ -769,8 +763,8 @@ def test_pull_still_works_from_subdirectories():
         pull(runner)
 
 
-def test_pull_displays_errors_from_repo_ref():
-    """Does 'pull()' return early when the last push commit ref is bad?"""
+def test_pull_displays_errors_from_rev():
+    """Does 'pull()' return early when the last push tag is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -778,35 +772,16 @@ def test_pull_displays_errors_from_repo_ref():
         # Clone collection in cwd.
         clone(runner, ORIGINAL.col_file)
 
-        kirepo: KiRepo = M.kirepo(F.test(Path(ORIGINAL.repodir)))
-        kirepo.last_push_file.write_text("gibberish")
+        kirepo: KiRepo = M.kirepo(F.chk(Path(ORIGINAL.repodir)))
+        kirepo.repo.delete_tag(LCA)
 
         # Edit collection.
         shutil.copyfile(EDITED.path, ORIGINAL.col_file)
 
         os.chdir(ORIGINAL.repodir)
-        with pytest.raises(GitRefNotFoundError):
+        with pytest.raises(ValueError) as err:
             pull(runner)
-
-
-def test_pull_displays_errors_from_clone_helper(mocker: MockerFixture):
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-
-        # Edit collection.
-        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-        directory = F.force_mkdir(Path("directory"))
-        collision = PathCreationCollisionError(directory, "token")
-        mocker.patch("ki.F.fmkleaves", side_effect=collision)
-
-        os.chdir(ORIGINAL.repodir)
-        with pytest.raises(PathCreationCollisionError):
-            pull(runner)
+        assert LCA in str(err)
 
 
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
@@ -868,7 +843,7 @@ def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
         repo.git.add(all=True)
         repo.index.commit("Update submodule.")
 
-        out = push(runner, verbose=True)
+        out = push(runner)
 
         # Edit collection (implicitly removes submodule).
         shutil.copyfile(EDITED.path, ORIGINAL.col_file)
@@ -904,7 +879,7 @@ def test_pull_handles_uncommitted_submodule_commits(tmp_path: Path):
 
         # Delete `japanese-core-2000/` subdirectory, and commit.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        F.rmtree(F.test(sm_dir))
+        F.rmtree(F.chk(sm_dir))
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -997,6 +972,27 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
         if os.path.isdir("onlydeck"):
             for _, _, filenames in os.walk("onlydeck"):
                 assert len(filenames) == 0
+
+
+def test_pull_leaves_no_working_tree_changes(tmp_path: Path):
+    """Does everything get committed at the end of a `clone()`?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    DELETED: SampleCollection = get_test_collection("deleted")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+
+        # Edit collection.
+        shutil.copyfile(DELETED.path, ORIGINAL.col_file)
+
+        os.chdir(ORIGINAL.repodir)
+        pull(runner)
+        os.chdir("..")
+
+        repo = git.Repo(ORIGINAL.repodir)
+        assert not repo.is_dirty()
 
 
 # PUSH
@@ -1103,7 +1099,7 @@ def test_push_generates_correct_backup():
 
         backup_exists = False
         for path in paths:
-            if F.md5(F.test(Path(path))) == old_hash:
+            if F.md5(F.chk(Path(path))) == old_hash:
                 backup_exists = True
 
         assert backup_exists
@@ -1300,24 +1296,6 @@ def test_push_deletes_added_notes():
         assert len(notes) == 2
 
 
-def test_push_displays_informative_error_when_last_push_file_is_missing():
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Clone collection in cwd.
-        clone(runner, ORIGINAL.col_file)
-        repo = git.Repo(ORIGINAL.repodir)
-
-        last_push_path = Path(repo.working_dir) / ".ki" / "last_push"
-        os.remove(last_push_path)
-
-        # We should get a missing file error.
-        os.chdir(ORIGINAL.repodir)
-        with pytest.raises(MissingFileError):
-            push(runner)
-
-
 def test_push_honors_ignore_patterns():
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
@@ -1327,18 +1305,6 @@ def test_push_honors_ignore_patterns():
         clone(runner, ORIGINAL.col_file)
         os.chdir(ORIGINAL.repodir)
 
-        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-        with open(".gitignore", "a", encoding="UTF-8") as ignore_f:
-            ignore_f.write("\nelephant")
-
-        repo = git.Repo(".")
-        repo.git.add(all=True)
-        repo.index.commit(".")
-
-        out = push(runner, verbose=True)
-        assert "Warning: ignoring" in out
-        assert "matching ignore pattern '.gitignore'" in out
-
         # Add and commit a new file that is not a note.
         Path("dummy_file").touch()
 
@@ -1347,10 +1313,9 @@ def test_push_honors_ignore_patterns():
         repo.index.commit(".")
 
         # Since the output is currently very verbose, we should print a warning
-        # for every such file. In the future, these warnings should only be
-        # displayed if a verbosity flag is set.
-        out = push(runner, verbose=True)
-        assert "Warning: not Anki note" in out
+        # for every such file.
+        out = push(runner)
+        assert "up to date" in out
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
@@ -1367,14 +1332,14 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
         repo.index.commit(".")
 
         mocker.patch(
-            "ki.M.head_kirepo_ref",
+            "ki.M.head_ki",
             side_effect=GitHeadRefNotFoundError(repo, Exception("<exc>")),
         )
         with pytest.raises(GitHeadRefNotFoundError):
             push(runner)
 
 
-def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
+def test_push_displays_errors_from_head(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -1388,7 +1353,7 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
         repo.index.commit(".")
 
         mocker.patch(
-            "ki.M.head_repo_ref",
+            "ki.M.head_ki",
             side_effect=[
                 GitHeadRefNotFoundError(repo, Exception("<exc>")),
             ],
@@ -1397,7 +1362,7 @@ def test_push_displays_errors_from_head_repo_ref(mocker: MockerFixture):
             push(runner)
 
 
-def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_adding(
+def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_model_adding(
     mocker: MockerFixture,
 ):
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1417,18 +1382,18 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_model_
 
         col = open_collection(ORIGINAL.col_file)
         note = col.get_note(set(col.find_notes("")).pop())
-        _: Notetype = ki.parse_notetype_dict(note.note_type())
+        _: Notetype = ki.M.notetype(note.note_type())
         col.close()
 
         effects = [MissingFieldOrdinalError(3, "<notetype>")]
 
-        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+        mocker.patch("ki.M.notetype", side_effect=effects)
 
         with pytest.raises(MissingFieldOrdinalError):
             push(runner)
 
 
-def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_flatnote_to_anki(
+def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1448,13 +1413,13 @@ def test_push_displays_errors_from_notetype_parsing_in_push_deltas_during_push_f
 
         col = open_collection(ORIGINAL.col_file)
         note = col.get_note(set(col.find_notes("")).pop())
-        notetype: Notetype = ki.parse_notetype_dict(note.note_type())
+        notetype: Notetype = ki.M.notetype(note.note_type())
         col.close()
 
         effects = [notetype] * PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH
         effects += [MissingFieldOrdinalError(3, "<notetype>")]
 
-        mocker.patch("ki.parse_notetype_dict", side_effect=effects)
+        mocker.patch("ki.M.notetype", side_effect=effects)
 
         with pytest.raises(MissingFieldOrdinalError):
             out = push(runner)
@@ -1508,7 +1473,7 @@ def test_push_writes_media(tmp_path: Path):
         shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
         os.chdir(MEDIACOL.repodir)
 
-        mode: int = ki.filemode(onesec_file)
+        mode: int = M.filemode(onesec_file)
 
         # Commit the additions.
         repo = git.Repo(F.cwd())
@@ -1516,14 +1481,14 @@ def test_push_writes_media(tmp_path: Path):
         repo.index.commit("Add air.md")
         repo.close()
 
-        mode: int = ki.filemode(onesec_file)
+        mode: int = M.filemode(onesec_file)
 
         # Push the commit.
         out = push(runner)
 
         # Annihilate the repo root.
         os.chdir("../")
-        F.rmtree(F.test(Path(MEDIACOL.repodir)))
+        F.rmtree(F.chk(Path(MEDIACOL.repodir)))
 
         # Re-clone the pushed collection.
         out = clone(runner, MEDIACOL.col_file)
@@ -1775,7 +1740,7 @@ def test_push_is_trivial_for_committed_submodule_contents(tmp_path: Path):
 
         # Delete a directory.
         sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-        F.rmtree(F.test(sm_dir))
+        F.rmtree(F.chk(sm_dir))
         repo = git.Repo(UNCOMMITTED_SM.repodir)
         repo.git.add(all=True)
         repo.index.commit("Delete cloned `japanese-core-2000` folder.")
@@ -1885,3 +1850,28 @@ def test_push_correctly_encodes_quotes_in_html_tags(tmp_path: Path):
         assert (
             '<img src="paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg">' in escaped
         )
+
+
+def test_push_rejects_updates_on_reset_to_prior_commit(tmp_path: Path):
+    """Does ki correctly verify md5sum?"""
+    KOREAN: SampleCollection = get_test_collection("tiny_korean")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, KOREAN.col_file)
+        assert os.path.isdir(KOREAN.repodir)
+
+        os.chdir(KOREAN.repodir)
+        shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
+        repo = git.Repo(".")
+        F.commitall(repo, "msg")
+        push(runner)
+
+        # This actually *should* fail, because when we reset to the previous
+        # commit, we annihilate the record of the latest collection hash. Thus
+        # ki sees a collection which has changed since the last common ancestor
+        # revision, and thus updates are rejected.
+        repo.git.reset(["--hard", "HEAD~1"])
+        with pytest.raises(UpdatesRejectedError):
+            push(runner)

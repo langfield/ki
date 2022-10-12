@@ -14,7 +14,7 @@ from beartype.typing import (
     Union,
 )
 
-# pylint: disable=invalid-name, too-few-public-methods
+# pylint: disable=invalid-name, no-self-use, too-few-public-methods
 
 BACKTICKS = "```\n"
 
@@ -30,6 +30,16 @@ class Field:
 
 @beartype
 @dataclass(frozen=True)
+class Header:
+    """Note metadata."""
+
+    title: str
+    guid: str
+    model: str
+
+
+@beartype
+@dataclass(frozen=True)
 class FlatNote:
     """Flat (as possible) representation of a note."""
 
@@ -38,16 +48,6 @@ class FlatNote:
     model: str
     tags: List[str]
     fields: Dict[str, str]
-
-
-@beartype
-@dataclass(frozen=True)
-class Header:
-    """Note metadata."""
-
-    title: str
-    guid: str
-    model: str
 
 
 class NoteTransformer(Transformer):
@@ -75,7 +75,7 @@ class NoteTransformer(Transformer):
           Back
         s
     """
-    # pylint: disable=no-self-use, missing-function-docstring
+    # pylint: disable=missing-function-docstring
 
     @beartype
     def note(self, n: List[Union[Header, List[str], Field]]) -> FlatNote:
