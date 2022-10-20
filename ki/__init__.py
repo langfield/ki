@@ -1724,88 +1724,19 @@ def _pull(kirepo: KiRepo) -> None:
     # pylint: disable=too-many-locals
     md5sum: str = F.md5(kirepo.col_file)
 
-    # Copy `repo` into a temp directory and `reset --hard` at rev of last
-    # successful `push()`, which is the last common ancestor, or 'LCA'.
+    # Create new branch off-of the LCA revision.
     head: Rev = M.head(kirepo.repo)
-    rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
-    lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
-    unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
+    active: git.Head = kirepo.repo.active_branch
+    lca_sha: str = kirepo.repo.tag(LCA).commit.hexsha
+    lca: git.Head = kirepo.repo.create_head("KI-LCA", commit=lca_sha)
+    lca.checkout()
 
-    # Clone collection into a temp directory at `anki_remote_root`.
-    anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
-    msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
-
-    # Create git remote pointing to `remote_repo`, which represents the current
-    # state of the Anki SQLite3 database, and pull it into `lca_repo`.
-    anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-
-    # =================== NEW PULL ARCHITECTURE ====================
-    # Update all submodules in `unsub_repo`. This is critically important,
-    # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `cp_repo()` call does
-    # a `reset --hard` to the commit of the last push, but this does *not* do
-    # an equivalent rollback for submodules. So they may contain new local
-    # changes that we don't want. Calling `git submodule update` here checks
-    # out the commit that *was* recorded in the submodule file at the rev of
-    # the last push.
-    unsub_repo.git.submodule("update")
-    lca_repo.git.submodule("update")
-    unsub_repo = F.unsubmodule(unsub_repo)
-    anki_remote.fetch()
-    unsub_remote.fetch()
-    patches: Iterable[Patch] = get_patches(unsub_repo)
-
-    # Remove submodules from `remote_repo` and map the roots of each submodule
-    # (relative to the working directory of `lca_repo`) to the submodule repos
-    # themselves.
-    subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
-    _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
-    if len(lca_repo.submodules) > 0:
-        F.commitall(remote_repo, msg="Remove submodule directories.")
-
-    # Apply and commit patches within submodules.
-    patch_paths = set(F.cat(map(partial(apply, subrepos), patches)))
-    msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
-    _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
-
-    # Pull changes from remote into each submodule.
-    subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
-    subs = filter(lambda s: s.rel_root in subrepos, subs)
-    _ = set(map(partial(pull_sm, subrepos), subs))
-
-    # Commit new submodules commits in `lca_repo`.
-    if len(patch_paths) > 0:
-        F.commitall(lca_repo, msg=msg)
-
-    # Handle deleted files, preferring `theirs`.
-    diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
-    dels: Iterable[git.Diff] = diffidx.iter_change_type(DELETED.value)
-    dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
-    dels = filter(lambda d: F.isfile(F.chk(F.root(lca_repo) / d.a_path)), dels)
-    a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
-    a_paths = set(map(partial(F.git_rm, lca_repo), a_paths))
-
-    if len(a_paths) > 0:
-        details: str = "".join(map(lambda a: f"Remove '{a}'\n", a_paths))
-        F.commitall(lca_repo, msg=f"Remove files deleted in remote.\n\n{details}")
-
-    # =================== NEW PULL ARCHITECTURE ====================
-
-    # TODO: There is an unsub-like process above performed on `remote_repo`,
-    # can we just pass unsub=True here instead?
-    remote_root: Dir = F.root(remote_repo)
-    lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
-    F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
-
-    # Create remote pointing to `lca_repo` and pull into `repo`. Note
-    # that this `git pull` may not always create a merge commit, because a
-    # fast-forward only updates the branch pointer.
-    lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
-    kirepo.repo.git.config("pull.rebase", "false")
-    echo(git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root))
-    kirepo.repo.delete_remote(lca_remote)
+    changes = sqldiff(lca_collection_file, kirepo.col_file)
+    apply_diff(changes)
+    F.commitall(kirepo.repo, f"Pull changes from collection at `{kirepo.col_file}`")
+    active.checkout()
+    kirepo.repo.git.merge(lca)
+    kirepo.repo.delete_head(lca)
 
     # The merge will have overwritten the hashes file with only the collection
     # hash from the fresh clone of the remote, so we checkout its state from
