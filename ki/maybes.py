@@ -226,6 +226,7 @@ def kirepo(cwd: Dir) -> KiRepo:
     config_file = M.xfile(kid / CONFIG_FILE, info=CONFIG_FILE_INFO)
     hashes_file = M.xfile(kid / HASHES_FILE, info=HASHES_FILE_INFO)
     models_file = M.xfile(root / MODELS_FILE, info=MODELS_FILE_INFO)
+    lca_col_file = M.xfile(backups_dir / "lca.anki2")
 
     # Check that collection file exists.
     config = configparser.ConfigParser()
@@ -242,6 +243,7 @@ def kirepo(cwd: Dir) -> KiRepo:
         config_file,
         hashes_file,
         models_file,
+        lca_col_file,
     )
 
 

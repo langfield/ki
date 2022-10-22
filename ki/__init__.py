@@ -588,6 +588,16 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
 
 
 @beartype
+def overwrite_lca_col_file(backups_dir: Dir, col_file: File) -> File:
+    """Overwrite last common ancestor collection backup."""
+    file: Path = backups_dir / "lca.anki2"
+    if file.exists():
+        file.unlink()
+    return F.copyfile(col_file, F.chk(file))
+
+
+
+@beartype
 def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
     md5sum = F.md5(kirepo.col_file)
@@ -1625,6 +1635,7 @@ def _clone(
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
+    backups_dir: Dir = F.force_mkdir(targetdir / KI / BACKUPS_DIR)
 
     # Write notes to disk.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
@@ -1656,6 +1667,9 @@ def _clone(
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(kidir, col_file.name, md5sum)
+
+    # Backup last common ancestor collection.
+    overwrite_lca_col_file(backups_dir, col_file)
 
     # Squash last two commits together.
     repo.git.add([KI])
@@ -1731,8 +1745,27 @@ def _pull(kirepo: KiRepo) -> None:
     lca: git.Head = kirepo.repo.create_head("KI-LCA", commit=lca_sha)
     lca.checkout()
 
-    changes = sqldiff(lca_collection_file, kirepo.col_file)
-    apply_diff(changes)
+    @dataclass(frozen=True, eq=True)
+    class DBDiff:
+        data: int
+
+    @beartype
+    def sqldiff(lca_col_file: File, remote_col_file: File) -> Iterable[DBDiff]:
+        """Get changed files from LCA collection DB to current collection DB."""
+        from loguru import logger
+        logger.debug(f"lca hash: {F.md5(lca_col_file)}")
+        logger.debug(f"remote hash: {F.md5(remote_col_file)}")
+
+        # Need to query diff for each table separately.
+        # May be good to use sqlparse from PyPI.
+        args = ["sqldiff", "--table", "notes", str(lca_col_file), str(remote_col_file)]
+        p = subprocess.run(args, check=False, capture_output=True)
+        s = f"{p.stdout.decode()}"
+        logger.debug(f"\n{s}")
+        return [DBDiff(0)]
+
+    changes: Iterable[DBDiff] = sqldiff(kirepo.lca_col_file, kirepo.col_file)
+    # apply_diff(changes)
     F.commitall(kirepo.repo, f"Pull changes from collection at `{kirepo.col_file}`")
     active.checkout()
     kirepo.repo.git.merge(lca)
@@ -1896,6 +1929,9 @@ def write_collection(
 
     # Append collection checksum to hashes file.
     append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
+
+    # Backup last common ancestor collection.
+    overwrite_lca_col_file(kirepo.backups_dir, kirepo.col_file)
 
     # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
     kirepo.repo.delete_tag(LCA)

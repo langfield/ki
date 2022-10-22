@@ -169,6 +169,7 @@ class KiRepo:
     config_file: File
     hashes_file: File
     models_file: File
+    lca_col_file: File
 
 
 @beartype
