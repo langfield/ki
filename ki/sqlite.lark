@@ -1,0 +1,40 @@
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ STATEMENT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// A ``diff`` is a sequence of 0 or more (possibly malformed) statements.
+diff: stmt*
+
+// A ``stmt`` is either an ``insert``, a ``delete``, or an ``update``.
+
+stmt: insert | update | delete
+insert: "INSERT" "INTO" INDEXED_TABLE values ";"
+update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
+delete: "DELETE" "FROM" TABLE "WHERE" row ";"
+bad: /.+/
+
+row: "id=" INT
+assignments: ASSIGNMENT ("," ASSIGNMENT)*
+ASSIGNMENT: COLUMN "=" VALUE
+TABLE: NOTES
+INDEXED_TABLE: INDEXED_NOTES
+values: "VALUES(" VALUE ("," VALUE)* ")"
+
+COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
+
+VALUE: INT | SIGNED_INT | NOTE_FIELD | SINGLE_QUOTED_STRING_NOT_FIELD
+
+NOTES: "notes"
+NOTE_FIELD: SINGLE_QUOTED_STRING (/\|\|X'1f'/ WS /\|\|/ SINGLE_QUOTED_STRING)+
+INDEXED_NOTES: "notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
+
+// Single-quoted strings.
+SINGLE_QUOTED_STRING: /'[^']*'/
+SINGLE_QUOTED_STRING_NOT_FIELD: /'[^']*'(?!\|)/
+
+// === IMPORTS ===
+
+%import common.SIGNED_INT
+%import common.NEWLINE
+%import common.INT
+%import common.WS
+%ignore WS
