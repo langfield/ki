@@ -22,14 +22,15 @@ from ki import NoteTransformer
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
 
-def get_parser():
+@beartype
+def get_parser(filename: str, start: str) -> Lark:
     """Return a parser."""
     # Read grammar.
-    grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
+    grammar_path = Path(ki.__file__).resolve().parent / filename
     grammar = grammar_path.read_text(encoding="UTF-8")
 
     # Instantiate parser.
-    parser = Lark(grammar, start="note", parser="lalr")
+    parser = Lark(grammar, start=start, parser="lalr")
 
     return parser
 
@@ -69,7 +70,7 @@ s
 def test_too_many_hashes_for_title():
     """Do too many hashes in title cause parse error?"""
     note = TOO_MANY_HASHES_TITLE
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -102,7 +103,7 @@ s
 def test_too_few_hashes_for_title():
     """Do too few hashes in title cause parse error?"""
     note = TOO_FEW_HASHES_TITLE
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -134,7 +135,7 @@ s
 def test_too_few_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_FEW_HASHES_FIELDNAME
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -168,7 +169,7 @@ s
 def test_too_many_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_MANY_HASHES_FIELDNAME
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -202,7 +203,7 @@ s
 def test_missing_fieldname():
     """Does a missing fieldname raise a parse error?"""
     note = MISSING_FIELDNAME
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -236,7 +237,7 @@ s
 def test_missing_title():
     """Does a missing title raise a parse error?"""
     note = MISSING_TITLE
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -270,7 +271,7 @@ s
 def test_missing_model():
     """Does a missing model raise a parse error?"""
     note = MISSING_MODEL
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -304,7 +305,7 @@ s
 def test_whitespace_model():
     """Does a whitespace model raise a parse error?"""
     note = WHITESPACE_MODEL
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
     err = exc.value
@@ -340,7 +341,7 @@ BAD_FIELDNAME_CHARS = [":", "{", "}", '"'] + BAD_ASCII_CONTROLS
 def test_bad_field_single_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     for char in BAD_FIELDNAME_CHARS:
         note = template.replace("@@@@@", char)
         with pytest.raises(UnexpectedInput) as exc:
@@ -362,7 +363,7 @@ def test_bad_field_single_char_name_validation():
 def test_bad_field_multi_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     for char in BAD_FIELDNAME_CHARS:
         fieldname = "aa" + char + "aa"
         note = template.replace("@@@@@", fieldname)
@@ -387,7 +388,7 @@ BAD_START_FIELDNAME_CHARS = ["#", "/", "^"] + BAD_FIELDNAME_CHARS
 def test_fieldname_start_validation():
     """Do bad start characters in fieldnames raise an error?"""
     template = FIELDNAME_VALIDATION
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     for char in BAD_START_FIELDNAME_CHARS:
         fieldname = char + "a"
         note = template.replace("@@@@@", fieldname)
@@ -427,7 +428,7 @@ s
 def test_field_content_validation():
     """Do ascii control characters in fields raise an error?"""
     template = FIELD_CONTENT_VALIDATION
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     for char in BAD_ASCII_CONTROLS:
         field = char + "a"
         note = template.replace("@@@@@", field)
@@ -514,7 +515,7 @@ def test_header_needs_two_trailing_newlines():
     Does parser raise an error if there are not exactly 2 newlines after note
     header?
     """
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     note = NO_POST_HEADER_NEWLINES
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(note)
@@ -584,7 +585,7 @@ def test_non_terminating_field_needs_at_least_two_trailing_newlines():
     Does transformer raise an error if there are not at least 2 newlines after
     the content of a nonterminating field?
     """
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
 
     tree = parser.parse(ONE_POST_NON_TERMINATING_FIELD_NEWLINE)
@@ -614,7 +615,7 @@ s
 
 
 def test_empty_field_is_still_checked_for_newline_count():
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
     err = exc.value
@@ -642,7 +643,7 @@ s
 
 
 def test_empty_field_with_only_one_newline_raises_error():
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
 
     tree = parser.parse(EMPTY_FIELD_ONE_NEWLINE)
@@ -692,7 +693,7 @@ def test_empty_field_with_at_least_two_newlines_parse():
     """
     Do empty fields with at least two newlines get parsed and transformed OK?
     """
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
 
     tree = parser.parse(EMPTY_FIELD_TWO_NEWLINES)
@@ -707,7 +708,7 @@ def test_empty_field_preserves_extra_newlines():
     Are newlines beyond the 2 needed for padding preserved in otherwise-empty
     fields?
     """
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     flatnote = transformer.transform(tree)
@@ -733,7 +734,7 @@ s
 
 
 def test_last_field_only_needs_one_trailing_empty_line():
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
     tree = parser.parse(LAST_FIELD_SINGLE_TRAILING_NEWLINE)
     transformer.transform(tree)
@@ -757,7 +758,7 @@ s"""
 
 
 def test_last_field_needs_one_trailing_newline():
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     NoteTransformer()
     with pytest.raises(UnexpectedToken) as exc:
         parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
@@ -791,7 +792,7 @@ s
 
 
 def test_last_field_newlines_are_preserved():
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
     tree = parser.parse(LAST_FIELD_FIVE_TRAILING_NEWLINES)
     flatnote = transformer.transform(tree)
@@ -822,7 +823,7 @@ BAD_TAG_CHARS = ['"', "\u3000", " "] + BAD_ASCII_CONTROLS
 def test_tag_validation():
     """Do ascii control characters and quotes in tag names raise an error?"""
     template = TAG_VALIDATION
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     for char in BAD_TAG_CHARS:
         tags = f"subtle\n{char}\nheimdall"
         note = template.replace("@@@@@", tags)
@@ -844,7 +845,7 @@ def test_tag_validation():
 
 def test_parser_handles_special_characters_in_guid():
     """In particular, does it allow colons?"""
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     good = Path("tests/data/notes/special_characters_in_guid.md").read_text(
         encoding="UTF-8"
     )
@@ -856,7 +857,7 @@ def test_parser_handles_special_characters_in_guid():
 
 def test_parser_goods():
     """Try all good note examples."""
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
     for good in goods:
         try:
@@ -867,7 +868,7 @@ def test_parser_goods():
 
 def test_transformer():
     """Try out transformer."""
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     note = Path("tests/data/notes/noteLARK.md").read_text(encoding="UTF-8")
     tree = parser.parse(note)
     transformer = NoteTransformer()
@@ -876,7 +877,7 @@ def test_transformer():
 
 def test_transformer_goods():
     """Try all good note examples."""
-    parser = get_parser()
+    parser = get_parser(filename="grammar.lark", start="note")
     transformer = NoteTransformer()
     goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
     for good in goods:

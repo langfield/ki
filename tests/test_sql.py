@@ -1,12 +1,15 @@
 """Tests for SQLite Lark grammar."""
 from __future__ import annotations
 
+import os
+import time
+import tempfile
 from pathlib import Path
 
-import pytest
-
 from loguru import logger
+
 from beartype import beartype
+from beartype.typing import Iterable, Sequence
 
 from lark import Lark
 from lark.exceptions import (
@@ -16,39 +19,67 @@ from lark.exceptions import (
     VisitError,
 )
 
+import hypothesis.strategies as st
+from hypothesis import given, settings
+from hypothesis.stateful import (
+    RuleBasedStateMachine,
+    Bundle,
+    rule,
+    initialize,
+    multiple,
+)
+
+import anki.collection
+from anki._backend import RustBackend
+from anki.models import NotetypeNameId, NotetypeDict
+from anki.collection import Collection, Note
+
 import ki
+import ki.functional as F
+from ki.types import Dir
 from ki.sqlite import SQLiteTransformer
+from tests.test_parser import get_parser, debug_lark_error
+
+from pyinstrument import Profiler
 
 # pylint: disable=too-many-lines, missing-function-docstring
 
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
-
-def get_parser():
-    """Return a parser."""
-    # Read grammar.
-    grammar_path = Path(ki.__file__).resolve().parent / "sqlite.lark"
-    grammar = grammar_path.read_text(encoding="UTF-8")
-
-    # Instantiate parser.
-    parser = Lark(grammar, start="diff", parser="lalr")
-
-    return parser
+tempd: Path = Path(tempfile.mkdtemp())
+COL = Collection(tempd / "collection.anki2")
 
 
-@beartype
-def debug_lark_error(note: str, err: UnexpectedInput) -> None:
-    """Print an exception."""
-    logger.warning(f"\n{note}")
-    logger.error(f"accepts: {err.accepts}")
-    logger.error(f"column: {err.column}")
-    logger.error(f"expected: {err.expected}")
-    logger.error(f"line: {err.line}")
-    logger.error(f"pos_in_stream: {err.pos_in_stream}")
-    logger.error(f"token: {err.token}")
-    logger.error(f"token_history: {err.token_history}")
-    logger.error(f"\n{err}")
+class AnkiCollection(RuleBasedStateMachine):
+    def __init__(self):
+        t1 = time.time()
+        profiler = Profiler()
+        profiler.start()
 
+        super().__init__()
+        self.col = COL
+
+        profiler.stop()
+        html = profiler.output_html()
+        Path("hyp.html").write_text(html)
+        logger.debug(time.time() - t1)
+
+    notetypes = Bundle("notetypes")
+
+    @initialize(target=notetypes)
+    @beartype
+    def init_collection(self) -> Iterable[NotetypeDict]:
+        name_ids: Sequence[NotetypeNameId] = self.col.models.all_names_and_ids()
+        models = list(map(lambda m: self.col.models.get(m.id), name_ids))
+        return multiple(*models)
+
+    @rule(notetype=notetypes)
+    @beartype
+    def add_note(self, notetype: NotetypeDict) -> None:
+        note: Note = self.col.new_note(notetype)
+
+AnkiCollection.TestCase.settings = settings(max_examples=100)
+TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
 DELETE FROM notes WHERE id=1645010162168;
@@ -67,24 +98,21 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(164
 ||'g','f',1242175777,0,'');
 """
 
+
 def test_basic():
-    parser = get_parser()
+    parser = get_parser(filename="sqlite.lark", start="diff")
     parser.parse(BLOCK)
 
 
 def test_transformer():
-    parser = get_parser()
+    parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(BLOCK)
     transformer = SQLiteTransformer()
     block = transformer.transform(tree)
-    import prettyprinter as pp
-    logger.debug(pp.pformat(block))
 
 
 def test_transformer_on_update_commands():
-    parser = get_parser()
+    parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(UPDATE)
     transformer = SQLiteTransformer()
     block = transformer.transform(tree)
-    import prettyprinter as pp
-    logger.debug(pp.pformat(block))

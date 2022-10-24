@@ -27,7 +27,7 @@ import anki.collection
 from anki.collection import Collection, Note
 
 from beartype import beartype
-from beartype.typing import List, Union, Set, Iterator, Tuple, Callable
+from beartype.typing import List, Union, Set, Iterator, Tuple, Callable, Iterable, Dict
 
 import ki
 import ki.maybes as M
@@ -86,6 +86,7 @@ from ki import (
 from ki.types import (
     NoFile,
     PseudoFile,
+    WindowsLink,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
     MissingNotetypeError,
@@ -1633,7 +1634,9 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
-def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_path: Path, mocker: MockerFixture):
+def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
+    tmp_path: Path, mocker: MockerFixture
+):
     """Do we preserve working tree changes during push ops?"""
     # Create repo and commit some contents.
     targetdir = Dir(tmp_path / "targetdir")
@@ -1678,8 +1681,12 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_p
     assert diff.b_path == "file"
 
 
-def test_write_decks_warns_about_media_deck_name_collisions(tmp_path: Path, mocker: MockerFixture):
-    DECK: SampleCollection = get_test_collection("deck_with_same_name_as_media_directory")
+def test_write_decks_warns_about_media_deck_name_collisions(
+    tmp_path: Path, mocker: MockerFixture
+):
+    DECK: SampleCollection = get_test_collection(
+        "deck_with_same_name_as_media_directory"
+    )
     col = open_collection(DECK.col_file)
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
