@@ -59,6 +59,13 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
         ||'John von Neumann','Who introduced the notion of a direct integral in functional analysis?',2707929287,0,'');
 """
 
+UPDATE = r"""
+UPDATE notes SET mod=1645221606, flds='aa'||X'1f'
+||'bb', sfld='aa', csum=3771269976 WHERE id=1645010162168;
+DELETE FROM notes WHERE id=1645027705329;
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1645222430007,'f}:^>jzMjG',1645010146011,1645222430,-1,'','f'||X'1f'
+||'g','f',1242175777,0,'');
+"""
 
 def test_basic():
     parser = get_parser()
@@ -66,8 +73,18 @@ def test_basic():
 
 
 def test_transformer():
-    """Try out transformer."""
     parser = get_parser()
     tree = parser.parse(BLOCK)
     transformer = SQLiteTransformer()
-    transformer.transform(tree)
+    block = transformer.transform(tree)
+    import prettyprinter as pp
+    logger.debug(pp.pformat(block))
+
+
+def test_transformer_on_update_commands():
+    parser = get_parser()
+    tree = parser.parse(UPDATE)
+    transformer = SQLiteTransformer()
+    block = transformer.transform(tree)
+    import prettyprinter as pp
+    logger.debug(pp.pformat(block))
