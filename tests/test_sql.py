@@ -1,23 +1,16 @@
 """Tests for SQLite Lark grammar."""
 from __future__ import annotations
 
-import os
 import time
+import shutil
 import tempfile
 from pathlib import Path
 
 from loguru import logger
+from pyinstrument import Profiler
 
 from beartype import beartype
 from beartype.typing import Iterable, Sequence
-
-from lark import Lark
-from lark.exceptions import (
-    UnexpectedToken,
-    UnexpectedInput,
-    UnexpectedCharacters,
-    VisitError,
-)
 
 import hypothesis.strategies as st
 from hypothesis import given, settings
@@ -30,53 +23,70 @@ from hypothesis.stateful import (
 )
 
 import anki.collection
-from anki._backend import RustBackend
+from anki.decks import DeckNameId
 from anki.models import NotetypeNameId, NotetypeDict
 from anki.collection import Collection, Note
 
 import ki
 import ki.functional as F
-from ki.types import Dir
 from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser, debug_lark_error
 
-from pyinstrument import Profiler
 
 # pylint: disable=too-many-lines, missing-function-docstring
 
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
 tempd: Path = Path(tempfile.mkdtemp())
-COL = Collection(tempd / "collection.anki2")
+PATH = tempd / "collection.anki2"
+EMPTY = tempd / "empty.anki2"
+COL = Collection(PATH)
+shutil.copyfile(PATH, EMPTY)
 
 
 class AnkiCollection(RuleBasedStateMachine):
+    """A state machine for testing `sqldiff` output parsing."""
+
     def __init__(self):
+        self.hash: str = F.md5(F.chk(PATH))
         t1 = time.time()
-        profiler = Profiler()
-        profiler.start()
 
         super().__init__()
         self.col = COL
 
-        profiler.stop()
-        html = profiler.output_html()
-        Path("hyp.html").write_text(html)
         logger.debug(time.time() - t1)
 
     notetypes = Bundle("notetypes")
+    dids = Bundle("dids")
 
     @initialize(target=notetypes)
     @beartype
-    def init_collection(self) -> Iterable[NotetypeDict]:
+    def init_notetypes(self) -> Iterable[NotetypeDict]:
         name_ids: Sequence[NotetypeNameId] = self.col.models.all_names_and_ids()
         models = list(map(lambda m: self.col.models.get(m.id), name_ids))
         return multiple(*models)
 
-    @rule(notetype=notetypes)
+    @initialize(target=dids)
     @beartype
-    def add_note(self, notetype: NotetypeDict) -> None:
+    def init_decks(self) -> Iterable[int]:
+        name_ids: Sequence[DeckNameId] = self.col.decks.all_names_and_ids()
+        dids = list(map(lambda m: m.id, name_ids))
+        return multiple(*dids)
+
+    @rule(notetype=notetypes, did=dids)
+    @beartype
+    def add_note(self, notetype: NotetypeDict, did: int) -> None:
         note: Note = self.col.new_note(notetype)
+        self.col.add_note(note, did)
+
+    def teardown(self) -> None:
+        try:
+            self.col.save()
+            if F.md5(F.chk(PATH)) != self.hash:
+                raise ValueError(f"Final hash does not match initial hash: {self.hash}")
+        finally:
+            shutil.copyfile(EMPTY, PATH)
+
 
 AnkiCollection.TestCase.settings = settings(max_examples=100)
 TestAnkiCollection = AnkiCollection.TestCase
@@ -108,11 +118,11 @@ def test_transformer():
     parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(BLOCK)
     transformer = SQLiteTransformer()
-    block = transformer.transform(tree)
+    _ = transformer.transform(tree)
 
 
 def test_transformer_on_update_commands():
     parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(UPDATE)
     transformer = SQLiteTransformer()
-    block = transformer.transform(tree)
+    _ = transformer.transform(tree)
