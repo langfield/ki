@@ -1,6 +1,8 @@
 """Tests for SQLite Lark grammar."""
 from __future__ import annotations
 
+import os
+import glob
 import time
 import shutil
 import tempfile
@@ -38,9 +40,11 @@ from tests.test_parser import get_parser, debug_lark_error
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
 
 tempd: Path = Path(tempfile.mkdtemp())
+emptyd: Path = Path(tempfile.mkdtemp())
 PATH = tempd / "collection.anki2"
-EMPTY = tempd / "empty.anki2"
+EMPTY = emptyd / "empty.anki2"
 COL = Collection(PATH)
+COL.close()
 shutil.copyfile(PATH, EMPTY)
 
 
@@ -48,11 +52,11 @@ class AnkiCollection(RuleBasedStateMachine):
     """A state machine for testing `sqldiff` output parsing."""
 
     def __init__(self):
-        self.hash: str = F.md5(F.chk(PATH))
         t1 = time.time()
 
         super().__init__()
         self.col = COL
+        self.col.reopen()
 
         logger.debug(time.time() - t1)
 
@@ -81,14 +85,12 @@ class AnkiCollection(RuleBasedStateMachine):
 
     def teardown(self) -> None:
         try:
-            self.col.save()
-            if F.md5(F.chk(PATH)) != self.hash:
-                raise ValueError(f"Final hash does not match initial hash: {self.hash}")
+            self.col.close()
         finally:
             shutil.copyfile(EMPTY, PATH)
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=100)
+AnkiCollection.TestCase.settings = settings(max_examples=25)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
