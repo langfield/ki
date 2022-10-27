@@ -60,8 +60,9 @@ class AnkiCollection(RuleBasedStateMachine):
 
         logger.debug(time.time() - t1)
 
-    notetypes = Bundle("notetypes")
     dids = Bundle("dids")
+    notes = Bundle("notes")
+    notetypes = Bundle("notetypes")
 
     @initialize(target=notetypes)
     @beartype
@@ -77,11 +78,24 @@ class AnkiCollection(RuleBasedStateMachine):
         dids = list(map(lambda m: m.id, name_ids))
         return multiple(*dids)
 
-    @rule(notetype=notetypes, did=dids)
+    @rule(notetype=notetypes, did=dids, target=notes)
     @beartype
-    def add_note(self, notetype: NotetypeDict, did: int) -> None:
+    def add_note(self, notetype: NotetypeDict, did: int) -> Note:
         note: Note = self.col.new_note(notetype)
         self.col.add_note(note, did)
+        return note
+
+    @rule(note=notes, field=st.text(), target=notes)
+    @beartype
+    def edit_note(self, note: Note, field: str) -> Note:
+        note.fields[0] = field
+        note.flush()
+        return note
+
+    @rule(note=notes)
+    @beartype
+    def delete_note(self, note: Note) -> None:
+        self.col.remove_notes([note.id])
 
     def teardown(self) -> None:
         try:
@@ -90,7 +104,7 @@ class AnkiCollection(RuleBasedStateMachine):
             shutil.copyfile(EMPTY, PATH)
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=25)
+AnkiCollection.TestCase.settings = settings(max_examples=15)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
