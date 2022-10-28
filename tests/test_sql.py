@@ -1,18 +1,16 @@
 """Tests for SQLite Lark grammar."""
 from __future__ import annotations
 
-import os
-import glob
 import time
 import shutil
 import tempfile
 from pathlib import Path
 
+import prettyprinter as pp
 from loguru import logger
-from pyinstrument import Profiler
 
 from beartype import beartype
-from beartype.typing import Iterable, Sequence
+from beartype.typing import Iterable, Sequence, List
 
 import hypothesis.strategies as st
 from hypothesis import given, settings
@@ -22,14 +20,14 @@ from hypothesis.stateful import (
     rule,
     initialize,
     multiple,
+    consumes,
 )
 
 import anki.collection
-from anki.decks import DeckNameId
+from anki.decks import DeckNameId, DeckTreeNode
 from anki.models import NotetypeNameId, NotetypeDict
 from anki.collection import Collection, Note
 
-import ki
 import ki.functional as F
 from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser, debug_lark_error
@@ -38,6 +36,14 @@ from tests.test_parser import get_parser, debug_lark_error
 # pylint: disable=too-many-lines, missing-function-docstring
 
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
+
+DECK_CHAR = r"(?!::)[^\0\x07\x08\x0b\x0c\"\r\n]"
+DECK_NON_SPACE_CHAR = r"(?!::)[^\0\x07\x08\x0b\x0c\"\s]"
+DECK_COMPONENT_NAME = (
+    f"({DECK_NON_SPACE_CHAR})+(({DECK_CHAR})+({DECK_NON_SPACE_CHAR})+){0,}"
+)
+
+ROOT_DID = 1
 
 tempd: Path = Path(tempfile.mkdtemp())
 emptyd: Path = Path(tempfile.mkdtemp())
@@ -48,8 +54,21 @@ COL.close()
 shutil.copyfile(PATH, EMPTY)
 
 
+@st.composite
+def new_deck_fullnames(draw, collections: Bundle, parents: st.SearchStrategy[int]) -> st.SearchStrategy[str]:
+    col = draw(collections)
+    parent = draw(parents)
+    root: DeckTreeNode = col.decks.deck_tree()
+    node = col.decks.find_deck_in_tree(root, parent)
+    names: Iterable[str] = map(lambda c: c.name, node.children)
+    pattern: str = f"^(?!{'$|.join(names)'}$)"
+    name = draw(st.from_regex(pattern))
+    return f"{node.name}::{name}"
+
+
 class AnkiCollection(RuleBasedStateMachine):
     """A state machine for testing `sqldiff` output parsing."""
+    # pylint: disable=no-self-use
 
     def __init__(self):
         t1 = time.time()
@@ -63,6 +82,12 @@ class AnkiCollection(RuleBasedStateMachine):
     dids = Bundle("dids")
     notes = Bundle("notes")
     notetypes = Bundle("notetypes")
+    collections = Bundle("collections")
+
+    @initialize(target=collections)
+    @beartype
+    def init_collection(self) -> Collection:
+        return self.col
 
     @initialize(target=notetypes)
     @beartype
@@ -75,7 +100,7 @@ class AnkiCollection(RuleBasedStateMachine):
     @beartype
     def init_decks(self) -> Iterable[int]:
         name_ids: Sequence[DeckNameId] = self.col.decks.all_names_and_ids()
-        dids = list(map(lambda m: m.id, name_ids))
+        dids = list(filter(lambda d: d != ROOT_DID, map(lambda m: m.id, name_ids)))
         return multiple(*dids)
 
     @rule(notetype=notetypes, did=dids, target=notes)
@@ -85,17 +110,32 @@ class AnkiCollection(RuleBasedStateMachine):
         self.col.add_note(note, did)
         return note
 
-    @rule(note=notes, field=st.text(), target=notes)
+    @rule(note=notes, fields=st.lists(st.text(), min_size=100, max_size=100))
     @beartype
-    def edit_note(self, note: Note, field: str) -> Note:
-        note.fields[0] = field
-        note.flush()
-        return note
+    def edit_note(self, note: Note, fields: List[str]) -> None:
+        n = len(note.fields)
+        note.fields = fields[:n]
 
-    @rule(note=notes)
+    @rule(note=consumes(notes))
     @beartype
     def delete_note(self, note: Note) -> None:
         self.col.remove_notes([note.id])
+
+    @rule(
+        fullname=new_deck_fullnames(
+            collections=collections,
+            parents=st.one_of(dids, st.just(ROOT_DID)),
+        ),
+        target=dids,
+    )
+    @beartype
+    def add_deck(self, fullname: str) -> int:
+        return self.col.decks.id(fullname, create=True)
+
+    @rule(did=consumes(dids))
+    @beartype
+    def remove_deck(self, did: int) -> None:
+        self.col.decks.remove([did])
 
     def teardown(self) -> None:
         try:
