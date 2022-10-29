@@ -596,7 +596,6 @@ def overwrite_lca_col_file(backups_dir: Dir, col_file: File) -> File:
     return F.copyfile(col_file, F.chk(file))
 
 
-
 @beartype
 def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
@@ -1753,6 +1752,7 @@ def _pull(kirepo: KiRepo) -> None:
     def sqldiff(lca_col_file: File, remote_col_file: File) -> Iterable[DBDiff]:
         """Get changed files from LCA collection DB to current collection DB."""
         from loguru import logger
+
         logger.debug(f"lca hash: {F.md5(lca_col_file)}")
         logger.debug(f"remote hash: {F.md5(remote_col_file)}")
 

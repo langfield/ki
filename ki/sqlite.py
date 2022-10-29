@@ -25,6 +25,7 @@ from loguru import logger
 class Table(Enum):
     Notes = "notes"
 
+
 Row, Column = int, str
 Value = Union[int, str]
 AssignmentMap = Dict[Column, Value]
@@ -57,6 +58,7 @@ Statement = Union[Insert, Update, Delete]
 
 class SQLiteTransformer(Transformer):
     """Parse SQL block."""
+
     # pylint: disable=missing-function-docstring
 
     @beartype

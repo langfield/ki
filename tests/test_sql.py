@@ -67,7 +67,50 @@ def new_deck_fullnames(draw, collections: Bundle, parents: st.SearchStrategy[int
 
 
 class AnkiCollection(RuleBasedStateMachine):
-    """A state machine for testing `sqldiff` output parsing."""
+    """
+    A state machine for testing `sqldiff` output parsing.
+
+    Operation classes
+    =================
+    * notes
+    * cards
+    * decks
+    * notetypes
+    * tags
+    * media
+
+    Notes
+    -----
+    Add, edit, change notetype, move, delete
+
+    Cards
+    -----
+    Move
+
+    Decks
+    -----
+    Add, rename, move, delete
+
+    Notetypes
+    ---------
+    Add, edit (see below), delete
+
+    Notetype fields
+    ---------------
+    Add, delete, reposition, rename, set sort index
+
+    Notetype templates
+    ------------------
+    Add, delete, reposition
+
+    Tags
+    ----
+    Add, rename, reparent, delete
+
+    Media
+    -----
+    Add, delete
+    """
     # pylint: disable=no-self-use
 
     def __init__(self):
@@ -121,6 +164,11 @@ class AnkiCollection(RuleBasedStateMachine):
     def delete_note(self, note: Note) -> None:
         self.col.remove_notes([note.id])
 
+    @rule(note=notes, did=dids)
+    @beartype
+    def move_note(self, note: Note, did: int) -> None:
+        self.col.set_deck(note.card_ids(), did)
+
     @rule(
         fullname=new_deck_fullnames(
             collections=collections,
@@ -131,6 +179,12 @@ class AnkiCollection(RuleBasedStateMachine):
     @beartype
     def add_deck(self, fullname: str) -> int:
         return self.col.decks.id(fullname, create=True)
+
+    @rule(dids=st.lists(dids, min_size=2, max_size=2, unique=True))
+    @beartype
+    def reparent_deck(self, dids: int) -> None:
+        did, parent = dids
+        self.col.decks.reparent([did], parent)
 
     @rule(did=consumes(dids))
     @beartype
@@ -144,7 +198,7 @@ class AnkiCollection(RuleBasedStateMachine):
             shutil.copyfile(EMPTY, PATH)
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=15)
+# AnkiCollection.TestCase.settings = settings(max_examples=100)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
