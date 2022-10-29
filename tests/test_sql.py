@@ -16,12 +16,13 @@ from beartype.typing import Iterable, Sequence, List
 import hypothesis.strategies as st
 from hypothesis import given, settings, assume, Verbosity
 from hypothesis.stateful import (
-    RuleBasedStateMachine,
-    Bundle,
     rule,
-    initialize,
     multiple,
     consumes,
+    initialize,
+    precondition,
+    Bundle,
+    RuleBasedStateMachine,
 )
 from hypothesis.strategies import composite
 
@@ -123,6 +124,18 @@ class AnkiCollection(RuleBasedStateMachine):
         if not self.col.db:
             self.col.reopen()
 
+    @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 1)
+    @rule(data=st.data())
+    def add_note(self, data: st.DataObject) -> None:
+        """Add a new note with random fields."""
+        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()))
+        note: Note = self.col.new_note(nt)
+        n: int = len(self.col.models.field_names(nt))
+        note.fields = data.draw(st.lists(st.text(), min_size=n, max_size=n))
+        dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        did: int = data.draw(st.sampled_from(dids))
+        self.col.add_note(note, did)
+
     @rule(data=st.data())
     def add_deck(self, data: st.DataObject) -> None:
         """Add a new deck by creating a child node."""
@@ -133,6 +146,15 @@ class AnkiCollection(RuleBasedStateMachine):
         names: Set[str] = set(map(lambda c: c.name, node.children))
         name = data.draw(st.text(min_size=1).filter(lambda s: s not in names))
         _ = self.col.decks.id(f"{node.name}::{name}", create=True)
+
+    @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 2)
+    @rule(data=st.data())
+    def remove_deck(self, data: st.DataObject) -> None:
+        """Remove a deck if one exists."""
+        dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        dids -= {DEFAULT_DID}
+        did: int = data.draw(st.sampled_from(list(dids)))
+        _ = self.col.decks.remove([did])
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
@@ -151,7 +173,7 @@ class AnkiCollection(RuleBasedStateMachine):
         shutil.rmtree(self.tempd)
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=10, verbosity=Verbosity.debug)
+AnkiCollection.TestCase.settings = settings(max_examples=20, verbosity=Verbosity.debug)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
