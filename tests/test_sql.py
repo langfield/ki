@@ -23,6 +23,7 @@ from hypothesis.stateful import (
     multiple,
     consumes,
 )
+from hypothesis.strategies import composite
 
 import anki.collection
 from anki.decks import DeckNameId, DeckTreeNode
@@ -51,7 +52,7 @@ EMPTY = get_test_collection("empty")
 logger.debug(F.md5(EMPTY.col_file))
 
 
-@st.composite
+@composite
 def new_deck_fullnames(
     draw, collections: Bundle, parents: st.SearchStrategy[int]
 ) -> st.SearchStrategy[str]:
@@ -113,13 +114,7 @@ class AnkiCollection(RuleBasedStateMachine):
 
     # pylint: disable=no-self-use
 
-    dids = Bundle("dids")
-    notes = Bundle("notes")
-    notetypes = Bundle("notetypes")
-    collections = Bundle("collections")
-
     def __init__(self):
-        t1 = time.time()
         super().__init__()
         self.tempd = Path(tempfile.mkdtemp())
         self.path = F.chk(self.tempd / "collection.anki2")
@@ -127,77 +122,20 @@ class AnkiCollection(RuleBasedStateMachine):
         self.col = Collection(self.path)
         if not self.col.db:
             self.col.reopen()
-        #logger.debug(time.time() - t1)
 
-    @initialize(target=collections)
-    def init_collection(self) -> Collection:
-        return self.col
-
-    @initialize(target=notetypes)
-    def init_notetypes(self) -> Iterable[NotetypeDict]:
-        name_ids: Sequence[NotetypeNameId] = self.col.models.all_names_and_ids()
-        models = list(map(lambda m: self.col.models.get(m.id), name_ids))
-        return multiple(*models)
-
-    @initialize(target=dids)
-    def init_decks(self) -> Iterable[int]:
-        name_ids: Sequence[DeckNameId] = self.col.decks.all_names_and_ids()
-        logger.debug(name_ids)
-        dids = list(map(lambda m: m.id, name_ids))
-        logger.debug(dids)
-        return multiple(*dids)
-
-    @rule(notetype=notetypes, did=dids, fields=st.lists(st.text(), min_size=100, max_size=100), target=notes)
-    @beartype
-    def add_note(self, notetype: NotetypeDict, did: int, fields: List[str]) -> Note:
-        note: Note = self.col.new_note(notetype)
-        n = len(note.fields)
-        note.fields = fields[:n]
-        self.col.add_note(note, did)
-        return note
-
-    @rule(note=notes, fields=st.lists(st.text(), min_size=100, max_size=100))
-    @beartype
-    def edit_note(self, note: Note, fields: List[str]) -> None:
-        n = len(note.fields)
-        note.fields = fields[:n]
-        note.flush()
-
-    @rule(note=consumes(notes))
-    @beartype
-    def delete_note(self, note: Note) -> None:
-        self.col.remove_notes([note.id])
-
-    @rule(note=notes, did=dids)
-    @beartype
-    def move_note(self, note: Note, did: int) -> None:
-        self.col.set_deck(note.card_ids(), did)
-
-    @rule(
-        fullname=new_deck_fullnames(
-            collections=collections,
-            parents=st.one_of(dids, st.just(DEFAULT_DID)),
-        ),
-        target=dids,
-    )
-    @beartype
-    def add_deck(self, fullname: str) -> int:
-        return self.col.decks.id(fullname, create=True)
-
-    @rule(dids=st.lists(dids, min_size=2, max_size=2, unique=True))
-    @beartype
-    def reparent_deck(self, dids: int) -> None:
-        did, parent = dids
-        assume(did != DEFAULT_DID)
-        self.col.decks.reparent([did], parent)
-
-    @rule(did=consumes(dids))
-    @beartype
-    def remove_deck(self, did: int) -> None:
-        assume(did != DEFAULT_DID)
-        self.col.decks.remove([did])
+    @rule(data=st.data())
+    def add_deck(self, data: st.DataObject) -> None:
+        """Add a new deck by creating a child node."""
+        dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        root: DeckTreeNode = self.col.decks.deck_tree()
+        parent_did: int = data.draw(st.sampled_from(dids))
+        node = self.col.decks.find_deck_in_tree(root, parent_did)
+        names: Set[str] = set(map(lambda c: c.name, node.children))
+        name = data.draw(st.text(min_size=1).filter(lambda s: s not in names))
+        _ = self.col.decks.id(f"{node.name}::{name}", create=True)
 
     def teardown(self) -> None:
+        """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
         self.col.decks.remove([did])
         self.col.save()
@@ -208,12 +146,12 @@ class AnkiCollection(RuleBasedStateMachine):
             ["sqldiff", "--table", "notes", str(EMPTY.col_file), str(self.path)],
             capture_output=True,
         )
-        # logger.debug(p.stdout.decode())
-        # logger.debug(p.stderr.decode())
+        logger.debug(p.stdout.decode())
+        logger.debug(p.stderr.decode())
         shutil.rmtree(self.tempd)
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=100, verbosity=Verbosity.debug)
+AnkiCollection.TestCase.settings = settings(max_examples=10, verbosity=Verbosity.debug)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
