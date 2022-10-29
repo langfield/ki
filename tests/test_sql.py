@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import shutil
 import tempfile
+import subprocess
 from pathlib import Path
 
 import prettyprinter as pp
@@ -13,7 +14,7 @@ from beartype import beartype
 from beartype.typing import Iterable, Sequence, List
 
 import hypothesis.strategies as st
-from hypothesis import given, settings
+from hypothesis import given, settings, assume, Verbosity
 from hypothesis.stateful import (
     RuleBasedStateMachine,
     Bundle,
@@ -31,6 +32,7 @@ from anki.collection import Collection, Note
 import ki.functional as F
 from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser, debug_lark_error
+from tests.test_ki import get_test_collection
 
 
 # pylint: disable=too-many-lines, missing-function-docstring
@@ -43,19 +45,16 @@ DECK_COMPONENT_NAME = (
     f"({DECK_NON_SPACE_CHAR})+(({DECK_CHAR})+({DECK_NON_SPACE_CHAR})+){0,}"
 )
 
-ROOT_DID = 1
+DEFAULT_DID = 1
 
-tempd: Path = Path(tempfile.mkdtemp())
-emptyd: Path = Path(tempfile.mkdtemp())
-PATH = tempd / "collection.anki2"
-EMPTY = emptyd / "empty.anki2"
-COL = Collection(PATH)
-COL.close()
-shutil.copyfile(PATH, EMPTY)
+EMPTY = get_test_collection("empty")
+logger.debug(F.md5(EMPTY.col_file))
 
 
 @st.composite
-def new_deck_fullnames(draw, collections: Bundle, parents: st.SearchStrategy[int]) -> st.SearchStrategy[str]:
+def new_deck_fullnames(
+    draw, collections: Bundle, parents: st.SearchStrategy[int]
+) -> st.SearchStrategy[str]:
     col = draw(collections)
     parent = draw(parents)
     root: DeckTreeNode = col.decks.deck_tree()
@@ -111,45 +110,49 @@ class AnkiCollection(RuleBasedStateMachine):
     -----
     Add, delete
     """
+
     # pylint: disable=no-self-use
-
-    def __init__(self):
-        t1 = time.time()
-
-        super().__init__()
-        self.col = COL
-        self.col.reopen()
-
-        logger.debug(time.time() - t1)
 
     dids = Bundle("dids")
     notes = Bundle("notes")
     notetypes = Bundle("notetypes")
     collections = Bundle("collections")
 
+    def __init__(self):
+        t1 = time.time()
+        super().__init__()
+        self.tempd = Path(tempfile.mkdtemp())
+        self.path = F.chk(self.tempd / "collection.anki2")
+        self.path = F.copyfile(EMPTY.col_file, self.path)
+        self.col = Collection(self.path)
+        if not self.col.db:
+            self.col.reopen()
+        #logger.debug(time.time() - t1)
+
     @initialize(target=collections)
-    @beartype
     def init_collection(self) -> Collection:
         return self.col
 
     @initialize(target=notetypes)
-    @beartype
     def init_notetypes(self) -> Iterable[NotetypeDict]:
         name_ids: Sequence[NotetypeNameId] = self.col.models.all_names_and_ids()
         models = list(map(lambda m: self.col.models.get(m.id), name_ids))
         return multiple(*models)
 
     @initialize(target=dids)
-    @beartype
     def init_decks(self) -> Iterable[int]:
         name_ids: Sequence[DeckNameId] = self.col.decks.all_names_and_ids()
-        dids = list(filter(lambda d: d != ROOT_DID, map(lambda m: m.id, name_ids)))
+        logger.debug(name_ids)
+        dids = list(map(lambda m: m.id, name_ids))
+        logger.debug(dids)
         return multiple(*dids)
 
-    @rule(notetype=notetypes, did=dids, target=notes)
+    @rule(notetype=notetypes, did=dids, fields=st.lists(st.text(), min_size=100, max_size=100), target=notes)
     @beartype
-    def add_note(self, notetype: NotetypeDict, did: int) -> Note:
+    def add_note(self, notetype: NotetypeDict, did: int, fields: List[str]) -> Note:
         note: Note = self.col.new_note(notetype)
+        n = len(note.fields)
+        note.fields = fields[:n]
         self.col.add_note(note, did)
         return note
 
@@ -158,6 +161,7 @@ class AnkiCollection(RuleBasedStateMachine):
     def edit_note(self, note: Note, fields: List[str]) -> None:
         n = len(note.fields)
         note.fields = fields[:n]
+        note.flush()
 
     @rule(note=consumes(notes))
     @beartype
@@ -172,7 +176,7 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(
         fullname=new_deck_fullnames(
             collections=collections,
-            parents=st.one_of(dids, st.just(ROOT_DID)),
+            parents=st.one_of(dids, st.just(DEFAULT_DID)),
         ),
         target=dids,
     )
@@ -184,21 +188,32 @@ class AnkiCollection(RuleBasedStateMachine):
     @beartype
     def reparent_deck(self, dids: int) -> None:
         did, parent = dids
+        assume(did != DEFAULT_DID)
         self.col.decks.reparent([did], parent)
 
     @rule(did=consumes(dids))
     @beartype
     def remove_deck(self, did: int) -> None:
+        assume(did != DEFAULT_DID)
         self.col.decks.remove([did])
 
     def teardown(self) -> None:
-        try:
-            self.col.close()
-        finally:
-            shutil.copyfile(EMPTY, PATH)
+        did = self.col.decks.id("dummy", create=True)
+        self.col.decks.remove([did])
+        self.col.save()
+        self.col.close(save=True)
+        assert str(self.path) != str(EMPTY.col_file)
+        assert F.md5(self.path) != F.md5(EMPTY.col_file)
+        p = subprocess.run(
+            ["sqldiff", "--table", "notes", str(EMPTY.col_file), str(self.path)],
+            capture_output=True,
+        )
+        # logger.debug(p.stdout.decode())
+        # logger.debug(p.stderr.decode())
+        shutil.rmtree(self.tempd)
 
 
-# AnkiCollection.TestCase.settings = settings(max_examples=100)
+AnkiCollection.TestCase.settings = settings(max_examples=100, verbosity=Verbosity.debug)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
