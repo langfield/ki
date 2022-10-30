@@ -7,11 +7,12 @@ import tempfile
 import subprocess
 from pathlib import Path
 
+import prettyprinter as pp
 from loguru import logger
 from libfaketime import fake_time, reexec_if_needed
 
 from beartype import beartype
-from beartype.typing import Set
+from beartype.typing import Set, List
 
 import hypothesis.strategies as st
 from hypothesis import settings, Verbosity
@@ -25,6 +26,7 @@ from hypothesis.stateful import (
 import anki.collection
 
 # pylint: enable=unused-import
+from anki.decks import DeckNameId
 from anki.models import NotetypeDict
 from anki.collection import Collection, Note
 
@@ -124,14 +126,13 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_deck(self, data: st.DataObject) -> None:
         """Add a new deck by creating a child node."""
-        dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
-        parent_did: int = data.draw(st.sampled_from(dids))
-        parent_name: str = self.col.decks.name(parent_did)
-        names = set(map(lambda x: x[0], self.col.decks.children(parent_did)))
+        deck_name_ids: List[DeckNameId] = list(self.col.decks.all_names_and_ids())
+        parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids))
+        names = set(map(lambda x: x[0], self.col.decks.children(parent.id)))
         name = data.draw(st.text(min_size=1).filter(lambda s: s not in names))
         if self.freeze:
             self.freezer.tick()
-        _ = self.col.decks.id(f"{parent_name}::{name}", create=True)
+        _ = self.col.decks.id(f"{parent.name}::{name}", create=True)
 
     @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 2)
     @rule(data=st.data())
@@ -154,50 +155,18 @@ class AnkiCollection(RuleBasedStateMachine):
             capture_output=True,
             check=True,
         )
-        # logger.debug(p.stdout.decode())
-        # logger.debug(p.stderr.decode())
+        block = p.stdout.decode()
+        logger.debug(block)
+        parser = get_parser(filename="sqlite.lark", start="diff")
+        transformer = SQLiteTransformer()
+        tree = parser.parse(block)
+        stmts = transformer.transform(tree)
+        logger.debug(pp.pformat(stmts))
+
         shutil.rmtree(self.tempd)
         if self.freeze:
             self.freezer.stop()
 
 
-AnkiCollection.TestCase.settings = settings(
-    max_examples=100, verbosity=Verbosity.normal
-)
+AnkiCollection.TestCase.settings = settings(max_examples=50, verbosity=Verbosity.normal)
 TestAnkiCollection = AnkiCollection.TestCase
-
-BLOCK = r"""
-DELETE FROM notes WHERE id=1645010162168;
-DELETE FROM notes WHERE id=1645027705329;
-INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651202347045,'D(l.-iAXR1',1651202298367,1651202347,-1,'','a'||X'1f'
-        ||'b[sound:1sec.mp3]','a',2264392759,0,'');
-INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651232832286,'H0%>O*C~M!',1651232485378,1651232832,-1,'','Who introduced the notion of a direct integral in functional analysis?'||X'1f'
-        ||'John von Neumann','Who introduced the notion of a direct integral in functional analysis?',2707929287,0,'');
-"""
-
-UPDATE = r"""
-UPDATE notes SET mod=1645221606, flds='aa'||X'1f'
-||'bb', sfld='aa', csum=3771269976 WHERE id=1645010162168;
-DELETE FROM notes WHERE id=1645027705329;
-INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1645222430007,'f}:^>jzMjG',1645010146011,1645222430,-1,'','f'||X'1f'
-||'g','f',1242175777,0,'');
-"""
-
-
-def test_basic():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    parser.parse(BLOCK)
-
-
-def test_transformer():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(BLOCK)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
-
-
-def test_transformer_on_update_commands():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(UPDATE)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
