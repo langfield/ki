@@ -1,70 +1,47 @@
 """Tests for SQLite Lark grammar."""
 from __future__ import annotations
 
-import time
 import shutil
+import random
 import tempfile
 import subprocess
 from pathlib import Path
 
-import prettyprinter as pp
 from loguru import logger
+from libfaketime import fake_time, reexec_if_needed
 
 from beartype import beartype
-from beartype.typing import Iterable, Sequence, List
+from beartype.typing import Set
 
 import hypothesis.strategies as st
-from hypothesis import given, settings, assume, Verbosity
+from hypothesis import settings, Verbosity
 from hypothesis.stateful import (
     rule,
-    multiple,
-    consumes,
-    initialize,
     precondition,
-    Bundle,
     RuleBasedStateMachine,
 )
-from hypothesis.strategies import composite
 
+# pylint: disable=unused-import
 import anki.collection
-from anki.decks import DeckNameId, DeckTreeNode
-from anki.models import NotetypeNameId, NotetypeDict
+
+# pylint: enable=unused-import
+from anki.models import NotetypeDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
 from ki.sqlite import SQLiteTransformer
-from tests.test_parser import get_parser, debug_lark_error
+from tests.test_parser import get_parser
 from tests.test_ki import get_test_collection
 
 
 # pylint: disable=too-many-lines, missing-function-docstring
 
-BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
-
-DECK_CHAR = r"(?!::)[^\0\x07\x08\x0b\x0c\"\r\n]"
-DECK_NON_SPACE_CHAR = r"(?!::)[^\0\x07\x08\x0b\x0c\"\s]"
-DECK_COMPONENT_NAME = (
-    f"({DECK_NON_SPACE_CHAR})+(({DECK_CHAR})+({DECK_NON_SPACE_CHAR})+){0,}"
-)
+reexec_if_needed()
 
 DEFAULT_DID = 1
 
 EMPTY = get_test_collection("empty")
 logger.debug(F.md5(EMPTY.col_file))
-
-
-@composite
-def new_deck_fullnames(
-    draw, collections: Bundle, parents: st.SearchStrategy[int]
-) -> st.SearchStrategy[str]:
-    col = draw(collections)
-    parent = draw(parents)
-    root: DeckTreeNode = col.decks.deck_tree()
-    node = col.decks.find_deck_in_tree(root, parent)
-    names: Iterable[str] = map(lambda c: c.name, node.children)
-    pattern: str = f"^(?!{'$|.join(names)'}$)"
-    name = draw(st.from_regex(pattern))
-    return f"{node.name}::{name}"
 
 
 class AnkiCollection(RuleBasedStateMachine):
@@ -114,9 +91,17 @@ class AnkiCollection(RuleBasedStateMachine):
     """
 
     # pylint: disable=no-self-use
+    k = 0
 
     def __init__(self):
         super().__init__()
+        logger.debug(f"Starting test {AnkiCollection.k}...")
+        AnkiCollection.k += 1
+        random.seed(0)
+        self.freeze = True
+        if self.freeze:
+            self.freezer = fake_time("2022-05-01 00:00:00")
+            self.freezer.start()
         self.tempd = Path(tempfile.mkdtemp())
         self.path = F.chk(self.tempd / "collection.anki2")
         self.path = F.copyfile(EMPTY.col_file, self.path)
@@ -140,12 +125,13 @@ class AnkiCollection(RuleBasedStateMachine):
     def add_deck(self, data: st.DataObject) -> None:
         """Add a new deck by creating a child node."""
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
-        root: DeckTreeNode = self.col.decks.deck_tree()
         parent_did: int = data.draw(st.sampled_from(dids))
-        node = self.col.decks.find_deck_in_tree(root, parent_did)
-        names: Set[str] = set(map(lambda c: c.name, node.children))
+        parent_name: str = self.col.decks.name(parent_did)
+        names = set(map(lambda x: x[0], self.col.decks.children(parent_did)))
         name = data.draw(st.text(min_size=1).filter(lambda s: s not in names))
-        _ = self.col.decks.id(f"{node.name}::{name}", create=True)
+        if self.freeze:
+            self.freezer.tick()
+        _ = self.col.decks.id(f"{parent_name}::{name}", create=True)
 
     @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 2)
     @rule(data=st.data())
@@ -160,20 +146,24 @@ class AnkiCollection(RuleBasedStateMachine):
         """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
         self.col.decks.remove([did])
-        self.col.save()
         self.col.close(save=True)
         assert str(self.path) != str(EMPTY.col_file)
         assert F.md5(self.path) != F.md5(EMPTY.col_file)
         p = subprocess.run(
             ["sqldiff", "--table", "notes", str(EMPTY.col_file), str(self.path)],
             capture_output=True,
+            check=True,
         )
-        logger.debug(p.stdout.decode())
-        logger.debug(p.stderr.decode())
+        # logger.debug(p.stdout.decode())
+        # logger.debug(p.stderr.decode())
         shutil.rmtree(self.tempd)
+        if self.freeze:
+            self.freezer.stop()
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=20, verbosity=Verbosity.debug)
+AnkiCollection.TestCase.settings = settings(
+    max_examples=100, verbosity=Verbosity.normal
+)
 TestAnkiCollection = AnkiCollection.TestCase
 
 BLOCK = r"""
