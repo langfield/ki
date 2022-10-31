@@ -55,3 +55,16 @@ def test_transformer_on_empty_insert():
     tree = parser.parse(EMPTYISH)
     transformer = SQLiteTransformer()
     _ = transformer.transform(tree)
+
+
+QUOTES = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'|o/qdllw(',1667061149792,1651363200,-1,'',''||X'1f'
+||'''','',3661210606,0,'');
+"""
+
+
+def test_transformer_on_single_quotes():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    tree = parser.parse(QUOTES)
+    transformer = SQLiteTransformer()
+    _ = transformer.transform(tree)

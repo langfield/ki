@@ -20,10 +20,11 @@ values: "VALUES(" VALUE ("," VALUE)* ")"
 
 COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 
-VALUE: INT | SIGNED_INT | NOTE_FIELD | SINGLE_QUOTED_STRING_NOT_FIELD
+VALUE: INT | SIGNED_INT | NOTE_FIELD | SINGLETON_FIELD | SINGLE_QUOTED_STRING_NOT_FIELD
 
 NOTES: "notes"
 NOTE_FIELD: SINGLE_QUOTED_STRING (/\|\|X'1f'/ WS /\|\|/ SINGLE_QUOTED_STRING)+
+SINGLETON_FIELD: SINGLE_QUOTED_STRING /\|\|X'1f'/
 COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 
 // Single-quoted strings.
