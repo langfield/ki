@@ -27,9 +27,9 @@ NOTE_FIELD: SINGLE_QUOTED_STRING (/\|\|X'1f'/ WS /\|\|/ SINGLE_QUOTED_STRING)+
 SINGLETON_FIELD: SINGLE_QUOTED_STRING /\|\|X'1f'/
 COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 
-// Single-quoted strings.
-SINGLE_QUOTED_STRING: /'[^']*'/
-SINGLE_QUOTED_STRING_NOT_FIELD: /'[^']*'(?!\|)/
+// Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
+SINGLE_QUOTED_STRING: /'[^']*(?:''[^']*)*'/
+SINGLE_QUOTED_STRING_NOT_FIELD: /'[^']*(?:''[^']*)*'(?!\|)/
 
 // === IMPORTS ===
 

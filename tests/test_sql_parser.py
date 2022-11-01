@@ -68,3 +68,15 @@ def test_transformer_on_single_quotes():
     tree = parser.parse(QUOTES)
     transformer = SQLiteTransformer()
     _ = transformer.transform(tree)
+
+
+THREE_FIELDS = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200001,'roH<$&er7G',1667061149794,1651363200,-1,'',''||X'1f1f','',3661210606,0,'');
+"""
+
+
+def test_transformer_on_three_fields():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    tree = parser.parse(THREE_FIELDS)
+    transformer = SQLiteTransformer()
+    _ = transformer.transform(tree)
