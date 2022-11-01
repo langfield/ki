@@ -115,21 +115,23 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_note(self, data: st.DataObject) -> None:
         """Add a new note with random fields."""
-        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()))
+        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
         note: Note = self.col.new_note(nt)
         n: int = len(self.col.models.field_names(nt))
-        note.fields = data.draw(st.lists(st.text(), min_size=n, max_size=n))
+        fields: st.SearchStrategy = st.lists(st.text(), min_size=n, max_size=n)
+        note.fields = data.draw(fields, label="fields")
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
-        did: int = data.draw(st.sampled_from(dids))
+        did: int = data.draw(st.sampled_from(dids), label="did (new note)")
         self.col.add_note(note, did)
 
     @rule(data=st.data())
     def add_deck(self, data: st.DataObject) -> None:
         """Add a new deck by creating a child node."""
         deck_name_ids: List[DeckNameId] = list(self.col.decks.all_names_and_ids())
-        parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids))
+        parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids), label="parent")
         names = set(map(lambda x: x[0], self.col.decks.children(parent.id)))
-        name = data.draw(st.text(min_size=1).filter(lambda s: s not in names))
+        names_st = st.text(min_size=1).filter(lambda s: s not in names)
+        name = data.draw(names_st, label="new deck name")
         if self.freeze:
             self.freezer.tick()
         _ = self.col.decks.id(f"{parent.name}::{name}", create=True)
@@ -140,7 +142,7 @@ class AnkiCollection(RuleBasedStateMachine):
         """Remove a deck if one exists."""
         dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
         dids -= {DEFAULT_DID}
-        did: int = data.draw(st.sampled_from(list(dids)))
+        did: int = data.draw(st.sampled_from(list(dids)), "did (removal)")
         _ = self.col.decks.remove([did])
 
     def teardown(self) -> None:
