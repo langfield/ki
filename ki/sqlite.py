@@ -27,7 +27,8 @@ class Table(Enum):
 
 
 Row, Column = int, str
-Value = Union[int, str]
+Field = str
+Value = Union[int, str, List[Field]]
 AssignmentMap = Dict[Column, Value]
 
 
@@ -97,17 +98,20 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def values(self, xs: List[Value]) -> List[Value]:
+        print("values")
         return xs
 
     @beartype
     def TABLE(self, t: Token) -> Table:
+        print("TABLE")
         s = str(t)
         if s == "notes":
             return Table.Notes
         raise ValueError(f"Invalid table: {s}")
 
     @beartype
-    def ASSIGNMENT(self, t: Token) -> Tuple[str, str]:
+    def assignment(self, t: Token) -> Tuple[str, str]:
+        logger.debug("ASSGN")
         s = str(t)
         sections = s.split("=")
         assert len(sections) == 2
@@ -115,25 +119,36 @@ class SQLiteTransformer(Transformer):
         return col, val
 
     @beartype
-    def FIELD(self, t: Token) -> str:
+    def value(self, xs: List[Value]) -> Value:
+        return xs[0]
+
+    @beartype
+    def note_fields(self, xs: List[str]) -> List[str]:
+        ys = map(lambda x: x if type(x) == str else str(x), xs)
+        s = "".join(xs)
+        return s.split("\x1f")
+
+    @beartype
+    def field_sequence(self, xs: List[str]) -> str:
+        return xs[0]
+
+    @beartype
+    def string_sequence(self, ts: List[str]) -> str:
+        assert len(ts) == 1
+        return str(ts[0])
+
+    @beartype
+    def byte_sequence(self, xs: List[Token]) -> str:
+        return bytes.fromhex("".join(list(map(str, xs)))).decode(encoding="UTF-8")
+
+    @beartype
+    def SINGLE_QUOTED_STRING(self, t: Token) -> str:
+        logger.debug("SINGLE QUOTED")
         return str(t)
 
     @beartype
-    def VALUE(self, x: Value) -> Value:
-        if isinstance(x, str):
-            x = str(x)
-        return x
-
-    @beartype
-    def NOTE_FIELD(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def ESCAPED_STRING(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def STRING_VALUE(self, t: Token) -> str:
+    def SINGLE_QUOTED_STRING_NOT_FIELD(self, t: Token) -> str:
+        print("SINGLE QUOTED STRING NOT")
         return str(t)
 
     @beartype

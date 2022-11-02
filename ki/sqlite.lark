@@ -13,22 +13,22 @@ delete: "DELETE" "FROM" TABLE "WHERE" row ";"
 bad: /.+/
 
 row: "id=" INT
-assignments: ASSIGNMENT ("," ASSIGNMENT)*
-ASSIGNMENT: COLUMN "=" VALUE
+assignments: assignment ("," assignment)*
+assignment: COLUMN "=" value
 TABLE: NOTES
-values: "VALUES(" VALUE ("," VALUE)* ")"
+values: "VALUES(" value ("," value)* ")"
 
 COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 
-VALUE: INT | SIGNED_INT | NOTE_FIELDS | SINGLE_QUOTED_STRING_NOT_FIELD
+value: INT | SIGNED_INT | note_fields | SINGLE_QUOTED_STRING_NOT_FIELD
 
 NOTES: "notes"
-NOTE_FIELDS: FIELD_SEQUENCE WS? (/\|\|/ FIELD_SEQUENCE WS?)*
+note_fields: field_sequence WS? ("||" field_sequence WS?)*
 COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 
-FIELD_SEQUENCE: BYTE_SEQUENCE | STRING_SEQUENCE
-STRING_SEQUENCE: SINGLE_QUOTED_STRING
-BYTE_SEQUENCE: "X'" (HEXDIGIT HEXDIGIT)+ "'"
+field_sequence: byte_sequence | string_sequence
+string_sequence: SINGLE_QUOTED_STRING
+byte_sequence: "X'" (HEXDIGIT HEXDIGIT)+ "'"
 
 // Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
 SINGLE_QUOTED_STRING: /'[^']*(?:''[^']*)*'/

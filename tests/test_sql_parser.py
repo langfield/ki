@@ -1,5 +1,6 @@
 """Tests for SQLite Lark grammar."""
 
+import prettyprinter as pp
 from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser
 
@@ -91,4 +92,5 @@ def test_transformer_on_trailing_empty_field():
     parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(TRAILING_EMPTY_FIELD)
     transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
+    out = transformer.transform(tree)
+    pp.pprint(out)
