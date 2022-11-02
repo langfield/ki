@@ -36,9 +36,8 @@ def get_parser(filename: str, start: str) -> Lark:
 
 
 @beartype
-def debug_lark_error(note: str, err: UnexpectedInput) -> None:
+def debug_lark_error(err: UnexpectedInput) -> None:
     """Print an exception."""
-    logger.warning(f"\n{note}")
     logger.error(f"accepts: {err.accepts}")
     logger.error(f"column: {err.column}")
     logger.error(f"expected: {err.expected}")

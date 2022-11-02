@@ -88,7 +88,7 @@ class SQLiteTransformer(Transformer):
         return Delete(table=xs[0], row=xs[1])
 
     @beartype
-    def assignments(self, xs: List[Tuple[str, str]]) -> AssignmentMap:
+    def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
         return dict(xs)
 
     @beartype
@@ -98,25 +98,21 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def values(self, xs: List[Value]) -> List[Value]:
-        print("values")
+        logger.debug(f"{xs = }")
         return xs
 
     @beartype
     def TABLE(self, t: Token) -> Table:
-        print("TABLE")
         s = str(t)
         if s == "notes":
             return Table.Notes
         raise ValueError(f"Invalid table: {s}")
 
     @beartype
-    def assignment(self, t: Token) -> Tuple[str, str]:
-        logger.debug("ASSGN")
-        s = str(t)
-        sections = s.split("=")
-        assert len(sections) == 2
-        col, val = sections
-        return col, val
+    def assignment(self, ts: List[Union[Token, Value]]) -> Tuple[str, Value]:
+        assert len(ts) == 2
+        column, val = ts
+        return str(column), val
 
     @beartype
     def value(self, xs: List[Value]) -> Value:
@@ -143,14 +139,16 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def SINGLE_QUOTED_STRING(self, t: Token) -> str:
-        logger.debug("SINGLE QUOTED")
         return str(t)
 
     @beartype
     def SINGLE_QUOTED_STRING_NOT_FIELD(self, t: Token) -> str:
-        print("SINGLE QUOTED STRING NOT")
         return str(t)
 
     @beartype
     def INT(self, t: Token) -> int:
+        return int(str(t))
+
+    @beartype
+    def SIGNED_INT(self, t: Token) -> int:
         return int(str(t))

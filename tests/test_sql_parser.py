@@ -2,7 +2,7 @@
 
 import prettyprinter as pp
 from ki.sqlite import SQLiteTransformer
-from tests.test_parser import get_parser
+from tests.test_parser import get_parser, debug_lark_error
 
 
 # pylint: disable=too-many-lines, missing-function-docstring
@@ -91,6 +91,23 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 def test_transformer_on_trailing_empty_field():
     parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(TRAILING_EMPTY_FIELD)
+    transformer = SQLiteTransformer()
+    out = transformer.transform(tree)
+    pp.pprint(out)
+
+
+ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'OJl<Xj<>{H',1667061149792,1651363200,-1,'',''''||X'1f','''',3143146758,0,'');
+"""
+
+
+def test_transformer_on_single_quote_in_sort_field():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
     transformer = SQLiteTransformer()
     out = transformer.transform(tree)
     pp.pprint(out)
