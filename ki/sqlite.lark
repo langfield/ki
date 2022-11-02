@@ -20,12 +20,15 @@ values: "VALUES(" VALUE ("," VALUE)* ")"
 
 COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 
-VALUE: INT | SIGNED_INT | NOTE_FIELD | SINGLETON_FIELD | SINGLE_QUOTED_STRING_NOT_FIELD
+VALUE: INT | SIGNED_INT | NOTE_FIELDS | SINGLE_QUOTED_STRING_NOT_FIELD
 
 NOTES: "notes"
-NOTE_FIELD: SINGLE_QUOTED_STRING (/\|\|X'1f'/ WS /\|\|/ SINGLE_QUOTED_STRING)+
-SINGLETON_FIELD: SINGLE_QUOTED_STRING /\|\|X'1f'/
+NOTE_FIELDS: FIELD_SEQUENCE WS? (/\|\|/ FIELD_SEQUENCE WS?)*
 COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
+
+FIELD_SEQUENCE: BYTE_SEQUENCE | STRING_SEQUENCE
+STRING_SEQUENCE: SINGLE_QUOTED_STRING
+BYTE_SEQUENCE: "X'" (HEXDIGIT HEXDIGIT)+ "'"
 
 // Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
 SINGLE_QUOTED_STRING: /'[^']*(?:''[^']*)*'/
@@ -34,6 +37,7 @@ SINGLE_QUOTED_STRING_NOT_FIELD: /'[^']*(?:''[^']*)*'(?!\|)/
 // === IMPORTS ===
 
 %import common.SIGNED_INT
+%import common.HEXDIGIT
 %import common.NEWLINE
 %import common.INT
 %import common.WS

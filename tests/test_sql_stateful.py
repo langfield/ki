@@ -170,5 +170,5 @@ class AnkiCollection(RuleBasedStateMachine):
             self.freezer.stop()
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=50, verbosity=Verbosity.normal)
+AnkiCollection.TestCase.settings = settings(max_examples=100, verbosity=Verbosity.normal)
 TestAnkiCollection = AnkiCollection.TestCase

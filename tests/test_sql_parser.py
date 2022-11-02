@@ -80,3 +80,15 @@ def test_transformer_on_three_fields():
     tree = parser.parse(THREE_FIELDS)
     transformer = SQLiteTransformer()
     _ = transformer.transform(tree)
+
+
+TRAILING_EMPTY_FIELD = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200001,'r#){>b5q^b',1667061149794,1651363200,-1,'',''||X'1f'
+||'0'||X'1f','',3661210606,0,'');
+"""
+
+def test_transformer_on_trailing_empty_field():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    tree = parser.parse(TRAILING_EMPTY_FIELD)
+    transformer = SQLiteTransformer()
+    _ = transformer.transform(tree)
