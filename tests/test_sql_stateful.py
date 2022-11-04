@@ -123,10 +123,18 @@ class AnkiCollection(RuleBasedStateMachine):
         )
         fields: st.SearchStrategy = st.text(alphabet=characters)
         fieldlists: st.SearchStrategy = st.lists(fields, min_size=n, max_size=n)
-        note.fields = data.draw(fieldlists, label="fields")
+        note.fields = data.draw(fieldlists, label="add note: fields")
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
-        did: int = data.draw(st.sampled_from(dids), label="did (new note)")
+        did: int = data.draw(st.sampled_from(dids), label="add note: did")
         self.col.add_note(note, did)
+
+    @precondition(lambda self: len(set(self.col.find_notes(query=""))) > 0)
+    @rule(data=st.data())
+    def remove_note(self, data: st.DataObject) -> None:
+        """Remove a note randomly selected note from the collection."""
+        nids = list(self.col.find_notes(query=""))
+        nid = data.draw(st.sampled_from(nids), label="rm note: nid")
+        self.col.remove_notes([nid])
 
     @rule(data=st.data())
     def add_deck(self, data: st.DataObject) -> None:
@@ -135,7 +143,7 @@ class AnkiCollection(RuleBasedStateMachine):
         parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids), label="parent")
         names = set(map(lambda x: x[0], self.col.decks.children(parent.id)))
         names_st = st.text(min_size=1).filter(lambda s: s not in names)
-        name = data.draw(names_st, label="new deck name")
+        name = data.draw(names_st, label="add deck: deckname")
         if self.freeze:
             self.freezer.tick()
         _ = self.col.decks.id(f"{parent.name}::{name}", create=True)
@@ -146,7 +154,7 @@ class AnkiCollection(RuleBasedStateMachine):
         """Remove a deck if one exists."""
         dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
         dids -= {DEFAULT_DID}
-        did: int = data.draw(st.sampled_from(list(dids)), "did (removal)")
+        did: int = data.draw(st.sampled_from(list(dids)), "rm deck: did")
         _ = self.col.decks.remove([did])
 
     def teardown(self) -> None:
@@ -175,7 +183,7 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=10,
+    max_examples=100,
     stateful_step_count=30,
     verbosity=Verbosity.normal,
 )
