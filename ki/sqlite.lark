@@ -16,23 +16,23 @@ row: "id=" INT
 assignments: assignment ("," assignment)*
 assignment: COLUMN "=" value
 TABLE: NOTES
-values: "VALUES(" value ("," value)* ")"
+values: "VALUES(" INT "," STRING "," INT "," INT "," SIGNED_INT "," STRING "," fields "," sfld "," INT "," INT "," STRING ")"
 
 COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 
-value: INT | SIGNED_INT | note_fields | SINGLE_QUOTED_STRING_NOT_FIELD
+value: INT | SIGNED_INT | bytestring
+sfld: SIGNED_INT | bytestring
 
 NOTES: "notes"
-note_fields: field_sequence WS? ("||" field_sequence WS?)*
+fields: bytestring
+bytestring: seq WS? ("||" seq WS?)*
 COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 
-field_sequence: byte_sequence | string_sequence
-string_sequence: SINGLE_QUOTED_STRING
-byte_sequence: "X'" (HEXDIGIT HEXDIGIT)+ "'"
+seq: bytes | STRING
+bytes: "X'" (HEXDIGIT HEXDIGIT)+ "'"
 
 // Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
-SINGLE_QUOTED_STRING: /'[^']*(?:''[^']*)*'/
-SINGLE_QUOTED_STRING_NOT_FIELD: /'[^']*(?:''[^']*)*'(?!\|)/
+STRING: /'[^']*(?:''[^']*)*'/
 
 // === IMPORTS ===
 

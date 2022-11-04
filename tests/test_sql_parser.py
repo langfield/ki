@@ -88,6 +88,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 ||'0'||X'1f','',3661210606,0,'');
 """
 
+
 def test_transformer_on_trailing_empty_field():
     parser = get_parser(filename="sqlite.lark", start="diff")
     tree = parser.parse(TRAILING_EMPTY_FIELD)
@@ -97,7 +98,7 @@ def test_transformer_on_trailing_empty_field():
 
 
 ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD = r"""
-INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'OJl<Xj<>{H',1667061149792,1651363200,-1,'',''''||X'1f','''',3143146758,0,'');
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'OJl<Xj<>{H',1667061149792,1651363200,-1,'',''''||X'1f','',3143146758,0,'');
 """
 
 
@@ -105,6 +106,74 @@ def test_transformer_on_single_quote_in_sort_field():
     parser = get_parser(filename="sqlite.lark", start="diff")
     try:
         tree = parser.parse(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
+    transformer = SQLiteTransformer()
+    out = transformer.transform(tree)
+    pp.pprint(out)
+
+
+INTEGER_SORT_FIELD = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'F,y8PO5.KP',1667061149792,1651363200,-1,'','0'||X'1f',0,3059261382,0,'');
+"""
+
+
+def test_transformer_on_integer_sort_field():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(INTEGER_SORT_FIELD)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
+    transformer = SQLiteTransformer()
+    out = transformer.transform(tree)
+    pp.pprint(out)
+
+
+RAW_BYTES_IN_SORT_FIELD = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200001,'O#4+2LG`3{',1667061149792,1651363200,-1,'',''||X'0a1f',''||X'0a',2915580697,0,'');
+"""
+
+
+def test_transformer_on_raw_bytes_in_sort_field():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(RAW_BYTES_IN_SORT_FIELD)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
+    transformer = SQLiteTransformer()
+    out = transformer.transform(tree)
+    pp.pprint(out)
+
+
+SURROGATE_UTF_BYTES = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363217005,'c5zvCfp,h%',1667061149796,1651363217,-1,'',',-򁿈AÜ'||X'1f',',-򁿈AÜ',3950683052,0,'');
+"""
+
+
+def test_transformer_on_surrogate_utf_bytes():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(SURROGATE_UTF_BYTES)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
+    transformer = SQLiteTransformer()
+    out = transformer.transform(tree)
+    pp.pprint(out)
+
+
+DECIMALS_IN_SORT_FIELD = r"""
+INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(1651363200000,'q6qBOHAT=6',1667061149792,1651363200,-1,'','.1'||X'1f',0.1,162134904,0,'');
+"""
+
+
+def test_transformer_on_decimals_in_sort_field():
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(DECIMALS_IN_SORT_FIELD)
     except Exception as err:
         debug_lark_error(err)
         raise err

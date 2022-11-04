@@ -118,7 +118,9 @@ class AnkiCollection(RuleBasedStateMachine):
         nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
         note: Note = self.col.new_note(nt)
         n: int = len(self.col.models.field_names(nt))
-        characters: st.SearchStrategy = st.characters(blacklist_characters=["\x1f"])
+        characters: st.SearchStrategy = st.characters(
+            blacklist_characters=["\x1f"], blacklist_categories=["Cs"]
+        )
         fields: st.SearchStrategy = st.text(alphabet=characters)
         fieldlists: st.SearchStrategy = st.lists(fields, min_size=n, max_size=n)
         note.fields = data.draw(fieldlists, label="fields")
@@ -165,12 +167,16 @@ class AnkiCollection(RuleBasedStateMachine):
         transformer = SQLiteTransformer()
         tree = parser.parse(block)
         stmts = transformer.transform(tree)
-        logger.debug(pp.pformat(stmts))
+        # logger.debug(pp.pformat(stmts))
 
         shutil.rmtree(self.tempd)
         if self.freeze:
             self.freezer.stop()
 
 
-AnkiCollection.TestCase.settings = settings(max_examples=100, verbosity=Verbosity.normal)
+AnkiCollection.TestCase.settings = settings(
+    max_examples=50,
+    stateful_step_count=30,
+    verbosity=Verbosity.normal,
+)
 TestAnkiCollection = AnkiCollection.TestCase

@@ -98,7 +98,6 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def values(self, xs: List[Value]) -> List[Value]:
-        logger.debug(f"{xs = }")
         return xs
 
     @beartype
@@ -119,30 +118,32 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def note_fields(self, xs: List[str]) -> List[str]:
+    def fields(self, xs: List[str]) -> List[str]:
         ys = map(lambda x: x if type(x) == str else str(x), xs)
         s = "".join(xs)
         return s.split("\x1f")
 
     @beartype
-    def field_sequence(self, xs: List[str]) -> str:
+    def bytestring(self, xs: List[str]) -> str:
+        ys = map(lambda x: x if type(x) == str else str(x), xs)
+        return "".join(xs)
+
+    @beartype
+    def sfld(self, xs: Union[List[int], List[str]]) -> Union[int, str]:
+        assert len(xs) == 1
+        x = xs[0]
+        return x
+
+    @beartype
+    def seq(self, xs: List[str]) -> str:
         return xs[0]
 
     @beartype
-    def string_sequence(self, ts: List[str]) -> str:
-        assert len(ts) == 1
-        return str(ts[0])
-
-    @beartype
-    def byte_sequence(self, xs: List[Token]) -> str:
+    def bytes(self, xs: List[Token]) -> str:
         return bytes.fromhex("".join(list(map(str, xs)))).decode(encoding="UTF-8")
 
     @beartype
-    def SINGLE_QUOTED_STRING(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def SINGLE_QUOTED_STRING_NOT_FIELD(self, t: Token) -> str:
+    def STRING(self, t: Token) -> str:
         return str(t)
 
     @beartype
