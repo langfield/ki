@@ -21,7 +21,7 @@ values: "VALUES(" INT "," STRING "," INT "," INT "," SIGNED_INT "," STRING "," f
 COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 
 value: INT | SIGNED_INT | bytestring
-sfld: SIGNED_INT | bytestring
+sfld: NUMBER | bytestring
 
 NOTES: "notes"
 fields: bytestring
@@ -39,6 +39,7 @@ STRING: /'[^']*(?:''[^']*)*'/
 %import common.SIGNED_INT
 %import common.HEXDIGIT
 %import common.NEWLINE
+%import common.NUMBER
 %import common.INT
 %import common.WS
 %ignore WS

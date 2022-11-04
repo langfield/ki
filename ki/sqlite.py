@@ -153,3 +153,8 @@ class SQLiteTransformer(Transformer):
     @beartype
     def SIGNED_INT(self, t: Token) -> int:
         return int(str(t))
+
+    @beartype
+    def NUMBER(self, t: Token) -> Union[int, str]:
+        x = float(str(t))
+        return int(x) if x.is_integer() else str(x)

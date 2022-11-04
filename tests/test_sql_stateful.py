@@ -175,7 +175,7 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=50,
+    max_examples=10,
     stateful_step_count=30,
     verbosity=Verbosity.normal,
 )
