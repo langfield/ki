@@ -111,6 +111,12 @@ class AnkiCollection(RuleBasedStateMachine):
         if not self.col.db:
             self.col.reopen()
 
+        characters: st.SearchStrategy = st.characters(
+            blacklist_characters=["\x1f"],
+            blacklist_categories=["Cs"],
+        )
+        self.fields: st.SearchStrategy = st.text(alphabet=characters)
+
     @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 1)
     @rule(data=st.data())
     def add_note(self, data: st.DataObject) -> None:
@@ -118,17 +124,36 @@ class AnkiCollection(RuleBasedStateMachine):
         nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
         note: Note = self.col.new_note(nt)
         n: int = len(self.col.models.field_names(nt))
-        characters: st.SearchStrategy = st.characters(
-            blacklist_characters=["\x1f"], blacklist_categories=["Cs"]
-        )
-        fields: st.SearchStrategy = st.text(alphabet=characters)
-        fieldlists: st.SearchStrategy = st.lists(fields, min_size=n, max_size=n)
+        fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
         note.fields = data.draw(fieldlists, label="add note: fields")
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
         did: int = data.draw(st.sampled_from(dids), label="add note: did")
         self.col.add_note(note, did)
 
-    @precondition(lambda self: len(set(self.col.find_notes(query=""))) > 0)
+    @precondition(lambda self: self.col.note_count() >= 1)
+    @rule(data=st.data())
+    def edit_note(self, data: st.DataObject) -> None:
+        """Edit a note's fields."""
+        nids = list(self.col.find_notes(query=""))
+        nid = data.draw(st.sampled_from(nids), label="edit note: nid")
+        note: Note = self.col.get_note(nid)
+        n: int = len(self.col.models.field_names(note.note_type()))
+        fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
+        note.fields = data.draw(fieldlists, label="edit note: fields")
+
+    @precondition(lambda self: self.col.note_count() >= 1)
+    @rule(data=st.data())
+    def change_notetype(self, data: st.DataObject) -> None:
+        """Change a note's notetype."""
+        nids = list(self.col.find_notes(query=""))
+        nid = data.draw(st.sampled_from(nids), label="chg nt: nid")
+        note: Note = self.col.get_note(nid)
+        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
+        old: NotetypeDict = note.note_type()
+        items = map(lambda x: (x[0], None), self.col.models.field_map(nt).values())
+        self.col.models.change(old, [nid], nt, fmap=dict(items), cmap=None)
+
+    @precondition(lambda self: self.col.note_count() >= 1)
     @rule(data=st.data())
     def remove_note(self, data: st.DataObject) -> None:
         """Remove a note randomly selected note from the collection."""
@@ -183,8 +208,8 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=100,
-    stateful_step_count=30,
+    max_examples=50,
+    stateful_step_count=20,
     verbosity=Verbosity.normal,
 )
 TestAnkiCollection = AnkiCollection.TestCase
