@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """A Lark transformer for the ki note grammar."""
-from __future__ import annotations
-
+import json
 from enum import Enum
+from itertools import starmap
 from dataclasses import dataclass
+
+from dacite import from_dict
 
 from lark import Transformer
 from lark.lexer import Token
@@ -15,12 +17,14 @@ from beartype.typing import (
     Union,
     Tuple,
     Any,
+    Optional,
 )
 
 from loguru import logger
 
 # pylint: disable=invalid-name, no-self-use, too-few-public-methods
-# pylint: disable=missing-class-docstring
+# pylint: disable=missing-class-docstring, too-many-instance-attributes
+# pylint: disable=too-many-public-methods
 
 
 class Table(Enum):
@@ -28,9 +32,64 @@ class Table(Enum):
     Collection = "col"
 
 
+@beartype
+@dataclass(frozen=True, eq=True)
+class Field:
+    font: str
+    name: str
+    ord: int
+    rtl: bool
+    size: int
+    sticky: bool
+    media: Optional[List[str]]
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class Template:
+    afmt: str
+    bafmt: str
+    bqfmt: str
+    did: Union[str, None]
+    name: str
+    ord: int
+    qfmt: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class Model:
+    css: str
+    did: Union[int, None]
+    flds: List[Field]
+    id: int
+    latexPost: str
+    latexPre: str
+    mod: int
+    name: str
+    req: Any
+    sortf: int
+    tmpls: List[Template]
+    type: int
+    usn: int
+    vers: Optional[int]
+    tags: Optional[List[str]]
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class Deck:
+    name: str
+    id: int
+    mod: int
+    usn: int
+    dyn: int
+    desc: str
+
+
 Row, Column = int, str
-Field = str
-Value = Union[int, str, List[Field]]
+FieldText = str
+Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
 AssignmentMap = Dict[Column, Value]
 
 
@@ -95,7 +154,7 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
-        return dict(xs)
+        return dict(filter(lambda x: x[1] is not None, xs))
 
     @beartype
     def row(self, xs: List[int]) -> int:
@@ -119,6 +178,16 @@ class SQLiteTransformer(Transformer):
     def assignment(self, ts: List[Union[Token, Value]]) -> Tuple[str, Value]:
         assert len(ts) == 2
         column, val = ts
+        if column in ("models", "decks"):
+            val = val.lstrip("'")
+            val = val.rstrip("'")
+            val = json.loads(val)
+            if column == "models":
+                val = dict(starmap(lambda k, v: (int(k), from_dict(Model, v)), val.items()))
+            elif column == "decks":
+                val = dict(starmap(lambda k, v: (int(k), from_dict(Deck, v)), val.items()))
+        if column in ("conf",):
+            return str(column), None
         return str(column), val
 
     @beartype
@@ -127,14 +196,16 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def fields(self, xs: List[str]) -> List[str]:
+        # pylint: disable=unidiomatic-typecheck
         ys = map(lambda x: x if type(x) == str else str(x), xs)
-        s = "".join(xs)
+        s = "".join(ys)
         return s.split("\x1f")
 
     @beartype
     def bytestring(self, xs: List[str]) -> str:
+        # pylint: disable=unidiomatic-typecheck
         ys = map(lambda x: x if type(x) == str else str(x), xs)
-        return "".join(xs)
+        return "".join(ys)
 
     @beartype
     def sfld(self, xs: Union[List[int], List[str]]) -> Union[int, str]:

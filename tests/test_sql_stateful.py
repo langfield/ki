@@ -47,6 +47,7 @@ EMPTY = get_test_collection("empty")
 Collection(EMPTY.col_file).close(downgrade=True)
 logger.debug(F.md5(EMPTY.col_file))
 
+pp.install_extras(exclude=["django", "ipython", "ipython_repr_pretty"])
 
 class AnkiCollection(RuleBasedStateMachine):
     """
@@ -267,12 +268,12 @@ class AnkiCollection(RuleBasedStateMachine):
             check=True,
         )
         block = p.stdout.decode()
-        logger.debug(block)
+        # logger.debug(block)
         parser = get_parser(filename="sqlite.lark", start="diff")
         transformer = SQLiteTransformer()
         tree = parser.parse(block)
         stmts = transformer.transform(tree)
-        # logger.debug(pp.pformat(stmts))
+        logger.debug(pp.pformat(stmts))
 
         shutil.rmtree(self.tempd)
         if self.freeze:
