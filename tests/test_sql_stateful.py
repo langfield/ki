@@ -27,7 +27,7 @@ import anki.collection
 
 # pylint: enable=unused-import
 from anki.decks import DeckNameId
-from anki.models import NotetypeDict
+from anki.models import NotetypeDict, FieldDict, TemplateDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
@@ -40,6 +40,7 @@ from tests.test_ki import get_test_collection
 
 reexec_if_needed()
 
+ROOT_DID = 0
 DEFAULT_DID = 1
 
 EMPTY = get_test_collection("empty")
@@ -153,6 +154,18 @@ class AnkiCollection(RuleBasedStateMachine):
         items = map(lambda x: (x[0], None), self.col.models.field_map(nt).values())
         self.col.models.change(old, [nid], nt, fmap=dict(items), cmap=None)
 
+    @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 3)
+    @precondition(lambda self: self.col.card_count() >= 1)
+    def move_card(self, data: st.DataObject) -> None:
+        """Move a card to a (possibly) different deck."""
+        cids = list(self.col.find_notes(query=""))
+        cid = data.draw(st.sampled_from(cids), label="mv card: cid")
+        old: int = self.col.decks.for_card_ids([cid])[0]
+        dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        dids -= {DEFAULT_DID, old}
+        new: int = data.draw(st.sampled_from(list(dids)), label="mv card: did")
+        self.col.set_deck([cid], deck_id=new)
+
     @precondition(lambda self: self.col.note_count() >= 1)
     @rule(data=st.data())
     def remove_note(self, data: st.DataObject) -> None:
@@ -182,6 +195,56 @@ class AnkiCollection(RuleBasedStateMachine):
         did: int = data.draw(st.sampled_from(list(dids)), "rm deck: did")
         _ = self.col.decks.remove([did])
 
+    @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 2)
+    @rule(data=st.data())
+    def rename_deck(self, data: st.DataObject) -> None:
+        """Rename a deck."""
+        dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        dids -= {DEFAULT_DID}
+        did: int = data.draw(st.sampled_from(list(dids)), "rename deck: did")
+        name: str = data.draw(st.text(), "rename deck: name")
+        self.col.decks.rename(did, name)
+
+    @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 2)
+    @rule(data=st.data())
+    def reparent_deck(self, data: st.DataObject) -> None:
+        """Move a deck."""
+        dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
+        srcs = dids - {DEFAULT_DID}
+        did: int = data.draw(st.sampled_from(list(srcs)), "mv deck: did")
+        dsts = {ROOT_DID} | dids - {did}
+        dst: int = data.draw(st.sampled_from(list(dsts)), "mv deck: dst")
+        self.col.decks.reparent([did], dst)
+
+    @rule(data=st.data())
+    def add_notetype(self, data=st.DataObject) -> None:
+        """Add a new notetype."""
+        name: str = data.draw(st.text(min_size=1), "add nt: name")
+        nt: NotetypeDict = self.col.models.new(name)
+
+        # Note that `^`, `/` and `#` are only invalid as first chars.
+        fchars = st.characters(
+            blacklist_characters=[":", "{", "}", '"', "^", "/", "#"],
+            blacklist_categories=["Cc", "Cs"],
+        )
+        fnames = st.text(alphabet=fchars, min_size=1)
+        fname: str = data.draw(fnames, "add nt: fname")
+        field: FieldDict = self.col.models.new_field(fname)
+        nt["flds"] = [field]
+
+        frepl: str = "{{" + fname + "}}"
+        qfmt: str = data.draw(st.text(), "add nt: qfmt")
+        idxs = st.integers(min_value=0, max_value=len(qfmt))
+        k: int = data.draw(idxs, "add nt: frepl idx")
+        qfmt = qfmt[:k] + frepl + qfmt[k:]
+        tname: str = data.draw(st.text(min_size=1), "add nt: tname")
+        tmpl: TemplateDict = self.col.models.new_template(tname)
+        tmpl["qfmt"] = qfmt
+        nt["tmpls"] = [tmpl]
+
+        logger.debug(self.col.models.field_map(nt))
+        self.col.models.add(nt)
+
     def teardown(self) -> None:
         """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
@@ -202,13 +265,21 @@ class AnkiCollection(RuleBasedStateMachine):
         stmts = transformer.transform(tree)
         # logger.debug(pp.pformat(stmts))
 
+        p = subprocess.run(
+            ["sqldiff", "--table", "col", str(EMPTY.col_file), str(self.path)],
+            capture_output=True,
+            check=True,
+        )
+        cblock = p.stdout.decode()
+        logger.debug(block)
+
         shutil.rmtree(self.tempd)
         if self.freeze:
             self.freezer.stop()
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=50,
+    max_examples=30,
     stateful_step_count=20,
     verbosity=Verbosity.normal,
 )
