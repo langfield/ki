@@ -44,6 +44,7 @@ ROOT_DID = 0
 DEFAULT_DID = 1
 
 EMPTY = get_test_collection("empty")
+Collection(EMPTY.col_file).close(downgrade=True)
 logger.debug(F.md5(EMPTY.col_file))
 
 
@@ -122,13 +123,13 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_note(self, data: st.DataObject) -> None:
         """Add a new note with random fields."""
-        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
+        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), "nt")
         note: Note = self.col.new_note(nt)
         n: int = len(self.col.models.field_names(nt))
         fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
-        note.fields = data.draw(fieldlists, label="add note: fields")
+        note.fields = data.draw(fieldlists, "add note: fields")
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
-        did: int = data.draw(st.sampled_from(dids), label="add note: did")
+        did: int = data.draw(st.sampled_from(dids), "add note: did")
         self.col.add_note(note, did)
 
     @precondition(lambda self: self.col.note_count() >= 1)
@@ -136,20 +137,20 @@ class AnkiCollection(RuleBasedStateMachine):
     def edit_note(self, data: st.DataObject) -> None:
         """Edit a note's fields."""
         nids = list(self.col.find_notes(query=""))
-        nid = data.draw(st.sampled_from(nids), label="edit note: nid")
+        nid = data.draw(st.sampled_from(nids), "edit note: nid")
         note: Note = self.col.get_note(nid)
         n: int = len(self.col.models.field_names(note.note_type()))
         fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
-        note.fields = data.draw(fieldlists, label="edit note: fields")
+        note.fields = data.draw(fieldlists, "edit note: fields")
 
     @precondition(lambda self: self.col.note_count() >= 1)
     @rule(data=st.data())
     def change_notetype(self, data: st.DataObject) -> None:
         """Change a note's notetype."""
         nids = list(self.col.find_notes(query=""))
-        nid = data.draw(st.sampled_from(nids), label="chg nt: nid")
+        nid = data.draw(st.sampled_from(nids), "chg nt: nid")
         note: Note = self.col.get_note(nid)
-        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), label="nt")
+        nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), "nt")
         old: NotetypeDict = note.note_type()
         items = map(lambda x: (x[0], None), self.col.models.field_map(nt).values())
         self.col.models.change(old, [nid], nt, fmap=dict(items), cmap=None)
@@ -159,11 +160,11 @@ class AnkiCollection(RuleBasedStateMachine):
     def move_card(self, data: st.DataObject) -> None:
         """Move a card to a (possibly) different deck."""
         cids = list(self.col.find_notes(query=""))
-        cid = data.draw(st.sampled_from(cids), label="mv card: cid")
+        cid = data.draw(st.sampled_from(cids), "mv card: cid")
         old: int = self.col.decks.for_card_ids([cid])[0]
         dids: Set[int] = set(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
         dids -= {DEFAULT_DID, old}
-        new: int = data.draw(st.sampled_from(list(dids)), label="mv card: did")
+        new: int = data.draw(st.sampled_from(list(dids)), "mv card: did")
         self.col.set_deck([cid], deck_id=new)
 
     @precondition(lambda self: self.col.note_count() >= 1)
@@ -171,17 +172,17 @@ class AnkiCollection(RuleBasedStateMachine):
     def remove_note(self, data: st.DataObject) -> None:
         """Remove a note randomly selected note from the collection."""
         nids = list(self.col.find_notes(query=""))
-        nid = data.draw(st.sampled_from(nids), label="rm note: nid")
+        nid = data.draw(st.sampled_from(nids), "rm note: nid")
         self.col.remove_notes([nid])
 
     @rule(data=st.data())
     def add_deck(self, data: st.DataObject) -> None:
         """Add a new deck by creating a child node."""
         deck_name_ids: List[DeckNameId] = list(self.col.decks.all_names_and_ids())
-        parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids), label="parent")
+        parent: DeckNameId = data.draw(st.sampled_from(deck_name_ids), "parent")
         names = set(map(lambda x: x[0], self.col.decks.children(parent.id)))
         names_st = st.text(min_size=1).filter(lambda s: s not in names)
-        name = data.draw(names_st, label="add deck: deckname")
+        name = data.draw(names_st, "add deck: deckname")
         if self.freeze:
             self.freezer.tick()
         _ = self.col.decks.id(f"{parent.name}::{name}", create=True)
@@ -219,16 +220,24 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_notetype(self, data=st.DataObject) -> None:
         """Add a new notetype."""
-        name: str = data.draw(st.text(min_size=1), "add nt: name")
+        nchars = st.characters(blacklist_characters=['"'])
+        name: str = data.draw(st.text(min_size=1, alphabet=nchars), "add nt: name")
         nt: NotetypeDict = self.col.models.new(name)
 
-        # Note that `^`, `/` and `#` are only invalid as first chars.
         fchars = st.characters(
-            blacklist_characters=[":", "{", "}", '"', "^", "/", "#"],
+            blacklist_characters=[":", "{", "}", '"'],
             blacklist_categories=["Cc", "Cs"],
         )
-        fnames = st.text(alphabet=fchars, min_size=1)
-        fname: str = data.draw(fnames, "add nt: fname")
+
+        # First chars for field names.
+        chars = st.characters(
+            blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
+            blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs"],
+        )
+        fnames = st.text(alphabet=fchars, min_size=0)
+        c = data.draw(chars, "add nt: fname head")
+        cs = data.draw(fnames, "add nt: fname tail")
+        fname = c + cs
         field: FieldDict = self.col.models.new_field(fname)
         nt["flds"] = [field]
 
@@ -242,18 +251,18 @@ class AnkiCollection(RuleBasedStateMachine):
         tmpl["qfmt"] = qfmt
         nt["tmpls"] = [tmpl]
 
-        logger.debug(self.col.models.field_map(nt))
-        self.col.models.add(nt)
+        self.col.models.add_dict(nt)
+        nt = self.col.models.by_name(name)
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
         self.col.decks.remove([did])
-        self.col.close(save=True)
+        self.col.close(save=True, downgrade=True)
         assert str(self.path) != str(EMPTY.col_file)
         assert F.md5(self.path) != F.md5(EMPTY.col_file)
         p = subprocess.run(
-            ["sqldiff", "--table", "notes", str(EMPTY.col_file), str(self.path)],
+            ["sqldiff", str(EMPTY.col_file), str(self.path)],
             capture_output=True,
             check=True,
         )
@@ -265,22 +274,15 @@ class AnkiCollection(RuleBasedStateMachine):
         stmts = transformer.transform(tree)
         # logger.debug(pp.pformat(stmts))
 
-        p = subprocess.run(
-            ["sqldiff", "--table", "col", str(EMPTY.col_file), str(self.path)],
-            capture_output=True,
-            check=True,
-        )
-        cblock = p.stdout.decode()
-        logger.debug(block)
-
         shutil.rmtree(self.tempd)
         if self.freeze:
             self.freezer.stop()
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=30,
+    max_examples=50,
     stateful_step_count=20,
     verbosity=Verbosity.normal,
+    deadline=None,
 )
 TestAnkiCollection = AnkiCollection.TestCase

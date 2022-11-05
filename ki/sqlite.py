@@ -14,6 +14,7 @@ from beartype.typing import (
     Dict,
     Union,
     Tuple,
+    Any,
 )
 
 from loguru import logger
@@ -24,6 +25,7 @@ from loguru import logger
 
 class Table(Enum):
     Notes = "notes"
+    Collection = "col"
 
 
 Row, Column = int, str
@@ -63,11 +65,11 @@ class SQLiteTransformer(Transformer):
     # pylint: disable=missing-function-docstring
 
     @beartype
-    def diff(self, xs: List[Statement]) -> List[Statement]:
-        return xs
+    def diff(self, xs: List[Union[Statement, None]]) -> List[Statement]:
+        return list(filter(lambda x: x is not None, xs))
 
     @beartype
-    def stmt(self, xs: List[Statement]) -> Statement:
+    def stmt(self, xs: List[Union[Statement, None]]) -> Union[Statement, None]:
         assert len(xs) == 1
         return xs[0]
 
@@ -88,6 +90,10 @@ class SQLiteTransformer(Transformer):
         return Delete(table=xs[0], row=xs[1])
 
     @beartype
+    def bad(self, _: Any) -> None:
+        return None
+
+    @beartype
     def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
         return dict(xs)
 
@@ -105,6 +111,8 @@ class SQLiteTransformer(Transformer):
         s = str(t)
         if s == "notes":
             return Table.Notes
+        if s == "col":
+            return Table.Collection
         raise ValueError(f"Invalid table: {s}")
 
     @beartype

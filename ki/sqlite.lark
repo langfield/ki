@@ -6,19 +6,25 @@ diff: stmt*
 
 // A ``stmt`` is either an ``insert``, a ``delete``, or an ``update``.
 
-stmt: insert | update | delete
+stmt: insert | update | delete | bad
 insert: "INSERT" "INTO" TABLE COLUMN_SET values ";"
 update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
 delete: "DELETE" "FROM" TABLE "WHERE" row ";"
-bad: /.+/
+
+command: "INSERT" "INTO" | "DELETE" "FROM" | "UPDATE"
+bad: command UNUSED /[^\n;]+/ ";"
 
 row: "id=" INT
 assignments: assignment ("," assignment)*
 assignment: COLUMN "=" value
-TABLE: NOTES
+TABLE: /notes/ | /col/
+UNUSED: /cards/ | /graves/ | /sqlite_stat[0-9]+/
 values: "VALUES(" INT "," STRING "," INT "," INT "," SIGNED_INT "," STRING "," fields "," sfld "," INT "," INT "," STRING ")"
 
-COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
+COLUMN: NOTES_COLUMN | COLLECTION_COLUMN
+
+NOTES_COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
+COLLECTION_COLUMN: "crt" | "mod" | "scm" | "ver" | "usn" | "ls" | "conf" | "models" | "decks" | "dconf" | "tags"
 
 value: INT | SIGNED_INT | bytestring
 sfld: NUMBER | bytestring
