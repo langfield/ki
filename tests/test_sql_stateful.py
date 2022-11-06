@@ -1,18 +1,19 @@
 """Tests for SQLite Lark grammar."""
-from __future__ import annotations
-
 import shutil
 import random
 import tempfile
 import subprocess
 from pathlib import Path
+from functools import reduce, partial
+from itertools import starmap
+from collections import namedtuple
 
 import prettyprinter as pp
 from loguru import logger
 from libfaketime import fake_time, reexec_if_needed
 
 from beartype import beartype
-from beartype.typing import Set, List, Callable, TypeVar
+from beartype.typing import Set, List, TypeVar, Iterable
 
 import hypothesis.strategies as st
 from hypothesis import settings, Verbosity
@@ -28,7 +29,8 @@ import anki.collection
 
 # pylint: enable=unused-import
 from anki.decks import DeckNameId
-from anki.models import NotetypeDict, FieldDict, TemplateDict
+from anki.errors import CardTypeError
+from anki.models import ModelManager, NotetypeDict, TemplateDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
@@ -38,7 +40,7 @@ from tests.test_ki import get_test_collection
 
 T = TypeVar("T")
 
-# pylint: disable=too-many-lines, missing-function-docstring
+# pylint: disable=too-many-lines, missing-function-docstring, too-many-locals
 
 reexec_if_needed()
 
@@ -66,10 +68,37 @@ def fnames(draw: Callable[[SearchStrategy[T]], T]) -> str:
         blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
         blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs"],
     )
-    fnames = st.text(alphabet=fchars, min_size=0)
+    names = st.text(alphabet=fchars, min_size=0)
     c = draw(chars, "add nt: fname head")
-    cs = draw(fnames, "add nt: fname tail")
+    cs = draw(names, "add nt: fname tail")
     return c + cs
+
+
+@beartype
+def fmts(data: st.DataObject, fieldnames: List[str], text: str) -> str:
+    """A card side template with optional embedded fields."""
+    # Placeholders for field contents to be embedded in the front or
+    # back of card templates (called ``qfmt`` and ``afmt``).
+    frepls: List[str] = list(map(lambda s: "{{" + s + "}}", fieldnames))
+
+    # Sample some of the fields to insert into ``text``.
+    replsets = st.sets(st.sampled_from(frepls), min_size=1)
+    placeholders = data.draw(replsets, "fmts: placeholders")
+
+    # Sample locations at which to insert the placeholders.
+    locs = st.integers(min_value=0, max_value=len(text))
+    n = len(placeholders)
+    loclists = st.lists(locs, min_size=n, max_size=n)
+    ks: Iterable[int] = reversed(sorted(data.draw(loclists, "fmts: frepl locs")))
+
+    # Pair each field placeholder with a location and interpolate.
+    Placeholder = namedtuple("Placeholder", ["loc", "text"])
+    xs: List[Placeholder] = starmap(Placeholder, zip(ks, placeholders))
+    result = reduce(lambda s, x: s[: x.loc] + x.text + s[x.loc :], xs, text)
+    assert len(result) > 0
+    assert "{{" in result
+    assert "}}" in result
+    return result
 
 
 class AnkiCollection(RuleBasedStateMachine):
@@ -244,29 +273,33 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_notetype(self, data=st.DataObject) -> None:
         """Add a new notetype."""
+        mm: ModelManager = self.col.models
         nchars = st.characters(blacklist_characters=['"'], blacklist_categories=["Cs"])
         name: str = data.draw(st.text(min_size=1, alphabet=nchars), "add nt: name")
-        nt: NotetypeDict = self.col.models.new(name)
+        nt: NotetypeDict = mm.new(name)
+        fieldnames = data.draw(st.lists(fnames(), min_size=1), "add nt: fieldnames")
+        nt["flds"] = list(map(mm.new_field, fieldnames))
 
-        fname = data.draw(fnames())
-        field: FieldDict = self.col.models.new_field(fname)
+        tmplnames = st.lists(st.text(alphabet=nchars, min_size=1), min_size=1)
+        tnames: List[str] = data.draw(tmplnames, "add nt: tnames")
+        n = len(tnames)
+        textlists = st.lists(st.text(), min_size=n, max_size=n, unique=True)
+        qtxts = data.draw(textlists, "add nt: qtxts")
+        atxts = data.draw(textlists, "add nt: atxts")
+        qfmts = list(map(partial(fmts, data, fieldnames), qtxts))
+        afmts = list(map(partial(fmts, data, fieldnames), atxts))
+        tmpls: List[TemplateDict] = list(map(mm.new_template, tnames))
+        triples = zip(tmpls, qfmts, afmts)
+        tmpls = list(starmap(lambda t, q, a: t | {"qfmt": q, "afmt": a}, triples))
+        nt["tmpls"] = tmpls
 
-        # TODO: Add more fields.
-        nt["flds"] = [field]
+        try:
+            mm.add_dict(nt)
+        except CardTypeError as err:
+            logger.debug(dir(err))
+            raise err
 
-        # TODO: Add more templates, and add afmts.
-        frepl: str = "{{" + fname + "}}"
-        qfmt: str = data.draw(st.text(), "add nt: qfmt")
-        idxs = st.integers(min_value=0, max_value=len(qfmt))
-        k: int = data.draw(idxs, "add nt: frepl idx")
-        qfmt = qfmt[:k] + frepl + qfmt[k:]
-        tname: str = data.draw(st.text(min_size=1), "add nt: tname")
-        tmpl: TemplateDict = self.col.models.new_template(tname)
-        tmpl["qfmt"] = qfmt
-        nt["tmpls"] = [tmpl]
-
-        self.col.models.add_dict(nt)
-        nt = self.col.models.by_name(name)
+        nt = mm.by_name(name)
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
