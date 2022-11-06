@@ -12,7 +12,7 @@ from loguru import logger
 from libfaketime import fake_time, reexec_if_needed
 
 from beartype import beartype
-from beartype.typing import Set, List
+from beartype.typing import Set, List, Callable, TypeVar
 
 import hypothesis.strategies as st
 from hypothesis import settings, Verbosity
@@ -21,6 +21,7 @@ from hypothesis.stateful import (
     precondition,
     RuleBasedStateMachine,
 )
+from hypothesis.strategies import composite, SearchStrategy
 
 # pylint: disable=unused-import
 import anki.collection
@@ -35,6 +36,7 @@ from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser
 from tests.test_ki import get_test_collection
 
+T = TypeVar("T")
 
 # pylint: disable=too-many-lines, missing-function-docstring
 
@@ -48,6 +50,27 @@ Collection(EMPTY.col_file).close(downgrade=True)
 logger.debug(F.md5(EMPTY.col_file))
 
 pp.install_extras(exclude=["django", "ipython", "ipython_repr_pretty"])
+
+
+@composite
+@beartype
+def fnames(draw: Callable[[SearchStrategy[T]], T]) -> str:
+    """Field names."""
+    fchars = st.characters(
+        blacklist_characters=[":", "{", "}", '"'],
+        blacklist_categories=["Cc", "Cs"],
+    )
+
+    # First chars for field names.
+    chars = st.characters(
+        blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
+        blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs"],
+    )
+    fnames = st.text(alphabet=fchars, min_size=0)
+    c = draw(chars, "add nt: fname head")
+    cs = draw(fnames, "add nt: fname tail")
+    return c + cs
+
 
 class AnkiCollection(RuleBasedStateMachine):
     """
@@ -114,11 +137,11 @@ class AnkiCollection(RuleBasedStateMachine):
         if not self.col.db:
             self.col.reopen()
 
-        characters: st.SearchStrategy = st.characters(
+        characters: SearchStrategy = st.characters(
             blacklist_characters=["\x1f"],
             blacklist_categories=["Cs"],
         )
-        self.fields: st.SearchStrategy = st.text(alphabet=characters)
+        self.fields: SearchStrategy = st.text(alphabet=characters)
 
     @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 1)
     @rule(data=st.data())
@@ -127,7 +150,7 @@ class AnkiCollection(RuleBasedStateMachine):
         nt: NotetypeDict = data.draw(st.sampled_from(self.col.models.all()), "nt")
         note: Note = self.col.new_note(nt)
         n: int = len(self.col.models.field_names(nt))
-        fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
+        fieldlists: SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
         note.fields = data.draw(fieldlists, "add note: fields")
         dids = list(map(lambda d: d.id, self.col.decks.all_names_and_ids()))
         did: int = data.draw(st.sampled_from(dids), "add note: did")
@@ -141,7 +164,7 @@ class AnkiCollection(RuleBasedStateMachine):
         nid = data.draw(st.sampled_from(nids), "edit note: nid")
         note: Note = self.col.get_note(nid)
         n: int = len(self.col.models.field_names(note.note_type()))
-        fieldlists: st.SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
+        fieldlists: SearchStrategy = st.lists(self.fields, min_size=n, max_size=n)
         note.fields = data.draw(fieldlists, "edit note: fields")
 
     @precondition(lambda self: self.col.note_count() >= 1)
@@ -221,27 +244,17 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule(data=st.data())
     def add_notetype(self, data=st.DataObject) -> None:
         """Add a new notetype."""
-        nchars = st.characters(blacklist_characters=['"'])
+        nchars = st.characters(blacklist_characters=['"'], blacklist_categories=["Cs"])
         name: str = data.draw(st.text(min_size=1, alphabet=nchars), "add nt: name")
         nt: NotetypeDict = self.col.models.new(name)
 
-        fchars = st.characters(
-            blacklist_characters=[":", "{", "}", '"'],
-            blacklist_categories=["Cc", "Cs"],
-        )
-
-        # First chars for field names.
-        chars = st.characters(
-            blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
-            blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs"],
-        )
-        fnames = st.text(alphabet=fchars, min_size=0)
-        c = data.draw(chars, "add nt: fname head")
-        cs = data.draw(fnames, "add nt: fname tail")
-        fname = c + cs
+        fname = data.draw(fnames())
         field: FieldDict = self.col.models.new_field(fname)
+
+        # TODO: Add more fields.
         nt["flds"] = [field]
 
+        # TODO: Add more templates, and add afmts.
         frepl: str = "{{" + fname + "}}"
         qfmt: str = data.draw(st.text(), "add nt: qfmt")
         idxs = st.integers(min_value=0, max_value=len(qfmt))
