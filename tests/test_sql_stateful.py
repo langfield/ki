@@ -34,7 +34,7 @@ from anki.models import ModelManager, NotetypeDict, TemplateDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
-from ki.sqlite import SQLiteTransformer
+from ki.sqlite import SQLiteTransformer, Delete
 from tests.test_parser import get_parser
 from tests.test_ki import get_test_collection
 
@@ -61,19 +61,19 @@ def fnames(draw: Callable[[SearchStrategy[T]], T]) -> str:
     fchars = st.characters(
         blacklist_characters=[":", "{", "}", '"'],
         blacklist_categories=["Cc", "Cs", "Lo", "Lm", "Sk", "Po", "So", "Sm", "Mn"],
-        max_codepoint=0xFF,
+        max_codepoint=0x7F,
     )
 
     # First chars for field names.
-    chars = st.characters(
+    endchars = st.characters(
         blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
         blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs", "Lo"],
-        max_codepoint=0xFF,
+        max_codepoint=0x7F,
     )
-    names = st.text(alphabet=fchars, min_size=0)
-    c = draw(chars, "add nt: fname head")
-    cs = draw(names, "add nt: fname tail")
-    return c + cs
+    pith = draw(st.text(alphabet=fchars, min_size=0), "add nt: fname pith")
+    end = draw(st.one_of(st.just(""), endchars), "add nt: fname end")
+    start = draw(endchars, "add nt: fname start")
+    return start + pith + end
 
 
 @beartype
@@ -288,7 +288,8 @@ class AnkiCollection(RuleBasedStateMachine):
         tmplnames = st.lists(st.text(alphabet=nchars, min_size=1), min_size=1)
         tnames: List[str] = data.draw(tmplnames, "add nt: tnames")
         n = len(tnames)
-        textlists = st.lists(st.text(), min_size=n, max_size=n, unique=True)
+        txts = st.text(alphabet=st.characters(blacklist_characters=["{", "}"]))
+        textlists = st.lists(txts, min_size=n, max_size=n, unique=True)
         qtxts = data.draw(textlists, "add nt: qtxts")
         atxts = data.draw(textlists, "add nt: atxts")
         qfmts = list(map(partial(fmts, data, fieldnames), qtxts))
@@ -313,6 +314,7 @@ class AnkiCollection(RuleBasedStateMachine):
         mm.remove(mid)
 
     @precondition(lambda self: not self.saved)
+    @rule()
     def save(self) -> None:
         """Checkpoint the database."""
         self.col.close(save=True, downgrade=True)
@@ -341,7 +343,8 @@ class AnkiCollection(RuleBasedStateMachine):
         transformer = SQLiteTransformer()
         tree = parser.parse(block)
         stmts = transformer.transform(tree)
-        # logger.debug(pp.pformat(stmts))
+        stmts = list(filter(lambda s: isinstance(s, Delete), stmts))
+        logger.debug(pp.pformat(stmts))
 
         shutil.rmtree(self.tempd)
         if self.freeze:
@@ -349,7 +352,7 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=100,
+    max_examples=500,
     stateful_step_count=50,
     verbosity=Verbosity.normal,
     deadline=None,
