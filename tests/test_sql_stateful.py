@@ -13,7 +13,7 @@ from loguru import logger
 from libfaketime import fake_time, reexec_if_needed
 
 from beartype import beartype
-from beartype.typing import Set, List, TypeVar, Iterable
+from beartype.typing import Set, List, TypeVar, Iterable, Callable
 
 import hypothesis.strategies as st
 from hypothesis import settings, Verbosity
@@ -60,13 +60,15 @@ def fnames(draw: Callable[[SearchStrategy[T]], T]) -> str:
     """Field names."""
     fchars = st.characters(
         blacklist_characters=[":", "{", "}", '"'],
-        blacklist_categories=["Cc", "Cs"],
+        blacklist_categories=["Cc", "Cs", "Lo", "Lm", "Sk", "Po", "So", "Sm", "Mn"],
+        max_codepoint=0x7F,
     )
 
     # First chars for field names.
     chars = st.characters(
         blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
-        blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs"],
+        blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs", "Lo"],
+        max_codepoint=0x7F,
     )
     names = st.text(alphabet=fchars, min_size=0)
     c = draw(chars, "add nt: fname head")
@@ -161,6 +163,7 @@ class AnkiCollection(RuleBasedStateMachine):
             self.freezer.start()
         self.tempd = Path(tempfile.mkdtemp())
         self.path = F.chk(self.tempd / "collection.anki2")
+        self.checkpoint = F.chk(self.tempd / "checkpoint.anki2")
         self.path = F.copyfile(EMPTY.col_file, self.path)
         self.col = Collection(self.path)
         if not self.col.db:
@@ -171,6 +174,7 @@ class AnkiCollection(RuleBasedStateMachine):
             blacklist_categories=["Cs"],
         )
         self.fields: SearchStrategy = st.text(alphabet=characters)
+        self.saved = False
 
     @precondition(lambda self: len(list(self.col.decks.all_names_and_ids())) >= 1)
     @rule(data=st.data())
@@ -271,13 +275,14 @@ class AnkiCollection(RuleBasedStateMachine):
         self.col.decks.reparent([did], dst)
 
     @rule(data=st.data())
-    def add_notetype(self, data=st.DataObject) -> None:
+    def add_notetype(self, data: st.DataObject) -> None:
         """Add a new notetype."""
         mm: ModelManager = self.col.models
         nchars = st.characters(blacklist_characters=['"'], blacklist_categories=["Cs"])
         name: str = data.draw(st.text(min_size=1, alphabet=nchars), "add nt: name")
         nt: NotetypeDict = mm.new(name)
-        fieldnames = data.draw(st.lists(fnames(), min_size=1), "add nt: fieldnames")
+        field_name_lists = st.lists(fnames(), min_size=1, unique_by=lambda s: s.lower())
+        fieldnames = data.draw(field_name_lists, "add nt: fieldnames")
         nt["flds"] = list(map(mm.new_field, fieldnames))
 
         tmplnames = st.lists(st.text(alphabet=nchars, min_size=1), min_size=1)
@@ -292,34 +297,51 @@ class AnkiCollection(RuleBasedStateMachine):
         triples = zip(tmpls, qfmts, afmts)
         tmpls = list(starmap(lambda t, q, a: t | {"qfmt": q, "afmt": a}, triples))
         nt["tmpls"] = tmpls
-
         try:
             mm.add_dict(nt)
         except CardTypeError as err:
-            logger.debug(dir(err))
+            logger.debug(err)
+            logger.debug(err.help_page)
             raise err
 
-        nt = mm.by_name(name)
+    @rule(data=st.data())
+    def remove_notetype(self, data: st.DataObject) -> None:
+        """Remove a notetype."""
+        mm: ModelManager = self.col.models
+        mids: List[int] = list(map(lambda m: m.id, mm.all_names_and_ids()))
+        mid: int = data.draw(st.sampled_from(mids), "rm nt: mid")
+        mm.remove(mid)
+
+    @precondition(lambda self: not self.saved)
+    def save(self) -> None:
+        """Checkpoint the database."""
+        self.col.close(save=True, downgrade=True)
+        self.checkpoint = F.copyfile(self.path, self.checkpoint)
+        self.col.reopen()
+        self.saved = True
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
         self.col.decks.remove([did])
         self.col.close(save=True, downgrade=True)
+        if not self.saved:
+            self.checkpoint = F.copyfile(EMPTY.col_file, self.checkpoint)
         assert str(self.path) != str(EMPTY.col_file)
+        assert str(self.path) != str(self.checkpoint)
         assert F.md5(self.path) != F.md5(EMPTY.col_file)
+        assert F.md5(self.path) != F.md5(self.checkpoint)
         p = subprocess.run(
-            ["sqldiff", str(EMPTY.col_file), str(self.path)],
+            ["sqldiff", str(self.checkpoint), str(self.path)],
             capture_output=True,
             check=True,
         )
         block = p.stdout.decode()
-        # logger.debug(block)
         parser = get_parser(filename="sqlite.lark", start="diff")
         transformer = SQLiteTransformer()
         tree = parser.parse(block)
         stmts = transformer.transform(tree)
-        logger.debug(pp.pformat(stmts))
+        # logger.debug(pp.pformat(stmts))
 
         shutil.rmtree(self.tempd)
         if self.freeze:
@@ -327,8 +349,8 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=50,
-    stateful_step_count=20,
+    max_examples=100,
+    stateful_step_count=50,
     verbosity=Verbosity.normal,
     deadline=None,
 )
