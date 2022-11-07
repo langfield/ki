@@ -33,7 +33,7 @@ COL = Collection(EMPTY.col_file)
 
 
 @given(st.data())
-@settings(max_examples=100)
+@settings(max_examples=1000)
 @beartype
 def test_add_notetype(data: st.DataObject) -> None:
     """Add a new notetype."""

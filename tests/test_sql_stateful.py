@@ -61,14 +61,14 @@ def fnames(draw: Callable[[SearchStrategy[T]], T]) -> str:
     fchars = st.characters(
         blacklist_characters=[":", "{", "}", '"'],
         blacklist_categories=["Cc", "Cs", "Lo", "Lm", "Sk", "Po", "So", "Sm", "Mn"],
-        max_codepoint=0x7F,
+        max_codepoint=0xFF,
     )
 
     # First chars for field names.
     chars = st.characters(
         blacklist_characters=["^", "/", "#", ":", "{", "}", '"'],
         blacklist_categories=["Zs", "Zl", "Zp", "Cc", "Cs", "Lo"],
-        max_codepoint=0x7F,
+        max_codepoint=0xFF,
     )
     names = st.text(alphabet=fchars, min_size=0)
     c = draw(chars, "add nt: fname head")
