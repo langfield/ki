@@ -87,17 +87,36 @@ class Deck:
     desc: str
 
 
+
 Row, Column = int, str
 FieldText = str
 Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
 AssignmentMap = Dict[Column, Value]
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NoteValues:
+    id: int
+    guid: str
+    mid: int
+    mod: int
+    usn: int
+    tags: str
+    flds: List[FieldText]
+    sfld: Union[int, str]
+    csum: int
+    flags: int
+    data: str
+
+
+Values = NoteValues
 
 
 @beartype
 @dataclass(frozen=True, eq=True)
 class Insert:
     table: Table
-    values: List[Value]
+    values: Values
 
 
 @beartype
@@ -136,6 +155,8 @@ class SQLiteTransformer(Transformer):
     def insert(self, xs: List[Union[Table, Token, List[Value]]]) -> Insert:
         assert len(xs) == 3
         table, _, values = xs
+        if table == Table.Notes:
+            values = NoteValues(*values)
         return Insert(table=table, values=values)
 
     @beartype

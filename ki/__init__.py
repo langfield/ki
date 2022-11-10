@@ -147,6 +147,7 @@ from ki.maybes import (
     HASHES_FILE,
     BACKUPS_DIR,
 )
+from ki.sqlite import Statement, SQLiteTransformer, Insert
 from ki.transformer import NoteTransformer, FlatNote
 
 logging.basicConfig(level=logging.INFO)
@@ -738,7 +739,7 @@ def push_note(
 
 
 @beartype
-def get_header_lines(colnote) -> List[str]:
+def get_header_lines(colnote: ColNote) -> List[str]:
     """Get header of markdown representation of note."""
     lines = [
         "# Note",
@@ -1538,6 +1539,45 @@ def addmedia(col: Collection, m: MediaBytes) -> AddedMedia:
     return AddedMedia(file=m.file, new_name=col.media.add_file(m.file))
 
 
+@beartype
+def sqldiff(lca_col_file: File, remote_col_file: File) -> List[Statement]:
+    """Get changed files from LCA collection DB to current collection DB."""
+    from loguru import logger
+
+    logger.debug(f"lca hash: {F.md5(lca_col_file)}")
+    logger.debug(f"remote hash: {F.md5(remote_col_file)}")
+
+    # Need to query diff for each table separately.
+    # May be good to use sqlparse from PyPI.
+    args = ["sqldiff", str(lca_col_file), str(remote_col_file)]
+    p = subprocess.run(args, check=True, capture_output=True)
+    block = p.stdout.decode()
+
+    filename = "sqlite.lark"
+    start = "diff"
+    grammar_path = Path(ki.__file__).resolve().parent / filename
+    grammar = grammar_path.read_text(encoding="UTF-8")
+    parser = Lark(grammar, start=start, parser="lalr")
+
+    transformer = SQLiteTransformer()
+    tree = parser.parse(block)
+    return transformer.transform(tree)
+
+
+@beartype
+def apply_statement(s: Statement) -> None:
+    """Apply the change specified by a single SQL command to the current repo."""
+    if isinstance(s, Insert):
+        pass
+
+
+@beartype
+def apply_diff(xs: List[Statement]) -> None:
+    """Apply a diff consisting of a list of parsed SQL commands."""
+    _ = set(map(apply_statement, xs))
+
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -1744,28 +1784,8 @@ def _pull(kirepo: KiRepo) -> None:
     lca: git.Head = kirepo.repo.create_head("KI-LCA", commit=lca_sha)
     lca.checkout()
 
-    @dataclass(frozen=True, eq=True)
-    class DBDiff:
-        data: int
-
-    @beartype
-    def sqldiff(lca_col_file: File, remote_col_file: File) -> Iterable[DBDiff]:
-        """Get changed files from LCA collection DB to current collection DB."""
-        from loguru import logger
-
-        logger.debug(f"lca hash: {F.md5(lca_col_file)}")
-        logger.debug(f"remote hash: {F.md5(remote_col_file)}")
-
-        # Need to query diff for each table separately.
-        # May be good to use sqlparse from PyPI.
-        args = ["sqldiff", "--table", "notes", str(lca_col_file), str(remote_col_file)]
-        p = subprocess.run(args, check=False, capture_output=True)
-        s = f"{p.stdout.decode()}"
-        logger.debug(f"\n{s}")
-        return [DBDiff(0)]
-
-    changes: Iterable[DBDiff] = sqldiff(kirepo.lca_col_file, kirepo.col_file)
-    # apply_diff(changes)
+    changes: List[Statement] = sqldiff(kirepo.lca_col_file, kirepo.col_file)
+    apply_diff(changes)
     F.commitall(kirepo.repo, f"Pull changes from collection at `{kirepo.col_file}`")
     active.checkout()
     kirepo.repo.git.merge(lca)
