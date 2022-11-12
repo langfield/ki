@@ -1,15 +1,30 @@
 """Tests for SQLite Lark grammar."""
-
 from pathlib import Path
+
 import pytest
 import prettyprinter as pp
+from beartype import beartype
+from beartype.typing import List
+
 import ki
 from ki.types import SQLNote
-from ki.sqlite import SQLiteTransformer, Table, Insert
+from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete
 from tests.test_parser import get_parser, debug_lark_error
 
 
 # pylint: disable=too-many-lines, missing-function-docstring
+
+
+@beartype
+def transform(sql: str) -> List[Statement]:
+    parser = get_parser(filename="sqlite.lark", start="diff")
+    try:
+        tree = parser.parse(sql)
+    except Exception as err:
+        debug_lark_error(err)
+        raise err
+    transformer = SQLiteTransformer()
+    return transformer.transform(tree)
 
 
 BLOCK = r"""
@@ -32,6 +47,12 @@ def test_transformer():
     tree = parser.parse(BLOCK)
     transformer = SQLiteTransformer()
     out = transformer.transform(tree)
+    assert transform(BLOCK) == [
+        Delete(table=Table.Notes, row=1645010162168),
+        Delete(table=Table.Notes, row=1645027705329),
+        Insert(table=Table.Notes, data=SQLNote(mid=1651202298367, guid="D(l.-iAXR1", tags=(), flds=("a", "b[sound:1sec.mp3]"))),
+        Insert(table=Table.Notes, data=SQLNote(mid=1651232485378, guid="H0%>O*C~M!", tags=(), flds=("Who introduced the notion of a direct integral in functional analysis?", "John von Neumann"))),
+    ]
 
 
 UPDATE = r"""
@@ -44,10 +65,11 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(164
 
 
 def test_transformer_on_update_commands():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(UPDATE)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
+    assert transform(UPDATE) == [
+        Update(table=Table.Notes, assignments={"mod": 1645221606, "flds": "aa\x1fbb", "sfld": "aa", "csum": 3771269976}, row=1645010162168),
+        Delete(table=Table.Notes, row=1645027705329),
+        Insert(table=Table.Notes, data=SQLNote(mid=1645010146011, guid="f}:^>jzMjG", tags=(), flds=("f", "g"))),
+    ]
 
 
 EMPTYISH = r"""
@@ -56,10 +78,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_empty_insert():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(EMPTYISH)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
+    assert transform(EMPTYISH) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="ku}V%9e9,l", tags=(), flds=("", "")))]
 
 
 QUOTES = r"""
@@ -69,10 +88,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_single_quotes():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(QUOTES)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
+    assert transform(QUOTES) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="|o/qdllw(", tags=(), flds=("", "'")))]
 
 
 THREE_FIELDS = r"""
@@ -81,10 +97,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_three_fields():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(THREE_FIELDS)
-    transformer = SQLiteTransformer()
-    _ = transformer.transform(tree)
+    assert transform(THREE_FIELDS) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149794, guid="roH<$&er7G", tags=(), flds=("", "", "")))]
 
 
 TRAILING_EMPTY_FIELD = r"""
@@ -94,11 +107,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_trailing_empty_field():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(TRAILING_EMPTY_FIELD)
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    pp.pprint(out)
+    assert transform(TRAILING_EMPTY_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149794, guid="r#){>b5q^b", tags=(), flds=("", "0", "")))]
 
 
 ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD = r"""
@@ -107,15 +116,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_single_quote_in_sort_field():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    pp.pprint(out)
+    assert transform(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="OJl<Xj<>{H", tags=(), flds=("'", "")))]
 
 
 INTEGER_SORT_FIELD = r"""
@@ -124,15 +125,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_integer_sort_field():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(INTEGER_SORT_FIELD)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    pp.pprint(out)
+    assert transform(INTEGER_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="F,y8PO5.KP", tags=(), flds=("0", "")))]
 
 
 RAW_BYTES_IN_SORT_FIELD = r"""
@@ -141,15 +134,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_raw_bytes_in_sort_field():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(RAW_BYTES_IN_SORT_FIELD)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    pp.pprint(out)
+    assert transform(RAW_BYTES_IN_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="O#4+2LG`3{", tags=(), flds=("\x0a", "")))]
 
 
 SURROGATE_UTF_BYTES = r"""
@@ -158,15 +143,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_surrogate_utf_bytes():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(SURROGATE_UTF_BYTES)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    pp.pprint(out)
+    assert transform(SURROGATE_UTF_BYTES) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149796, guid="c5zvCfp,h%", tags=(), flds=(",-򁿈AÜ", "")))]
 
 
 DECIMALS_IN_SORT_FIELD = r"""
@@ -175,28 +152,12 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_decimals_in_sort_field():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(DECIMALS_IN_SORT_FIELD)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
-    assert len(out) == 1
-    x = out[0]
-    assert x == Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid='q6qBOHAT=6', tags=(), flds=(".1", '')))
+    assert transform(DECIMALS_IN_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="q6qBOHAT=6", tags=(), flds=(".1", "")))]
 
 
 with open(Path(ki.__file__).parent.parent / "tests" / "update.sql", "r", encoding="UTF-8") as f:
     COL_UPDATE = f.read()
 
+
 def test_transformer_on_col_update_queries():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    try:
-        tree = parser.parse(COL_UPDATE)
-    except Exception as err:
-        debug_lark_error(err)
-        raise err
-    transformer = SQLiteTransformer()
-    transformer.transform(tree)
+    transform(COL_UPDATE)

@@ -341,8 +341,6 @@ class SQLiteTransformer(Transformer):
     def guid(self, xs: List[str]) -> str:
         assert len(xs) == 1
         s = xs[0]
-        s = s.removeprefix("'")
-        s = s.removesuffix("'")
         return s
 
     @beartype
@@ -354,8 +352,6 @@ class SQLiteTransformer(Transformer):
     def tags(self, xs: List[str]) -> Tuple[str, ...]:
         assert len(xs) == 1
         s = xs[0]
-        s = s.removeprefix("'")
-        s = s.removesuffix("'")
         s = s.lstrip()
         s = s.rstrip()
         return tuple(s.split())
@@ -367,7 +363,11 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def STRING(self, t: Token) -> str:
-        return str(t)
+        s = str(t)
+        s = s.removeprefix("'")
+        s = s.removesuffix("'")
+        s = s.replace("''", "'")
+        return s
 
     @beartype
     def INT(self, t: Token) -> int:
