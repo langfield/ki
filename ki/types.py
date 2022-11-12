@@ -14,7 +14,7 @@ from anki.decks import DeckTreeNode
 from anki.collection import Note, Card
 
 from beartype import beartype
-from beartype.typing import List, Dict, Any, Optional, Union
+from beartype.typing import List, Dict, Any, Optional, Union, Tuple, Mapping
 
 # pylint: disable=too-many-lines, missing-class-docstring, too-many-instance-attributes
 
@@ -340,6 +340,31 @@ class NoteDBRow:
     csum: int
     flags: int
     data: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class MdNote:
+    guid: str
+    tags: Tuple[str, ...]
+    model: str
+    fields: Mapping[str, str]
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class SQLNote:
+    mid: int
+    guid: str
+    tags: Tuple[str, ...]
+    flds: Tuple[str, ...]
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NamedNote:
+    note: MdNote
+    filename: str
 
 
 @beartype

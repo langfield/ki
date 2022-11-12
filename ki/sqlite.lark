@@ -7,7 +7,7 @@ diff: stmt*
 // A ``stmt`` is either an ``insert``, a ``delete``, or an ``update``.
 
 stmt: insert | update | delete | bad
-insert: "INSERT" "INTO" TABLE COLUMN_SET values ";"
+insert: "INSERT" "INTO" insertion ";"
 update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
 delete: "DELETE" "FROM" TABLE "WHERE" row ";"
 
@@ -17,9 +17,15 @@ bad: command UNUSED /[^\n;]+/ ";"
 row: "id=" INT
 assignments: assignment ("," assignment)*
 assignment: COLUMN "=" value
-TABLE: /notes/ | /col/
-UNUSED: /cards/ | /graves/ | /sqlite_stat[0-9]+/
-values: "VALUES(" INT "," STRING "," INT "," INT "," SIGNED_INT "," STRING "," fields "," sfld "," INT "," INT "," STRING ")"
+TABLE: /notes/ | /col/ | /cards/
+UNUSED: /graves/ | /sqlite_stat[0-9]+/
+
+insertion: note | card
+note: NOTES_SCHEMA "VALUES(" nid "," guid "," mid "," mod "," usn "," tags "," flds "," sfld "," csum "," flags "," data ")"
+card: CARDS_SCHEMA "VALUES(" cid "," nid "," did "," ord "," mod "," usn "," type "," queue "," due "," ivl "," factor "," reps "," lapses "," left "," odue "," odid "," flags "," data ")"
+
+NOTES_SCHEMA: /notes/ "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
+CARDS_SCHEMA: /cards/ "(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,\"left\",odue,odid,flags,data)"
 
 COLUMN: NOTES_COLUMN | COLLECTION_COLUMN
 
@@ -29,13 +35,37 @@ COLLECTION_COLUMN: "crt" | "mod" | "scm" | "ver" | "usn" | "ls" | "conf" | "mode
 value: INT | SIGNED_INT | bytestring
 sfld: NUMBER | bytestring
 
-NOTES: "notes"
-fields: bytestring
+flds: bytestring
 bytestring: seq WS? ("||" seq WS?)*
-COLUMN_SET: "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 
 seq: bytes | STRING
 bytes: "X'" (HEXDIGIT HEXDIGIT)+ "'"
+
+// Cards
+cid: INT
+nid: INT
+did: INT
+ord: INT
+mod: INT
+usn: SIGNED_INT
+type: INT
+queue: SIGNED_INT
+due: SIGNED_INT
+ivl: SIGNED_INT
+factor: INT
+reps: INT
+lapses: INT
+left: INT
+odue: INT
+odid: INT
+flags: INT
+data: STRING
+
+// Notes
+guid: STRING
+mid: INT
+tags: STRING
+csum: INT
 
 // Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
 STRING: /'[^']*(?:''[^']*)*'/

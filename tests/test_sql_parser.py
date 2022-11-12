@@ -1,5 +1,6 @@
 """Tests for SQLite Lark grammar."""
 
+import pytest
 import prettyprinter as pp
 from ki.sqlite import SQLiteTransformer
 from tests.test_parser import get_parser, debug_lark_error

@@ -20,6 +20,8 @@ from beartype.typing import (
     Optional,
 )
 
+from ki.types import SQLNote
+
 from loguru import logger
 
 # pylint: disable=invalid-name, no-self-use, too-few-public-methods
@@ -29,6 +31,7 @@ from loguru import logger
 
 class Table(Enum):
     Notes = "notes"
+    Cards = "cards"
     Collection = "col"
 
 
@@ -87,36 +90,19 @@ class Deck:
     desc: str
 
 
-
 Row, Column = int, str
 FieldText = str
 Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
 AssignmentMap = Dict[Column, Value]
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class NoteValues:
-    id: int
-    guid: str
-    mid: int
-    mod: int
-    usn: int
-    tags: str
-    flds: List[FieldText]
-    sfld: Union[int, str]
-    csum: int
-    flags: int
-    data: str
-
-
-Values = NoteValues
+Values = Any
 
 
 @beartype
 @dataclass(frozen=True, eq=True)
 class Insert:
     table: Table
-    values: Values
+    data: SQLNote
 
 
 @beartype
@@ -152,12 +138,9 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def insert(self, xs: List[Union[Table, Token, List[Value]]]) -> Insert:
-        assert len(xs) == 3
-        table, _, values = xs
-        if table == Table.Notes:
-            values = NoteValues(*values)
-        return Insert(table=table, values=values)
+    def insert(self, xs: List[SQLNote]) -> Insert:
+        assert len(xs) == 1
+        return Insert(table=Table.Notes, data=xs[0])
 
     @beartype
     def update(self, xs: List[Union[Table, AssignmentMap, Row]]) -> Update:
@@ -172,6 +155,24 @@ class SQLiteTransformer(Transformer):
     @beartype
     def bad(self, _: Any) -> None:
         return None
+
+    @beartype
+    def insertion(self, xs: List[SQLNote]) -> SQLNote:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def note(self, xs) -> SQLNote:
+        _, _, guid, mid, _, _, tags, flds, _, _, _, _ = xs
+        return SQLNote(mid=mid, guid=guid, tags=tags, flds=flds)
+
+    @beartype
+    def NOTES_SCHEMA(self, _: Token) -> Table:
+        return Table.Notes
+
+    @beartype
+    def CARDS_SCHEMA(self, _: Token) -> Table:
+        return Table.Cards
 
     @beartype
     def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
@@ -204,9 +205,13 @@ class SQLiteTransformer(Transformer):
             val = val.rstrip("'")
             val = json.loads(val)
             if column == "models":
-                val = dict(starmap(lambda k, v: (int(k), from_dict(Model, v)), val.items()))
+                val = dict(
+                    starmap(lambda k, v: (int(k), from_dict(Model, v)), val.items())
+                )
             elif column == "decks":
-                val = dict(starmap(lambda k, v: (int(k), from_dict(Deck, v)), val.items()))
+                val = dict(
+                    starmap(lambda k, v: (int(k), from_dict(Deck, v)), val.items())
+                )
         if column in ("conf",):
             return str(column), None
         return str(column), val
@@ -216,11 +221,11 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def fields(self, xs: List[str]) -> List[str]:
+    def flds(self, xs: List[str]) -> Tuple[str, ...]:
         # pylint: disable=unidiomatic-typecheck
         ys = map(lambda x: x if type(x) == str else str(x), xs)
         s = "".join(ys)
-        return s.split("\x1f")
+        return tuple(s.split("\x1f"))
 
     @beartype
     def bytestring(self, xs: List[str]) -> str:
@@ -241,6 +246,119 @@ class SQLiteTransformer(Transformer):
     @beartype
     def bytes(self, xs: List[Token]) -> str:
         return bytes.fromhex("".join(list(map(str, xs)))).decode(encoding="UTF-8")
+
+    @beartype
+    def cid(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def nid(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def did(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def ord(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def mod(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def usn(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def type(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def queue(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def due(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def ivl(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def factor(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def reps(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def lapses(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def left(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def odue(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def odid(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def flags(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def data(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def guid(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def mid(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def tags(self, xs: List[str]) -> Tuple[str, ...]:
+        assert len(xs) == 1
+        s = xs[0]
+        s = s.lstrip()
+        s = s.rstrip()
+        return tuple(s.split())
+
+    @beartype
+    def csum(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
 
     @beartype
     def STRING(self, t: Token) -> str:

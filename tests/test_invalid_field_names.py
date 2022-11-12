@@ -48,7 +48,11 @@ def test_add_notetype(data: st.DataObject) -> None:
     tmplnames = st.lists(st.text(alphabet=nchars, min_size=1), min_size=1)
     tnames: List[str] = data.draw(tmplnames, "add nt: tnames")
     n = len(tnames)
-    txts = st.text(alphabet=st.characters(blacklist_characters=["{", "}"], blacklist_categories=["Cs"]))
+    txts = st.text(
+        alphabet=st.characters(
+            blacklist_characters=["{", "}"], blacklist_categories=["Cs"]
+        )
+    )
     textlists = st.lists(txts, min_size=n, max_size=n, unique=True)
     qtxts = data.draw(textlists, "add nt: qtxts")
     atxts = data.draw(textlists, "add nt: atxts")

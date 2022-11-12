@@ -34,7 +34,7 @@ from anki.models import ModelManager, NotetypeDict, TemplateDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
-from ki.sqlite import SQLiteTransformer, Delete
+from ki.sqlite import SQLiteTransformer, Delete, Update, Table
 from tests.test_parser import get_parser
 from tests.test_ki import get_test_collection
 
@@ -288,7 +288,11 @@ class AnkiCollection(RuleBasedStateMachine):
         tmplnames = st.lists(st.text(alphabet=nchars, min_size=1), min_size=1)
         tnames: List[str] = data.draw(tmplnames, "add nt: tnames")
         n = len(tnames)
-        txts = st.text(alphabet=st.characters(blacklist_characters=["{", "}"], blacklist_categories=["Cs"]))
+        txts = st.text(
+            alphabet=st.characters(
+                blacklist_characters=["{", "}"], blacklist_categories=["Cs"]
+            )
+        )
         textlists = st.lists(txts, min_size=n, max_size=n, unique=True)
         qtxts = data.draw(textlists, "add nt: qtxts")
         atxts = data.draw(textlists, "add nt: atxts")
@@ -339,13 +343,18 @@ class AnkiCollection(RuleBasedStateMachine):
             check=True,
         )
         block = p.stdout.decode()
+        print("\n".join(filter(lambda l: "cards" in l, block.split("\n"))))
         parser = get_parser(filename="sqlite.lark", start="diff")
         transformer = SQLiteTransformer()
         tree = parser.parse(block)
         stmts = transformer.transform(tree)
-        stmts = list(filter(lambda s: isinstance(s, Delete), stmts))
-        if len(stmts) > 0:
-            logger.debug(pp.pformat(stmts))
+        stmts = list(
+            filter(
+                lambda s: not (isinstance(s, Update) and s.table == Table.Collection),
+                stmts,
+            )
+        )
+        logger.debug(pp.pformat(stmts))
 
         shutil.rmtree(self.tempd)
         if self.freeze:
@@ -353,7 +362,7 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=100,
+    max_examples=20,
     stateful_step_count=50,
     verbosity=Verbosity.normal,
     deadline=None,

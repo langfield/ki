@@ -1577,7 +1577,6 @@ def apply_diff(xs: List[Statement]) -> None:
     _ = set(map(apply_statement, xs))
 
 
-
 @click.group()
 @click.version_option()
 @beartype
