@@ -78,10 +78,10 @@ from ki import (
     diff2,
     _clone,
     add_db_note,
-    tidy_html_recursively,
     media_filenames_in_field,
     write_decks,
     write_collection,
+    overwrite_lca_col_file,
 )
 from ki.types import (
     NoFile,
@@ -941,23 +941,6 @@ def test_get_note_path():
         assert str(note_path.name) == "a_1.md"
 
 
-def test_tidy_html_recursively():
-    """Does tidy wrapper print a nice error when tidy is missing?"""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        root = F.cwd()
-        file = root / "a.html"
-        file.write_text("ay")
-        old_path = os.environ["PATH"]
-        try:
-            os.environ["PATH"] = ""
-            with pytest.raises(FileNotFoundError) as error:
-                tidy_html_recursively(root)
-            assert "'tidy'" in str(error.exconly())
-        finally:
-            os.environ["PATH"] = old_path
-
-
 def test_create_deck_dir():
     deckname = "aa::bb::cc"
     runner = CliRunner()
@@ -976,35 +959,6 @@ def test_create_deck_dir_strips_leading_periods():
         path = M.deckd(deckname, root)
         assert path.is_dir()
         assert os.path.isdir("aa/bb/cc")
-
-
-def test_get_note_payload():
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    col = open_collection(ORIGINAL.col_file)
-    note = col.get_note(set(col.find_notes("")).pop())
-    colnote: ColNote = M.colnote(col, note.id)
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-
-        # Field-note content id for the note returned by our `col.get_note()`
-        # call above. Perhaps this should not be hardcoded.
-        fid = "1645010162168front"
-
-        # We use the fid as the filename as well for convenience, but there is
-        # no reason this must be the case.
-        path = Path(fid)
-
-        # Dump content to the file. This represents our tidied HTML source.
-        heyoo = "HEYOOOOO"
-        path.write_text(heyoo, encoding="UTF-8")
-
-        result = get_note_payload(colnote, {fid: path})
-
-        # Check that the dumped `front` field content is there.
-        assert heyoo in result
-
-        # The `back` field content.
-        assert "\nb\n" in result
 
 
 def test_write_repository_generates_deck_tree_correctly(tmp_path: Path):
@@ -1272,6 +1226,9 @@ def test_maybe_head_ki():
         dotki: DotKi = M.dotki(kidir)
         md5sum = F.md5(ORIGINAL.col_file)
         (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
+        (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
+        backups_dir: Dir = F.force_mkdir(targetdir / KI / BACKUPS_DIR)
+        overwrite_lca_col_file(backups_dir, ORIGINAL.col_file)
 
         # Write notes to disk.
         _ = write_repository(ORIGINAL.col_file, targetdir, dotki, mediadir)
@@ -1630,7 +1587,7 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     col = open_collection(ORIGINAL.col_file)
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
-    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {})
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
@@ -1668,6 +1625,7 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     mocker.patch("ki.backup")
     mocker.patch("ki.functional.rglob")
     mocker.patch("ki.append_md5sum")
+    mocker.patch("ki.overwrite_lca_col_file")
 
     # Write collection.
     _ = write_collection([], {}, kirepo, parse, head_kirepo, con)
@@ -1691,7 +1649,7 @@ def test_write_decks_warns_about_media_deck_name_collisions(
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     mock = mocker.patch("ki.warn")
-    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {})
 
     mock.assert_called_once()
     args = mock.call_args
