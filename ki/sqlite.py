@@ -20,7 +20,7 @@ from beartype.typing import (
     Optional,
 )
 
-from ki.types import SQLNote
+from ki.types import SQLNote, SQLCard
 
 from loguru import logger
 
@@ -102,7 +102,7 @@ Values = Any
 @dataclass(frozen=True, eq=True)
 class Insert:
     table: Table
-    data: SQLNote
+    data: Union[SQLNote, SQLCard]
 
 
 @beartype
@@ -138,9 +138,13 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def insert(self, xs: List[SQLNote]) -> Insert:
+    def insert(self, xs: List[Union[SQLNote, SQLCard]]) -> Insert:
         assert len(xs) == 1
-        return Insert(table=Table.Notes, data=xs[0])
+        x = xs[0]
+        if isinstance(x, SQLNote):
+            return Insert(table=Table.Notes, data=x)
+        return Insert(table=Table.Cards, data=x)
+
 
     @beartype
     def update(self, xs: List[Union[Table, AssignmentMap, Row]]) -> Update:
@@ -157,7 +161,7 @@ class SQLiteTransformer(Transformer):
         return None
 
     @beartype
-    def insertion(self, xs: List[SQLNote]) -> SQLNote:
+    def insertion(self, xs: List[Union[SQLNote, SQLCard]]) -> Union[SQLNote, SQLCard]:
         assert len(xs) == 1
         return xs[0]
 
@@ -165,6 +169,11 @@ class SQLiteTransformer(Transformer):
     def note(self, xs) -> SQLNote:
         _, _, guid, mid, _, _, tags, flds, _, _, _, _ = xs
         return SQLNote(mid=mid, guid=guid, tags=tags, flds=flds)
+
+    @beartype
+    def card(self, xs) -> SQLCard:
+        _, cid, nid, did, ord = xs[:5]
+        return SQLCard(cid=cid, nid=nid, did=did, ord=ord)
 
     @beartype
     def NOTES_SCHEMA(self, _: Token) -> Table:
@@ -192,6 +201,8 @@ class SQLiteTransformer(Transformer):
         s = str(t)
         if s == "notes":
             return Table.Notes
+        if s == "cards":
+            return Table.Cards
         if s == "col":
             return Table.Collection
         raise ValueError(f"Invalid table: {s}")

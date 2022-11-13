@@ -1038,12 +1038,18 @@ def write_card(
     colnote: ColNote = colnotes[card.nid]
     cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
     cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
+
+    # If we haven't written a file for this note before, write one.
     if len(cardfile_map) == 0:
         payload: str = get_note_payload(colnote)
         note_path: NoFile = get_note_path(colnote, deckd)
         file, link = F.write(note_path, payload), None
+
+    # If we've already written a file in this deck before, grab it.
     elif len(cardfiles) > 0:
         file, link = cardfiles[0].file, cardfiles[0].link
+
+    # Otherwise, write a link.
     else:
         existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file

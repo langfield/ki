@@ -7,7 +7,7 @@ from beartype import beartype
 from beartype.typing import List
 
 import ki
-from ki.types import SQLNote
+from ki.types import SQLNote, SQLCard
 from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete
 from tests.test_parser import get_parser, debug_lark_error
 
@@ -152,3 +152,12 @@ with open(Path(ki.__file__).parent.parent / "tests" / "update.sql", "r", encodin
 
 def test_transformer_on_col_update_queries():
     transform(COL_UPDATE)
+
+
+CARDS = r"""
+INSERT INTO cards(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,"left",odue,odid,flags,data) VALUES(1651363200000,1651363200000,1,0,1651363200,-1,0,0,1,0,0,0,0,0,0,0,0,'{}');
+"""
+
+
+def test_transformer_on_card_inserts():
+    assert transform(CARDS) == [Insert(table=Table.Cards, data=SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0))]

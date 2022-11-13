@@ -362,6 +362,15 @@ class SQLNote:
 
 @beartype
 @dataclass(frozen=True, eq=True)
+class SQLCard:
+    cid: int
+    nid: int
+    did: int
+    ord: int
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
 class NamedNote:
     note: MdNote
     filename: str
