@@ -37,16 +37,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 """
 
 
-def test_basic():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    parser.parse(BLOCK)
-
-
 def test_transformer():
-    parser = get_parser(filename="sqlite.lark", start="diff")
-    tree = parser.parse(BLOCK)
-    transformer = SQLiteTransformer()
-    out = transformer.transform(tree)
     assert transform(BLOCK) == [
         Delete(table=Table.Notes, row=1645010162168),
         Delete(table=Table.Notes, row=1645027705329),
