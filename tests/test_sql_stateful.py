@@ -11,6 +11,7 @@ from collections import namedtuple
 import prettyprinter as pp
 from loguru import logger
 from libfaketime import fake_time, reexec_if_needed
+from pyinstrument import Profiler
 
 from beartype import beartype
 from beartype.typing import Set, List, TypeVar, Iterable, Callable
@@ -34,9 +35,11 @@ from anki.models import ModelManager, NotetypeDict, TemplateDict
 from anki.collection import Collection, Note
 
 import ki.functional as F
+from ki.types import File
 from ki.sqlite import SQLiteTransformer, Delete, Update, Table
-from tests.test_parser import get_parser
+from tests.schema import checkpoint_anki2
 from tests.test_ki import get_test_collection
+from tests.test_parser import get_parser
 
 T = TypeVar("T")
 
@@ -48,11 +51,12 @@ ROOT_DID = 0
 DEFAULT_DID = 1
 
 EMPTY = get_test_collection("empty")
-Collection(EMPTY.col_file).close(downgrade=True)
-logger.debug(F.md5(EMPTY.col_file))
+INITIAL = checkpoint_anki2(EMPTY.col_file, "initial")
 
 pp.install_extras(exclude=["django", "ipython", "ipython_repr_pretty"])
 
+PARSER = get_parser(filename="sqlite.lark", start="diff")
+TRANSFORMER = SQLiteTransformer()
 
 @composite
 @beartype
@@ -153,18 +157,22 @@ class AnkiCollection(RuleBasedStateMachine):
     k = 0
 
     def __init__(self):
+        self.profile = False
+        self.freeze = True
+        if self.profile:
+            self.profiler = Profiler()
+            self.profiler.start()
         super().__init__()
         logger.debug(f"Starting test {AnkiCollection.k}...")
         AnkiCollection.k += 1
         random.seed(0)
-        self.freeze = True
         if self.freeze:
             self.freezer = fake_time("2022-05-01 00:00:00")
             self.freezer.start()
         self.tempd = Path(tempfile.mkdtemp())
         self.path = F.chk(self.tempd / "collection.anki2")
-        self.checkpoint = F.chk(self.tempd / "checkpoint.anki2")
         self.path = F.copyfile(EMPTY.col_file, self.path)
+        self.checkpoint = None
         self.col = Collection(self.path)
         if not self.col.db:
             self.col.reopen()
@@ -321,33 +329,31 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule()
     def save(self) -> None:
         """Checkpoint the database."""
-        self.col.close(save=True, downgrade=True)
-        self.checkpoint = F.copyfile(self.path, self.checkpoint)
-        self.col.reopen()
+        self.checkpoint: File = checkpoint_anki2(self.path, "checkpoint")
         self.saved = True
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
         did = self.col.decks.id("dummy", create=True)
         self.col.decks.remove([did])
-        self.col.close(save=True, downgrade=True)
+        self.col.save()
+        self.col.db.commit()
+        final: File = checkpoint_anki2(self.path, "final")
         if not self.saved:
-            self.checkpoint = F.copyfile(EMPTY.col_file, self.checkpoint)
-        assert str(self.path) != str(EMPTY.col_file)
-        assert str(self.path) != str(self.checkpoint)
-        assert F.md5(self.path) != F.md5(EMPTY.col_file)
-        assert F.md5(self.path) != F.md5(self.checkpoint)
+            self.checkpoint = INITIAL
+        assert str(final) != str(EMPTY.col_file)
+        assert str(final) != str(self.checkpoint)
+        assert F.md5(final) != F.md5(EMPTY.col_file)
+        # assert F.md5(final) != F.md5(self.checkpoint)
         p = subprocess.run(
-            ["sqldiff", str(self.checkpoint), str(self.path)],
+            ["sqldiff", str(self.checkpoint), str(final)],
             capture_output=True,
             check=True,
         )
         block = p.stdout.decode()
-        print("\n".join(filter(lambda l: "cards" in l, block.split("\n"))))
-        parser = get_parser(filename="sqlite.lark", start="diff")
-        transformer = SQLiteTransformer()
-        tree = parser.parse(block)
-        stmts = transformer.transform(tree)
+        print("\n".join(filter(lambda l: "col" not in l, block.split("\n"))))
+        tree = PARSER.parse(block)
+        stmts = TRANSFORMER.transform(tree)
         stmts = list(
             filter(
                 lambda s: not (isinstance(s, Update) and s.table == Table.Collection),
@@ -359,10 +365,13 @@ class AnkiCollection(RuleBasedStateMachine):
         shutil.rmtree(self.tempd)
         if self.freeze:
             self.freezer.stop()
+        if self.profile:
+            self.profiler.stop()
+            Path("profile.html").write_text(self.profiler.output_html())
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=20,
+    max_examples=50,
     stateful_step_count=50,
     verbosity=Verbosity.normal,
     deadline=None,
