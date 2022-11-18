@@ -20,12 +20,14 @@ assignment: COLUMN "=" value
 TABLE: /notes/ | /col/ | /cards/
 UNUSED: /graves/ | /sqlite_stat[0-9]+/
 
-insertion: note | card
+insertion: note | card | deck
 note: NOTES_SCHEMA "VALUES(" nid "," guid "," mid "," mod "," usn "," tags "," flds "," sfld "," csum "," flags "," data ")"
 card: CARDS_SCHEMA "VALUES(" cid "," nid "," did "," ord "," mod "," usn "," type "," queue "," due "," ivl "," factor "," reps "," lapses "," left "," odue "," odid "," flags "," data ")"
+deck: DECKS_SCHEMA "VALUES(" did "," deckname "," mtime_secs "," usn "," common "," kind ")"
 
 NOTES_SCHEMA: /notes/ "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 CARDS_SCHEMA: /cards/ "(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,\"left\",odue,odid,flags,data)"
+DECKS_SCHEMA: /decks/ "(id,name,mtime_secs,usn,common,kind)"
 
 COLUMN: NOTES_COLUMN | COLLECTION_COLUMN
 
@@ -36,6 +38,7 @@ value: INT | SIGNED_INT | bytestring
 sfld: NUMBER | bytestring
 
 flds: bytestring
+deckname: bytestring
 bytestring: seq WS? ("||" seq WS?)*
 
 seq: bytes | STRING
@@ -66,6 +69,15 @@ guid: STRING
 mid: INT
 tags: STRING
 csum: INT
+
+// Decks
+name: STRING
+mtime_secs: INT
+common: BLOB
+kind: BLOB
+
+// SQLite3 blob literals.
+BLOB: "x'" HEXDIGIT* "'"
 
 // Single-quoted strings (single quotes must be escaped, which in SQL means they are doubled-up).
 STRING: /'[^']*(?:''[^']*)*'/
