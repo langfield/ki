@@ -157,7 +157,7 @@ class AnkiCollection(RuleBasedStateMachine):
     k = 0
 
     def __init__(self):
-        self.profile = False
+        self.profile = True
         self.freeze = True
         if self.profile:
             self.profiler = Profiler()
@@ -329,45 +329,48 @@ class AnkiCollection(RuleBasedStateMachine):
     @rule()
     def save(self) -> None:
         """Checkpoint the database."""
+        self.col.close(save=True)
         self.checkpoint: File = checkpoint_anki2(self.path, "checkpoint")
+        self.col.reopen()
         self.saved = True
 
     def teardown(self) -> None:
         """Cleanup the state of the system."""
-        did = self.col.decks.id("dummy", create=True)
-        self.col.decks.remove([did])
-        self.col.save()
-        self.col.db.commit()
-        final: File = checkpoint_anki2(self.path, "final")
-        if not self.saved:
-            self.checkpoint = INITIAL
-        assert str(final) != str(EMPTY.col_file)
-        assert str(final) != str(self.checkpoint)
-        assert F.md5(final) != F.md5(EMPTY.col_file)
-        # assert F.md5(final) != F.md5(self.checkpoint)
-        p = subprocess.run(
-            ["sqldiff", str(self.checkpoint), str(final)],
-            capture_output=True,
-            check=True,
-        )
-        block = p.stdout.decode()
-        print("\n".join(filter(lambda l: "col" not in l, block.split("\n"))))
-        tree = PARSER.parse(block)
-        stmts = TRANSFORMER.transform(tree)
-        stmts = list(
-            filter(
-                lambda s: not (isinstance(s, Update) and s.table == Table.Collection),
-                stmts,
+        try:
+            did = self.col.decks.id("dummy", create=True)
+            self.col.decks.remove([did])
+            self.col.close(save=True)
+            final: File = checkpoint_anki2(self.path, "final")
+            if not self.saved:
+                self.checkpoint = INITIAL
+            assert str(final) != str(EMPTY.col_file)
+            assert str(final) != str(self.checkpoint)
+            assert F.md5(final) != F.md5(EMPTY.col_file)
+            # assert F.md5(final) != F.md5(self.checkpoint)
+            p = subprocess.run(
+                ["sqldiff", str(self.checkpoint), str(final)],
+                capture_output=True,
+                check=True,
             )
-        )
-        logger.debug(pp.pformat(stmts))
+            block = p.stdout.decode()
+            print("\n".join(filter(lambda l: "col" not in l, block.split("\n"))))
+            tree = PARSER.parse(block)
+            stmts = TRANSFORMER.transform(tree)
+            stmts = list(
+                filter(
+                    lambda s: not (isinstance(s, Update) and s.table == Table.Collection),
+                    stmts,
+                )
+            )
+            logger.debug(pp.pformat(stmts))
 
-        shutil.rmtree(self.tempd)
-        if self.freeze:
-            self.freezer.stop()
-        if self.profile:
-            self.profiler.stop()
-            Path("profile.html").write_text(self.profiler.output_html())
+            shutil.rmtree(self.tempd)
+            if self.freeze:
+                self.freezer.stop()
+        finally:
+            if self.profile:
+                self.profiler.stop()
+                Path("profile.html").write_text(self.profiler.output_html())
 
 
 AnkiCollection.TestCase.settings = settings(
