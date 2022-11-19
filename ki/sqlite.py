@@ -20,7 +20,7 @@ from beartype.typing import (
     Optional,
 )
 
-from ki.types import SQLNote, SQLCard, SQLDeck
+from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate
 
 from loguru import logger
 
@@ -104,10 +104,14 @@ AssignmentMap = Dict[Column, Value]
 DeckName = Tuple[str, ...]
 Fields = Tuple[str, ...]
 
-DeckValue = Union[Table, DeckName, int, str]
 NoteValue = Union[Table, Fields, int, str]
+CardValue = Union[Table, int, str]
+DeckValue = Union[Table, DeckName, int, str]
+FieldValue = Union[Table, int, str]
+NotetypeValue = Union[Table, int, str]
+TemplateValue = Union[Table, int, str]
 
-InsertionValue = Union[SQLNote, SQLCard, SQLDeck]
+InsertionValue = Union[SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate]
 
 
 @beartype
@@ -164,7 +168,13 @@ class SQLiteTransformer(Transformer):
             return Insert(table=Table.Notes, data=x)
         if isinstance(x, SQLCard):
             return Insert(table=Table.Cards, data=x)
-        return Insert(table=Table.Decks, data=x)
+        if isinstance(x, SQLDeck):
+            return Insert(table=Table.Decks, data=x)
+        if isinstance(x, SQLField):
+            return Insert(table=Table.Fields, data=x)
+        if isinstance(x, SQLNotetype):
+            return Insert(table=Table.Notetypes, data=x)
+        return Insert(table=Table.Templates, data=x)
 
 
     @beartype
@@ -197,7 +207,7 @@ class SQLiteTransformer(Transformer):
         return SQLNote(mid=mid, guid=guid, tags=tags, flds=flds)
 
     @beartype
-    def card(self, xs: List[int]) -> SQLCard:
+    def card(self, xs: List[CardValue]) -> SQLCard:
         _, cid, nid, did, ord = xs[:5]
         return SQLCard(cid=cid, nid=nid, did=did, ord=ord)
 
@@ -206,6 +216,24 @@ class SQLiteTransformer(Transformer):
         assert len(xs) == 7
         _, did, deckname = xs[:3]
         return SQLDeck(did=did, deckname=deckname)
+
+    @beartype
+    def field(self, xs: List[FieldValue]) -> SQLField:
+        assert len(xs) == 5
+        _, ntid, ord, fieldname = xs[:4]
+        return SQLField(ntid=ntid, ord=ord, fieldname=fieldname)
+
+    @beartype
+    def notetype(self, xs: List[NotetypeValue]) -> SQLNotetype:
+        assert len(xs) == 6
+        _, ntid, ntname = xs[:3]
+        return SQLNotetype(ntid=ntid, ntname=ntname)
+
+    @beartype
+    def template(self, xs: List[TemplateValue]) -> SQLTemplate:
+        assert len(xs) == 7
+        _, ntid, ord, tmplname = xs[:4]
+        return SQLTemplate(ntid=ntid, ord=ord, tmplname=tmplname)
 
     @beartype
     def NOTES_SCHEMA(self, _: Token) -> Table:
@@ -218,6 +246,18 @@ class SQLiteTransformer(Transformer):
     @beartype
     def DECKS_SCHEMA(self, _: Token) -> Table:
         return Table.Decks
+
+    @beartype
+    def FIELDS_SCHEMA(self, _: Token) -> Table:
+        return Table.Fields
+
+    @beartype
+    def NOTETYPES_SCHEMA(self, _: Token) -> Table:
+        return Table.Notetypes
+
+    @beartype
+    def TEMPLATES_SCHEMA(self, _: Token) -> Table:
+        return Table.Templates
 
     @beartype
     def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
@@ -441,6 +481,31 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def kind(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def ntid(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def fieldname(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def config(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def ntname(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def tmplname(self, xs: List[str]) -> str:
         assert len(xs) == 1
         return xs[0]
 

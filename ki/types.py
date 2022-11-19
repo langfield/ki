@@ -378,6 +378,29 @@ class SQLDeck:
 
 @beartype
 @dataclass(frozen=True, eq=True)
+class SQLField:
+    ntid: int
+    ord: int
+    fieldname: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class SQLNotetype:
+    ntid: int
+    ntname: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class SQLTemplate:
+    ntid: int
+    ord: int
+    tmplname: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
 class NamedNote:
     note: MdNote
     filename: str
