@@ -6,28 +6,38 @@ diff: stmt*
 
 // A ``stmt`` is either an ``insert``, a ``delete``, or an ``update``.
 
-stmt: insert | update | delete | bad
+stmt: insert | update | delete | nt_delete | bad
 insert: "INSERT" "INTO" insertion ";"
 update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
 delete: "DELETE" "FROM" TABLE "WHERE" row ";"
+nt_delete: "DELETE" "FROM" TABLE "WHERE" ntid_row "AND" ord_row ";"
 
 command: "INSERT" "INTO" | "DELETE" "FROM" | "UPDATE"
 bad: command UNUSED /[^\n;]+/ ";"
 
 row: "id=" INT
+ord_row: "ord=" INT
+ntid_row: "ntid=" INT
+
 assignments: assignment ("," assignment)*
 assignment: COLUMN "=" value
-TABLE: /notes/ | /col/ | /cards/
-UNUSED: /graves/ | /sqlite_stat[0-9]+/
+TABLE: /notes/ | /col/ | /cards/ | /decks/ | /fields/ | /notetypes/ | /templates/
+UNUSED: /graves/ | /sqlite_stat[0-9]+/ | /config/
 
-insertion: note | card | deck
+insertion: note | card | deck | field | notetype | template
 note: NOTES_SCHEMA "VALUES(" nid "," guid "," mid "," mod "," usn "," tags "," flds "," sfld "," csum "," flags "," data ")"
 card: CARDS_SCHEMA "VALUES(" cid "," nid "," did "," ord "," mod "," usn "," type "," queue "," due "," ivl "," factor "," reps "," lapses "," left "," odue "," odid "," flags "," data ")"
 deck: DECKS_SCHEMA "VALUES(" did "," deckname "," mtime_secs "," usn "," common "," kind ")"
+field: FIELDS_SCHEMA "VALUES(" ntid "," ord "," name "," config ")"
+notetype: NOTETYPES_SCHEMA "VALUES(" ntid "," name "," mtime_secs "," usn "," config ")"
+template: TEMPLATES_SCHEMA "VALUES(" ntid "," ord "," name "," mtime_secs "," usn "," config ")"
 
 NOTES_SCHEMA: /notes/ "(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data)"
 CARDS_SCHEMA: /cards/ "(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,\"left\",odue,odid,flags,data)"
 DECKS_SCHEMA: /decks/ "(id,name,mtime_secs,usn,common,kind)"
+FIELDS_SCHEMA: /fields/ "(ntid,ord,name,config)"
+NOTETYPES_SCHEMA: /notetypes/ "(id,name,mtime_secs,usn,config)"
+TEMPLATES_SCHEMA: /templates/ "(id,ord,name,mtime_secs,usn,config)"
 
 COLUMN: NOTES_COLUMN | COLLECTION_COLUMN
 
@@ -71,10 +81,14 @@ tags: STRING
 csum: INT
 
 // Decks
-name: STRING
 mtime_secs: INT
 common: BLOB
 kind: BLOB
+
+// Fields
+ntid: INT
+name: STRING
+config: BLOB
 
 // SQLite3 blob literals.
 BLOB: "x'" HEXDIGIT* "'"

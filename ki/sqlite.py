@@ -20,7 +20,7 @@ from beartype.typing import (
     Optional,
 )
 
-from ki.types import SQLNote, SQLCard
+from ki.types import SQLNote, SQLCard, SQLDeck
 
 from loguru import logger
 
@@ -32,6 +32,10 @@ from loguru import logger
 class Table(Enum):
     Notes = "notes"
     Cards = "cards"
+    Decks = "decks"
+    Fields = "fields"
+    Notetypes = "notetypes"
+    Templates = "templates"
     Collection = "col"
 
 
@@ -91,18 +95,26 @@ class Deck:
 
 
 Row, Column = int, str
+NtidRow = int
+OrdRow = int
 FieldText = str
 Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
 AssignmentMap = Dict[Column, Value]
 
-Values = Any
+DeckName = Tuple[str, ...]
+Fields = Tuple[str, ...]
+
+DeckValue = Union[Table, DeckName, int, str]
+NoteValue = Union[Table, Fields, int, str]
+
+InsertionValue = Union[SQLNote, SQLCard, SQLDeck]
 
 
 @beartype
 @dataclass(frozen=True, eq=True)
 class Insert:
     table: Table
-    data: Union[SQLNote, SQLCard]
+    data: InsertionValue
 
 
 @beartype
@@ -119,8 +131,15 @@ class Delete:
     table: Table
     row: int
 
+@beartype
+@dataclass(frozen=True, eq=True)
+class NtDelete:
+    table: Table
+    ntid: int
+    ord: int
 
-Statement = Union[Insert, Update, Delete]
+
+Statement = Union[Insert, Update, Delete, NtDelete]
 
 
 class SQLiteTransformer(Transformer):
@@ -138,12 +157,14 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def insert(self, xs: List[Union[SQLNote, SQLCard]]) -> Insert:
+    def insert(self, xs: List[InsertionValue]) -> Insert:
         assert len(xs) == 1
         x = xs[0]
         if isinstance(x, SQLNote):
             return Insert(table=Table.Notes, data=x)
-        return Insert(table=Table.Cards, data=x)
+        if isinstance(x, SQLCard):
+            return Insert(table=Table.Cards, data=x)
+        return Insert(table=Table.Decks, data=x)
 
 
     @beartype
@@ -157,23 +178,34 @@ class SQLiteTransformer(Transformer):
         return Delete(table=xs[0], row=xs[1])
 
     @beartype
+    def nt_delete(self, xs: List[Union[Table, NtidRow, OrdRow]]) -> NtDelete:
+        assert len(xs) == 3
+        return NtDelete(table=xs[0], ntid=xs[1], ord=xs[2])
+
+    @beartype
     def bad(self, _: Any) -> None:
         return None
 
     @beartype
-    def insertion(self, xs: List[Union[SQLNote, SQLCard]]) -> Union[SQLNote, SQLCard]:
+    def insertion(self, xs: List[InsertionValue]) -> InsertionValue:
         assert len(xs) == 1
         return xs[0]
 
     @beartype
-    def note(self, xs) -> SQLNote:
+    def note(self, xs: List[NoteValue]) -> SQLNote:
         _, _, guid, mid, _, _, tags, flds, _, _, _, _ = xs
         return SQLNote(mid=mid, guid=guid, tags=tags, flds=flds)
 
     @beartype
-    def card(self, xs) -> SQLCard:
+    def card(self, xs: List[int]) -> SQLCard:
         _, cid, nid, did, ord = xs[:5]
         return SQLCard(cid=cid, nid=nid, did=did, ord=ord)
+
+    @beartype
+    def deck(self, xs: List[DeckValue]) -> SQLDeck:
+        assert len(xs) == 7
+        _, did, deckname = xs[:3]
+        return SQLDeck(did=did, deckname=deckname)
 
     @beartype
     def NOTES_SCHEMA(self, _: Token) -> Table:
@@ -182,6 +214,10 @@ class SQLiteTransformer(Transformer):
     @beartype
     def CARDS_SCHEMA(self, _: Token) -> Table:
         return Table.Cards
+
+    @beartype
+    def DECKS_SCHEMA(self, _: Token) -> Table:
+        return Table.Decks
 
     @beartype
     def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
@@ -193,8 +229,14 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def values(self, xs: List[Value]) -> List[Value]:
-        return xs
+    def ord_row(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def ntid_row(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
 
     @beartype
     def TABLE(self, t: Token) -> Table:
@@ -205,6 +247,14 @@ class SQLiteTransformer(Transformer):
             return Table.Cards
         if s == "col":
             return Table.Collection
+        if s == "decks":
+            return Table.Decks
+        if s == "fields":
+            return Table.Fields
+        if s == "notetypes":
+            return Table.Notetypes
+        if s == "templates":
+            return Table.Templates
         raise ValueError(f"Invalid table: {s}")
 
     @beartype
@@ -233,6 +283,13 @@ class SQLiteTransformer(Transformer):
 
     @beartype
     def flds(self, xs: List[str]) -> Tuple[str, ...]:
+        # pylint: disable=unidiomatic-typecheck
+        ys = map(lambda x: x if type(x) == str else str(x), xs)
+        s = "".join(ys)
+        return tuple(s.split("\x1f"))
+
+    @beartype
+    def deckname(self, xs: List[str]) -> Tuple[str, ...]:
         # pylint: disable=unidiomatic-typecheck
         ys = map(lambda x: x if type(x) == str else str(x), xs)
         s = "".join(ys)
@@ -373,6 +430,28 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
+    def mtime_secs(self, xs: List[int]) -> int:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def common(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def kind(self, xs: List[str]) -> str:
+        assert len(xs) == 1
+        return xs[0]
+
+    @beartype
+    def BLOB(self, t: Token) -> str:
+        s = str(t)
+        s = s.removeprefix("x'")
+        s = s.removesuffix("'")
+        return s
+
+    @beartype
     def STRING(self, t: Token) -> str:
         s = str(t)
         s = s.removeprefix("'")
@@ -387,8 +466,3 @@ class SQLiteTransformer(Transformer):
     @beartype
     def SIGNED_INT(self, t: Token) -> int:
         return int(str(t))
-
-    @beartype
-    def NUMBER(self, t: Token) -> Union[int, str]:
-        x = float(str(t))
-        return int(x) if x.is_integer() else str(x)

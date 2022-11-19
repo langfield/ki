@@ -7,8 +7,8 @@ from beartype import beartype
 from beartype.typing import List
 
 import ki
-from ki.types import SQLNote, SQLCard
-from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete
+from ki.types import SQLNote, SQLCard, SQLDeck
+from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete, NtDelete
 from tests.test_parser import get_parser, debug_lark_error
 
 
@@ -161,3 +161,33 @@ INSERT INTO cards(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,"
 
 def test_transformer_on_card_inserts():
     assert transform(CARDS) == [Insert(table=Table.Cards, data=SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0))]
+
+
+DECKS = r"""
+INSERT INTO decks(id,name,mtime_secs,usn,common,kind) VALUES(1651363201000,'Default'||X'1f'
+||'0',1651363201,-1,x'08011001',x'0a020801');
+INSERT INTO graves(oid,type,usn) VALUES(1651363201001,2,-1);
+"""
+
+
+def test_transformer_on_decks_from_v18_schema():
+    assert transform(DECKS) == [Insert(table=Table.Decks, data=SQLDeck(did=1651363201000,deckname=("Default", "0")))]
+
+
+FIELDS = r"""
+UPDATE config SET mtime_secs=1651363200, val=x'31363637303631313439373933' WHERE "KEY"='curModel';
+DELETE FROM fields WHERE ntid=1667061149792 AND ord=0;
+DELETE FROM fields WHERE ntid=1667061149792 AND ord=1;
+INSERT INTO graves(oid,type,usn) VALUES(1651363200000,2,-1);
+DELETE FROM notetypes WHERE id=1667061149792;
+DELETE FROM templates WHERE ntid=1667061149792 AND ord=0;
+"""
+
+
+def test_transformer_on_field_deletions_from_v18_schema():
+    assert transform(FIELDS) == [
+        NtDelete(table=Table.Fields, ntid=1667061149792, ord=0),
+        NtDelete(table=Table.Fields, ntid=1667061149792, ord=1),
+        Delete(table=Table.Notetypes, row=1667061149792),
+        NtDelete(table=Table.Templates, ntid=1667061149792, ord=0),
+    ]

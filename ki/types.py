@@ -371,6 +371,13 @@ class SQLCard:
 
 @beartype
 @dataclass(frozen=True, eq=True)
+class SQLDeck:
+    did: int
+    deckname: Tuple[str, ...]
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
 class NamedNote:
     note: MdNote
     filename: str
