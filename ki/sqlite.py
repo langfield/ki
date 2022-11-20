@@ -10,7 +10,7 @@ from lark import Transformer
 from lark.lexer import Token
 
 from beartype import beartype
-from beartype.door import is_bearable
+from beartype.door import is_bearable, die_if_unbearable
 from beartype.typing import (
     List,
     Dict,
@@ -47,7 +47,8 @@ OrdRow = int
 FieldText = str
 Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
 
-DeckName = Tuple[str, ...]
+# Can we make this just a tuple somehow, by doing more complex parsing?
+DeckName = Union[str, Tuple[str, ...]]
 NoteFields = Tuple[str, ...]
 Tags = Tuple[str, ...]
 
@@ -272,11 +273,13 @@ class SQLiteTransformer(Transformer):
 
 
     @beartype
-    def update(self, xs: List[Union[Table, KeyValues, Row, Tuple[Ntid, Ord]]]) -> Update:
+    def update(self, xs: List[Union[Table, KeyValues, Row, Tuple[Ntid, Ord]]]) -> Union[Update, None]:
         assert len(xs) == 3
         table, updates, row = xs
         assert isinstance(table, Table)
         assert is_bearable(updates, KeyValues)
+        if len(updates) == 0:
+            return None
         if table == Table.Notes:
             return NotesUpdate(updates=updates, row=row)
         if table == Table.Cards:
@@ -296,9 +299,27 @@ class SQLiteTransformer(Transformer):
         raise ValueError(f"Bad table: {table}")
 
     @beartype
-    def delete(self, xs: List[Union[Table, Row]]) -> Delete:
+    def delete(self, xs: List[Union[Table, Row, Tuple[Ntid, Ord]]]) -> Delete:
         assert len(xs) == 2
-        return Delete(table=xs[0], row=xs[1])
+        table, row = xs
+        assert isinstance(table, Table)
+        if table == Table.Notes:
+            return NotesDelete(row=row)
+        if table == Table.Cards:
+            return CardsDelete(row=row)
+        if table == Table.Decks:
+            return DecksDelete(row=row)
+        if table == Table.Fields:
+            assert len(row) == 2
+            ntid, ord = row
+            return FieldsDelete(ntid=ntid, ord=ord)
+        if table == Table.Notetypes:
+            return NotetypesDelete(row=row)
+        if table == Table.Templates:
+            assert len(row) == 2
+            ntid, ord = row
+            return TemplatesDelete(ntid=ntid, ord=ord)
+        raise ValueError(f"Bad table: {table}")
 
     @beartype
     def bad(self, _: Any) -> None:
@@ -380,6 +401,9 @@ class SQLiteTransformer(Transformer):
         column = COLUMN_NAME_MAP[name]
         if column not in USED:
             return None
+        if column == Column.flds:
+            die_if_unbearable(val, str)
+            val = tuple(val.split("\x1f"))
         return (column, val)
 
     @beartype

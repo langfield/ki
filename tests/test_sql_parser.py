@@ -9,7 +9,7 @@ from beartype.typing import List
 
 import ki
 from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate
-from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete
+from ki.sqlite import SQLiteTransformer, Statement, CardsUpdate, DecksUpdate, Column, FieldsDelete, NotesDelete, NotetypesDelete, TemplatesDelete, NotesUpdate, FieldsUpdate
 from tests.test_parser import get_parser, debug_lark_error
 
 
@@ -58,7 +58,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(164
 
 def test_transformer_on_update_commands():
     assert transform(UPDATE) == [
-        NotesUpdate(updates=((Column.mod, 1645221606), (Column.flds, "aa\x1fbb"), (Column.sfld, "aa"), (Column.csum, 3771269976),), row=1645010162168),
+        NotesUpdate(updates=((Column.flds, ("aa", "bb")),), row=1645010162168),
         NotesDelete(row=1645027705329),
         SQLNote(mid=1645010146011, guid="f}:^>jzMjG", tags=(), flds=("f", "g")),
     ]
@@ -219,7 +219,7 @@ INSERT INTO graves(oid,type,usn) VALUES(1651363202000,2,-1);
 
 def test_transformer_on_schema_18_deck_updates():
     assert transform(DECK_UPDATE) == [
-        DecksUpdate(updates=((Column.name, ("blank",)), (Column.mtime_secs, 1651363202)), row=1651363201000),
+        DecksUpdate(updates=((Column.name, "blank"),), row=1651363201000),
     ]
 
 
@@ -258,7 +258,6 @@ UPDATE notes SET guid='g;a&:e3_^~' WHERE id=1651363200000;
 
 def test_transformer_on_schema_18_note_set_due():
     assert transform(NOTE_SET_DUE) == [
-        CardsUpdate(updates=((Column.due, 2),), row=1651363200000),
         NotesUpdate(updates=((Column.guid, "g;a&:e3_^~"),), row=1651363200000),
     ]
 
@@ -268,7 +267,7 @@ INSERT INTO notetypes(id,name,mtime_secs,usn,config) VALUES(1651363200000,''||X'
 """
 
 
-def test_transformer_on_schema_18_note_set_due():
+def test_transformer_on_schema_18_notetype_insert():
     assert transform(NOTETYPE_INSERT) == [
         SQLNotetype(ntid=1651363200000, ntname="\x1f")
     ]
@@ -281,4 +280,5 @@ UPDATE fields SET name='656' WHERE ntid=1667061149796 AND ord=0;
 
 def test_transformer_on_schema_18_composite_primary_keys():
     assert transform(UPDATE_COMPOSITE_PRIMARY_KEYS) == [
+        FieldsUpdate(((Column.name, "656"),), ntid=1667061149796, ord=0)
     ]
