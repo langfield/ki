@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """A Lark transformer for the ki note grammar."""
-import json
 from enum import Enum
-from itertools import starmap
-from dataclasses import dataclass
 
-from dacite import from_dict
+from loguru import logger
 
 from lark import Transformer
 from lark.lexer import Token
@@ -17,16 +14,15 @@ from beartype.typing import (
     Union,
     Tuple,
     Any,
-    Optional,
+    Literal,
 )
 
-from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate
+from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate, Notetype
 
-from loguru import logger
 
 # pylint: disable=invalid-name, no-self-use, too-few-public-methods
 # pylint: disable=missing-class-docstring, too-many-instance-attributes
-# pylint: disable=too-many-public-methods
+# pylint: disable=too-many-public-methods, redefined-builtin
 
 
 class Table(Enum):
@@ -38,112 +34,157 @@ class Table(Enum):
     Templates = "templates"
     Collection = "col"
 
+Model, Deck, Template = int, int, int
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class Field:
-    font: str
-    name: str
-    ord: int
-    rtl: bool
-    size: int
-    sticky: bool
-    media: Optional[List[str]]
-
-
-@beartype
-@dataclass(frozen=True, eq=True)
-class Template:
-    afmt: str
-    bafmt: str
-    bqfmt: str
-    did: Union[str, None]
-    name: str
-    ord: int
-    qfmt: str
-
-
-@beartype
-@dataclass(frozen=True, eq=True)
-class Model:
-    css: str
-    did: Union[int, None]
-    flds: List[Field]
-    id: int
-    latexPost: str
-    latexPre: str
-    mod: int
-    name: str
-    req: Any
-    sortf: int
-    tmpls: List[Template]
-    type: int
-    usn: int
-    vers: Optional[int]
-    tags: Optional[List[str]]
-
-
-@beartype
-@dataclass(frozen=True, eq=True)
-class Deck:
-    name: str
-    id: int
-    mod: int
-    usn: int
-    dyn: int
-    desc: str
-
-
-Row, Column = int, str
+Row = int
+Ntid = int
+Ord = int
 NtidRow = int
 OrdRow = int
 FieldText = str
 Value = Union[int, str, List[FieldText], Dict[int, Model], Dict[int, Deck], None]
-AssignmentMap = Dict[Column, Value]
 
 DeckName = Tuple[str, ...]
-Fields = Tuple[str, ...]
+NoteFields = Tuple[str, ...]
+Tags = Tuple[str, ...]
 
-NoteValue = Union[Table, Fields, int, str]
+# Sum types for insert column values.
+NoteValue = Union[Table, NoteFields, int, str]
 CardValue = Union[Table, int, str]
 DeckValue = Union[Table, DeckName, int, str]
 FieldValue = Union[Table, int, str]
 NotetypeValue = Union[Table, int, str]
 TemplateValue = Union[Table, int, str]
 
-InsertionValue = Union[SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate]
+class Column(Enum):
+    id = "id"
+    guid = "guid"
+    mid = "mid"
+    mod = "mod"
+    usn = "usn"
+    tags = "tags"
+    flds = "flds"
+    sfld = "sfld"
+    csum = "csum"
+    flags = "flags"
+    data = "data"
+    nid = "nid"
+    did = "did"
+    ord = "ord"
+    type = "type"
+    queue = "queue"
+    due = "due"
+    ivl = "ivl"
+    factor = "factor"
+    reps = "reps"
+    lapses = "lapses"
+    left = "left"
+    odue = "odue"
+    odid = "odid"
+    crt = "crt"
+    scm = "scm"
+    ver = "ver"
+    ls = "ls"
+    conf = "conf"
+    models = "models"
+    decks = "decks"
+    dconf = "dconf"
+    name = "name"
+    mtime_secs = "mtime_secs"
+    common = "common"
+    kind = "kind"
+    config = "config"
 
+COLUMN_NAME_MAP = dict(Column.__members__).items()
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class Insert:
-    table: Table
-    data: InsertionValue
+# This should be a dataclass.
+NotetypeField = bytes
 
+# Key-value pairs for updates.
+NoteKeyValue = Union[
+    Tuple[Literal[Column.mid], int],
+    Tuple[Literal[Column.guid], str],
+    Tuple[Literal[Column.tags], Tags],
+    Tuple[Literal[Column.flds], NoteFields],
+]
+CardKeyValue = Union[
+    Tuple[Literal[Column.did], int],
+]
+DeckKeyValue = Union[
+    Tuple[Literal[Column.name], DeckName],
+]
+FieldKeyValue = Union[
+    Tuple[Literal[Column.name], str],
+    Tuple[Literal[Column.config], NotetypeField],
+]
+NotetypeKeyValue = Union[
+    Tuple[Literal[Column.name], str],
+    Tuple[Literal[Column.config], Notetype],
+]
+TemplateKeyValue = Union[
+    Tuple[Literal[Column.name], str],
+    Tuple[Literal[Column.config], Template],
+]
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class Update:
-    table: Table
-    assignments: AssignmentMap
-    row: int
+KeyValue = Union[
+    NoteKeyValue,
+    CardKeyValue,
+    DeckKeyValue,
+    FieldKeyValue,
+    NotetypeKeyValue,
+    TemplateKeyValue,
+]
+KeyValues = Tuple[KeyValue, ...]
 
+# Foldables of key-value pairs, i.e. our type-safe, immutable, hashable
+# versions of dicts, since @beartype doesn't support them yet :(
+NoteKeyValues = Tuple[NoteKeyValue, ...]
+CardKeyValues = Tuple[CardKeyValue, ...]
+DeckKeyValues = Tuple[DeckKeyValue, ...]
+FieldKeyValues = Tuple[FieldKeyValue, ...]
+NotetypeKeyValues = Tuple[NotetypeKeyValue, ...]
+TemplateKeyValues = Tuple[TemplateKeyValue, ...]
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class Delete:
-    table: Table
-    row: int
+# Update types for each table.
+NotesUpdate = Tuple[NoteKeyValues, Row]
+CardsUpdate = Tuple[CardKeyValues, Row]
+DecksUpdate = Tuple[DeckKeyValues, Row]
+FieldsUpdate = Tuple[FieldKeyValues, Row]
+NotetypesUpdate = Tuple[NotetypeKeyValues, Row]
+TemplatesUpdate = Tuple[TemplateKeyValues, Row]
 
-@beartype
-@dataclass(frozen=True, eq=True)
-class NtDelete:
-    table: Table
-    ntid: int
-    ord: int
+# Our new `Update` type.
+Update = Union[
+    NotesUpdate,
+    CardsUpdate,
+    DecksUpdate,
+    FieldsUpdate,
+    NotetypesUpdate,
+    TemplatesUpdate,
+]
 
+# Delete types for each table.
+NotesDelete = Row
+CardsDelete = Row
+DecksDelete = Row
+FieldsDelete = Tuple[Ntid, Ord]
+NotetypesDelete = Row
+TemplatesDelete = Tuple[Ntid, Ord]
 
-Statement = Union[Insert, Update, Delete, NtDelete]
+# Our new `Delete` type.
+Delete = Union[
+    NotesDelete,
+    CardsDelete,
+    DecksDelete,
+    FieldsDelete,
+    NotetypesDelete,
+    TemplatesDelete,
+]
+
+# Our new `Insert` type.
+Insert = Union[SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate]
+
+Statement = Union[Insert, Update, Delete]
 
 
 class SQLiteTransformer(Transformer):
@@ -161,24 +202,13 @@ class SQLiteTransformer(Transformer):
         return xs[0]
 
     @beartype
-    def insert(self, xs: List[InsertionValue]) -> Insert:
+    def insert(self, xs: List[Insert]) -> Insert:
         assert len(xs) == 1
-        x = xs[0]
-        if isinstance(x, SQLNote):
-            return Insert(table=Table.Notes, data=x)
-        if isinstance(x, SQLCard):
-            return Insert(table=Table.Cards, data=x)
-        if isinstance(x, SQLDeck):
-            return Insert(table=Table.Decks, data=x)
-        if isinstance(x, SQLField):
-            return Insert(table=Table.Fields, data=x)
-        if isinstance(x, SQLNotetype):
-            return Insert(table=Table.Notetypes, data=x)
-        return Insert(table=Table.Templates, data=x)
+        return xs[0]
 
 
     @beartype
-    def update(self, xs: List[Union[Table, AssignmentMap, Row]]) -> Update:
+    def update(self, xs: List[Union[Table, KeyValues, Row]]) -> Update:
         assert len(xs) == 3
         return Update(table=xs[0], assignments=xs[1], row=xs[2])
 
@@ -188,16 +218,11 @@ class SQLiteTransformer(Transformer):
         return Delete(table=xs[0], row=xs[1])
 
     @beartype
-    def nt_delete(self, xs: List[Union[Table, NtidRow, OrdRow]]) -> NtDelete:
-        assert len(xs) == 3
-        return NtDelete(table=xs[0], ntid=xs[1], ord=xs[2])
-
-    @beartype
     def bad(self, _: Any) -> None:
         return None
 
     @beartype
-    def insertion(self, xs: List[InsertionValue]) -> InsertionValue:
+    def insertion(self, xs: List[Insert]) -> Insert:
         assert len(xs) == 1
         return xs[0]
 
@@ -260,8 +285,17 @@ class SQLiteTransformer(Transformer):
         return Table.Templates
 
     @beartype
-    def assignments(self, xs: List[Tuple[str, Value]]) -> AssignmentMap:
-        return dict(filter(lambda x: x[1] is not None, xs))
+    def assignments(self, xs: List[KeyValue]) -> KeyValues:
+        return tuple(xs)
+
+    @beartype
+    def assignment(self, ts: List[Union[Token, Value]]) -> KeyValue:
+        assert len(ts) == 2
+        name, val = ts
+        if name not in COLUMN_NAME_MAP:
+            raise ValueError(f"Invalid column name: {name}")
+        column = COLUMN_NAME_MAP[name]
+        return (column, val)
 
     @beartype
     def row(self, xs: List[int]) -> int:
@@ -296,26 +330,6 @@ class SQLiteTransformer(Transformer):
         if s == "templates":
             return Table.Templates
         raise ValueError(f"Invalid table: {s}")
-
-    @beartype
-    def assignment(self, ts: List[Union[Token, Value]]) -> Tuple[str, Value]:
-        assert len(ts) == 2
-        column, val = ts
-        if column in ("models", "decks"):
-            val = val.lstrip("'")
-            val = val.rstrip("'")
-            val = json.loads(val)
-            if column == "models":
-                val = dict(
-                    starmap(lambda k, v: (int(k), from_dict(Model, v)), val.items())
-                )
-            elif column == "decks":
-                val = dict(
-                    starmap(lambda k, v: (int(k), from_dict(Deck, v)), val.items())
-                )
-        if column in ("conf",):
-            return str(column), None
-        return str(column), val
 
     @beartype
     def value(self, xs: List[Value]) -> Value:

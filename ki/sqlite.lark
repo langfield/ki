@@ -10,14 +10,11 @@ stmt: insert | update | delete | nt_delete | bad
 insert: "INSERT" "INTO" insertion ";"
 update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
 delete: "DELETE" "FROM" TABLE "WHERE" row ";"
-nt_delete: "DELETE" "FROM" TABLE "WHERE" ntid_row "AND" ord_row ";"
 
 command: "INSERT" "INTO" | "DELETE" "FROM" | "UPDATE"
 bad: command UNUSED /[^\n;]+/ ";"
 
-row: "id=" INT
-ord_row: "ord=" INT
-ntid_row: "ntid=" INT
+row: "id=" INT | "ntid=" INT "AND" "ord=" INT
 
 assignments: assignment ("," assignment)*
 assignment: COLUMN "=" value
@@ -51,6 +48,9 @@ sfld: NUMBER | bytestring
 
 flds: bytestring
 deckname: bytestring
+fieldname: bytestring
+ntname: bytestring
+tmplname: bytestring
 bytestring: seq WS? ("||" seq WS?)*
 
 seq: bytes | STRING
@@ -89,11 +89,8 @@ kind: BLOB
 
 // Fields
 ntid: INT
-fieldname: STRING
 config: BLOB
 
-ntname: STRING
-tmplname: STRING
 
 // SQLite3 blob literals.
 BLOB: "x'" HEXDIGIT* "'"
