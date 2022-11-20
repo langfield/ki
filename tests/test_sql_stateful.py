@@ -14,6 +14,7 @@ from libfaketime import fake_time, reexec_if_needed
 from pyinstrument import Profiler
 
 from beartype import beartype
+from beartype.door import is_bearable
 from beartype.typing import Set, List, TypeVar, Iterable, Callable
 
 import hypothesis.strategies as st
@@ -356,12 +357,6 @@ class AnkiCollection(RuleBasedStateMachine):
             print("\n".join(filter(lambda l: "col" not in l, block.split("\n"))))
             tree = PARSER.parse(block)
             stmts = TRANSFORMER.transform(tree)
-            stmts = list(
-                filter(
-                    lambda s: not (isinstance(s, Update) and s.table == Table.Collection),
-                    stmts,
-                )
-            )
             logger.debug(pp.pformat(stmts))
 
             shutil.rmtree(self.tempd)

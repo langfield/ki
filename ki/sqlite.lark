@@ -36,14 +36,15 @@ FIELDS_SCHEMA: /fields/ "(ntid,ord,name,config)"
 NOTETYPES_SCHEMA: /notetypes/ "(id,name,mtime_secs,usn,config)"
 TEMPLATES_SCHEMA: /templates/ "(" ("id" | "ntid") ",ord,name,mtime_secs,usn,config)"
 
-COLUMN: NOTES_COLUMN | CARDS_COLUMN | COLLECTION_COLUMN | DECKS_COLUMN
+COLUMN: NOTES_COLUMN | CARDS_COLUMN | COLLECTION_COLUMN | DECKS_COLUMN | FIELDS_COLUMN
 
 NOTES_COLUMN: "id" | "guid" | "mid" | "mod" | "usn" | "tags" | "flds" | "sfld" | "csum" | "flags" | "data"
 CARDS_COLUMN: "nid" | "did" | "ord" | "type" | "queue" | "due" | "ivl" | "factor" | "reps" | "lapses" | "\"left\"" | "odue" | "odid"
 COLLECTION_COLUMN: "crt" | "scm" | "ver" | "ls" | "conf" | "models" | "decks" | "dconf"
 DECKS_COLUMN: "name" | "mtime_secs" | "common" | "kind"
+FIELDS_COLUMN: "ntid" | "config"
 
-value: INT | SIGNED_INT | bytestring
+value: INT | SIGNED_INT | BLOB | bytestring
 sfld: NUMBER | bytestring
 
 flds: bytestring
