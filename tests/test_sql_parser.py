@@ -1,5 +1,6 @@
 """Tests for SQLite Lark grammar."""
 from pathlib import Path
+from dataclasses import dataclass
 
 import pytest
 import prettyprinter as pp
@@ -8,7 +9,7 @@ from beartype.typing import List
 
 import ki
 from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate
-from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete, NtDelete
+from ki.sqlite import SQLiteTransformer, Table, Insert, Statement, Update, Delete
 from tests.test_parser import get_parser, debug_lark_error
 
 
@@ -39,10 +40,10 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 def test_transformer():
     assert transform(BLOCK) == [
-        Delete(table=Table.Notes, row=1645010162168),
-        Delete(table=Table.Notes, row=1645027705329),
-        Insert(table=Table.Notes, data=SQLNote(mid=1651202298367, guid="D(l.-iAXR1", tags=(), flds=("a", "b[sound:1sec.mp3]"))),
-        Insert(table=Table.Notes, data=SQLNote(mid=1651232485378, guid="H0%>O*C~M!", tags=(), flds=("Who introduced the notion of a direct integral in functional analysis?", "John von Neumann"))),
+        NotesDelete(row=1645010162168),
+        NotesDelete(row=1645027705329),
+        SQLNote(mid=1651202298367, guid="D(l.-iAXR1", tags=(), flds=("a", "b[sound:1sec.mp3]")),
+        SQLNote(mid=1651232485378, guid="H0%>O*C~M!", tags=(), flds=("Who introduced the notion of a direct integral in functional analysis?", "John von Neumann")),
     ]
 
 
@@ -57,9 +58,9 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(164
 
 def test_transformer_on_update_commands():
     assert transform(UPDATE) == [
-        Update(table=Table.Notes, assignments={"mod": 1645221606, "flds": "aa\x1fbb", "sfld": "aa", "csum": 3771269976}, row=1645010162168),
-        Delete(table=Table.Notes, row=1645027705329),
-        Insert(table=Table.Notes, data=SQLNote(mid=1645010146011, guid="f}:^>jzMjG", tags=(), flds=("f", "g"))),
+        NotesUpdate(updates=((Column.mod, 1645221606), (Column.flds, "aa\x1fbb"), (Column.sfld, "aa"), (Column.csum, 3771269976),), row=1645010162168),
+        NotesDelete(row=1645027705329),
+        SQLNote(mid=1645010146011, guid="f}:^>jzMjG", tags=(), flds=("f", "g")),
     ]
 
 
@@ -69,7 +70,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_empty_insert():
-    assert transform(EMPTYISH) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="ku}V%9e9,l", tags=(), flds=("", "")))]
+    assert transform(EMPTYISH) == [SQLNote(mid=1667061149792, guid="ku}V%9e9,l", tags=(), flds=("", ""))]
 
 
 QUOTES = r"""
@@ -79,7 +80,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_single_quotes():
-    assert transform(QUOTES) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="|o/qdllw(", tags=(), flds=("", "'")))]
+    assert transform(QUOTES) == [SQLNote(mid=1667061149792, guid="|o/qdllw(", tags=(), flds=("", "'"))]
 
 
 THREE_FIELDS = r"""
@@ -88,7 +89,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_three_fields():
-    assert transform(THREE_FIELDS) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149794, guid="roH<$&er7G", tags=(), flds=("", "", "")))]
+    assert transform(THREE_FIELDS) == [SQLNote(mid=1667061149794, guid="roH<$&er7G", tags=(), flds=("", "", ""))]
 
 
 TRAILING_EMPTY_FIELD = r"""
@@ -98,7 +99,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_trailing_empty_field():
-    assert transform(TRAILING_EMPTY_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149794, guid="r#){>b5q^b", tags=(), flds=("", "0", "")))]
+    assert transform(TRAILING_EMPTY_FIELD) == [SQLNote(mid=1667061149794, guid="r#){>b5q^b", tags=(), flds=("", "0", ""))]
 
 
 ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD = r"""
@@ -107,7 +108,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_single_quote_in_sort_field():
-    assert transform(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="OJl<Xj<>{H", tags=(), flds=("'", "")))]
+    assert transform(ESCAPED_SINGLE_QUOTE_AS_SORT_FIELD) == [SQLNote(mid=1667061149792, guid="OJl<Xj<>{H", tags=(), flds=("'", ""))]
 
 
 INTEGER_SORT_FIELD = r"""
@@ -116,7 +117,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_integer_sort_field():
-    assert transform(INTEGER_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="F,y8PO5.KP", tags=(), flds=("0", "")))]
+    assert transform(INTEGER_SORT_FIELD) == [SQLNote(mid=1667061149792, guid="F,y8PO5.KP", tags=(), flds=("0", ""))]
 
 
 RAW_BYTES_IN_SORT_FIELD = r"""
@@ -125,7 +126,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_raw_bytes_in_sort_field():
-    assert transform(RAW_BYTES_IN_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="O#4+2LG`3{", tags=(), flds=("\x0a", "")))]
+    assert transform(RAW_BYTES_IN_SORT_FIELD) == [SQLNote(mid=1667061149792, guid="O#4+2LG`3{", tags=(), flds=("\x0a", ""))]
 
 
 SURROGATE_UTF_BYTES = r"""
@@ -134,7 +135,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_surrogate_utf_bytes():
-    assert transform(SURROGATE_UTF_BYTES) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149796, guid="c5zvCfp,h%", tags=(), flds=(",-򁿈AÜ", "")))]
+    assert transform(SURROGATE_UTF_BYTES) == [SQLNote(mid=1667061149796, guid="c5zvCfp,h%", tags=(), flds=(",-򁿈AÜ", ""))]
 
 
 DECIMALS_IN_SORT_FIELD = r"""
@@ -143,7 +144,7 @@ INSERT INTO notes(id,guid,mid,mod,usn,tags,flds,sfld,csum,flags,data) VALUES(165
 
 
 def test_transformer_on_decimals_in_sort_field():
-    assert transform(DECIMALS_IN_SORT_FIELD) == [Insert(table=Table.Notes, data=SQLNote(mid=1667061149792, guid="q6qBOHAT=6", tags=(), flds=(".1", "")))]
+    assert transform(DECIMALS_IN_SORT_FIELD) == [SQLNote(mid=1667061149792, guid="q6qBOHAT=6", tags=(), flds=(".1", ""))]
 
 
 with open(Path(ki.__file__).parent.parent / "tests" / "update.sql", "r", encoding="UTF-8") as f:
@@ -160,7 +161,7 @@ INSERT INTO cards(id,nid,did,ord,mod,usn,type,queue,due,ivl,factor,reps,lapses,"
 
 
 def test_transformer_on_card_inserts():
-    assert transform(CARDS) == [Insert(table=Table.Cards, data=SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0))]
+    assert transform(CARDS) == [SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0)]
 
 
 DECKS = r"""
@@ -171,7 +172,7 @@ INSERT INTO graves(oid,type,usn) VALUES(1651363201001,2,-1);
 
 
 def test_transformer_on_decks_from_v18_schema():
-    assert transform(DECKS) == [Insert(table=Table.Decks, data=SQLDeck(did=1651363201000,deckname=("Default", "0")))]
+    assert transform(DECKS) == [SQLDeck(did=1651363201000,deckname=("Default", "0"))]
 
 
 FIELDS = r"""
@@ -186,10 +187,10 @@ DELETE FROM templates WHERE ntid=1667061149792 AND ord=0;
 
 def test_transformer_on_field_deletions_from_v18_schema():
     assert transform(FIELDS) == [
-        NtDelete(table=Table.Fields, ntid=1667061149792, ord=0),
-        NtDelete(table=Table.Fields, ntid=1667061149792, ord=1),
-        Delete(table=Table.Notetypes, row=1667061149792),
-        NtDelete(table=Table.Templates, ntid=1667061149792, ord=0),
+        FieldsDelete(ntid=1667061149792, ord=0),
+        FieldsDelete(ntid=1667061149792, ord=1),
+        NotetypesDelete(row=1667061149792),
+        TemplatesDelete(ntid=1667061149792, ord=0),
     ]
 
 
@@ -204,9 +205,9 @@ INSERT INTO templates(ntid,ord,name,mtime_secs,usn,config) VALUES(1651363200000,
 
 def test_transformer_on_schema_18_template_insertions():
     assert transform(TEMPLATES) == [
-        Insert(table=Table.Fields, data=SQLField(ntid=1651363200000, ord=0, fieldname="0")),
-        Insert(table=Table.Notetypes, data=SQLNotetype(ntid=1651363200000, ntname='0')),
-        Insert(table=Table.Templates, data=SQLTemplate(ntid=1651363200000, ord=0, tmplname='0')),
+        SQLField(ntid=1651363200000, ord=0, fieldname="0"),
+        SQLNotetype(ntid=1651363200000, ntname='0'),
+        SQLTemplate(ntid=1651363200000, ord=0, tmplname='0'),
     ]
 
 
@@ -218,7 +219,7 @@ INSERT INTO graves(oid,type,usn) VALUES(1651363202000,2,-1);
 
 def test_transformer_on_schema_18_deck_updates():
     assert transform(DECK_UPDATE) == [
-        Update(table=Table.Decks, assignments={"name": "blank", "mtime_secs": 1651363202}, row=1651363201000),
+        DecksUpdate(updates=((Column.name, ("blank",)), (Column.mtime_secs, 1651363202)), row=1651363201000),
     ]
 
 
@@ -238,11 +239,11 @@ INSERT INTO templates(ntid,ord,name,mtime_secs,usn,config) VALUES(1651363200000,
 
 def test_transformer_on_schema_18_card_insert_redux():
     assert transform(CARD_INSERT) == [
-        Insert(table=Table.Cards, data=SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0)),
-        Insert(table=Table.Fields, data=SQLField(ntid=1651363200000,ord=0,fieldname="0")),
-        Insert(table=Table.Notes, data=SQLNote(guid="wC&{B}s3O|", mid=1651363200000, tags=(), flds=("",))),
-        Insert(table=Table.Notetypes, data=SQLNotetype(ntid=1651363200000, ntname='0')),
-        Insert(table=Table.Templates, data=SQLTemplate(ntid=1651363200000, ord=0, tmplname='0')),
+        SQLCard(cid=1651363200000,nid=1651363200000,did=1,ord=0),
+        SQLField(ntid=1651363200000,ord=0,fieldname="0"),
+        SQLNote(guid="wC&{B}s3O|", mid=1651363200000, tags=(), flds=("",)),
+        SQLNotetype(ntid=1651363200000, ntname='0'),
+        SQLTemplate(ntid=1651363200000, ord=0, tmplname='0'),
     ]
 
 
@@ -257,8 +258,8 @@ UPDATE notes SET guid='g;a&:e3_^~' WHERE id=1651363200000;
 
 def test_transformer_on_schema_18_note_set_due():
     assert transform(NOTE_SET_DUE) == [
-        Update(table=Table.Cards, assignments={"due": 2}, row=1651363200000),
-        Update(table=Table.Notes, assignments={"guid": "g;a&:e3_^~"}, row=1651363200000),
+        CardsUpdate(updates=((Column.due, 2),), row=1651363200000),
+        NotesUpdate(updates=((Column.guid, "g;a&:e3_^~"),), row=1651363200000),
     ]
 
 
@@ -269,7 +270,7 @@ INSERT INTO notetypes(id,name,mtime_secs,usn,config) VALUES(1651363200000,''||X'
 
 def test_transformer_on_schema_18_note_set_due():
     assert transform(NOTETYPE_INSERT) == [
-        Insert(table=Table.Notetypes, data=SQLNotetype(ntid=1651363200000, ntname="\x1f"))
+        SQLNotetype(ntid=1651363200000, ntname="\x1f")
     ]
 
 

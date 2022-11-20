@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """A Lark transformer for the ki note grammar."""
 from enum import Enum
+from dataclasses import dataclass
 
+import prettyprinter as pp
 from loguru import logger
 
 from lark import Transformer
 from lark.lexer import Token
 
 from beartype import beartype
+from beartype.door import is_bearable
 from beartype.typing import (
     List,
     Dict,
@@ -95,7 +98,7 @@ class Column(Enum):
     kind = "kind"
     config = "config"
 
-COLUMN_NAME_MAP = dict(Column.__members__).items()
+COLUMN_NAME_MAP = dict(Column.__members__)
 
 # This should be a dataclass.
 NotetypeField = bytes
@@ -126,6 +129,8 @@ TemplateKeyValue = Union[
     Tuple[Literal[Column.config], Template],
 ]
 
+USED = {Column.mid, Column.guid, Column.tags, Column.flds, Column.did, Column.name, Column.config}
+
 KeyValue = Union[
     NoteKeyValue,
     CardKeyValue,
@@ -145,13 +150,46 @@ FieldKeyValues = Tuple[FieldKeyValue, ...]
 NotetypeKeyValues = Tuple[NotetypeKeyValue, ...]
 TemplateKeyValues = Tuple[TemplateKeyValue, ...]
 
+
 # Update types for each table.
-NotesUpdate = Tuple[NoteKeyValues, Row]
-CardsUpdate = Tuple[CardKeyValues, Row]
-DecksUpdate = Tuple[DeckKeyValues, Row]
-FieldsUpdate = Tuple[FieldKeyValues, Row]
-NotetypesUpdate = Tuple[NotetypeKeyValues, Row]
-TemplatesUpdate = Tuple[TemplateKeyValues, Row]
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NotesUpdate:
+    updates: NoteKeyValues
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class CardsUpdate:
+    updates: CardKeyValues
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class DecksUpdate:
+    updates: DeckKeyValues
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class FieldsUpdate:
+    updates: FieldKeyValues
+    ntid: Ntid
+    ord: Ord
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NotetypesUpdate:
+    updates: NotetypeKeyValues
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class TemplatesUpdate:
+    updates: TemplateKeyValues
+    ntid: Ntid
+    ord: Ord
 
 # Our new `Update` type.
 Update = Union[
@@ -164,12 +202,38 @@ Update = Union[
 ]
 
 # Delete types for each table.
-NotesDelete = Row
-CardsDelete = Row
-DecksDelete = Row
-FieldsDelete = Tuple[Ntid, Ord]
-NotetypesDelete = Row
-TemplatesDelete = Tuple[Ntid, Ord]
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NotesDelete:
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class CardsDelete:
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class DecksDelete:
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class FieldsDelete:
+    ntid: Ntid
+    ord: Ord
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class NotetypesDelete:
+    row: Row
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class TemplatesDelete:
+    ntid: Ntid
+    ord: Ord
 
 # Our new `Delete` type.
 Delete = Union[
@@ -208,9 +272,28 @@ class SQLiteTransformer(Transformer):
 
 
     @beartype
-    def update(self, xs: List[Union[Table, KeyValues, Row]]) -> Update:
+    def update(self, xs: List[Union[Table, KeyValues, Row, Tuple[Ntid, Ord]]]) -> Update:
         assert len(xs) == 3
-        return Update(table=xs[0], assignments=xs[1], row=xs[2])
+        table, updates, row = xs
+        assert isinstance(table, Table)
+        assert is_bearable(updates, KeyValues)
+        if table == Table.Notes:
+            return NotesUpdate(updates=updates, row=row)
+        if table == Table.Cards:
+            return CardsUpdate(updates=updates, row=row)
+        if table == Table.Decks:
+            return DecksUpdate(updates=updates, row=row)
+        if table == Table.Fields:
+            assert len(row) == 2
+            ntid, ord = row
+            return FieldsUpdate(updates=updates, ntid=ntid, ord=ord)
+        if table == Table.Notetypes:
+            return NotetypesUpdate(updates=updates, row=row)
+        if table == Table.Templates:
+            assert len(row) == 2
+            ntid, ord = row
+            return TemplatesUpdate(updates=updates, ntid=ntid, ord=ord)
+        raise ValueError(f"Bad table: {table}")
 
     @beartype
     def delete(self, xs: List[Union[Table, Row]]) -> Delete:
@@ -285,22 +368,28 @@ class SQLiteTransformer(Transformer):
         return Table.Templates
 
     @beartype
-    def assignments(self, xs: List[KeyValue]) -> KeyValues:
-        return tuple(xs)
+    def assignments(self, xs: List[Union[KeyValue, None]]) -> KeyValues:
+        return tuple(filter(lambda x: x is not None, xs))
 
     @beartype
-    def assignment(self, ts: List[Union[Token, Value]]) -> KeyValue:
+    def assignment(self, ts: List[Union[Token, Value]]) -> Union[KeyValue, None]:
         assert len(ts) == 2
         name, val = ts
         if name not in COLUMN_NAME_MAP:
             raise ValueError(f"Invalid column name: {name}")
         column = COLUMN_NAME_MAP[name]
+        if column not in USED:
+            return None
         return (column, val)
 
     @beartype
-    def row(self, xs: List[int]) -> int:
-        assert len(xs) == 1
-        return xs[0]
+    def row(self, xs: List[int]) -> Union[Row, Tuple[Ntid, Ord]]:
+        assert len(xs) in (1, 2)
+        if len(xs) == 1:
+            return xs[0]
+        if len(xs) == 2:
+            return tuple(xs)
+        raise ValueError(f"Row specified must be length 1 or 2: {xs}")
 
     @beartype
     def ord_row(self, xs: List[int]) -> int:

@@ -6,7 +6,7 @@ diff: stmt*
 
 // A ``stmt`` is either an ``insert``, a ``delete``, or an ``update``.
 
-stmt: insert | update | delete | nt_delete | bad
+stmt: insert | update | delete | bad
 insert: "INSERT" "INTO" insertion ";"
 update: "UPDATE" TABLE "SET" assignments "WHERE" row ";"
 delete: "DELETE" "FROM" TABLE "WHERE" row ";"
