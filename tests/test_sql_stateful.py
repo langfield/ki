@@ -18,7 +18,7 @@ from beartype.door import is_bearable
 from beartype.typing import Set, List, TypeVar, Iterable, Callable
 
 import hypothesis.strategies as st
-from hypothesis import settings, Verbosity
+from hypothesis import settings, Verbosity, Phase
 from hypothesis.stateful import (
     rule,
     precondition,
@@ -369,9 +369,11 @@ class AnkiCollection(RuleBasedStateMachine):
 
 
 AnkiCollection.TestCase.settings = settings(
-    max_examples=50,
+    max_examples=500,
     stateful_step_count=50,
     verbosity=Verbosity.normal,
     deadline=None,
+    phases=[Phase.explicit, Phase.reuse, Phase.generate, Phase.target, Phase.explain],
+
 )
 TestAnkiCollection = AnkiCollection.TestCase
