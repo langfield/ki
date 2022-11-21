@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import prettyprinter as pp
 from loguru import logger
+from google.protobuf.json_format import MessageToDict
 
 from lark import Transformer
 from lark.lexer import Token
@@ -19,6 +20,7 @@ from beartype.typing import (
     Any,
     Literal,
 )
+from anki.notetypes_pb2 import Notetype as NotetypePb2
 
 from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate, Notetype
 
@@ -102,7 +104,9 @@ class Column(Enum):
 COLUMN_NAME_MAP = dict(Column.__members__)
 
 # This should be a dataclass.
-NotetypeField = bytes
+NotetypeConfig = Dict[str, str]
+NotetypeFieldConfig = Dict[str, str]
+NotetypeTemplateConfig = Dict[str, str]
 
 # Key-value pairs for updates.
 NoteKeyValue = Union[
@@ -119,18 +123,20 @@ DeckKeyValue = Union[
 ]
 FieldKeyValue = Union[
     Tuple[Literal[Column.name], str],
-    Tuple[Literal[Column.config], NotetypeField],
+    Tuple[Literal[Column.config], NotetypeFieldConfig],
 ]
 NotetypeKeyValue = Union[
     Tuple[Literal[Column.name], str],
-    Tuple[Literal[Column.config], Notetype],
+    Tuple[Literal[Column.config], NotetypeConfig],
 ]
 TemplateKeyValue = Union[
     Tuple[Literal[Column.name], str],
-    Tuple[Literal[Column.config], Template],
+    Tuple[Literal[Column.config], NotetypeTemplateConfig],
 ]
+UnparsedProtoBufConfigKeyValue = Tuple[Literal[Column.config], bytes]
 
 USED = {Column.mid, Column.guid, Column.tags, Column.flds, Column.did, Column.name, Column.config}
+
 
 KeyValue = Union[
     NoteKeyValue,
@@ -139,6 +145,7 @@ KeyValue = Union[
     FieldKeyValue,
     NotetypeKeyValue,
     TemplateKeyValue,
+    UnparsedProtoBufConfigKeyValue,
 ]
 KeyValues = Tuple[KeyValue, ...]
 
@@ -289,12 +296,30 @@ class SQLiteTransformer(Transformer):
         if table == Table.Fields:
             assert len(row) == 2
             ntid, ord = row
+            updates = dict(updates)
+            if Column.config in updates:
+                msg = NotetypePb2.Field.Config()
+                msg.ParseFromString(updates[Column.config])
+                updates |= {Column.config: MessageToDict(msg)}
+            updates = tuple(updates.items())
             return FieldsUpdate(updates=updates, ntid=ntid, ord=ord)
         if table == Table.Notetypes:
+            updates = dict(updates)
+            if Column.config in updates:
+                msg = NotetypePb2.Config()
+                msg.ParseFromString(updates[Column.config])
+                updates |= {Column.config: MessageToDict(msg)}
+            updates = tuple(updates.items())
             return NotetypesUpdate(updates=updates, row=row)
         if table == Table.Templates:
             assert len(row) == 2
             ntid, ord = row
+            updates = dict(updates)
+            if Column.config in updates:
+                msg = NotetypePb2.Template.Config()
+                msg.ParseFromString(updates[Column.config])
+                updates |= {Column.config: MessageToDict(msg)}
+            updates = tuple(updates.items())
             return TemplatesUpdate(updates=updates, ntid=ntid, ord=ord)
         raise ValueError(f"Bad table: {table}")
 
@@ -404,6 +429,8 @@ class SQLiteTransformer(Transformer):
         if column == Column.flds:
             die_if_unbearable(val, str)
             val = tuple(val.split("\x1f"))
+        if column == Column.config:
+            val = bytes.fromhex(val)
         return (column, val)
 
     @beartype

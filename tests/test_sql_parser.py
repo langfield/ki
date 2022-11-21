@@ -9,7 +9,7 @@ from beartype.typing import List
 
 import ki
 from ki.types import SQLNote, SQLCard, SQLDeck, SQLField, SQLNotetype, SQLTemplate
-from ki.sqlite import SQLiteTransformer, Statement, CardsUpdate, DecksUpdate, Column, FieldsDelete, NotesDelete, NotetypesDelete, TemplatesDelete, NotesUpdate, FieldsUpdate
+from ki.sqlite import SQLiteTransformer, Statement, Column, FieldsDelete, NotesDelete, NotetypesDelete, TemplatesDelete, NotesUpdate, FieldsUpdate, CardsUpdate, DecksUpdate, NotetypesUpdate, TemplatesUpdate
 from tests.test_parser import get_parser, debug_lark_error
 
 
@@ -311,4 +311,17 @@ UPDATE templates SET name='񀤂Â', config=x'0a067b7b31317d7d1207307b7b31317d7d'
 
 def test_transformer_on_schema_18_update_template_config():
     assert transform(UPDATE_TEMPLATE_CONFIG) == [
+        SQLCard(cid=1651363202000, nid=1651363202000, did=1, ord=0),
+        SQLDeck(did=1651363202000, deckname=('Default', '3𰤀Oñ\U000364d8')),
+        SQLField(ntid=1651363202000, ord=0, fieldname='aqjr'),
+        SQLField(ntid=1651363202000, ord=1, fieldname='10'),
+        SQLField(ntid=1651363202000, ord=2, fieldname='h47'),
+        FieldsUpdate(updates=((Column.name, '11'),), ntid=1667061149796, ord=0),
+        FieldsDelete(ntid=1667061149796, ord=1),
+        SQLNote(mid=1667061149794, guid='p~Jon.}y&(', tags=(), flds=('', '', 'Þ\uf546')),
+        SQLNotetype(ntid=1651363202000, ntname='t¤'),
+        NotetypesUpdate(updates=((Column.name, 'Ú\U000c2ba1'), (Column.config, {'css': '.card {\n    font-family: arial;\n    font-size: 20px;\n    text-align: center;\n    color: black;\n    background-color: white;\n}\n', 'latexPre': '\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n', 'latexPost': '\\end{document}', 'reqs': [{'kind': 'KIND_ANY', 'fieldOrds': [0]}]})), row=1667061149796),
+        SQLTemplate(ntid=1651363202000, ord=0, tmplname='Ë'),
+        SQLTemplate(ntid=1651363202000, ord=1, tmplname='\x15\U000f764e»\x97'),
+        TemplatesUpdate(updates=((Column.name, '\U00040902Â'), (Column.config, {'qFormat': '{{11}}', 'aFormat': '0{{11}}'})), ntid=1667061149796, ord=0),
     ]
