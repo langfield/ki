@@ -14,33 +14,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.9"]
         os: [windows-latest]
 
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
+
       - if: matrix.os == 'windows-latest'
         run: |
           choco install html-tidy
           git config --global core.symlinks false
+
       - name: Configure git
         run: |
           git config --global user.email "ki@example.com"
           git config --global user.name "Ki GithubActions"
-      - name: Install dependencies
-        run: |
-          pip install pytest wheel
-          pip install -r requirements.txt
-          pip install -r dev-requirements.txt
-      - name: Install ki
-        run: |
-          pip install .
+
       - name: Setup tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate }}
         uses: mxschmitt/action-tmate@v3

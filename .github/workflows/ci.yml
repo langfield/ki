@@ -1,0 +1,28 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get install tidy
+
+      - if: matrix.os == 'windows-latest'
+        run: |
+          git config --global core.symlinks false
+
+      - name: Configure git
+        run: |
+          git config --global user.email "ki@example.com"
+          git config --global user.name "Ki GithubActions"
+          git --version

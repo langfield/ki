@@ -1,6 +1,0 @@
-[run]
-dynamic_context = test_function
-
-[report]
-omit = tests/*
-show_missing = true
