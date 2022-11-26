@@ -59,6 +59,7 @@ from anki.collection import Collection, Note, OpChangesWithId
 from anki.importing.noteimp import NoteImporter
 
 from beartype import beartype
+from beartype.door import is_bearable
 from beartype.typing import (
     Set,
     List,
@@ -109,6 +110,7 @@ from ki.types import (
     Submodule,
     MediaBytes,
     AddedMedia,
+    SQLNote,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
@@ -197,6 +199,64 @@ RENAMED = GitChangeType.RENAMED
 DELETED = GitChangeType.DELETED
 MODIFIED = GitChangeType.MODIFIED
 TYPECHANGED = GitChangeType.TYPECHANGED
+
+DECK_CONFIG = r"""CREATE TABLE deck_config (
+  id integer PRIMARY KEY NOT NULL,
+  name text NOT NULL,
+  mtime_secs integer NOT NULL,
+  usn integer NOT NULL,
+  config blob NOT NULL
+)"""
+
+CONFIG = r"""CREATE TABLE config (
+  KEY text NOT NULL PRIMARY KEY,
+  usn integer NOT NULL,
+  mtime_secs integer NOT NULL,
+  val blob NOT NULL
+) without rowid"""
+
+FIELDS = r"""CREATE TABLE fields (
+  ntid integer NOT NULL,
+  ord integer NOT NULL,
+  name text NOT NULL,
+  config blob NOT NULL,
+  PRIMARY KEY (ntid, ord)
+) without rowid"""
+
+TEMPLATES = r"""CREATE TABLE templates (
+  ntid integer NOT NULL,
+  ord integer NOT NULL,
+  name text NOT NULL,
+  mtime_secs integer NOT NULL,
+  usn integer NOT NULL,
+  config blob NOT NULL,
+  PRIMARY KEY (ntid, ord)
+) without rowid"""
+
+NOTETYPES = r"""CREATE TABLE notetypes (
+  id integer NOT NULL PRIMARY KEY,
+  name text NOT NULL,
+  mtime_secs integer NOT NULL,
+  usn integer NOT NULL,
+  config blob NOT NULL
+)"""
+
+DECKS = r"""CREATE TABLE decks (
+  id integer PRIMARY KEY NOT NULL,
+  name text NOT NULL,
+  mtime_secs integer NOT NULL,
+  usn integer NOT NULL,
+  common blob NOT NULL,
+  kind blob NOT NULL
+)"""
+
+TAGS = r"""CREATE TABLE tags (
+  tag text NOT NULL PRIMARY KEY,
+  usn integer NOT NULL,
+  collapsed boolean NOT NULL,
+  config blob NULL
+) without rowid"""
+
 
 
 @beartype
@@ -396,12 +456,19 @@ def get_guid(fields: List[str]) -> str:
     m.update("__".join(fields).encode("utf-8"))
     x = reduce(lambda h, b: (h << 8) + b, m.digest()[:8], 0)
 
-    # convert to the weird base91 format that Anki uses
+    # Convert to the weird base91 format that Anki uses.
     chars = []
     while x > 0:
         chars.append(BASE91_TABLE[x % len(BASE91_TABLE)])
         x //= len(BASE91_TABLE)
     return "".join(reversed(chars))
+
+
+@beartype
+def guid_to_bytes(guid: str) -> bytes:
+    """Get bytes from Anki GUID."""
+    digits = map(lambda c: BASE91_TABLE.index(c), guid)
+    return bytes([reduce(lambda x, acc: acc * 91 + x, digits, 0)])
 
 
 @beartype
@@ -540,9 +607,9 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 
 
 @beartype
-def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFile:
-    """Get note path from sort field text."""
-    field_text = colnote.sortf_text
+def get_note_filename_slug(mdnote: MdNote) -> str:
+    """Generate a meaningful filename for a note."""
+    field_text = mdnote.sortf_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -551,14 +618,14 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = colnote.sortf_text
+        field_text = mdnote.sortf_text
 
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
 
     # If the slug is still empty, use all the fields.
     if len(slug) == 0:
-        contents = " ".join(colnote.n.values())
+        contents = " ".join(mdnote.fields.values())
         name = contents[:MAX_FILENAME_LEN]
         slug = F.slugify(name)
 
@@ -566,15 +633,17 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # a `Path('.')` which is a bug, and causes a runtime exception. If all else
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
-        blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode(UTF8))
-        slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
+        slug: str = f"{mdnote.model}--{guid_to_bytes(mdnote.guid).hex()}"
+        F.yellow(f"Slug for note with guid '{mdnote.guid}' is empty...")
+        F.yellow(f"Using hex representation of guid as filename: '{slug}'")
 
-        # Note IDs are in milliseconds.
-        dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
-        slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
-        F.yellow(f"Slug for note with guid '{colnote.n.guid}' is empty...")
-        F.yellow(f"Using blake2 hash of guid as filename: '{slug}'")
+    return slug
+
+
+@beartype
+def get_note_path(colnote: ColNote2, deck_dir: Dir, card_name: str = "") -> NoFile:
+    """Get note path from filename slug."""
+    slug = colnote.filename
 
     if card_name != "":
         slug = f"{slug}_{card_name}"
@@ -1501,15 +1570,15 @@ def sqldiff(lca_col_file: File, remote_col_file: File) -> List[Statement]:
     logger.debug(f"lca hash: {F.md5(lca_col_file)}")
     logger.debug(f"remote hash: {F.md5(remote_col_file)}")
 
-    # Need to query diff for each table separately.
-    # May be good to use sqlparse from PyPI.
-    args = ["sqldiff", str(lca_col_file), str(remote_col_file)]
+    local: File = checkpoint_anki2(lca_col_file, "local")
+    remote: File = checkpoint_anki2(remote_col_file, "remote")
+    args = ["sqldiff", str(local), str(remote)]
     p = subprocess.run(args, check=True, capture_output=True)
     block = p.stdout.decode()
 
     filename = "sqlite.lark"
     start = "diff"
-    grammar_path = Path(ki.__file__).resolve().parent / filename
+    grammar_path = Path(__file__).resolve().parent / filename
     grammar = grammar_path.read_text(encoding="UTF-8")
     parser = Lark(grammar, start=start, parser="lalr")
 
@@ -1519,16 +1588,64 @@ def sqldiff(lca_col_file: File, remote_col_file: File) -> List[Statement]:
 
 
 @beartype
-def apply_statement(s: Statement) -> None:
-    """Apply the change specified by a single SQL command to the current repo."""
-    if isinstance(s, Insert):
-        pass
+def checkpoint_anki2(file: File, label: str) -> File:
+    """Checkpoint an Anki collection database file."""
+    copy = F.copyfile(file, F.chk(F.mkdtemp() / f"{label}.anki2"))
+    con = sqlite3.connect(copy)
+    cur = con.cursor()
+    tables = {
+        "deck_config": DECK_CONFIG,
+        "config": CONFIG,
+        "fields": FIELDS,
+        "templates": TEMPLATES,
+        "notetypes": NOTETYPES,
+        "decks": DECKS,
+        "tags": TAGS,
+    }
+    cur.execute("PRAGMA writable_schema=1;")
+    for name, sql in tables.items():
+        cur.execute(
+            f"UPDATE sqlite_master SET sql='{sql}' WHERE type='table' AND name='{name}';"
+        )
+    con.commit()
+    con.close()
+    con = sqlite3.connect(copy)
+    cur = con.cursor()
+    cur.execute("REINDEX;")
+    con.commit()
+    con.close()
+    return copy
 
 
 @beartype
-def apply_diff(xs: List[Statement]) -> None:
+def sqlnote_to_colnote(col: Collection, x: SQLNote) -> ColNote2:
+    """Convert a SQLNote into something that can be serialized to markdown."""
+    # Beartype will raise a mean-looking error if this is `None`.
+    notetype = M.notetype(col.models.get(x.mid, None))
+    assert len(notetype.flds) == len(x.flds)
+    fnames = [field.name for field in notetype.flds]
+    fields = zip(fnames, x.flds)
+    mdnote = MdNote(guid=x.guid, tags=x.tags, model=notetype.name, fields=fields, sortf_text=x.sortf_text)
+    filename = get_note_filename_slug(mdnote)
+    return ColNote2(mdnote=mdnote, filename=filename)
+
+
+@beartype
+def apply_statement(col: Collection, guids: Dict[str, NoteMetadata], s: Statement) -> None:
+    """Apply the change specified by a single SQL command to the current repo."""
+    if isinstance(s, SQLNote):
+        colnote: ColNote2 = sqlnote_to_colnote(col, s)
+        note: Note = col.get_note(guids[colnote.note.guid].nid)
+        did: DeckId = note.cards()[0].current_deck_id()
+        deckd: Path = F.chk(M.deckd(col.decks.name(did=did), targetd))
+        assert isinstance(deckd, Dir)
+
+
+@beartype
+def apply_diff(col: Collection, xs: List[Statement]) -> None:
     """Apply a diff consisting of a list of parsed SQL commands."""
-    set(map(apply_statement, xs))
+    guids = get_note_metadata(col)
+    set(map(partial(apply_statement, col, guids), xs))
 
 
 @click.group()

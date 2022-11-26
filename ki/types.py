@@ -349,6 +349,7 @@ class MdNote:
     tags: Tuple[str, ...]
     model: str
     fields: Mapping[str, str]
+    sortf_text: str
 
 
 @beartype
@@ -358,6 +359,14 @@ class SQLNote:
     guid: str
     tags: Tuple[str, ...]
     flds: Tuple[str, ...]
+    sortf_text: str
+
+
+@beartype
+@dataclass(frozen=True, eq=True)
+class ColNote2:
+    note: MdNote
+    filename: str
 
 
 @beartype

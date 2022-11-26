@@ -435,18 +435,13 @@ def colnote(col: Collection, nid: int) -> ColNote:
 
 
 @beartype
-def deckd(deck_name: str, targetdir: Dir) -> Dir:
-    """
-    Construct path to deck directory and create it, allowing the case in which
-    the directory already exists because we already created one of its
-    children, in which case this function is a no-op.
-    """
+def deckd(deck_name: str, targetdir: Dir) -> Path:
+    """Construct path to deck directory."""
     # Strip leading periods so we don't get hidden folders.
     components = deck_name.split("::")
     components = [re.sub(r"^\.", r"", comp) for comp in components]
     components = [re.sub(r"/", r"-", comp) for comp in components]
-    deck_path = Path(targetdir, *components)
-    return F.force_mkdir(deck_path)
+    return Path(targetdir, *components)
 
 
 @beartype
@@ -465,7 +460,7 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]
             fullname=name,
             children=children,
         )
-    deckdir = M.deckd(name, targetd)
+    deckdir = F.force_mkdir(M.deckd(name, targetd))
     mediadir: Dir = F.force_mkdir(deckdir / MEDIA)
     return Deck(
         did=did,
