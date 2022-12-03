@@ -3,7 +3,33 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    size: 86235
+    subdir: gitlib
+    url: https://github.com/jwiegley/gitlib/archive/1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f.tar.gz
+    name: gitlib
+    version: 3.1.3
+    sha256: e460f3fee0e5e3899d1af82baf2bfdc1e8c5af439d4d70d55928f56595fb7c75
+    pantry-tree:
+      size: 1137
+      sha256: 6ddb76fef276a63cb659b6d77ecf6c19d1c5e4e12bf39fe3525e8af1fd82129d
+  original:
+    subdir: gitlib
+    url: https://github.com/jwiegley/gitlib/archive/1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f.tar.gz
+- completed:
+    size: 86235
+    subdir: gitlib-libgit2
+    url: https://github.com/jwiegley/gitlib/archive/1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f.tar.gz
+    name: gitlib-libgit2
+    version: 3.1.2.1
+    sha256: e460f3fee0e5e3899d1af82baf2bfdc1e8c5af439d4d70d55928f56595fb7c75
+    pantry-tree:
+      size: 615
+      sha256: 070302078face7a07c282bb67d294bad73899f9fadfd82bce4550563aa92839a
+  original:
+    subdir: gitlib-libgit2
+    url: https://github.com/jwiegley/gitlib/archive/1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f.tar.gz
 snapshots:
 - completed:
     size: 648424

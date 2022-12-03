@@ -21,6 +21,9 @@ dependencies:
 - text
 - path-io
 - pureMD5
+- gitlib
+- gitlib-libgit2
+- bytestring
 
 ghc-options:
 - -Wall

@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Git (RepositoryOptions)
+import Git.Libgit2 (openLgRepository)
 import Path (Path, Abs, Rel, File, Dir, toFilePath, (</>))
 import Path.IO (resolveFile', resolveDir', ensureDir, listDir, doesFileExist)
 import Data.Text (Text)
-import Data.Typeable (Typeable)
-import Data.Digest.Pure.MD5 (md5)
 import Text.Printf (printf)
+import Data.Digest.Pure.MD5 (md5)
+import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (MonadIO)
 
 import qualified Path.Internal
@@ -83,10 +85,12 @@ continueClone :: Path Extant File -> Path Empty Dir -> IO ()
 continueClone colFile targetDir = do
   colFileContents <- LB.readFile (toFilePath colFile)
   let colFileMD5 = md5 colFileContents
+  writeFile (toFilePath gitIgnore) ".ki/backups"
   return ()
   where
     kiDir = ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
     mediaDir = ensureEmpty (absify targetDir </> Path.Internal.Path ".media")
+    gitIgnore = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
 
 
 main :: IO ()
