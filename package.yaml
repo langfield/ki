@@ -24,6 +24,8 @@ dependencies:
 - gitlib
 - gitlib-libgit2
 - bytestring
+- microaeson
+- sqlite-simple
 
 ghc-options:
 - -Wall

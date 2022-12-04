@@ -1,19 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Git (RepositoryOptions)
+import Git (repoPath, RepositoryOptions, defaultRepositoryOptions)
 import Git.Libgit2 (openLgRepository)
 import Path (Path, Abs, Rel, File, Dir, toFilePath, (</>))
 import Path.IO (resolveFile', resolveDir', ensureDir, listDir, doesFileExist)
-import Data.Text (Text)
 import Text.Printf (printf)
-import Data.Digest.Pure.MD5 (md5)
+import Data.Map (Map)
+import Data.Text (Text)
+import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import Data.Typeable (Typeable)
 import Control.Monad.IO.Class (MonadIO)
+import Database.SQLite.Simple.FromField (FromField)
 
 import qualified Path.Internal
+import qualified Data.Map as M
 import qualified Data.Text as T
+import qualified Data.Aeson.Micro as JSON
 import qualified Data.ByteString.Lazy as LB
+import qualified Database.SQLite.Simple as SQL
 
 
 class AbsIO a
@@ -32,6 +37,25 @@ data Leaf deriving (Typeable)
 data Link deriving (Typeable)
 data Pseudo deriving (Typeable)
 data WindowsLink deriving (Typeable)
+
+-- Mid, Guid, Tags, Flds, SortFld
+data SQLNote = SQLNote Integer Text Text Text Text deriving Show
+-- Ntid, Name, Config (ProtoBuf message).
+data SQLNotetype = SQLNotetype Integer Text Text deriving Show
+
+newtype Guid = Guid Text
+newtype Tags = Tags [Text]
+newtype Model = Model Text
+newtype Fields = Fields (Map Text Text)
+newtype SortField = SortField Text
+
+data MdNote = ColNote Guid Tags Model Fields SortField
+
+instance SQL.FromRow SQLNote where
+  fromRow = SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+
+instance SQL.FromRow SQLNotetype where
+  fromRow = SQLNotetype <$> SQL.field <*> SQL.field <*> SQL.field
 
 
 -- Ensure a directory is empty, creating it if necessary.
@@ -68,6 +92,10 @@ absify :: AbsIO a => Path a b -> Path Abs b
 absify (Path.Internal.Path s) = Path.Internal.Path s
 
 
+fillDir :: Path Empty Dir -> Path Extant Dir
+fillDir (Path.Internal.Path s) = Path.Internal.Path s
+
+
 -- Parse the collection and target directory, then call `continueClone`.
 clone :: String -> String -> IO ()
 clone colPath targetPath = do
@@ -81,16 +109,44 @@ clone colPath targetPath = do
     (Just colFile, Just targetDir) -> continueClone colFile targetDir
 
 
+writeRepo :: Path Extant File -> Path Extant Dir -> Path Empty Dir -> Path Empty Dir -> IO [String]
+writeRepo colFile targetDir kiDir mediaDir = do
+  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode configMap
+  conn <- SQL.open (toFilePath colFile)
+  notes <- SQL.query_ conn "SELECT (guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
+  models <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLNotetype]
+  return [""]
+  where
+    remoteMap = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
+    configMap = JSON.Object $ M.singleton "remote" $ remoteMap
+
+
 continueClone :: Path Extant File -> Path Empty Dir -> IO ()
-continueClone colFile targetDir = do
+continueClone colFile emptyTargetDir = do
+  -- Hash the collection file.
   colFileContents <- LB.readFile (toFilePath colFile)
   let colFileMD5 = md5 colFileContents
+  -- Add the backups directory to the `.gitignore` file.
   writeFile (toFilePath gitIgnore) ".ki/backups"
-  return ()
+  -- Convert `emptyTargetDir` to a `Path Extant Dir`.
+  let targetDir = fillDir emptyTargetDir
+  -- Create `.ki` and `_media` subdirectories.
+  maybeKiDir <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
+  maybeMediaDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
+  case (maybeKiDir, maybeMediaDir) of
+    (Nothing, _) -> printf "fatal: new '.ki' directory not empty"
+    (_, Nothing) -> printf "fatal: new '_media' directory not empty"
+    -- Write repository contents and commit.
+    (Just kiDir, Just mediaDir) -> writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5
   where
-    kiDir = ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
-    mediaDir = ensureEmpty (absify targetDir </> Path.Internal.Path ".media")
-    gitIgnore = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+    gitIgnore = absify emptyTargetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+
+
+writeInitialCommit :: Path Extant File -> Path Extant Dir -> Path Empty Dir -> Path Empty Dir -> MD5Digest -> IO ()
+writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5 = do
+  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir
+  repo <- openLgRepository $ defaultRepositoryOptions { repoPath = toFilePath targetDir }
+  return ()
 
 
 main :: IO ()
