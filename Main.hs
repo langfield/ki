@@ -23,12 +23,11 @@ import qualified Database.SQLite.Simple as SQL
 
 class AbsIO a
 
--- Extra base types for `Path`.
-data Empty deriving (Typeable)
+-- Extra base types for `Path` to distinguish between paths that exist (i.e.
+-- there is a file or directory there) and paths that do not.
 data Extant deriving (Typeable)
 data Missing deriving (Typeable)
 
-instance AbsIO Empty
 instance AbsIO Extant
 instance AbsIO Missing
 
@@ -58,8 +57,9 @@ instance SQL.FromRow SQLNotetype where
   fromRow = SQLNotetype <$> SQL.field <*> SQL.field <*> SQL.field
 
 
--- Ensure a directory is empty, creating it if necessary.
-ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Empty Dir))
+-- Ensure a directory is empty, creating it if necessary, and returning
+-- `Nothing` if it was not.
+ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Extant Dir))
 ensureEmpty dir = do
   ensureDir dir
   contents <- listDir dir
@@ -88,12 +88,9 @@ getExtantFile file = do
     False -> return Nothing
 
 
+-- Convert from an `Extant` or `Missing` path to an `Abs` path.
 absify :: AbsIO a => Path a b -> Path Abs b
 absify (Path.Internal.Path s) = Path.Internal.Path s
-
-
-fillDir :: Path Empty Dir -> Path Extant Dir
-fillDir (Path.Internal.Path s) = Path.Internal.Path s
 
 
 -- Parse the collection and target directory, then call `continueClone`.
@@ -109,7 +106,7 @@ clone colPath targetPath = do
     (Just colFile, Just targetDir) -> continueClone colFile targetDir
 
 
-writeRepo :: Path Extant File -> Path Extant Dir -> Path Empty Dir -> Path Empty Dir -> IO [String]
+writeRepo :: Path Extant File -> Path Extant Dir -> Path Extant Dir -> Path Extant Dir -> IO [String]
 writeRepo colFile targetDir kiDir mediaDir = do
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode configMap
   conn <- SQL.open (toFilePath colFile)
@@ -121,15 +118,13 @@ writeRepo colFile targetDir kiDir mediaDir = do
     configMap = JSON.Object $ M.singleton "remote" $ remoteMap
 
 
-continueClone :: Path Extant File -> Path Empty Dir -> IO ()
-continueClone colFile emptyTargetDir = do
+continueClone :: Path Extant File -> Path Extant Dir -> IO ()
+continueClone colFile targetDir = do
   -- Hash the collection file.
   colFileContents <- LB.readFile (toFilePath colFile)
   let colFileMD5 = md5 colFileContents
   -- Add the backups directory to the `.gitignore` file.
   writeFile (toFilePath gitIgnore) ".ki/backups"
-  -- Convert `emptyTargetDir` to a `Path Extant Dir`.
-  let targetDir = fillDir emptyTargetDir
   -- Create `.ki` and `_media` subdirectories.
   maybeKiDir <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
   maybeMediaDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
@@ -139,10 +134,10 @@ continueClone colFile emptyTargetDir = do
     -- Write repository contents and commit.
     (Just kiDir, Just mediaDir) -> writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5
   where
-    gitIgnore = absify emptyTargetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+    gitIgnore = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
 
 
-writeInitialCommit :: Path Extant File -> Path Extant Dir -> Path Empty Dir -> Path Empty Dir -> MD5Digest -> IO ()
+writeInitialCommit :: Path Extant File -> Path Extant Dir -> Path Extant Dir -> Path Extant Dir -> MD5Digest -> IO ()
 writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5 = do
   windowsLinks <- writeRepo colFile targetDir kiDir mediaDir
   repo <- openLgRepository $ defaultRepositoryOptions { repoPath = toFilePath targetDir }
