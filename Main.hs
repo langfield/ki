@@ -1,24 +1,29 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 module Main (main) where
 
-import Git (repoPath, RepositoryOptions, defaultRepositoryOptions)
+import Git (repoPath, defaultRepositoryOptions)
 import Git.Libgit2 (openLgRepository)
-import Path (Path, Abs, Rel, File, Dir, toFilePath, (</>))
+import Path (Path, Abs, File, Dir, toFilePath, (</>))
 import Path.IO (resolveFile', resolveDir', ensureDir, listDir, doesFileExist)
 import Text.Printf (printf)
 import Data.Map (Map)
 import Data.Text (Text)
+import Data.Text.ICU.Replace (replaceAll)
 import Data.Digest.Pure.MD5 (md5, MD5Digest)
 import Data.Typeable (Typeable)
-import Control.Monad.IO.Class (MonadIO)
-import Database.SQLite.Simple.FromField (FromField)
 
 import qualified Path.Internal
 import qualified Data.Map as M
 import qualified Data.Text as T
+import qualified Data.Text.ICU as ICU
 import qualified Data.Aeson.Micro as JSON
 import qualified Data.ByteString.Lazy as LB
+-- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
+
+
+-- ==================== Types, Typeclasses, and Instances ====================
 
 
 class AbsIO a
@@ -31,30 +36,75 @@ data Missing deriving (Typeable)
 instance AbsIO Extant
 instance AbsIO Missing
 
--- Extra type types for `Path`.
-data Leaf deriving (Typeable)
-data Link deriving (Typeable)
-data Pseudo deriving (Typeable)
-data WindowsLink deriving (Typeable)
-
 -- Mid, Guid, Tags, Flds, SortFld
 data SQLNote = SQLNote Integer Text Text Text Text deriving Show
--- Ntid, Name, Config (ProtoBuf message).
-data SQLNotetype = SQLNotetype Integer Text Text deriving Show
+
+data SQLModel = SQLModel
+  { sqlModelMid       :: Integer
+  , sqlModelName      :: Text
+  , sqlModelConfigHex :: Text
+  } deriving Show
+
+data SQLField = SQLField
+  { sqlFieldMid       :: Integer
+  , sqlFieldOrd       :: Integer
+  , sqlFieldName      :: Text
+  , sqlFieldConfigHex :: Text
+  } deriving Show
+
+data SQLTemplate = SQLTemplate
+  { sqlTemplateMid       :: Integer
+  , sqlTemplateOrd       :: Integer
+  , sqlTemplateName      :: Text
+  , sqlTemplateConfigHex :: Text
+  } deriving Show
+
+newtype Mid = Mid Integer deriving (Ord, Eq)
 
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
-newtype Model = Model Text
-newtype Fields = Fields (Map Text Text)
+newtype Fields = Fields (Map FieldName Text)
 newtype SortField = SortField Text
+newtype ModelName = ModelName Text
 
-data MdNote = ColNote Guid Tags Model Fields SortField
+type Filename = Text
+data MdNote = MdNote Guid ModelName Tags Fields SortField
+data ColNote = ColNote MdNote Filename
 
 instance SQL.FromRow SQLNote where
   fromRow = SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
 
-instance SQL.FromRow SQLNotetype where
-  fromRow = SQLNotetype <$> SQL.field <*> SQL.field <*> SQL.field
+instance SQL.FromRow SQLModel where
+  fromRow = SQLModel <$> SQL.field <*> SQL.field <*> SQL.field
+
+instance SQL.FromRow SQLField where
+  fromRow = SQLField <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+
+instance SQL.FromRow SQLTemplate where
+  fromRow = SQLTemplate <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+
+newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord)
+newtype FieldName = FieldName Text deriving (Eq, Ord)
+newtype TemplateName = TemplateName Text
+
+data Field = Field
+  { fieldMid :: Mid
+  , fieldOrd :: FieldOrd
+  , fieldName :: FieldName
+  }
+data Template = Template
+  { templateMid :: Mid
+  , templateOrd :: FieldOrd
+  , templateName :: TemplateName
+  }
+data Model = Model
+  { modelMid :: Mid
+  , modelName :: ModelName
+  , modelFieldsAndTemplatesByOrd :: Map FieldOrd (Field, Template)
+  }
+
+
+-- ========================== Path utility functions ==========================
 
 
 -- Ensure a directory is empty, creating it if necessary, and returning
@@ -93,6 +143,103 @@ absify :: AbsIO a => Path a b -> Path Abs b
 absify (Path.Internal.Path s) = Path.Internal.Path s
 
 
+-- ================================ Core logic ================================
+
+
+mapModelsByMid :: [SQLModel] -> Map Mid SQLModel
+mapModelsByMid = M.fromList . map unpack
+  where
+    unpack :: SQLModel -> (Mid, SQLModel)
+    unpack nt@(SQLModel mid _ _) = (Mid mid, nt)
+
+
+mapFieldsByMid :: [Field] -> Map Mid (Map FieldOrd Field)
+mapFieldsByMid = foldr f M.empty
+  where
+    g :: FieldOrd -> Field -> Map FieldOrd Field -> Maybe (Map FieldOrd Field)
+    g ord fld fieldsByOrd = Just $ M.insert ord fld fieldsByOrd
+    f :: Field -> Map Mid (Map FieldOrd Field) -> Map Mid (Map FieldOrd Field)
+    f fld@(Field mid ord name) = M.update (g ord fld) mid
+
+
+mapTemplatesByMid :: [Template] -> Map Mid (Map FieldOrd Template)
+mapTemplatesByMid = foldr f M.empty
+  where
+    g :: FieldOrd -> Template -> Map FieldOrd Template -> Maybe (Map FieldOrd Template)
+    g ord tmpl fieldsByOrd = Just $ M.insert ord tmpl fieldsByOrd
+    f :: Template -> Map Mid (Map FieldOrd Template) -> Map Mid (Map FieldOrd Template)
+    f tmpl@(Template mid ord name) = M.update (g ord tmpl) mid
+
+
+stripHtmlTags :: String -> String
+stripHtmlTags ""         = ""
+stripHtmlTags ('<' : xs) = stripHtmlTags $ drop 1 $ dropWhile (/= '>') xs
+stripHtmlTags (x : xs)   = x : stripHtmlTags xs
+
+
+plainToHtml :: Text -> Text
+plainToHtml s =
+  case ICU.find htmlRegex t of
+    Nothing -> T.replace "\n" "<br>" t
+    (Just _) -> t
+  where
+    htmlRegex = "</?\\s*[a-z-][^>]*\\s*>|(\\&(?:[\\w\\d]+|#\\d+|#x[a-f\\d]+);)"
+    sub :: Text -> Text
+    sub = replaceAll "<div>\\s*</div>" ""
+        . replaceAll "<i>\\s*</i>" ""
+        . replaceAll "<b>\\s*</b>" ""
+        . T.replace "&nbsp;" " "
+        . T.replace "&amp;" "&"
+        . T.replace "&gt;" ">"
+        . T.replace "&lt;" "<"
+    t = sub s
+
+
+getModel :: Map Mid (Map FieldOrd (Field, Template)) -> SQLModel -> Maybe Model
+getModel fieldsAndTemplatesByMid (SQLModel mid name config) =
+  case M.lookup (Mid mid) fieldsAndTemplatesByMid of
+    Just m -> Just (Model (Mid mid) (ModelName name) m)
+    Nothing -> Nothing
+
+getFieldsAndTemplatesByMid :: Map Mid (Map FieldOrd Field) -> Map Mid (Map FieldOrd Template) -> Map Mid (Map FieldOrd (Field, Template))
+getFieldsAndTemplatesByMid fieldsByMid templatesByMid = M.foldrWithKey f M.empty fieldsByMid
+  where
+    f :: Mid -> Map FieldOrd Field -> Map Mid (Map FieldOrd (Field, Template)) -> Map Mid (Map FieldOrd (Field, Template))
+    f mid fieldsByOrd acc =
+      case M.lookup mid templatesByMid of
+        Just templatesByOrd -> M.insert mid (M.intersectionWith (\fld tmpl -> (fld, tmpl)) fieldsByOrd templatesByOrd) acc
+        Nothing -> acc
+
+getField :: SQLField -> Field
+getField (SQLField mid ord name _) = Field (Mid mid) (FieldOrd ord) (FieldName name)
+
+getTemplate :: SQLTemplate -> Template
+getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (FieldOrd ord) (TemplateName name)
+
+getFilename :: MdNote -> Text
+getFilename (MdNote guid model _ fields (SortField sfld)) = (T.pack . stripHtmlTags . T.unpack . plainToHtml) sfld
+
+getFieldTextByFieldName :: [Text] -> Map FieldOrd Field -> Map FieldName Text
+getFieldTextByFieldName fs m = M.fromList $ zip (map f (M.toAscList m)) fs
+  where
+    f :: (FieldOrd, Field) -> FieldName
+    f (_, (Field _ _ name)) = name
+
+getColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
+getColNote modelsByMid (SQLNote mid guid tags flds sfld) = ColNote <$> mdNote <*> (getFilename <$> mdNote)
+  where
+    getFieldsByOrd :: Map FieldOrd (Field, Template) -> Map FieldOrd Field
+    getFieldsByOrd = M.map fst
+
+    ts = T.words tags
+    fs = T.split (== '\x1f') flds
+    maybeModel = M.lookup (Mid mid) modelsByMid
+    maybeModelName = modelName <$> maybeModel
+    maybeFieldsByOrd = (M.map fst . modelFieldsAndTemplatesByOrd) <$> maybeModel
+    maybeFieldTextByFieldName = getFieldTextByFieldName fs <$> maybeFieldsByOrd
+    mdNote = MdNote (Guid guid) <$> maybeModelName <*> Just (Tags ts) <*> (Fields <$> maybeFieldTextByFieldName) <*> Just (SortField sfld)
+
+
 -- Parse the collection and target directory, then call `continueClone`.
 clone :: String -> String -> IO ()
 clone colPath targetPath = do
@@ -108,14 +255,21 @@ clone colPath targetPath = do
 
 writeRepo :: Path Extant File -> Path Extant Dir -> Path Extant Dir -> Path Extant Dir -> IO [String]
 writeRepo colFile targetDir kiDir mediaDir = do
-  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode configMap
+  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
   conn <- SQL.open (toFilePath colFile)
-  notes <- SQL.query_ conn "SELECT (guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
-  models <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLNotetype]
+  ns <- SQL.query_ conn "SELECT (guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
+  nts <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLModel]
+  flds <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
+  tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
+  let fieldsByMid = mapFieldsByMid (map getField flds)
+  let templatesByMid = mapTemplatesByMid (map getTemplate tmpls)
+  let fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
+  let models = map (getModel fieldsAndTemplatesByMid) nts
+  let sqlModelsByMid = mapModelsByMid nts
   return [""]
   where
-    remoteMap = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
-    configMap = JSON.Object $ M.singleton "remote" $ remoteMap
+    remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
+    config = JSON.Object $ M.singleton "remote" $ remote
 
 
 continueClone :: Path Extant File -> Path Extant Dir -> IO ()

@@ -30,6 +30,24 @@ packages:
   original:
     subdir: gitlib-libgit2
     url: https://github.com/jwiegley/gitlib/archive/1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f.tar.gz
+- completed:
+    hackage: slugify-0.1.0.1@sha256:0764c30a5d6d6342ca055a97f0a7b4279a26b42b9483b73420d1b364d3f8fb38,1396
+    pantry-tree:
+      size: 431
+      sha256: b7487e9693763afa43969a77686f16177a27faae13876073b4d92f02522dc4a1
+  original:
+    hackage: slugify-0.1.0.1@sha256:0764c30a5d6d6342ca055a97f0a7b4279a26b42b9483b73420d1b364d3f8fb38,1396
+- completed:
+    size: 11939
+    url: https://github.com/erochest/text-regex-replace/archive/270b4a6d460908bb5e6ead17b309a9b1d02ae070.tar.gz
+    name: text-regex-replace
+    version: 0.1.1.5
+    sha256: e51b830db7395d49b0ae8a42f9acc8068c5f5b5104c111628a288bacd10a39d3
+    pantry-tree:
+      size: 1329
+      sha256: 34ed3f186def4cd33a89f8144dae82869d0b72f0d8fa1224d1dbbfbe087edabf
+  original:
+    url: https://github.com/erochest/text-regex-replace/archive/270b4a6d460908bb5e6ead17b309a9b1d02ae070.tar.gz
 snapshots:
 - completed:
     size: 648424

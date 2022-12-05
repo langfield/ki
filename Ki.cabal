@@ -28,13 +28,19 @@ executable Ki-exe
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , containers
     , gitlib
     , gitlib-libgit2
     , microaeson
     , path
     , path-io
+    , protobuf
     , pureMD5
+    , slugify
+    , sqlite-simple
     , text
+    , text-icu
+    , text-regex-replace
   default-language: Haskell2010
 
 test-suite Ki-test
@@ -46,11 +52,17 @@ test-suite Ki-test
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , containers
     , gitlib
     , gitlib-libgit2
     , microaeson
     , path
     , path-io
+    , protobuf
     , pureMD5
+    , slugify
+    , sqlite-simple
     , text
+    , text-icu
+    , text-regex-replace
   default-language: Haskell2010

@@ -26,6 +26,11 @@ dependencies:
 - bytestring
 - microaeson
 - sqlite-simple
+- slugify
+- containers
+- text-icu
+- text-regex-replace
+- protobuf
 
 ghc-options:
 - -Wall

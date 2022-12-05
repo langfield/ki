@@ -44,6 +44,9 @@ extra-deps:
     commit: 1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f
     subdirs:
       - gitlib-libgit2
+  - slugify-0.1.0.1@sha256:0764c30a5d6d6342ca055a97f0a7b4279a26b42b9483b73420d1b364d3f8fb38,1396
+  - github: erochest/text-regex-replace
+    commit: 270b4a6d460908bb5e6ead17b309a9b1d02ae070
 #
 # extra-deps: []
 
