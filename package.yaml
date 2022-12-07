@@ -21,8 +21,6 @@ dependencies:
 - text
 - path-io
 - pureMD5
-- gitlib
-- gitlib-libgit2
 - bytestring
 - microaeson
 - sqlite-simple
@@ -31,6 +29,7 @@ dependencies:
 - text-icu
 - text-regex-replace
 - protobuf
+- libgit
 
 ghc-options:
 - -Wall

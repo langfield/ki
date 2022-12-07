@@ -4,11 +4,10 @@ module Main (main) where
 
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
 import Data.Map (Map)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
-import Git (defaultRepositoryOptions, repoPath)
-import Git.Libgit2 (openLgRepository)
 import Path ((</>), Abs, Dir, File, Path, toFilePath)
 import Path.IO (doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import Text.Printf (printf)
@@ -20,6 +19,7 @@ import qualified Data.Text as T
 import qualified Data.Text.ICU as ICU
 -- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
+import qualified Lib.Git as Git
 import qualified Path.Internal
 
 
@@ -38,8 +38,8 @@ data Missing
 instance AbsIO Extant
 instance AbsIO Missing
 
--- Mid, Guid, Tags, Flds, SortFld
-data SQLNote = SQLNote Integer Text Text Text Text
+-- Nid, Mid, Guid, Tags, Flds, SortFld
+data SQLNote = SQLNote Integer Integer Text Text Text Text
   deriving Show
 
 data SQLModel = SQLModel
@@ -67,6 +67,7 @@ data SQLTemplate = SQLTemplate
 
 newtype Mid = Mid Integer deriving (Ord, Eq)
 
+newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
 newtype Fields = Fields (Map FieldName Text)
@@ -75,10 +76,10 @@ newtype ModelName = ModelName Text
 
 type Filename = Text
 data MdNote = MdNote Guid ModelName Tags Fields SortField
-data ColNote = ColNote MdNote Filename
+data ColNote = ColNote MdNote Nid Filename
 
 instance SQL.FromRow SQLNote where
-  fromRow = SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+  fromRow = SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
 
 instance SQL.FromRow SQLModel where
   fromRow = SQLModel <$> SQL.field <*> SQL.field <*> SQL.field
@@ -206,6 +207,7 @@ getModel fieldsAndTemplatesByMid (SQLModel mid name config) =
     Just m  -> Just (Model (Mid mid) (ModelName name) m)
     Nothing -> Nothing
 
+
 getFieldsAndTemplatesByMid :: Map Mid (Map FieldOrd Field)
                            -> Map Mid (Map FieldOrd Template)
                            -> Map Mid (Map FieldOrd (Field, Template))
@@ -220,15 +222,19 @@ getFieldsAndTemplatesByMid fieldsByMid templatesByMid = M.foldrWithKey f M.empty
         M.insert mid (M.intersectionWith (\fld tmpl -> (fld, tmpl)) fieldsByOrd templatesByOrd) acc
       Nothing -> acc
 
+
 getField :: SQLField -> Field
 getField (SQLField mid ord name _) = Field (Mid mid) (FieldOrd ord) (FieldName name)
+
 
 getTemplate :: SQLTemplate -> Template
 getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (FieldOrd ord) (TemplateName name)
 
+
 getFilename :: MdNote -> Text
 getFilename (MdNote guid model _ fields (SortField sfld)) =
   (T.pack . stripHtmlTags . T.unpack . plainToHtml) sfld
+
 
 getFieldTextByFieldName :: [Text] -> Map FieldOrd Field -> Map FieldName Text
 getFieldTextByFieldName fs m = M.fromList $ zip (map f (M.toAscList m)) fs
@@ -236,9 +242,10 @@ getFieldTextByFieldName fs m = M.fromList $ zip (map f (M.toAscList m)) fs
     f :: (FieldOrd, Field) -> FieldName
     f (_, (Field _ _ name)) = name
 
+
 getColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
-getColNote modelsByMid (SQLNote mid guid tags flds sfld) =
-  ColNote <$> mdNote <*> (getFilename <$> mdNote)
+getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
+  ColNote <$> mdNote <*> (Just $ Nid nid) <*> (getFilename <$> mdNote)
   where
     getFieldsByOrd :: Map FieldOrd (Field, Template) -> Map FieldOrd Field
     getFieldsByOrd = M.map fst
@@ -270,29 +277,6 @@ clone colPath targetPath = do
     (Just colFile, Just targetDir) -> continueClone colFile targetDir
 
 
-writeRepo :: Path Extant File
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> IO [String]
-writeRepo colFile targetDir kiDir mediaDir = do
-  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
-  conn  <- SQL.open (toFilePath colFile)
-  ns    <- SQL.query_ conn "SELECT (guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
-  nts   <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLModel]
-  flds  <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
-  tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
-  let fieldsByMid = mapFieldsByMid (map getField flds)
-  let templatesByMid = mapTemplatesByMid (map getTemplate tmpls)
-  let fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
-  let models = map (getModel fieldsAndTemplatesByMid) nts
-  let sqlModelsByMid = mapModelsByMid nts
-  return [""]
-  where
-    remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
-    config = JSON.Object $ M.singleton "remote" $ remote
-
-
 continueClone :: Path Extant File -> Path Extant Dir -> IO ()
 continueClone colFile targetDir = do
   -- Hash the collection file.
@@ -319,8 +303,47 @@ writeInitialCommit :: Path Extant File
                    -> IO ()
 writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5 = do
   windowsLinks <- writeRepo colFile targetDir kiDir mediaDir
-  repo <- openLgRepository $ defaultRepositoryOptions { repoPath = toFilePath targetDir }
+  Git.runGit gitConfig (Git.initDB False)
   return ()
+  where
+    gitConfig = Git.makeConfig (toFilePath targetDir) Nothing
+
+
+writeRepo :: Path Extant File
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> IO ()
+writeRepo colFile targetDir kiDir mediaDir = do
+  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
+  conn  <- SQL.open (toFilePath colFile)
+  ns    <- SQL.query_ conn "SELECT (nid,guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
+  nts   <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLModel]
+  flds  <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
+  tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
+  let fieldsByMid = mapFieldsByMid (map getField flds)
+  let templatesByMid = mapTemplatesByMid (map getTemplate tmpls)
+  let fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
+  let models = map (getModel fieldsAndTemplatesByMid) nts
+  let modelsByMid = M.fromList (catMaybes $ map (fmap (\m -> (modelMid m, m))) models)
+  let colnotesByNid = M.fromList $ catMaybes $ map (fmap unpack . getColNote modelsByMid) ns
+  writeDecks targetDir colnotesByNid
+  where
+    remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
+    config = JSON.Object $ M.singleton "remote" $ remote
+
+    unpack :: ColNote -> (Nid, ColNote)
+    unpack c@(ColNote _ nid _) = (nid, c)
+
+
+writeDecks :: Path Extant Dir -> Map Nid ColNote -> IO ()
+writeDecks targetDir colnotesByNid = do
+  return ()
+
+
+initMedia :: Path Extant Dir -> IO LgRepo
+initMedia remoteMediaDir = do
+  repo <- openLgRepository $ defaultRepositoryOptions { repoPath = toFilePath remoteMediaDir }
 
 
 main :: IO ()

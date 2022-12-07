@@ -29,8 +29,7 @@ executable Ki-exe
       base >=4.7 && <5
     , bytestring
     , containers
-    , gitlib
-    , gitlib-libgit2
+    , libgit
     , microaeson
     , path
     , path-io
@@ -53,8 +52,7 @@ test-suite Ki-test
       base >=4.7 && <5
     , bytestring
     , containers
-    , gitlib
-    , gitlib-libgit2
+    , libgit
     , microaeson
     , path
     , path-io
