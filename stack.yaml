@@ -17,8 +17,8 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/1.yaml
+resolver: lts-18.28
+
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -47,6 +47,7 @@ extra-deps:
   - slugify-0.1.0.1@sha256:0764c30a5d6d6342ca055a97f0a7b4279a26b42b9483b73420d1b364d3f8fb38,1396
   - github: erochest/text-regex-replace
     commit: 270b4a6d460908bb5e6ead17b309a9b1d02ae070
+  - microaeson-0.1.0.1@sha256:f30a15300a7cf98a230971cd5a168a5d4ab0e50a67eb9d474c816a41f46c3aad,4032
 #
 # extra-deps: []
 
