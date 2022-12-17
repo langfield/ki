@@ -6,8 +6,8 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
-import Path ((</>), Abs, Rel, Dir, File, Path, toFilePath, parent, filename)
-import Path.IO (doesFileExist, doesDirExist, ensureDir, listDir, resolveDir', resolveFile')
+import Path ((</>), Abs, Dir, File, Path, Rel, filename, parent, toFilePath)
+import Path.IO (doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import Text.Printf (printf)
 
 import qualified Data.Aeson.Micro as JSON
@@ -78,7 +78,8 @@ data MdNote = MdNote Guid ModelName Tags Fields SortField
 data ColNote = ColNote MdNote Nid Filename
 
 instance SQL.FromRow SQLNote where
-  fromRow = SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+  fromRow =
+    SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
 
 instance SQL.FromRow SQLModel where
   fromRow = SQLModel <$> SQL.field <*> SQL.field <*> SQL.field
@@ -125,30 +126,16 @@ ensureEmpty dir = do
     _ -> Nothing
 
 
--- Ensure a file exists, creating it if necessary.
-ensureFile :: Path Abs File -> IO (Path Extant File)
-ensureFile file = do
-  exists <- doesFileExist file
-  if exists
-  then return $ Path.Internal.Path (toFilePath file)
-  else do
-    appendFile (toFilePath file) ""
-    return (Path.Internal.Path (toFilePath file))
+ensureExtantDir :: Path Abs Dir -> IO (Path Extant Dir)
+ensureExtantDir dir = do
+  ensureDir dir
+  return $ Path.Internal.Path (toFilePath dir)
 
 
 getExtantFile :: Path Abs File -> IO (Maybe (Path Extant File))
 getExtantFile file = do
   exists <- doesFileExist file
-  if exists
-  then return $ Just $ Path.Internal.Path (toFilePath file)
-  else return Nothing
-
-getExtantDir :: Path Abs Dir -> IO (Maybe (Path Extant Dir))
-getExtantDir dir = do
-  exists <- doesDirExist dir
-  if exists
-  then return $ Just $ Path.Internal.Path (toFilePath dir)
-  else return Nothing
+  if exists then return $ Just $ Path.Internal.Path (toFilePath file) else return Nothing
 
 -- | Convert from an `Extant` or `Missing` path to an `Abs` path.
 absify :: AbsIO a => Path a b -> Path Abs b
@@ -160,8 +147,7 @@ gitCommitAll :: Path Extant Dir -> String -> IO Repo
 gitCommitAll root msg = do
   Git.runGit gitConfig (Git.initDB False >> Git.add ["."] >> Git.commit [] "Ki" "ki" msg [])
   pure (Repo root gitConfig)
-  where
-    gitConfig = Git.makeConfig (toFilePath root) Nothing
+  where gitConfig = Git.makeConfig (toFilePath root) Nothing
 
 -- | Clone a local repository into the given directory, which must exist and be
 -- empty (data invariant).
@@ -170,16 +156,12 @@ gitClone (Repo root config) tgt = do
   Git.runGit config $ do
     o <- Git.gitExec "clone" [toFilePath root, toFilePath tgt] []
     case o of
-      Right _  -> return ()
-      Left err -> Git.gitError err "clone"
+      Right _   -> return ()
+      Left  err -> Git.gitError err "clone"
   pure $ Repo tgt $ Git.makeConfig (toFilePath tgt) Nothing
 
 
 -- ================================ Core logic ================================
-
-
-getAnkiMediaFilename :: Path Extant File -> Path Rel File
-getAnkiMediaFilename colFile = filename colFile
 
 
 mapModelsByMid :: [SQLModel] -> Map Mid SQLModel
@@ -248,8 +230,7 @@ getFieldsAndTemplatesByMid fieldsByMid templatesByMid = M.foldrWithKey f M.empty
       -> Map Mid (Map FieldOrd (Field, Template))
       -> Map Mid (Map FieldOrd (Field, Template))
     f mid fieldsByOrd acc = case M.lookup mid templatesByMid of
-      Just templatesByOrd ->
-        M.insert mid (M.intersectionWith (,) fieldsByOrd templatesByOrd) acc
+      Just templatesByOrd -> M.insert mid (M.intersectionWith (,) fieldsByOrd templatesByOrd) acc
       Nothing -> acc
 
 
@@ -297,12 +278,21 @@ getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
 -- Parse the collection and target directory, then call `continueClone`.
 clone :: String -> String -> IO ()
 clone colPath targetPath = do
-  maybeColFile <- resolveFile' colPath >>= getExtantFile
+  maybeColFile   <- resolveFile' colPath >>= getExtantFile
   maybeTargetDir <- resolveDir' targetPath >>= ensureEmpty
   case (maybeColFile, maybeTargetDir) of
     (Nothing, _) -> printf "fatal: collection file '%s' does not exist" (show colPath)
     (_, Nothing) -> printf "fatal: targetdir '%s' not empty" (show targetPath)
     (Just colFile, Just targetDir) -> continueClone colFile targetDir
+
+
+-- | This grabs the filename without the file extension, appends `.media`, and
+-- then converts it back to a path.
+--
+-- We could use `takeBaseName` instead.
+ankiMediaDirname :: Path Extant File -> Path Rel Dir
+ankiMediaDirname colFile = Path.Internal.Path $ stem ++ ".media"
+  where stem = (T.unpack . T.concat . init . T.split (== '.') . T.pack . toFilePath) colFile
 
 
 continueClone :: Path Extant File -> Path Extant Dir -> IO ()
@@ -315,23 +305,28 @@ continueClone colFile targetDir = do
   -- Create `.ki` and `_media` subdirectories.
   maybeKiDir    <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
   maybeMediaDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
-  maybeAnkiMediaDir <- getExtantDir ((parent colFile) </> getAnkiMediaFilename colFile)
+  ankiMediaDir  <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
   case (maybeKiDir, maybeMediaDir) of
     (Nothing, _) -> printf "fatal: new '.ki' directory not empty"
     (_, Nothing) -> printf "fatal: new '_media' directory not empty"
     -- Write repository contents and commit.
-    (Just kiDir, Just mediaDir) -> writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5
-  where gitIgnore = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+    (Just kiDir, Just mediaDir) ->
+      writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir colFileMD5
+  where
+    gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+    ankiUserDir = parent colFile :: Path Extant Dir
+    colFilename = filename colFile :: Path Rel File
 
 
 writeInitialCommit :: Path Extant File
                    -> Path Extant Dir
                    -> Path Extant Dir
                    -> Path Extant Dir
+                   -> Path Extant Dir
                    -> MD5Digest
                    -> IO ()
-writeInitialCommit colFile targetDir kiDir mediaDir colFileMD5 = do
-  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir
+writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir colFileMD5 = do
+  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir
   gitCommitAll targetDir "Initial commit."
   return ()
 
@@ -340,8 +335,9 @@ writeRepo :: Path Extant File
           -> Path Extant Dir
           -> Path Extant Dir
           -> Path Extant Dir
+          -> Path Extant Dir
           -> IO ()
-writeRepo colFile targetDir kiDir mediaDir = do
+writeRepo colFile targetDir kiDir mediaDir ankiMediaDir = do
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
   conn  <- SQL.open (toFilePath colFile)
   ns    <- SQL.query_ conn "SELECT (nid,guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
@@ -355,8 +351,7 @@ writeRepo colFile targetDir kiDir mediaDir = do
   let modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
   let colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
   windowsLinks <- writeDecks targetDir colnotesByNid
-  -- We are committing the empty `_media` directory here. That's wrong.
-  mediaRepo <- gitCommitAll mediaDir "Initial commit."
+  mediaRepo    <- gitCommitAll ankiMediaDir "Initial commit."
   pure windowsLinks
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
