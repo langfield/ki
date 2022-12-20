@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
+-- This file has been generated from package.yaml by hpack version 0.35.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -26,9 +26,11 @@ executable Ki-exe
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      HsYAML
+    , base >=4.7 && <5
     , bytestring
     , containers
+    , filepath
     , libgit
     , microaeson
     , path
@@ -49,9 +51,11 @@ test-suite Ki-test
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      HsYAML
+    , base >=4.7 && <5
     , bytestring
     , containers
+    , filepath
     , libgit
     , microaeson
     , path

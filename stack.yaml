@@ -48,6 +48,7 @@ extra-deps:
   - github: erochest/text-regex-replace
     commit: 270b4a6d460908bb5e6ead17b309a9b1d02ae070
   - microaeson-0.1.0.1@sha256:f30a15300a7cf98a230971cd5a168a5d4ab0e50a67eb9d474c816a41f46c3aad,4032
+  - HsYAML-0.2.1.1@sha256:bbde5ec41f2903fdca2ec1a743dc40bfedf8ca12fb7f3351cb7431ee657eab4a,5691
 #
 # extra-deps: []
 

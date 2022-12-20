@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
@@ -6,8 +7,10 @@ import Data.Map (Map)
 import Data.Text (Text)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
+import Data.YAML ((.=), ToYAML(..))
 import Path ((</>), Abs, Dir, File, Path, Rel, filename, parent, toFilePath)
 import Path.IO (doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
+import System.FilePath (takeBaseName)
 import Text.Printf (printf)
 
 import qualified Data.Aeson.Micro as JSON
@@ -16,6 +19,7 @@ import qualified Data.Map as M
 import qualified Data.Maybe as MB
 import qualified Data.Text as T
 import qualified Data.Text.ICU as ICU
+import qualified Data.YAML as Y
 -- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
@@ -38,44 +42,44 @@ instance AbsIO Extant
 instance AbsIO Missing
 
 -- Nid, Mid, Guid, Tags, Flds, SortFld
-data SQLNote = SQLNote Integer Integer Text Text Text Text
+data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !Text
   deriving Show
 
 data SQLModel = SQLModel
-  { sqlModelMid  :: Integer
-  , sqlModelName :: Text
-  , sqlModelConfigHex :: Text
+  { sqlModelMid  :: !Integer
+  , sqlModelName :: !Text
+  , sqlModelConfigHex :: !Text
   }
   deriving Show
 
 data SQLField = SQLField
-  { sqlFieldMid  :: Integer
-  , sqlFieldOrd  :: Integer
-  , sqlFieldName :: Text
-  , sqlFieldConfigHex :: Text
+  { sqlFieldMid  :: !Integer
+  , sqlFieldOrd  :: !Integer
+  , sqlFieldName :: !Text
+  , sqlFieldConfigHex :: !Text
   }
   deriving Show
 
 data SQLTemplate = SQLTemplate
-  { sqlTemplateMid  :: Integer
-  , sqlTemplateOrd  :: Integer
-  , sqlTemplateName :: Text
-  , sqlTemplateConfigHex :: Text
+  { sqlTemplateMid  :: !Integer
+  , sqlTemplateOrd  :: !Integer
+  , sqlTemplateName :: !Text
+  , sqlTemplateConfigHex :: !Text
   }
   deriving Show
 
-newtype Mid = Mid Integer deriving (Ord, Eq)
+newtype Mid = Mid Integer deriving (Ord, Eq, ToYAML)
 
 newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
 newtype Fields = Fields (Map FieldName Text)
 newtype SortField = SortField Text
-newtype ModelName = ModelName Text
+newtype ModelName = ModelName Text deriving (ToYAML)
 
 type Filename = Text
-data MdNote = MdNote Guid ModelName Tags Fields SortField
-data ColNote = ColNote MdNote Nid Filename
+data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
+data ColNote = ColNote !MdNote !Nid !Filename
 
 instance SQL.FromRow SQLNote where
   fromRow =
@@ -90,27 +94,37 @@ instance SQL.FromRow SQLField where
 instance SQL.FromRow SQLTemplate where
   fromRow = SQLTemplate <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
 
-newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord)
-newtype FieldName = FieldName Text deriving (Eq, Ord)
-newtype TemplateName = TemplateName Text
+newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord, ToYAML)
+newtype FieldName = FieldName Text deriving (Eq, Ord, ToYAML)
+newtype TemplateName = TemplateName Text deriving ToYAML
 
 data Field = Field
-  { fieldMid  :: Mid
-  , fieldOrd  :: FieldOrd
-  , fieldName :: FieldName
+  { fieldMid  :: !Mid
+  , fieldOrd  :: !FieldOrd
+  , fieldName :: !FieldName
   }
 data Template = Template
-  { templateMid  :: Mid
-  , templateOrd  :: FieldOrd
-  , templateName :: TemplateName
+  { templateMid  :: !Mid
+  , templateOrd  :: !FieldOrd
+  , templateName :: !TemplateName
   }
 data Model = Model
-  { modelMid  :: Mid
-  , modelName :: ModelName
-  , modelFieldsAndTemplatesByOrd :: Map FieldOrd (Field, Template)
+  { modelMid  :: !Mid
+  , modelName :: !ModelName
+  , modelFieldsAndTemplatesByOrd :: !(Map FieldOrd (Field, Template))
   }
 
-data Repo = Repo (Path Extant Dir) Git.Config
+instance ToYAML Field where
+  toYAML (Field mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
+
+instance ToYAML Template where
+  toYAML (Template mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
+
+instance ToYAML Model where
+  toYAML (Model mid ord fieldsAndTemplatesByOrd) =
+    Y.mapping ["mid" .= mid, "ord" .= ord, "fieldsAndTemplatesByOrd" .= fieldsAndTemplatesByOrd]
+
+data Repo = Repo !(Path Extant Dir) !Git.Config
 
 -- ========================== Path utility functions ==========================
 
@@ -292,7 +306,7 @@ clone colPath targetPath = do
 -- We could use `takeBaseName` instead.
 ankiMediaDirname :: Path Extant File -> Path Rel Dir
 ankiMediaDirname colFile = Path.Internal.Path $ stem ++ ".media"
-  where stem = (T.unpack . T.concat . init . T.split (== '.') . T.pack . toFilePath) colFile
+  where stem = (takeBaseName . toFilePath) colFile
 
 
 continueClone :: Path Extant File -> Path Extant Dir -> IO ()
@@ -327,7 +341,7 @@ writeInitialCommit :: Path Extant File
                    -> IO ()
 writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir colFileMD5 = do
   windowsLinks <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir
-  gitCommitAll targetDir "Initial commit."
+  _ <- gitCommitAll targetDir "Initial commit."
   return ()
 
 
@@ -350,9 +364,9 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir = do
   let models = map (getModel fieldsAndTemplatesByMid) nts
   let modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
   let colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
-  windowsLinks <- writeDecks targetDir colnotesByNid
-  mediaRepo    <- gitCommitAll ankiMediaDir "Initial commit."
-  pure windowsLinks
+  ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
+  kiMediaRepo   <- gitClone ankiMediaRepo mediaDir
+  writeDecks targetDir colnotesByNid
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote

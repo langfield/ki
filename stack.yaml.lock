@@ -55,6 +55,13 @@ packages:
       size: 520
   original:
     hackage: microaeson-0.1.0.1@sha256:f30a15300a7cf98a230971cd5a168a5d4ab0e50a67eb9d474c816a41f46c3aad,4032
+- completed:
+    hackage: HsYAML-0.2.1.1@sha256:bbde5ec41f2903fdca2ec1a743dc40bfedf8ca12fb7f3351cb7431ee657eab4a,5691
+    pantry-tree:
+      sha256: 807a9ef3a84befa61ffb96e805fc9fb3b32aca78b60ab3cb95d4a2561fe70d85
+      size: 1340
+  original:
+    hackage: HsYAML-0.2.1.1@sha256:bbde5ec41f2903fdca2ec1a743dc40bfedf8ca12fb7f3351cb7431ee657eab4a,5691
 snapshots:
 - completed:
     sha256: 428ec8d5ce932190d3cbe266b9eb3c175cd81e984babf876b64019e2cbe4ea68

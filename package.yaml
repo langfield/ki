@@ -30,6 +30,8 @@ dependencies:
 - text-regex-replace
 - protobuf
 - libgit
+- filepath
+- HsYAML
 
 ghc-options:
 - -Wall
