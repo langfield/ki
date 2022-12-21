@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Control.Monad (forM_)
+import Data.ByteString.Lazy (ByteString)
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
 import Data.Map (Map)
 import Data.Text (Text)
@@ -68,7 +70,7 @@ data SQLTemplate = SQLTemplate
   }
   deriving Show
 
-newtype Mid = Mid Integer deriving (Ord, Eq, ToYAML)
+newtype Mid = Mid Integer deriving (Eq, Ord, Show, ToYAML)
 
 newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
@@ -317,15 +319,17 @@ continueClone colFile targetDir = do
   -- Add the backups directory to the `.gitignore` file.
   writeFile (toFilePath gitIgnore) ".ki/backups"
   -- Create `.ki` and `_media` subdirectories.
-  maybeKiDir    <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
-  maybeMediaDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
-  ankiMediaDir  <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
-  case (maybeKiDir, maybeMediaDir) of
-    (Nothing, _) -> printf "fatal: new '.ki' directory not empty"
-    (_, Nothing) -> printf "fatal: new '_media' directory not empty"
+  maybeKiDir     <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
+  maybeMediaDir  <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
+  maybeModelsDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_models")
+  ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
+  case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
+    (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty"
+    (_, Nothing, _) -> printf "fatal: new '_media' directory not empty"
+    (_, _, Nothing) -> printf "fatal: new '_models' directory not empty"
     -- Write repository contents and commit.
-    (Just kiDir, Just mediaDir) ->
-      writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir colFileMD5
+    (Just kiDir, Just mediaDir, Just modelsDir) ->
+      writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
   where
     gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
     ankiUserDir = parent colFile :: Path Extant Dir
@@ -337,10 +341,11 @@ writeInitialCommit :: Path Extant File
                    -> Path Extant Dir
                    -> Path Extant Dir
                    -> Path Extant Dir
+                   -> Path Extant Dir
                    -> MD5Digest
                    -> IO ()
-writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir colFileMD5 = do
-  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir
+writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5 = do
+  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
   _ <- gitCommitAll targetDir "Initial commit."
   return ()
 
@@ -350,8 +355,9 @@ writeRepo :: Path Extant File
           -> Path Extant Dir
           -> Path Extant Dir
           -> Path Extant Dir
+          -> Path Extant Dir
           -> IO ()
-writeRepo colFile targetDir kiDir mediaDir ankiMediaDir = do
+writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
   conn  <- SQL.open (toFilePath colFile)
   ns    <- SQL.query_ conn "SELECT (nid,guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
@@ -364,8 +370,11 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir = do
   let models = map (getModel fieldsAndTemplatesByMid) nts
   let modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
   let colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
+  let serializedModelsByMid = M.map (Y.encode . (\x -> [x])) modelsByMid
   ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
   kiMediaRepo   <- gitClone ankiMediaRepo mediaDir
+  -- Dump all models to top-level `_models` subdirectory.
+  forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
   writeDecks targetDir colnotesByNid
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
@@ -373,6 +382,11 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir = do
 
     unpack :: ColNote -> (Nid, ColNote)
     unpack c@(ColNote _ nid _) = (nid, c)
+
+
+writeModel :: Path Extant Dir -> (Mid, ByteString) -> IO ()
+writeModel modelsDir (mid, s) =
+  LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
 writeDecks :: Path Extant Dir -> Map Nid ColNote -> IO ()
