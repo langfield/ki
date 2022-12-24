@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
-import Path ((</>), Abs, Dir, File, Path, Rel, filename, parent, toFilePath)
+import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
 import Path.IO (doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import System.FilePath (takeBaseName)
 import Text.Printf (printf)
@@ -31,20 +31,21 @@ import qualified Path.Internal
 -- ==================== Types, Typeclasses, and Instances ====================
 
 
-class AbsIO a
-
 -- Extra base types for `Path` to distinguish between paths that exist (i.e.
 -- there is a file or directory there) and paths that do not.
 data Extant
   deriving Typeable
-data Missing
-  deriving Typeable
-
-instance AbsIO Extant
-instance AbsIO Missing
 
 -- Nid, Mid, Guid, Tags, Flds, SortFld
 data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !Text
+  deriving Show
+
+-- Cid, Nid, Did, Ord
+data SQLCard = SQLCard !Integer !Integer !Integer !Integer
+  deriving Show
+
+-- Did, Name
+data SQLDeck = SQLDeck !Integer !Text
   deriving Show
 
 data SQLModel = SQLModel
@@ -72,20 +73,32 @@ data SQLTemplate = SQLTemplate
 
 newtype Mid = Mid Integer deriving (Eq, Ord, Show, ToYAML)
 
+newtype Cid = Cid Integer
+newtype Did = Did Integer
 newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
 newtype Fields = Fields (Map FieldName Text)
+newtype DeckName = DeckName Text
 newtype SortField = SortField Text
 newtype ModelName = ModelName Text deriving (ToYAML)
+
+data Ord' = Ord' Integer
 
 type Filename = Text
 data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
 data ColNote = ColNote !MdNote !Nid !Filename
+data Card = Card !Cid !Nid !Did !Ord' !DeckName
 
 instance SQL.FromRow SQLNote where
   fromRow =
     SQLNote <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+
+instance SQL.FromRow SQLCard where
+  fromRow = SQLCard <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
+
+instance SQL.FromRow SQLDeck where
+  fromRow = SQLDeck <$> SQL.field <*> SQL.field
 
 instance SQL.FromRow SQLModel where
   fromRow = SQLModel <$> SQL.field <*> SQL.field <*> SQL.field
@@ -100,16 +113,8 @@ newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord, ToYAML)
 newtype FieldName = FieldName Text deriving (Eq, Ord, ToYAML)
 newtype TemplateName = TemplateName Text deriving ToYAML
 
-data Field = Field
-  { fieldMid  :: !Mid
-  , fieldOrd  :: !FieldOrd
-  , fieldName :: !FieldName
-  }
-data Template = Template
-  { templateMid  :: !Mid
-  , templateOrd  :: !FieldOrd
-  , templateName :: !TemplateName
-  }
+data Field = Field !Mid !FieldOrd !FieldName
+data Template = Template !Mid !FieldOrd !TemplateName
 data Model = Model
   { modelMid  :: !Mid
   , modelName :: !ModelName
@@ -154,7 +159,7 @@ getExtantFile file = do
   if exists then return $ Just $ Path.Internal.Path (toFilePath file) else return Nothing
 
 -- | Convert from an `Extant` or `Missing` path to an `Abs` path.
-absify :: AbsIO a => Path a b -> Path Abs b
+absify :: Path a b -> Path Abs b
 absify (Path.Internal.Path s) = Path.Internal.Path s
 
 -- ======================= Repository utility functions =======================
@@ -180,13 +185,6 @@ gitClone (Repo root config) tgt = do
 -- ================================ Core logic ================================
 
 
-mapModelsByMid :: [SQLModel] -> Map Mid SQLModel
-mapModelsByMid = M.fromList . map unpack
-  where
-    unpack :: SQLModel -> (Mid, SQLModel)
-    unpack nt@(SQLModel mid _ _) = (Mid mid, nt)
-
-
 mapFieldsByMid :: [Field] -> Map Mid (Map FieldOrd Field)
 mapFieldsByMid = foldr f M.empty
   where
@@ -202,7 +200,7 @@ mapTemplatesByMid = foldr f M.empty
     g :: FieldOrd -> Template -> Map FieldOrd Template -> Maybe (Map FieldOrd Template)
     g ord tmpl fieldsByOrd = Just $ M.insert ord tmpl fieldsByOrd
     f :: Template -> Map Mid (Map FieldOrd Template) -> Map Mid (Map FieldOrd Template)
-    f tmpl@(Template mid ord name) = M.update (g ord tmpl) mid
+    f tmpl@(Template mid ord _) = M.update (g ord tmpl) mid
 
 
 stripHtmlTags :: String -> String
@@ -230,7 +228,7 @@ plainToHtml s = case ICU.find htmlRegex t of
 
 
 getModel :: Map Mid (Map FieldOrd (Field, Template)) -> SQLModel -> Maybe Model
-getModel fieldsAndTemplatesByMid (SQLModel mid name config) =
+getModel fieldsAndTemplatesByMid (SQLModel mid name _) =
   case M.lookup (Mid mid) fieldsAndTemplatesByMid of
     Just m  -> Just (Model (Mid mid) (ModelName name) m)
     Nothing -> Nothing
@@ -259,7 +257,7 @@ getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (FieldOrd ord) (Te
 
 
 getFilename :: MdNote -> Text
-getFilename (MdNote guid model _ fields (SortField sfld)) =
+getFilename (MdNote _ _ _ _ (SortField sfld)) =
   (T.pack . stripHtmlTags . T.unpack . plainToHtml) sfld
 
 
@@ -274,9 +272,6 @@ getColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
   ColNote <$> mdNote <*> Just (Nid nid) <*> (getFilename <$> mdNote)
   where
-    getFieldsByOrd :: Map FieldOrd (Field, Template) -> Map FieldOrd Field
-    getFieldsByOrd = M.map fst
-
     ts = T.words tags
     fs = T.split (== '\x1f') flds
     maybeModel = M.lookup (Mid mid) modelsByMid
@@ -289,6 +284,16 @@ getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
         <*> Just (Tags ts)
         <*> (Fields <$> maybeFieldTextByFieldName)
         <*> Just (SortField sfld)
+
+
+getCard :: [SQLDeck] -> SQLCard -> Maybe Card
+getCard decks (SQLCard cid nid did ord) =
+  Card (Cid cid) (Nid nid) (Did did) (Ord' ord)
+    <$> DeckName
+    <$> (M.lookup did . M.fromList . map unpack) decks
+  where
+    unpack :: SQLDeck -> (Integer, Text)
+    unpack (SQLDeck did' name) = (did', name)
 
 
 -- Parse the collection and target directory, then call `continueClone`.
@@ -333,7 +338,6 @@ continueClone colFile targetDir = do
   where
     gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
     ankiUserDir = parent colFile :: Path Extant Dir
-    colFilename = filename colFile :: Path Rel File
 
 
 writeInitialCommit :: Path Extant File
@@ -344,8 +348,8 @@ writeInitialCommit :: Path Extant File
                    -> Path Extant Dir
                    -> MD5Digest
                    -> IO ()
-writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5 = do
-  windowsLinks <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
+writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir _ = do
+  _ <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
   _ <- gitCommitAll targetDir "Initial commit."
   return ()
 
@@ -361,21 +365,25 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
   conn  <- SQL.open (toFilePath colFile)
   ns    <- SQL.query_ conn "SELECT (nid,guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
+  cs    <- SQL.query_ conn "SELECT (id,nid,did,ord) FROM cards" :: IO [SQLCard]
+  ds    <- SQL.query_ conn "SELECT (id,name) FROM decks" :: IO [SQLDeck]
   nts   <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLModel]
   flds  <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
   tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
-  let fieldsByMid = mapFieldsByMid (map getField flds)
-  let templatesByMid = mapTemplatesByMid (map getTemplate tmpls)
-  let fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
-  let models = map (getModel fieldsAndTemplatesByMid) nts
-  let modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
-  let colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
-  let serializedModelsByMid = M.map (Y.encode . (\x -> [x])) modelsByMid
+  let
+    fieldsByMid    = (mapFieldsByMid . map getField) flds
+    templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
+    fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
+    modelsByMid =
+      M.fromList $ MB.mapMaybe (fmap (\m -> (modelMid m, m)) . getModel fieldsAndTemplatesByMid) nts
+    colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
+    serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
+    cards = (MB.catMaybes . map (getCard ds)) cs
   ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
-  kiMediaRepo   <- gitClone ankiMediaRepo mediaDir
+  _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  writeDecks targetDir colnotesByNid
+  writeDecks targetDir colnotesByNid cards
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
@@ -389,8 +397,8 @@ writeModel modelsDir (mid, s) =
   LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
-writeDecks :: Path Extant Dir -> Map Nid ColNote -> IO ()
-writeDecks targetDir colnotesByNid = do
+writeDecks :: Path Extant Dir -> Map Nid ColNote -> [Card] -> IO ()
+writeDecks _targetDir _colnotesByNid _cards = do
   return ()
 
 
