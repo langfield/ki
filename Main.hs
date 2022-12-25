@@ -17,6 +17,7 @@ import Text.Printf (printf)
 
 import qualified Data.Aeson.Micro as JSON
 import qualified Data.ByteString.Lazy as LB
+import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Maybe as MB
 import qualified Data.Text as T
@@ -46,7 +47,7 @@ data SQLCard = SQLCard !Integer !Integer !Integer !Integer
 
 -- Did, Name
 data SQLDeck = SQLDeck !Integer !Text
-  deriving Show
+  deriving (Eq, Ord, Show)
 
 data SQLModel = SQLModel
   { sqlModelMid  :: !Integer
@@ -183,6 +184,15 @@ gitClone (Repo root config) tgt = do
 
 
 -- ================================ Core logic ================================
+
+
+-- | Convert a list of raw `SQLDeck`s into a preorder traversal of components.
+-- This can be reversed to get a postorder traversal.
+mkDeckTree :: [SQLDeck] -> [([Text], SQLDeck)]
+mkDeckTree ds = (L.sort . map unpack) ds
+  where
+    unpack :: SQLDeck -> ([Text], SQLDeck)
+    unpack d@(SQLDeck _ fullname) = (T.splitOn "::" fullname, d)
 
 
 mapFieldsByMid :: [Field] -> Map Mid (Map FieldOrd Field)
@@ -371,19 +381,21 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
   flds  <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
   tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
   let
-    fieldsByMid    = (mapFieldsByMid . map getField) flds
+    fieldsByMid = (mapFieldsByMid . map getField) flds
     templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
     fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
-    modelsByMid =
-      M.fromList $ MB.mapMaybe (fmap (\m -> (modelMid m, m)) . getModel fieldsAndTemplatesByMid) nts
+    models = map (getModel fieldsAndTemplatesByMid) nts
+    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
     colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
     serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
-    cards = (MB.catMaybes . map (getCard ds)) cs
+    cards  = (MB.catMaybes . map (getCard ds)) cs
+    preorder = mkDeckTree ds
+    postorder = reverse preorder
   ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
   _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  writeDecks targetDir colnotesByNid cards
+  forM_ postorder (writeDeck targetDir colnotesByNid cards)
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
@@ -397,9 +409,24 @@ writeModel modelsDir (mid, s) =
   LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
-writeDecks :: Path Extant Dir -> Map Nid ColNote -> [Card] -> IO ()
-writeDecks _targetDir _colnotesByNid _cards = do
+writeDeck :: Path Extant Dir -> Map Nid ColNote -> [Card] -> ([Text], SQLDeck) -> IO ()
+writeDeck targetDir colnotesByNid cards (_, SQLDeck did _) = do
+  forM_ deckCards (writeCard targetDir colnotesByNid)
+    where
+      deckCards = filter (\(Card _ _ (Did cDid) _ _) -> cDid == did) cards
+
+writeCard :: Path Extant Dir -> Map Nid ColNote -> Card -> IO ()
+writeCard targetDir colnotesByNid (Card _ nid _ _ _) = do
+  -- Here, we must check if we've written a file for this note before. If not,
+  -- then we write one and move on. If we have, then there are two remaining
+  -- cases:
+  -- * We've written a file in this deck before, in which case we should have
+  --    some kind of reference or handle to it.
+  -- * We've written a file but not in this deck, in which case we must write a
+  --    link to the extant file.
   return ()
+    where
+      maybeColNote = M.lookup nid colnotesByNid
 
 
 main :: IO ()

@@ -36,19 +36,12 @@ packages:
 # forks / in-progress versions pinned to a git hash. For example:
 #
 extra-deps:
-  - github: jwiegley/gitlib
-    commit: 1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f
-    subdirs:
-      - gitlib
-  - github: jwiegley/gitlib
-    commit: 1965ed8c198d3c03c43fa0beef2dda67fa3e5d7f
-    subdirs:
-      - gitlib-libgit2
   - slugify-0.1.0.1@sha256:0764c30a5d6d6342ca055a97f0a7b4279a26b42b9483b73420d1b364d3f8fb38,1396
   - github: erochest/text-regex-replace
     commit: 270b4a6d460908bb5e6ead17b309a9b1d02ae070
   - microaeson-0.1.0.1@sha256:f30a15300a7cf98a230971cd5a168a5d4ab0e50a67eb9d474c816a41f46c3aad,4032
   - HsYAML-0.2.1.1@sha256:bbde5ec41f2903fdca2ec1a743dc40bfedf8ca12fb7f3351cb7431ee657eab4a,5691
+  - dlist-0.8.0.8@sha256:90ca348bffdc62d7070bcf0e97c728f8d01b24fbc7ea08d2909157d0da76534c,2066
 #
 # extra-deps: []
 
