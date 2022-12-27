@@ -2,18 +2,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
-import Control.Monad (forM_)
+import Control.Monad (foldM_, forM_)
 import Data.ByteString.Lazy (ByteString)
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
 import Data.Map (Map)
 import Data.Text (Text)
+import Data.Text.Encoding (encodeUtf8)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
+import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
-import Path.IO (doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
+import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import System.FilePath (takeBaseName)
 import Text.Printf (printf)
+import Text.Slugify (slugifyUnicode)
 
 import qualified Data.Aeson.Micro as JSON
 import qualified Data.ByteString.Lazy as LB
@@ -28,6 +31,17 @@ import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
 import qualified Path.Internal
 
+maxFilenameSize :: Int
+maxFilenameSize = 60
+
+b91Alphas :: Text
+b91Alphas = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+b91Symbols :: Text
+b91Symbols = "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
+
+b91s :: Text
+b91s = b91Alphas <> b91Symbols
 
 -- ==================== Types, Typeclasses, and Instances ====================
 
@@ -75,7 +89,7 @@ data SQLTemplate = SQLTemplate
 newtype Mid = Mid Integer deriving (Eq, Ord, Show, ToYAML)
 
 newtype Cid = Cid Integer
-newtype Did = Did Integer
+newtype Did = Did Integer deriving (Eq, Ord)
 newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
@@ -84,12 +98,17 @@ newtype DeckName = DeckName Text
 newtype SortField = SortField Text
 newtype ModelName = ModelName Text deriving (ToYAML)
 
-data Ord' = Ord' Integer
+newtype Ord' = Ord' Integer
 
 type Filename = Text
 data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
 data ColNote = ColNote !MdNote !Nid !Filename
 data Card = Card !Cid !Nid !Did !Ord' !DeckName
+data Deck = Deck ![Text] !Did
+  deriving Eq
+
+instance Ord Deck where
+  (Deck parts did) <= (Deck parts' did') = parts <= parts' && did <= did'
 
 instance SQL.FromRow SQLNote where
   fromRow =
@@ -188,11 +207,11 @@ gitClone (Repo root config) tgt = do
 
 -- | Convert a list of raw `SQLDeck`s into a preorder traversal of components.
 -- This can be reversed to get a postorder traversal.
-mkDeckTree :: [SQLDeck] -> [([Text], SQLDeck)]
-mkDeckTree ds = (L.sort . map unpack) ds
+mkDeckTree :: [SQLDeck] -> [Deck]
+mkDeckTree = L.sort . map unpack
   where
-    unpack :: SQLDeck -> ([Text], SQLDeck)
-    unpack d@(SQLDeck _ fullname) = (T.splitOn "::" fullname, d)
+    unpack :: SQLDeck -> Deck
+    unpack (SQLDeck did fullname) = Deck (T.splitOn "::" fullname) (Did did)
 
 
 mapFieldsByMid :: [Field] -> Map Mid (Map FieldOrd Field)
@@ -265,10 +284,39 @@ getField (SQLField mid ord name _) = Field (Mid mid) (FieldOrd ord) (FieldName n
 getTemplate :: SQLTemplate -> Template
 getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (FieldOrd ord) (TemplateName name)
 
+mkSlug :: Text -> Text
+mkSlug = slugifyUnicode . T.take maxFilenameSize . T.pack . stripHtmlTags . T.unpack . plainToHtml
 
-getFilename :: MdNote -> Text
-getFilename (MdNote _ _ _ _ (SortField sfld)) =
-  (T.pack . stripHtmlTags . T.unpack . plainToHtml) sfld
+
+-- | Get the hex representation of a note's GUID.
+--
+-- If for some reason we get a failure of `T.findIndex`, i.e. we have some
+-- character that is not a valid base91 char, then we fallback to taking the
+-- md5sum of the UTF-8 encoded text of the GUID.
+guidToHex :: Text -> Text
+guidToHex guid = case val of
+  Just x  -> T.pack $ showHex x ""
+  Nothing -> T.pack $ show $ md5 $ LB.fromStrict $ encodeUtf8 guid
+  where
+    digits = mapM (\c -> T.findIndex (== c) b91s) (T.unpack guid)
+    val    = L.foldl' (\acc x -> acc * 91 + x) 0 <$> digits
+
+
+-- | Construct a filename (without extension) for a given markdown note.
+--
+-- We first try to construct it solely from the sort field. If that fails
+-- (yields an empty string), then we try concatenating all the fields together,
+-- and if that fails, we fall back to concatenating the model name and the hex
+-- representation of the guid.
+mkFilename :: MdNote -> Text
+mkFilename (MdNote (Guid guid) (ModelName model) _ (Fields fieldsByName) (SortField sfld))
+  | (not . T.null) short = short
+  | (not . T.null) long = long
+  | otherwise = fallback
+  where
+    short    = mkSlug sfld
+    long     = mkSlug $ T.concat $ M.elems fieldsByName
+    fallback = model <> "--" <> guidToHex guid
 
 
 getFieldTextByFieldName :: [Text] -> Map FieldOrd Field -> Map FieldName Text
@@ -278,9 +326,9 @@ getFieldTextByFieldName fs m = M.fromList $ zip (map f (M.toAscList m)) fs
     f (_, Field _ _ name) = name
 
 
-getColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
-getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
-  ColNote <$> mdNote <*> Just (Nid nid) <*> (getFilename <$> mdNote)
+mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
+mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
+  ColNote <$> mdNote <*> Just (Nid nid) <*> (mkFilename <$> mdNote)
   where
     ts = T.words tags
     fs = T.split (== '\x1f') flds
@@ -299,7 +347,7 @@ getColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
 getCard :: [SQLDeck] -> SQLCard -> Maybe Card
 getCard decks (SQLCard cid nid did ord) =
   Card (Cid cid) (Nid nid) (Did did) (Ord' ord)
-    <$> DeckName
+    .   DeckName
     <$> (M.lookup did . M.fromList . map unpack) decks
   where
     unpack :: SQLDeck -> (Integer, Text)
@@ -384,12 +432,12 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
     fieldsByMid = (mapFieldsByMid . map getField) flds
     templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
     fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
-    models = map (getModel fieldsAndTemplatesByMid) nts
+    models    = map (getModel fieldsAndTemplatesByMid) nts
     modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
-    colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . getColNote modelsByMid) ns
+    colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
     serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
-    cards  = (MB.catMaybes . map (getCard ds)) cs
-    preorder = mkDeckTree ds
+    cards     = MB.mapMaybe (getCard ds) cs
+    preorder  = mkDeckTree ds
     postorder = reverse preorder
   ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
   _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
@@ -409,24 +457,55 @@ writeModel modelsDir (mid, s) =
   LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
-writeDeck :: Path Extant Dir -> Map Nid ColNote -> [Card] -> ([Text], SQLDeck) -> IO ()
-writeDeck targetDir colnotesByNid cards (_, SQLDeck did _) = do
-  forM_ deckCards (writeCard targetDir colnotesByNid)
-    where
-      deckCards = filter (\(Card _ _ (Did cDid) _ _) -> cDid == did) cards
+writeDeck :: Path Extant Dir -> Map Nid ColNote -> [Card] -> Deck -> IO ()
+writeDeck targetDir colnotesByNid cards deck@(Deck _ did) = do
+  foldM_ (writeCard targetDir colnotesByNid deck) M.empty deckCards
+  where deckCards = filter (\(Card _ _ did' _ _) -> did' == did) cards
 
-writeCard :: Path Extant Dir -> Map Nid ColNote -> Card -> IO ()
-writeCard targetDir colnotesByNid (Card _ nid _ _ _) = do
-  -- Here, we must check if we've written a file for this note before. If not,
-  -- then we write one and move on. If we have, then there are two remaining
-  -- cases:
-  -- * We've written a file in this deck before, in which case we should have
-  --    some kind of reference or handle to it.
-  -- * We've written a file but not in this deck, in which case we must write a
-  --    link to the extant file.
-  return ()
-    where
-      maybeColNote = M.lookup nid colnotesByNid
+-- | Write an Anki card to disk in a target directory.
+--
+-- Here, we must check if we've written a file for this note before. If not,
+-- then we write one and move on. If we have, then there are two remaining
+-- cases:
+-- - We've written a file in this deck before, in which case we should have
+--    some kind of reference or handle to it.
+-- - We've written a file but not in this deck, in which case we must write a
+--    link to the extant file.
+writeCard :: Path Extant Dir
+          -> Map Nid ColNote
+          -> Deck
+          -> Map Nid (Map Did (Path Extant File))
+          -> Card
+          -> IO (Map Nid (Map Did (Path Extant File)))
+writeCard targetDir colnotesByNid (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _) =
+  case M.lookup nid colnotesByNid of
+    Nothing -> pure noteFilesByDidByNid
+    Just colnote -> case M.lookup nid noteFilesByDidByNid of
+      Nothing -> do
+        writeFile (toFilePath notePath) $ mkPayload colnote
+        -- TODO: Add update here, otherwise this is very wrong!!!!!
+        return noteFilesByDidByNid
+      Just noteFilesByDid ->
+        case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
+          (Just _ , _) -> return noteFilesByDidByNid
+          (Nothing, Just noteFile) -> do
+            createFileLink noteFile notePath
+            -- TODO: Add update here, otherwise this is very wrong!!!!!
+            return noteFilesByDidByNid
+          (Nothing, Nothing) -> return noteFilesByDidByNid
+      where notePath = mkNotePath targetDir colnote parts
+
+
+mkPayload :: ColNote -> String
+mkPayload colnote = ""
+
+mkPath :: Text -> Path a b
+mkPath = Path.Internal.Path . T.unpack
+
+mkNotePath :: Path Extant Dir -> ColNote -> [Text] -> Path Abs File
+mkNotePath targetDir (ColNote _ _ filename) [] = absify targetDir </> mkPath filename
+mkNotePath targetDir (ColNote _ _ filename) (p : ps) =
+  absify targetDir </> (foldr (</>) (mkPath p) . map mkPath) ps </> mkPath filename
 
 
 main :: IO ()
