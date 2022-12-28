@@ -27,7 +27,7 @@ import anki.collection
 from anki.collection import Collection, Note
 
 from beartype import beartype
-from beartype.typing import List, Union, Set, Iterator, Tuple, Callable
+from beartype.typing import List, Union, Set, Iterator, Tuple, Callable, Iterable, Dict
 
 import ki
 import ki.maybes as M
@@ -86,6 +86,7 @@ from ki import (
 from ki.types import (
     NoFile,
     PseudoFile,
+    WindowsLink,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
     MissingNotetypeError,
@@ -208,6 +209,7 @@ NOTE_5 = "alpha_guid.md"
 NOTE_6 = "no_guid.md"
 NOTE_7 = "Default/aa.md"
 MEDIA_NOTE = "air.md"
+NO_GUID_NOTE_2 = "no_guid2.md"
 
 NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
 NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
@@ -217,6 +219,7 @@ NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
 NOTE_5_PATH = os.path.join(NOTES_PATH, NOTE_5)
 NOTE_6_PATH = os.path.join(NOTES_PATH, NOTE_6)
 MEDIA_NOTE_PATH = os.path.join(NOTES_PATH, MEDIA_NOTE)
+NO_GUID_2_NOTE_PATH = os.path.join(NOTES_PATH, NO_GUID_NOTE_2)
 
 NOTE_0_ID = 1645010162168
 NOTE_4_ID = 1645027705329
@@ -445,6 +448,20 @@ def test_parse_note():
     with pytest.raises(UnexpectedToken):
         delta = Delta(GitChangeType.ADDED, F.chk(Path(NOTE_6_PATH)), Path("a/b"))
         parse_note(parser, transformer, delta)
+
+
+def test_parse_note_handles_empty_guids():
+    """Does ki generate new guids when the user does not provide one?"""
+    grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
+    grammar = grammar_path.read_text(encoding="UTF-8")
+    parser = Lark(grammar, start="note", parser="lalr")
+    transformer = NoteTransformer()
+    delta = Delta(
+        status=GitChangeType.ADDED,
+        path=File(NO_GUID_2_NOTE_PATH),
+        relpath=Path("a/b/c/d.md"),
+    )
+    parse_note(parser, transformer, delta)
 
 
 def test_get_batches():
@@ -1633,7 +1650,9 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
-def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_path: Path, mocker: MockerFixture):
+def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
+    tmp_path: Path, mocker: MockerFixture
+):
     """Do we preserve working tree changes during push ops?"""
     # Create repo and commit some contents.
     targetdir = Dir(tmp_path / "targetdir")
@@ -1678,8 +1697,12 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(tmp_p
     assert diff.b_path == "file"
 
 
-def test_write_decks_warns_about_media_deck_name_collisions(tmp_path: Path, mocker: MockerFixture):
-    DECK: SampleCollection = get_test_collection("deck_with_same_name_as_media_directory")
+def test_write_decks_warns_about_media_deck_name_collisions(
+    tmp_path: Path, mocker: MockerFixture
+):
+    DECK: SampleCollection = get_test_collection(
+        "deck_with_same_name_as_media_directory"
+    )
     col = open_collection(DECK.col_file)
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}

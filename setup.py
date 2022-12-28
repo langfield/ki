@@ -10,7 +10,7 @@ def read_file(filename):
 
 setuptools.setup(
     name="ki",
-    version="0.0.7a",
+    version="0.0.8a",
     description="",
     url="",
     author="",

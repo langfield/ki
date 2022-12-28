@@ -411,7 +411,8 @@ def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> Deck
 
     # Generate a GUID from the hash of the field contents if the `guid` field
     # in the note file was left blank.
-    guid = flatnote.guid if flatnote.guid != "" else get_guid(flatnote.fields)
+    fields = list(flatnote.fields.values())
+    guid = flatnote.guid if flatnote.guid != "" else get_guid(fields)
 
     return DeckNote(
         title=flatnote.title,
