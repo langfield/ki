@@ -103,7 +103,7 @@ newtype Ord' = Ord' Integer
 type Filename = Text
 data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
 data ColNote = ColNote !MdNote !Nid !Filename
-data Card = Card !Cid !Nid !Did !Ord' !DeckName
+data Card = Card !Cid !Nid !Did !Ord' !DeckName !ColNote
 data Deck = Deck ![Text] !Did
   deriving Eq
 
@@ -153,6 +153,7 @@ instance ToYAML Model where
 
 data Repo = Repo !(Path Extant Dir) !Git.Config
 
+
 -- ========================== Path utility functions ==========================
 
 
@@ -178,11 +179,27 @@ getExtantFile file = do
   exists <- doesFileExist file
   if exists then return $ Just $ Path.Internal.Path (toFilePath file) else return Nothing
 
+
 -- | Convert from an `Extant` or `Missing` path to an `Abs` path.
 absify :: Path a b -> Path Abs b
 absify (Path.Internal.Path s) = Path.Internal.Path s
 
+
+mkFileLink :: Path Extant File -> Path Abs File -> IO (Path Extant File)
+mkFileLink tgt lnk = do
+  createFileLink tgt lnk
+  return $ ((Path.Internal.Path . T.unpack) . T.pack . toFilePath) lnk
+
+
+mkNewFile :: Path Extant Dir -> Text -> Text -> IO (Path Extant File)
+mkNewFile dir name contents = do
+  writeFile (toFilePath file) (T.unpack contents)
+  return file
+  where file = dir </> ((Path.Internal.Path . T.unpack) name)
+
+
 -- ======================= Repository utility functions =======================
+
 
 gitCommitAll :: Path Extant Dir -> String -> IO Repo
 gitCommitAll root msg = do
@@ -344,11 +361,12 @@ mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
         <*> Just (SortField sfld)
 
 
-getCard :: [SQLDeck] -> SQLCard -> Maybe Card
-getCard decks (SQLCard cid nid did ord) =
+getCard :: Map Nid ColNote -> [SQLDeck] -> SQLCard -> Maybe Card
+getCard colnotesByNid decks (SQLCard cid nid did ord) =
   Card (Cid cid) (Nid nid) (Did did) (Ord' ord)
     .   DeckName
     <$> (M.lookup did . M.fromList . map unpack) decks
+    <*> (M.lookup (Nid nid) colnotesByNid)
   where
     unpack :: SQLDeck -> (Integer, Text)
     unpack (SQLDeck did' name) = (did', name)
@@ -436,14 +454,14 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
     modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
     colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
     serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
-    cards     = MB.mapMaybe (getCard ds) cs
+    cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
     preorder  = mkDeckTree ds
     postorder = reverse preorder
   ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
   _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  forM_ postorder (writeDeck targetDir colnotesByNid cards)
+  forM_ postorder (writeDeck targetDir cards)
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
@@ -457,10 +475,10 @@ writeModel modelsDir (mid, s) =
   LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
-writeDeck :: Path Extant Dir -> Map Nid ColNote -> [Card] -> Deck -> IO ()
-writeDeck targetDir colnotesByNid cards deck@(Deck _ did) = do
-  foldM_ (writeCard targetDir colnotesByNid deck) M.empty deckCards
-  where deckCards = filter (\(Card _ _ did' _ _) -> did' == did) cards
+writeDeck :: Path Extant Dir -> [Card] -> Deck -> IO ()
+writeDeck targetDir cards deck@(Deck _ did) = do
+  foldM_ (writeCard targetDir deck) M.empty deckCards
+  where deckCards = filter (\(Card _ _ did' _ _ _) -> did' == did) cards
 
 -- | Write an Anki card to disk in a target directory.
 --
@@ -472,40 +490,38 @@ writeDeck targetDir colnotesByNid cards deck@(Deck _ did) = do
 -- - We've written a file but not in this deck, in which case we must write a
 --    link to the extant file.
 writeCard :: Path Extant Dir
-          -> Map Nid ColNote
           -> Deck
           -> Map Nid (Map Did (Path Extant File))
           -> Card
           -> IO (Map Nid (Map Did (Path Extant File)))
-writeCard targetDir colnotesByNid (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _) =
-  case M.lookup nid colnotesByNid of
-    Nothing -> pure noteFilesByDidByNid
-    Just colnote -> case M.lookup nid noteFilesByDidByNid of
+writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ colnote@(ColNote _ _ filename))
+  = do
+    deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
+    case M.lookup nid noteFilesByDidByNid of
       Nothing -> do
-        writeFile (toFilePath notePath) $ mkPayload colnote
-        -- TODO: Add update here, otherwise this is very wrong!!!!!
-        return noteFilesByDidByNid
+        file <- mkNewFile deckDir filename (mkPayload colnote)
+        return $ M.insert nid (M.singleton did file) noteFilesByDidByNid
       Just noteFilesByDid ->
         case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
           (Just _ , _) -> return noteFilesByDidByNid
           (Nothing, Just noteFile) -> do
-            createFileLink noteFile notePath
-            -- TODO: Add update here, otherwise this is very wrong!!!!!
-            return noteFilesByDidByNid
+            link <- mkFileLink noteFile (mkNotePath deckDir filename)
+            return $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
           (Nothing, Nothing) -> return noteFilesByDidByNid
-      where notePath = mkNotePath targetDir colnote parts
 
 
-mkPayload :: ColNote -> String
+mkPayload :: ColNote -> Text
 mkPayload colnote = ""
 
-mkPath :: Text -> Path a b
-mkPath = Path.Internal.Path . T.unpack
 
-mkNotePath :: Path Extant Dir -> ColNote -> [Text] -> Path Abs File
-mkNotePath targetDir (ColNote _ _ filename) [] = absify targetDir </> mkPath filename
-mkNotePath targetDir (ColNote _ _ filename) (p : ps) =
-  absify targetDir </> (foldr (</>) (mkPath p) . map mkPath) ps </> mkPath filename
+mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
+mkDeckDir targetDir [] = absify targetDir
+mkDeckDir targetDir (p : ps) = absify targetDir
+  </> (foldr (</>) ((Path.Internal.Path . T.unpack) p) . map (Path.Internal.Path . T.unpack)) ps
+
+
+mkNotePath :: Path Extant Dir -> Text -> Path Abs File
+mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filename
 
 
 main :: IO ()
