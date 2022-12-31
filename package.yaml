@@ -32,6 +32,8 @@ dependencies:
 - libgit
 - filepath
 - HsYAML
+- attoparsec
+- replace-attoparsec
 
 ghc-options:
 - -Wall

@@ -27,6 +27,7 @@ executable Ki-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       HsYAML
+    , attoparsec
     , base >=4.7 && <5
     , bytestring
     , containers
@@ -37,6 +38,7 @@ executable Ki-exe
     , path-io
     , protobuf
     , pureMD5
+    , replace-attoparsec
     , slugify
     , sqlite-simple
     , text
@@ -52,6 +54,7 @@ test-suite Ki-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       HsYAML
+    , attoparsec
     , base >=4.7 && <5
     , bytestring
     , containers
@@ -62,6 +65,7 @@ test-suite Ki-test
     , path-io
     , protobuf
     , pureMD5
+    , replace-attoparsec
     , slugify
     , sqlite-simple
     , text

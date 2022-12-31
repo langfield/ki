@@ -1,0 +1,44 @@
+Parse `HTML_MEDIA_TAGS`, which has three capture groups. Prefer the first, then
+the second, then the third. This will be parsed into a value called `filename`.
+
+The capture group 0 is the complete match, which will be parsed into a value called `fullMatch`.
+
+Then we check if we can parse `REMOTE_FILENAME` from `filename`.
+
+If we can, then we return `fullMatch`.
+
+Otherwise, we return `fullMatch` replacing `filename` with `transform filename`.
+
+The `transform` function attempts to parse `filename` as a percent string. If this succeeds, then we decode and return.
+
+If it fails, we return `filename` unchanged.
+
+
+r#"(?xsi)
+		# the start of the image, audio, or object tag
+		<\b(?:img|audio|object)\b[^>]+\b(?:src|data)\b=
+		(?:
+						# 1: double-quoted filename
+						"
+						([^"]+?)
+						"
+						[^>]*>
+				|
+						# 2: single-quoted filename
+						'
+						([^']+?)
+						'
+						[^>]*>
+				|
+						# 3: unquoted filename
+						([^ >]+?)
+						(?:
+								# then either a space and the rest
+								\x20[^>]*>
+								|
+								# or the tag immediately ends
+								>
+						)
+		)
+		"#
+

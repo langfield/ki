@@ -1,24 +1,31 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
 
+import Control.Applicative ((<|>), many)
 import Control.Monad (foldM_, forM_)
+import Data.Attoparsec.Text (Parser)
 import Data.ByteString.Lazy (ByteString)
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
+import Data.Foldable (foldlM)
 import Data.Map (Map)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
+import Foreign.C.String (CString, peekCString, withCString)
 import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
 import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
+import Replace.Attoparsec.Text (streamEdit)
 import System.FilePath (takeBaseName)
 import Text.Printf (printf)
 import Text.Slugify (slugifyUnicode)
 
 import qualified Data.Aeson.Micro as JSON
+import qualified Data.Attoparsec.Text as A
 import qualified Data.ByteString.Lazy as LB
 import qualified Data.List as L
 import qualified Data.Map as M
@@ -30,6 +37,11 @@ import qualified Data.YAML as Y
 import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
 import qualified Path.Internal
+
+foreign import ccall "tidy.c tidy" tidy' :: CString -> IO (CString)
+
+tidy :: String -> IO String
+tidy s = withCString s tidy' >>= peekCString
 
 maxFilenameSize :: Int
 maxFilenameSize = 60
@@ -93,10 +105,12 @@ newtype Did = Did Integer deriving (Eq, Ord)
 newtype Nid = Nid Integer deriving (Eq, Ord)
 newtype Guid = Guid Text
 newtype Tags = Tags [Text]
-newtype Fields = Fields (Map FieldName Text)
+newtype Fields = Fields [Field]
 newtype DeckName = DeckName Text
 newtype SortField = SortField Text
 newtype ModelName = ModelName Text deriving (ToYAML)
+
+data Field = Field FieldOrd FieldName Text
 
 newtype Ord' = Ord' Integer
 
@@ -133,16 +147,16 @@ newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord, ToYAML)
 newtype FieldName = FieldName Text deriving (Eq, Ord, ToYAML)
 newtype TemplateName = TemplateName Text deriving ToYAML
 
-data Field = Field !Mid !FieldOrd !FieldName
+data FieldDef = FieldDef !Mid !FieldOrd !FieldName
+  deriving Eq
 data Template = Template !Mid !FieldOrd !TemplateName
-data Model = Model
-  { modelMid  :: !Mid
-  , modelName :: !ModelName
-  , modelFieldsAndTemplatesByOrd :: !(Map FieldOrd (Field, Template))
-  }
+data Model = Model !Mid !ModelName !(Map FieldOrd (FieldDef, Template))
 
-instance ToYAML Field where
-  toYAML (Field mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
+instance Ord FieldDef where
+  (FieldDef _ (FieldOrd ord) _) <= (FieldDef _ (FieldOrd ord') _) = ord <= ord'
+
+instance ToYAML FieldDef where
+  toYAML (FieldDef mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
 
 instance ToYAML Template where
   toYAML (Template mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
@@ -163,7 +177,7 @@ ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Extant Dir))
 ensureEmpty dir = do
   ensureDir dir
   contents <- listDir dir
-  return $ case contents of
+  pure $ case contents of
     ([], []) -> Just $ Path.Internal.Path (toFilePath dir)
     _ -> Nothing
 
@@ -171,13 +185,13 @@ ensureEmpty dir = do
 ensureExtantDir :: Path Abs Dir -> IO (Path Extant Dir)
 ensureExtantDir dir = do
   ensureDir dir
-  return $ Path.Internal.Path (toFilePath dir)
+  pure $ Path.Internal.Path (toFilePath dir)
 
 
 getExtantFile :: Path Abs File -> IO (Maybe (Path Extant File))
 getExtantFile file = do
   exists <- doesFileExist file
-  if exists then return $ Just $ Path.Internal.Path (toFilePath file) else return Nothing
+  if exists then pure $ Just $ Path.Internal.Path (toFilePath file) else pure Nothing
 
 
 -- | Convert from an `Extant` or `Missing` path to an `Abs` path.
@@ -188,13 +202,13 @@ absify (Path.Internal.Path s) = Path.Internal.Path s
 mkFileLink :: Path Extant File -> Path Abs File -> IO (Path Extant File)
 mkFileLink tgt lnk = do
   createFileLink tgt lnk
-  return $ ((Path.Internal.Path . T.unpack) . T.pack . toFilePath) lnk
+  pure $ ((Path.Internal.Path . T.unpack) . T.pack . toFilePath) lnk
 
 
 mkNewFile :: Path Extant Dir -> Text -> Text -> IO (Path Extant File)
 mkNewFile dir name contents = do
   writeFile (toFilePath file) (T.unpack contents)
-  return file
+  pure file
   where file = dir </> ((Path.Internal.Path . T.unpack) name)
 
 
@@ -214,7 +228,7 @@ gitClone (Repo root config) tgt = do
   Git.runGit config $ do
     o <- Git.gitExec "clone" [toFilePath root, toFilePath tgt] []
     case o of
-      Right _   -> return ()
+      Right _   -> pure ()
       Left  err -> Git.gitError err "clone"
   pure $ Repo tgt $ Git.makeConfig (toFilePath tgt) Nothing
 
@@ -231,13 +245,13 @@ mkDeckTree = L.sort . map unpack
     unpack (SQLDeck did fullname) = Deck (T.splitOn "::" fullname) (Did did)
 
 
-mapFieldsByMid :: [Field] -> Map Mid (Map FieldOrd Field)
+mapFieldsByMid :: [FieldDef] -> Map Mid (Map FieldOrd FieldDef)
 mapFieldsByMid = foldr f M.empty
   where
-    g :: FieldOrd -> Field -> Map FieldOrd Field -> Maybe (Map FieldOrd Field)
+    g :: FieldOrd -> FieldDef -> Map FieldOrd FieldDef -> Maybe (Map FieldOrd FieldDef)
     g ord fld fieldsByOrd = Just $ M.insert ord fld fieldsByOrd
-    f :: Field -> Map Mid (Map FieldOrd Field) -> Map Mid (Map FieldOrd Field)
-    f fld@(Field mid ord _) = M.update (g ord fld) mid
+    f :: FieldDef -> Map Mid (Map FieldOrd FieldDef) -> Map Mid (Map FieldOrd FieldDef)
+    f fld@(FieldDef mid ord _) = M.update (g ord fld) mid
 
 
 mapTemplatesByMid :: [Template] -> Map Mid (Map FieldOrd Template)
@@ -273,29 +287,29 @@ plainToHtml s = case ICU.find htmlRegex t of
     t = sub s
 
 
-getModel :: Map Mid (Map FieldOrd (Field, Template)) -> SQLModel -> Maybe Model
+getModel :: Map Mid (Map FieldOrd (FieldDef, Template)) -> SQLModel -> Maybe Model
 getModel fieldsAndTemplatesByMid (SQLModel mid name _) =
   case M.lookup (Mid mid) fieldsAndTemplatesByMid of
     Just m  -> Just (Model (Mid mid) (ModelName name) m)
     Nothing -> Nothing
 
 
-getFieldsAndTemplatesByMid :: Map Mid (Map FieldOrd Field)
+getFieldsAndTemplatesByMid :: Map Mid (Map FieldOrd FieldDef)
                            -> Map Mid (Map FieldOrd Template)
-                           -> Map Mid (Map FieldOrd (Field, Template))
+                           -> Map Mid (Map FieldOrd (FieldDef, Template))
 getFieldsAndTemplatesByMid fieldsByMid templatesByMid = M.foldrWithKey f M.empty fieldsByMid
   where
     f :: Mid
-      -> Map FieldOrd Field
-      -> Map Mid (Map FieldOrd (Field, Template))
-      -> Map Mid (Map FieldOrd (Field, Template))
+      -> Map FieldOrd FieldDef
+      -> Map Mid (Map FieldOrd (FieldDef, Template))
+      -> Map Mid (Map FieldOrd (FieldDef, Template))
     f mid fieldsByOrd acc = case M.lookup mid templatesByMid of
       Just templatesByOrd -> M.insert mid (M.intersectionWith (,) fieldsByOrd templatesByOrd) acc
       Nothing -> acc
 
 
-getField :: SQLField -> Field
-getField (SQLField mid ord name _) = Field (Mid mid) (FieldOrd ord) (FieldName name)
+getField :: SQLField -> FieldDef
+getField (SQLField mid ord name _) = FieldDef (Mid mid) (FieldOrd ord) (FieldName name)
 
 
 getTemplate :: SQLTemplate -> Template
@@ -326,39 +340,34 @@ guidToHex guid = case val of
 -- and if that fails, we fall back to concatenating the model name and the hex
 -- representation of the guid.
 mkFilename :: MdNote -> Text
-mkFilename (MdNote (Guid guid) (ModelName model) _ (Fields fieldsByName) (SortField sfld))
+mkFilename (MdNote (Guid guid) (ModelName model) _ (Fields fields) (SortField sfld))
   | (not . T.null) short = short
   | (not . T.null) long = long
   | otherwise = fallback
   where
     short    = mkSlug sfld
-    long     = mkSlug $ T.concat $ M.elems fieldsByName
+    long     = mkSlug $ T.concat $ map (\(Field _ _ s) -> s) fields
     fallback = model <> "--" <> guidToHex guid
 
 
-getFieldTextByFieldName :: [Text] -> Map FieldOrd Field -> Map FieldName Text
-getFieldTextByFieldName fs m = M.fromList $ zip (map f (M.toAscList m)) fs
-  where
-    f :: (FieldOrd, Field) -> FieldName
-    f (_, Field _ _ name) = name
+zipEq :: [a] -> [b] -> Maybe [(a, b)]
+zipEq [] [] = Just []
+zipEq [] _  = Nothing
+zipEq _  [] = Nothing
+zipEq (x : xs) (y : ys) = ((x, y) :) <$> zipEq xs ys
 
 
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
-mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) =
-  ColNote <$> mdNote <*> Just (Nid nid) <*> (mkFilename <$> mdNote)
+mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
+  (Model _ modelName modelFieldsAndTemplatesByOrd) <- M.lookup (Mid mid) modelsByMid
+  fields <- map mkField <$> (zipEq fs . L.sort . M.elems . M.map fst) modelFieldsAndTemplatesByOrd
+  let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) (SortField sfld)
+  pure (ColNote mdNote (Nid nid) (mkFilename mdNote))
   where
     ts = T.words tags
     fs = T.split (== '\x1f') flds
-    maybeModel = M.lookup (Mid mid) modelsByMid
-    maybeModelName = modelName <$> maybeModel
-    maybeFieldsByOrd = M.map fst . modelFieldsAndTemplatesByOrd <$> maybeModel
-    maybeFieldTextByFieldName = getFieldTextByFieldName fs <$> maybeFieldsByOrd
-    mdNote =
-      MdNote (Guid guid)
-        <$> maybeModelName
-        <*> Just (Tags ts)
-        <*> (Fields <$> maybeFieldTextByFieldName)
-        <*> Just (SortField sfld)
+    mkField :: (Text, FieldDef) -> Field
+    mkField (s, (FieldDef _ ord name)) = Field ord name s
 
 
 getCard :: Map Nid ColNote -> [SQLDeck] -> SQLCard -> Maybe Card
@@ -427,7 +436,7 @@ writeInitialCommit :: Path Extant File
 writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir _ = do
   _ <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
   _ <- gitCommitAll targetDir "Initial commit."
-  return ()
+  pure ()
 
 
 writeRepo :: Path Extant File
@@ -451,7 +460,7 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
     templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
     fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
     models    = map (getModel fieldsAndTemplatesByMid) nts
-    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m -> (modelMid m, m))) models)
+    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _) -> (mid, m))) models)
     colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
     serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
     cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
@@ -494,24 +503,128 @@ writeCard :: Path Extant Dir
           -> Map Nid (Map Did (Path Extant File))
           -> Card
           -> IO (Map Nid (Map Did (Path Extant File)))
-writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ colnote@(ColNote _ _ filename))
+writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ filename))
   = do
     deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
+    payload <- mkPayload mdnote
     case M.lookup nid noteFilesByDidByNid of
       Nothing -> do
-        file <- mkNewFile deckDir filename (mkPayload colnote)
-        return $ M.insert nid (M.singleton did file) noteFilesByDidByNid
+        file <- mkNewFile deckDir filename payload
+        pure $ M.insert nid (M.singleton did file) noteFilesByDidByNid
       Just noteFilesByDid ->
         case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
-          (Just _ , _) -> return noteFilesByDidByNid
+          (Just _ , _) -> pure noteFilesByDidByNid
           (Nothing, Just noteFile) -> do
             link <- mkFileLink noteFile (mkNotePath deckDir filename)
-            return $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
-          (Nothing, Nothing) -> return noteFilesByDidByNid
+            pure $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
+          (Nothing, Nothing) -> pure noteFilesByDidByNid
 
 
-mkPayload :: ColNote -> Text
-mkPayload colnote = ""
+htmlToScreen :: Text -> Text
+htmlToScreen =
+  T.strip
+    . replaceAll "\\<b\\>\\s*\\<\\/b\\>" ""
+    . replaceAll "src= ?\n\"" "src=\""
+    . T.replace "<br />" "\n"
+    . T.replace "<br/>" "\n"
+    . T.replace "<br>" "\n"
+    . T.replace "&nbsp;" " "
+    . T.replace "&amp;" "&"
+    . T.replace "&gt;" ">"
+    . T.replace "&lt;" "<"
+    . T.replace "\\*}" "*}"
+    . T.replace "\\\\}" "\\}"
+    . T.replace "\\\\{" "\\{"
+    . T.replace "\\\\\\\\" "\\\\"
+    . replaceAll "\\<style\\>(?s:.)*\\<\\/style\\>" ""
+
+
+escapeMediaFilenames :: Text -> Text
+escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
+
+type Original = Text
+data MediaFilename = MediaFilename Filename Original
+data MediaTag = MediaTag MediaFilename Original
+
+mediaTagEditor :: MediaTag -> Text
+mediaTagEditor _ = ""
+
+mediaTagParser :: Parser MediaTag
+mediaTagParser = do
+  tagName  <- A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
+  tagSuffixHead <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
+  tagSuffixPith <- T.pack <$> (A.many1 $ A.notChar '>')
+  tagSuffixLast <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
+  attr <- A.asciiCI "src=" <|> A.asciiCI "data="
+  fname@(MediaFilename _ origFilename) <-
+    dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser
+  rest <- restOfTagParser
+  pure $ MediaTag
+    fname
+    (  "<"
+    <> tagName
+    <> tagSuffixHead
+    <> tagSuffixPith
+    <> tagSuffixLast
+    <> attr
+    <> origFilename
+    <> rest
+    <> ">"
+    )
+
+
+dubQuotedFilenameParser :: Parser MediaFilename
+dubQuotedFilenameParser = do
+  filename <- A.char '"' >> T.pack <$> (A.many1 $ A.notChar '"') <* A.char '"'
+  pure $ MediaFilename filename $ "\"" <> filename <> "\""
+
+
+restOfTagParser :: Parser Text
+restOfTagParser = do
+  T.pack <$> (many $ A.notChar '>')
+
+
+quotedFilenameParser :: Parser MediaFilename
+quotedFilenameParser = do
+  filename <- A.char '\'' >> T.pack <$> (A.many1 $ A.notChar '\'') <* A.char '\''
+  trailing <- T.pack <$> (many $ A.notChar '>') <* A.char '>'
+  pure $ MediaFilename filename $ "'" <> filename <> "'" <> trailing
+
+unquotedFilenameParser :: Parser MediaFilename
+unquotedFilenameParser = do
+  filename <- T.pack <$> (A.many1 $ A.satisfy $ A.notInClass " >")
+  -- TODO: This is wrong.
+  trailing <- trailingParser <|> T.singleton <$> A.char '>' <* A.char '>'
+  pure $ MediaFilename filename $ filename <> trailing
+  where
+    trailingParser :: Parser Text
+    trailingParser = do
+      trailing <- A.asciiCI "\x20" >> T.pack <$> (many $ A.notChar '>')
+      pure $ " " <> trailing
+
+
+mkPayload :: MdNote -> IO Text
+mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) _) = do
+  body <- foldlM go "" fields
+  pure $ header <> "\n" <> body
+  where
+    header =
+      T.intercalate "\n"
+        $  [ "# Note"
+           , "```"
+           , "guid: " <> guid
+           , "notetype: " <> modelName
+           , "```"
+           , ""
+           , "### Tags"
+           , "```"
+           ]
+        ++ tags
+        ++ ["```", ""]
+    go :: Text -> Field -> IO Text
+    go s (Field _ (FieldName name) text) = do
+      tidyText <- T.pack <$> (tidy . T.unpack) text
+      pure $ s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) tidyText <> "\n"
 
 
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
