@@ -3,3 +3,4 @@ dist-newstyle/
 .stack-work/
 *~
 *.swp
+*.o

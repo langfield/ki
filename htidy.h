@@ -5,13 +5,17 @@
 
 char* tidy(char* input)
 {
-  TidyBuffer output = {0};
   TidyBuffer errbuf = {0};
   int rc = -1;
   Bool ok;
 
   TidyDoc tdoc = tidyCreate();                     // Initialize "document"
   printf( "Tidying:\t%s\n", input );
+
+  char *cleansed_buffer_;
+	cleansed_buffer_ = (char *)malloc(1);
+	uint size = 0;
+	rc = tidySaveString(tdoc, cleansed_buffer_, &size );
 
   ok = tidyOptSetBool( tdoc, TidyXhtmlOut, yes );  // Convert to XHTML
   ok = tidyOptSetBool( tdoc, TidyQuiet, yes ) && ok;
@@ -31,18 +35,22 @@ char* tidy(char* input)
   if ( rc > 1 )                                    // If error, force output.
     rc = ( tidyOptSetBool(tdoc, TidyForceOutput, yes) ? rc : -1 );
   if ( rc >= 0 )
-    rc = tidySaveBuffer( tdoc, &output );          // Pretty Print
+
+		// now size is the required size
+		free(cleansed_buffer_);
+		cleansed_buffer_ = (char *)malloc(size+1);
+		rc = tidySaveString(tdoc, cleansed_buffer_, &size );
 
   if ( rc >= 0 )
   {
     if ( rc > 0 )
       printf( "\nDiagnostics:\n\n%s", errbuf.bp );
-    printf( "\nAnd here is the result:\n\n%s", output.bp );
+    printf( "\nAnd here is the result:\n\n%s", cleansed_buffer_ );
   }
   else
     printf( "A severe error (%d) occurred.\n", rc );
 
   tidyBufFree( &errbuf );
   tidyRelease( tdoc );
-  return &output;
+  return cleansed_buffer_;
 }

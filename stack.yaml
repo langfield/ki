@@ -64,7 +64,7 @@ extra-deps:
 #
 # Extra directories used by stack for building
 # extra-include-dirs: [/path/to/dir]
-# extra-lib-dirs: [/path/to/dir]
-#
+extra-lib-dirs: [/lib/x86_64-linux-gnu]
+
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor

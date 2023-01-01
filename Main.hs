@@ -36,6 +36,7 @@ import qualified Data.YAML as Y
 -- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
+import qualified Network.URI.Encode as URI
 import qualified Path.Internal
 
 foreign import ccall "tidy.c tidy" tidy' :: CString -> IO (CString)
@@ -542,41 +543,27 @@ htmlToScreen =
 escapeMediaFilenames :: Text -> Text
 escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
 
-type Original = Text
-data MediaFilename = MediaFilename Filename Original
-data MediaTag = MediaTag MediaFilename Original
+type Prefix = Text
+type Suffix = Text
+data MediaFilename = MediaFilename Filename Prefix Suffix
+data MediaTag = MediaTag Filename Prefix Suffix
 
 mediaTagEditor :: MediaTag -> Text
-mediaTagEditor _ = ""
+mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
 
 mediaTagParser :: Parser MediaTag
 mediaTagParser = do
-  tagName  <- A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
+  tagName <- A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
   tagSuffixHead <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
   tagSuffixPith <- T.pack <$> (A.many1 $ A.notChar '>')
   tagSuffixLast <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
-  attr <- A.asciiCI "src=" <|> A.asciiCI "data="
-  fname@(MediaFilename _ origFilename) <-
-    dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser
-  rest <- restOfTagParser
+  attr    <- A.asciiCI "src=" <|> A.asciiCI "data="
+  (MediaFilename fname pre suf) <-
+    (dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser) <* A.char '>'
   pure $ MediaTag
     fname
-    (  "<"
-    <> tagName
-    <> tagSuffixHead
-    <> tagSuffixPith
-    <> tagSuffixLast
-    <> attr
-    <> origFilename
-    <> rest
-    <> ">"
-    )
-
-
-dubQuotedFilenameParser :: Parser MediaFilename
-dubQuotedFilenameParser = do
-  filename <- A.char '"' >> T.pack <$> (A.many1 $ A.notChar '"') <* A.char '"'
-  pure $ MediaFilename filename $ "\"" <> filename <> "\""
+    ("<" <> tagName <> tagSuffixHead <> tagSuffixPith <> tagSuffixLast <> attr <> pre)
+    (suf <> ">")
 
 
 restOfTagParser :: Parser Text
@@ -584,23 +571,30 @@ restOfTagParser = do
   T.pack <$> (many $ A.notChar '>')
 
 
+dubQuotedFilenameParser :: Parser MediaFilename
+dubQuotedFilenameParser = do
+  filename <- A.char '"' >> T.pack <$> (A.many1 $ A.notChar '"') <* A.char '"'
+  rest     <- restOfTagParser
+  pure $ MediaFilename filename "\"" ("\"" <> rest)
+
+
 quotedFilenameParser :: Parser MediaFilename
 quotedFilenameParser = do
   filename <- A.char '\'' >> T.pack <$> (A.many1 $ A.notChar '\'') <* A.char '\''
-  trailing <- T.pack <$> (many $ A.notChar '>') <* A.char '>'
-  pure $ MediaFilename filename $ "'" <> filename <> "'" <> trailing
+  rest     <- restOfTagParser
+  pure $ MediaFilename filename "'" ("'" <> rest)
+
 
 unquotedFilenameParser :: Parser MediaFilename
 unquotedFilenameParser = do
   filename <- T.pack <$> (A.many1 $ A.satisfy $ A.notInClass " >")
-  -- TODO: This is wrong.
-  trailing <- trailingParser <|> T.singleton <$> A.char '>' <* A.char '>'
-  pure $ MediaFilename filename $ filename <> trailing
+  rest     <- A.option "" spaceAndRestParser
+  pure $ MediaFilename filename "" rest
   where
-    trailingParser :: Parser Text
-    trailingParser = do
-      trailing <- A.asciiCI "\x20" >> T.pack <$> (many $ A.notChar '>')
-      pure $ " " <> trailing
+    spaceAndRestParser :: Parser Text
+    spaceAndRestParser = do
+      rest <- A.asciiCI "\x20" >> T.pack <$> (many $ A.notChar '>')
+      pure $ " " <> rest
 
 
 mkPayload :: MdNote -> IO Text
