@@ -394,8 +394,8 @@ clone colPath targetPath = do
   maybeColFile   <- resolveFile' colPath >>= getExtantFile
   maybeTargetDir <- resolveDir' targetPath >>= ensureEmpty
   case (maybeColFile, maybeTargetDir) of
-    (Nothing, _) -> printf "fatal: collection file '%s' does not exist" (show colPath)
-    (_, Nothing) -> printf "fatal: targetdir '%s' not empty" (show targetPath)
+    (Nothing, _) -> printf "fatal: collection file '%s' does not exist\n" colPath
+    (_, Nothing) -> printf "fatal: targetdir '%s' not empty\n" targetPath
     (Just colFile, Just targetDir) -> continueClone colFile targetDir
 
 
@@ -421,9 +421,9 @@ continueClone colFile targetDir = do
   maybeModelsDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_models")
   ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
   case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
-    (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty"
-    (_, Nothing, _) -> printf "fatal: new '_media' directory not empty"
-    (_, _, Nothing) -> printf "fatal: new '_models' directory not empty"
+    (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty\n"
+    (_, Nothing, _) -> printf "fatal: new '_media' directory not empty\n"
+    (_, _, Nothing) -> printf "fatal: new '_models' directory not empty\n"
     -- Write repository contents and commit.
     (Just kiDir, Just mediaDir, Just modelsDir) ->
       writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
@@ -640,5 +640,4 @@ mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filenam
 
 main :: IO ()
 main = do
-  print ("Hello" :: String)
   clone "" ""
