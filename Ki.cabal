@@ -25,12 +25,13 @@ executable Ki-exe
   other-modules:
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  cc-options: -shared
   include-dirs:
       /usr/include/tidy
-  install-includes:
-      htidy.h
   c-sources:
       htidy.c
+  extra-libraries:
+      tidy
   build-depends:
       HsYAML
     , attoparsec
@@ -59,12 +60,13 @@ test-suite Ki-test
   other-modules:
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  cc-options: -shared
   include-dirs:
       /usr/include/tidy
-  install-includes:
-      htidy.h
   c-sources:
       htidy.c
+  extra-libraries:
+      tidy
   build-depends:
       HsYAML
     , attoparsec

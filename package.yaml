@@ -47,9 +47,10 @@ ghc-options:
 - -Wpartial-fields
 - -Wredundant-constraints
 
+cc-options: -shared
 c-sources: htidy.c
-install-includes: htidy.h
 include-dirs: /usr/include/tidy
+extra-libraries: tidy
 
 executables:
   Ki-exe:
