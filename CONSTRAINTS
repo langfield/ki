@@ -1,0 +1,3 @@
+- Ki should tidy HTML in fields so that fresh clones look pretty
+- Ki should statically link against `libtidy` instead of invoking the
+  command-line so that we don't need specific binaries on the filesystem

@@ -26,8 +26,6 @@ dependencies:
 - sqlite-simple
 - slugify
 - containers
-- text-icu
-- text-regex-replace
 - protobuf
 - libgit
 - filepath
@@ -35,6 +33,8 @@ dependencies:
 - attoparsec
 - replace-attoparsec
 - uri-encode
+- regex-tdfa
+- regex-compat
 
 ghc-options:
 - -Wall
@@ -46,6 +46,10 @@ ghc-options:
 - -Wmissing-home-modules
 - -Wpartial-fields
 - -Wredundant-constraints
+
+c-sources: htidy.c
+install-includes: htidy.h
+include-dirs: /usr/include/tidy
 
 executables:
   Ki-exe:

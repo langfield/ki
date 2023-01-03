@@ -12,7 +12,6 @@ import Data.Foldable (foldlM)
 import Data.Map (Map)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
-import Data.Text.ICU.Replace (replaceAll)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
 import Foreign.C.String (CString, peekCString, withCString)
@@ -22,6 +21,8 @@ import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', 
 import Replace.Attoparsec.Text (streamEdit)
 import System.FilePath (takeBaseName)
 import Text.Printf (printf)
+import Text.Regex (mkRegex, subRegex)
+import Text.Regex.TDFA ((=~))
 import Text.Slugify (slugifyUnicode)
 
 import qualified Data.Aeson.Micro as JSON
@@ -31,7 +32,6 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Maybe as MB
 import qualified Data.Text as T
-import qualified Data.Text.ICU as ICU
 import qualified Data.YAML as Y
 -- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
@@ -39,7 +39,7 @@ import qualified Lib.Git as Git
 import qualified Network.URI.Encode as URI
 import qualified Path.Internal
 
-foreign import ccall "tidy.c tidy" tidy' :: CString -> IO (CString)
+foreign import ccall "htidy.h tidy" tidy' :: CString -> IO CString
 
 tidy :: String -> IO String
 tidy s = withCString s tidy' >>= peekCString
@@ -111,7 +111,7 @@ newtype DeckName = DeckName Text
 newtype SortField = SortField Text
 newtype ModelName = ModelName Text deriving (ToYAML)
 
-data Field = Field FieldOrd FieldName Text
+data Field = Field !FieldOrd !FieldName !Text
 
 newtype Ord' = Ord' Integer
 
@@ -178,9 +178,7 @@ ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Extant Dir))
 ensureEmpty dir = do
   ensureDir dir
   contents <- listDir dir
-  pure $ case contents of
-    ([], []) -> Just $ Path.Internal.Path (toFilePath dir)
-    _ -> Nothing
+  pure $ if contents == ([], []) then Just $ Path.Internal.Path (toFilePath dir) else Nothing
 
 
 ensureExtantDir :: Path Abs Dir -> IO (Path Extant Dir)
@@ -210,7 +208,7 @@ mkNewFile :: Path Extant Dir -> Text -> Text -> IO (Path Extant File)
 mkNewFile dir name contents = do
   writeFile (toFilePath file) (T.unpack contents)
   pure file
-  where file = dir </> ((Path.Internal.Path . T.unpack) name)
+  where file = dir </> (Path.Internal.Path . T.unpack) name
 
 
 -- ======================= Repository utility functions =======================
@@ -270,17 +268,25 @@ stripHtmlTags ('<' : xs) = stripHtmlTags $ drop 1 $ dropWhile (/= '>') xs
 stripHtmlTags (x : xs) = x : stripHtmlTags xs
 
 
-plainToHtml :: Text -> Text
-plainToHtml s = case ICU.find htmlRegex t of
-  Nothing  -> T.replace "\n" "<br>" t
-  (Just _) -> t
+subRegex' :: Text -> Text -> Text -> Text
+subRegex' pat rep t = T.pack $ subRegex (mkRegex pat') t' rep'
   where
-    htmlRegex = "</?\\s*[a-z-][^>]*\\s*>|(\\&(?:[\\w\\d]+|#\\d+|#x[a-f\\d]+);)"
+    pat' = T.unpack pat
+    rep' = T.unpack rep
+    t'   = T.unpack t
+
+
+plainToHtml :: Text -> Text
+plainToHtml s
+  | t =~ htmlRegex = T.replace "\n" "<br>" t
+  | otherwise = t
+  where
+    htmlRegex = "</?\\s*[a-z-][^>]*\\s*>|(\\&(?:[\\w\\d]+|#\\d+|#x[a-f\\d]+);)" :: Text
     sub :: Text -> Text
     sub =
-      replaceAll "<div>\\s*</div>" ""
-        . replaceAll "<i>\\s*</i>" ""
-        . replaceAll "<b>\\s*</b>" ""
+      subRegex' "<div>\\s*</div>" ""
+        . subRegex' "<i>\\s*</i>" ""
+        . subRegex' "<b>\\s*</b>" ""
         . T.replace "&nbsp;" " "
         . T.replace "&amp;" "&"
         . T.replace "&gt;" ">"
@@ -368,7 +374,7 @@ mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
     ts = T.words tags
     fs = T.split (== '\x1f') flds
     mkField :: (Text, FieldDef) -> Field
-    mkField (s, (FieldDef _ ord name)) = Field ord name s
+    mkField (s, FieldDef _ ord name) = Field ord name s
 
 
 getCard :: Map Nid ColNote -> [SQLDeck] -> SQLCard -> Maybe Card
@@ -376,7 +382,7 @@ getCard colnotesByNid decks (SQLCard cid nid did ord) =
   Card (Cid cid) (Nid nid) (Did did) (Ord' ord)
     .   DeckName
     <$> (M.lookup did . M.fromList . map unpack) decks
-    <*> (M.lookup (Nid nid) colnotesByNid)
+    <*> M.lookup (Nid nid) colnotesByNid
   where
     unpack :: SQLDeck -> (Integer, Text)
     unpack (SQLDeck did' name) = (did', name)
@@ -524,8 +530,8 @@ writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColN
 htmlToScreen :: Text -> Text
 htmlToScreen =
   T.strip
-    . replaceAll "\\<b\\>\\s*\\<\\/b\\>" ""
-    . replaceAll "src= ?\n\"" "src=\""
+    . subRegex' "\\<b\\>\\s*\\<\\/b\\>" ""
+    . subRegex' "src= ?\n\"" "src=\""
     . T.replace "<br />" "\n"
     . T.replace "<br/>" "\n"
     . T.replace "<br>" "\n"
@@ -537,7 +543,7 @@ htmlToScreen =
     . T.replace "\\\\}" "\\}"
     . T.replace "\\\\{" "\\{"
     . T.replace "\\\\\\\\" "\\\\"
-    . replaceAll "\\<style\\>(?s:.)*\\<\\/style\\>" ""
+    . subRegex' "\\<style\\>(?s:.)*\\<\\/style\\>" ""
 
 
 escapeMediaFilenames :: Text -> Text
@@ -545,8 +551,8 @@ escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
 
 type Prefix = Text
 type Suffix = Text
-data MediaFilename = MediaFilename Filename Prefix Suffix
-data MediaTag = MediaTag Filename Prefix Suffix
+data MediaFilename = MediaFilename !Filename !Prefix !Suffix
+data MediaTag = MediaTag !Filename !Prefix !Suffix
 
 mediaTagEditor :: MediaTag -> Text
 mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
@@ -555,7 +561,7 @@ mediaTagParser :: Parser MediaTag
 mediaTagParser = do
   tagName <- A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
   tagSuffixHead <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
-  tagSuffixPith <- T.pack <$> (A.many1 $ A.notChar '>')
+  tagSuffixPith <- T.pack <$> A.many1 (A.notChar '>')
   tagSuffixLast <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
   attr    <- A.asciiCI "src=" <|> A.asciiCI "data="
   (MediaFilename fname pre suf) <-
@@ -568,32 +574,32 @@ mediaTagParser = do
 
 restOfTagParser :: Parser Text
 restOfTagParser = do
-  T.pack <$> (many $ A.notChar '>')
+  T.pack <$> many (A.notChar '>')
 
 
 dubQuotedFilenameParser :: Parser MediaFilename
 dubQuotedFilenameParser = do
-  filename <- A.char '"' >> T.pack <$> (A.many1 $ A.notChar '"') <* A.char '"'
+  filename <- A.char '"' >> T.pack <$> A.many1 (A.notChar '"') <* A.char '"'
   rest     <- restOfTagParser
   pure $ MediaFilename filename "\"" ("\"" <> rest)
 
 
 quotedFilenameParser :: Parser MediaFilename
 quotedFilenameParser = do
-  filename <- A.char '\'' >> T.pack <$> (A.many1 $ A.notChar '\'') <* A.char '\''
+  filename <- A.char '\'' >> T.pack <$> A.many1 (A.notChar '\'') <* A.char '\''
   rest     <- restOfTagParser
   pure $ MediaFilename filename "'" ("'" <> rest)
 
 
 unquotedFilenameParser :: Parser MediaFilename
 unquotedFilenameParser = do
-  filename <- T.pack <$> (A.many1 $ A.satisfy $ A.notInClass " >")
+  filename <- T.pack <$> A.many1 (A.satisfy $ A.notInClass " >")
   rest     <- A.option "" spaceAndRestParser
   pure $ MediaFilename filename "" rest
   where
     spaceAndRestParser :: Parser Text
     spaceAndRestParser = do
-      rest <- A.asciiCI "\x20" >> T.pack <$> (many $ A.notChar '>')
+      rest <- A.asciiCI "\x20" >> T.pack <$> many (A.notChar '>')
       pure $ " " <> rest
 
 
@@ -623,8 +629,9 @@ mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) 
 
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
-mkDeckDir targetDir (p : ps) = absify targetDir
-  </> (foldr (</>) ((Path.Internal.Path . T.unpack) p) . map (Path.Internal.Path . T.unpack)) ps
+mkDeckDir targetDir (p : ps) =
+  absify targetDir
+    </> foldr ((</>) . Path.Internal.Path . T.unpack) ((Path.Internal.Path . T.unpack) p) ps
 
 
 mkNotePath :: Path Extant Dir -> Text -> Path Abs File

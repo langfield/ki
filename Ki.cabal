@@ -25,6 +25,12 @@ executable Ki-exe
   other-modules:
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  include-dirs:
+      /usr/include/tidy
+  install-includes:
+      htidy.h
+  c-sources:
+      htidy.c
   build-depends:
       HsYAML
     , attoparsec
@@ -38,12 +44,12 @@ executable Ki-exe
     , path-io
     , protobuf
     , pureMD5
+    , regex-compat
+    , regex-tdfa
     , replace-attoparsec
     , slugify
     , sqlite-simple
     , text
-    , text-icu
-    , text-regex-replace
     , uri-encode
   default-language: Haskell2010
 
@@ -53,6 +59,12 @@ test-suite Ki-test
   other-modules:
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  include-dirs:
+      /usr/include/tidy
+  install-includes:
+      htidy.h
+  c-sources:
+      htidy.c
   build-depends:
       HsYAML
     , attoparsec
@@ -66,11 +78,11 @@ test-suite Ki-test
     , path-io
     , protobuf
     , pureMD5
+    , regex-compat
+    , regex-tdfa
     , replace-attoparsec
     , slugify
     , sqlite-simple
     , text
-    , text-icu
-    , text-regex-replace
     , uri-encode
   default-language: Haskell2010
