@@ -21,14 +21,16 @@ repositories](https://git-scm.com/). Check out the
 
 Install the following dependencies:
 
-* [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-* [Python](https://www.python.org/downloads/)
+* [Python 3.9+](https://www.python.org/downloads/)
 * [Tidy](https://www.html-tidy.org/)
+* [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 
 Then open a terminal or command-line window, and install with the following
 command:
 ```bash
-pip install git+https://github.com/langfield/ki.git@main
+python3 --version; python3 --version | grep -q '3.9\|3.10\|3.11\|3.12' \
+  && python3 -m pip install git+https://github.com/langfield/ki.git@main \
+  || echo 'Python 3.9+ required'
 ```
 
 ### Questions
