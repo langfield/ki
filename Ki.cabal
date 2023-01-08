@@ -43,6 +43,7 @@ executable Ki-exe
     , microaeson
     , path
     , path-io
+    , pretty-simple
     , protobuf
     , pureMD5
     , regex-compat
@@ -78,6 +79,7 @@ test-suite Ki-test
     , microaeson
     , path
     , path-io
+    , pretty-simple
     , protobuf
     , pureMD5
     , regex-compat

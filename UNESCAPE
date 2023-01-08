@@ -13,6 +13,10 @@ The `transform` function attempts to parse `filename` as a percent string. If th
 
 If it fails, we return `filename` unchanged.
 
+Examples
+========
+<img src="bar%20baz">
+
 
 r#"(?xsi)
 		# the start of the image, audio, or object tag

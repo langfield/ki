@@ -35,6 +35,7 @@ dependencies:
 - uri-encode
 - regex-tdfa
 - regex-compat
+- pretty-simple
 
 ghc-options:
 - -Wall

@@ -4,7 +4,8 @@
 module Main (main) where
 
 import Control.Applicative ((<|>), many)
-import Control.Monad (foldM_, forM_)
+import Control.Monad (foldM_, forM_, when)
+import Data.Attoparsec.Combinator (lookAhead)
 import Data.Attoparsec.Text (Parser)
 import Data.ByteString.Lazy (ByteString)
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
@@ -19,6 +20,8 @@ import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
 import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import Replace.Attoparsec.Text (streamEdit)
+import System.Environment (getArgs)
+import System.Exit (exitFailure)
 import System.FilePath (takeBaseName)
 import Text.Printf (printf)
 import Text.Regex (mkRegex, subRegex)
@@ -33,7 +36,6 @@ import qualified Data.Map as M
 import qualified Data.Maybe as MB
 import qualified Data.Text as T
 import qualified Data.YAML as Y
--- import qualified Data.ProtocolBuffers as PB
 import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
 import qualified Network.URI.Encode as URI
@@ -65,7 +67,7 @@ data Extant
   deriving Typeable
 
 -- Nid, Mid, Guid, Tags, Flds, SortFld
-data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !Text
+data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !SQL.SQLData
   deriving Show
 
 -- Cid, Nid, Did, Ord
@@ -79,7 +81,7 @@ data SQLDeck = SQLDeck !Integer !Text
 data SQLModel = SQLModel
   { sqlModelMid  :: !Integer
   , sqlModelName :: !Text
-  , sqlModelConfigHex :: !Text
+  , sqlModelConfigBytes :: !ByteString
   }
   deriving Show
 
@@ -87,7 +89,7 @@ data SQLField = SQLField
   { sqlFieldMid  :: !Integer
   , sqlFieldOrd  :: !Integer
   , sqlFieldName :: !Text
-  , sqlFieldConfigHex :: !Text
+  , sqlFieldConfigBytes :: !ByteString
   }
   deriving Show
 
@@ -95,32 +97,36 @@ data SQLTemplate = SQLTemplate
   { sqlTemplateMid  :: !Integer
   , sqlTemplateOrd  :: !Integer
   , sqlTemplateName :: !Text
-  , sqlTemplateConfigHex :: !Text
+  , sqlTemplateConfigBytes :: !ByteString
   }
   deriving Show
 
 newtype Mid = Mid Integer deriving (Eq, Ord, Show, ToYAML)
 
-newtype Cid = Cid Integer
-newtype Did = Did Integer deriving (Eq, Ord)
-newtype Nid = Nid Integer deriving (Eq, Ord)
-newtype Guid = Guid Text
-newtype Tags = Tags [Text]
-newtype Fields = Fields [Field]
-newtype DeckName = DeckName Text
-newtype SortField = SortField Text
-newtype ModelName = ModelName Text deriving (ToYAML)
+newtype Cid = Cid Integer deriving Show
+newtype Did = Did Integer deriving (Eq, Ord, Show)
+newtype Nid = Nid Integer deriving (Eq, Ord, Show)
+newtype Guid = Guid Text deriving Show
+newtype Tags = Tags [Text] deriving Show
+newtype Fields = Fields [Field] deriving Show
+newtype DeckName = DeckName Text deriving Show
+newtype SortField = SortField Text deriving Show
+newtype ModelName = ModelName Text deriving (ToYAML, Show)
 
 data Field = Field !FieldOrd !FieldName !Text
+  deriving Show
 
-newtype Ord' = Ord' Integer
+newtype Ord' = Ord' Integer deriving Show
 
 type Filename = Text
 data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
+  deriving Show
 data ColNote = ColNote !MdNote !Nid !Filename
+  deriving Show
 data Card = Card !Cid !Nid !Did !Ord' !DeckName !ColNote
+  deriving Show
 data Deck = Deck ![Text] !Did
-  deriving Eq
+  deriving (Eq, Show)
 
 instance Ord Deck where
   (Deck parts did) <= (Deck parts' did') = parts <= parts' && did <= did'
@@ -144,14 +150,17 @@ instance SQL.FromRow SQLField where
 instance SQL.FromRow SQLTemplate where
   fromRow = SQLTemplate <$> SQL.field <*> SQL.field <*> SQL.field <*> SQL.field
 
-newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord, ToYAML)
-newtype FieldName = FieldName Text deriving (Eq, Ord, ToYAML)
-newtype TemplateName = TemplateName Text deriving ToYAML
+newtype FieldOrd = FieldOrd Integer deriving (Eq, Ord, Show, ToYAML)
+newtype FieldName = FieldName Text deriving (Eq, Ord, Show, ToYAML)
+newtype TemplateOrd = TemplateOrd Integer deriving (Eq, Ord, Show, ToYAML)
+newtype TemplateName = TemplateName Text deriving (Show, ToYAML)
 
 data FieldDef = FieldDef !Mid !FieldOrd !FieldName
-  deriving Eq
-data Template = Template !Mid !FieldOrd !TemplateName
-data Model = Model !Mid !ModelName !(Map FieldOrd (FieldDef, Template))
+  deriving (Eq, Show)
+data Template = Template !Mid !TemplateOrd !TemplateName
+  deriving Show
+data Model = Model !Mid !ModelName !(Map FieldOrd FieldDef) !(Map TemplateOrd Template)
+  deriving Show
 
 instance Ord FieldDef where
   (FieldDef _ (FieldOrd ord) _) <= (FieldDef _ (FieldOrd ord') _) = ord <= ord'
@@ -163,8 +172,8 @@ instance ToYAML Template where
   toYAML (Template mid ord name) = Y.mapping ["mid" .= mid, "ord" .= ord, "name" .= name]
 
 instance ToYAML Model where
-  toYAML (Model mid ord fieldsAndTemplatesByOrd) =
-    Y.mapping ["mid" .= mid, "ord" .= ord, "fieldsAndTemplatesByOrd" .= fieldsAndTemplatesByOrd]
+  toYAML (Model mid ord fieldsByOrd templatesByOrd) = Y.mapping
+    ["mid" .= mid, "ord" .= ord, "fieldsByOrd" .= fieldsByOrd, "templatesByOrd" .= templatesByOrd]
 
 data Repo = Repo !(Path Extant Dir) !Git.Config
 
@@ -216,9 +225,15 @@ mkNewFile dir name contents = do
 
 gitCommitAll :: Path Extant Dir -> String -> IO Repo
 gitCommitAll root msg = do
-  Git.runGit gitConfig (Git.initDB False >> Git.add ["."] >> Git.commit [] "Ki" "ki" msg [])
+  Git.runGit gitConfig $ do
+    Git.initDB False >> Git.add ["."]
+    isDirty <- gitIsDirty' (toFilePath root)
+    if isDirty then Git.commit [] author email msg [] else pure ()
   pure (Repo root gitConfig)
-  where gitConfig = Git.makeConfig (toFilePath root) Nothing
+  where
+    gitConfig = Git.makeConfig (toFilePath root) Nothing
+    author    = "ki-author"
+    email     = "ki-email"
 
 -- | Clone a local repository into the given directory, which must exist and be
 -- empty (data invariant).
@@ -230,6 +245,19 @@ gitClone (Repo root config) tgt = do
       Right _   -> pure ()
       Left  err -> Git.gitError err "clone"
   pure $ Repo tgt $ Git.makeConfig (toFilePath tgt) Nothing
+
+gitIsDirty' :: FilePath -> Git.GitCtx Bool
+gitIsDirty' root = do
+  staged   <- Git.gitExec "diff-index" ["--quiet", "--cached", "HEAD", "--", root] []
+  unstaged <- Git.gitExec "diff-files" ["--quiet", root] []
+  empty    <- Git.gitExec "rev-parse" ["HEAD"] []
+  case (staged, unstaged, empty) of
+    (Right _, Right _, _) -> pure False
+    (_, _, Left _) -> pure False
+    (_, _, _) -> pure True
+
+gitIsDirty :: Repo -> IO Bool
+gitIsDirty (Repo root config) = Git.runGit config $ gitIsDirty' (toFilePath root)
 
 
 -- ================================ Core logic ================================
@@ -245,21 +273,21 @@ mkDeckTree = L.sort . map unpack
 
 
 mapFieldsByMid :: [FieldDef] -> Map Mid (Map FieldOrd FieldDef)
-mapFieldsByMid = foldr f M.empty
+mapFieldsByMid = foldr go M.empty
   where
-    g :: FieldOrd -> FieldDef -> Map FieldOrd FieldDef -> Maybe (Map FieldOrd FieldDef)
-    g ord fld fieldsByOrd = Just $ M.insert ord fld fieldsByOrd
-    f :: FieldDef -> Map Mid (Map FieldOrd FieldDef) -> Map Mid (Map FieldOrd FieldDef)
-    f fld@(FieldDef mid ord _) = M.update (g ord fld) mid
+    go :: FieldDef -> Map Mid (Map FieldOrd FieldDef) -> Map Mid (Map FieldOrd FieldDef)
+    go fld@(FieldDef mid ord _) fieldDefsByOrdByMid = if M.member mid fieldDefsByOrdByMid
+      then M.adjust (M.insert ord fld) mid fieldDefsByOrdByMid
+      else M.insert mid (M.singleton ord fld) fieldDefsByOrdByMid
 
 
-mapTemplatesByMid :: [Template] -> Map Mid (Map FieldOrd Template)
-mapTemplatesByMid = foldr f M.empty
+mapTemplatesByMid :: [Template] -> Map Mid (Map TemplateOrd Template)
+mapTemplatesByMid = foldr go M.empty
   where
-    g :: FieldOrd -> Template -> Map FieldOrd Template -> Maybe (Map FieldOrd Template)
-    g ord tmpl fieldsByOrd = Just $ M.insert ord tmpl fieldsByOrd
-    f :: Template -> Map Mid (Map FieldOrd Template) -> Map Mid (Map FieldOrd Template)
-    f tmpl@(Template mid ord _) = M.update (g ord tmpl) mid
+    go :: Template -> Map Mid (Map TemplateOrd Template) -> Map Mid (Map TemplateOrd Template)
+    go tmpl@(Template mid ord _) tmplsByOrdByMid = if M.member mid tmplsByOrdByMid
+      then M.adjust (M.insert ord tmpl) mid tmplsByOrdByMid
+      else M.insert mid (M.singleton ord tmpl) tmplsByOrdByMid
 
 
 stripHtmlTags :: String -> String
@@ -294,25 +322,15 @@ plainToHtml s
     t = sub s
 
 
-getModel :: Map Mid (Map FieldOrd (FieldDef, Template)) -> SQLModel -> Maybe Model
-getModel fieldsAndTemplatesByMid (SQLModel mid name _) =
-  case M.lookup (Mid mid) fieldsAndTemplatesByMid of
-    Just m  -> Just (Model (Mid mid) (ModelName name) m)
-    Nothing -> Nothing
-
-
-getFieldsAndTemplatesByMid :: Map Mid (Map FieldOrd FieldDef)
-                           -> Map Mid (Map FieldOrd Template)
-                           -> Map Mid (Map FieldOrd (FieldDef, Template))
-getFieldsAndTemplatesByMid fieldsByMid templatesByMid = M.foldrWithKey f M.empty fieldsByMid
-  where
-    f :: Mid
-      -> Map FieldOrd FieldDef
-      -> Map Mid (Map FieldOrd (FieldDef, Template))
-      -> Map Mid (Map FieldOrd (FieldDef, Template))
-    f mid fieldsByOrd acc = case M.lookup mid templatesByMid of
-      Just templatesByOrd -> M.insert mid (M.intersectionWith (,) fieldsByOrd templatesByOrd) acc
-      Nothing -> acc
+getModel :: Map Mid (Map FieldOrd FieldDef)
+         -> Map Mid (Map TemplateOrd Template)
+         -> SQLModel
+         -> Maybe Model
+getModel fieldsByOrdByMid templatesByOrdByMid (SQLModel mid name _) =
+  case (M.lookup (Mid mid) fieldsByOrdByMid, M.lookup (Mid mid) templatesByOrdByMid) of
+    (Just fieldsByOrd, Just templatesByOrd) ->
+      Just (Model (Mid mid) (ModelName name) fieldsByOrd templatesByOrd)
+    _ -> Nothing
 
 
 getField :: SQLField -> FieldDef
@@ -320,7 +338,7 @@ getField (SQLField mid ord name _) = FieldDef (Mid mid) (FieldOrd ord) (FieldNam
 
 
 getTemplate :: SQLTemplate -> Template
-getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (FieldOrd ord) (TemplateName name)
+getTemplate (SQLTemplate mid ord name _) = Template (Mid mid) (TemplateOrd ord) (TemplateName name)
 
 mkSlug :: Text -> Text
 mkSlug = slugifyUnicode . T.take maxFilenameSize . T.pack . stripHtmlTags . T.unpack . plainToHtml
@@ -366,9 +384,10 @@ zipEq (x : xs) (y : ys) = ((x, y) :) <$> zipEq xs ys
 
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
-  (Model _ modelName modelFieldsAndTemplatesByOrd) <- M.lookup (Mid mid) modelsByMid
-  fields <- map mkField <$> (zipEq fs . L.sort . M.elems . M.map fst) modelFieldsAndTemplatesByOrd
-  let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) (SortField sfld)
+  (Model _ modelName fieldsByOrd _) <- M.lookup (Mid mid) modelsByMid
+  fields <- map mkField <$> (zipEq fs . L.sort . M.elems) fieldsByOrd
+  -- TODO: Cast the sort field!
+  let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) (SortField "")
   pure (ColNote mdNote (Nid nid) (mkFilename mdNote))
   where
     ts = T.words tags
@@ -378,14 +397,17 @@ mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
 
 
 getCard :: Map Nid ColNote -> [SQLDeck] -> SQLCard -> Maybe Card
-getCard colnotesByNid decks (SQLCard cid nid did ord) =
-  Card (Cid cid) (Nid nid) (Did did) (Ord' ord)
-    .   DeckName
-    <$> (M.lookup did . M.fromList . map unpack) decks
-    <*> M.lookup (Nid nid) colnotesByNid
+getCard colnotesByNid decks (SQLCard cid nid did ord) = case (maybeColNote, maybeDeckName) of
+  (Just colnote, Just deckName) ->
+    Just $ Card (Cid cid) (Nid nid) (Did did) (Ord' ord) deckName colnote
+  _ -> Nothing
   where
     unpack :: SQLDeck -> (Integer, Text)
     unpack (SQLDeck did' name) = (did', name)
+    maybeColNote  = M.lookup (Nid nid) colnotesByNid
+    maybeDeckName = DeckName <$> (M.lookup did . M.fromList . map unpack) decks
+
+
 
 
 -- Parse the collection and target directory, then call `continueClone`.
@@ -414,9 +436,9 @@ continueClone colFile targetDir = do
   colFileContents <- LB.readFile (toFilePath colFile)
   let colFileMD5 = md5 colFileContents
   -- Add the backups directory to the `.gitignore` file.
-  writeFile (toFilePath gitIgnore) ".ki/backups"
+  writeFile (toFilePath gitIgnore) ".ki/backups\n"
   -- Create `.ki` and `_media` subdirectories.
-  maybeKiDir     <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki")
+  maybeKiDir     <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki/")
   maybeMediaDir  <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
   maybeModelsDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_models")
   ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
@@ -432,6 +454,14 @@ continueClone colFile targetDir = do
     ankiUserDir = parent colFile :: Path Extant Dir
 
 
+
+-- | Append the md5sum of the collection file to the hashes file.
+appendHash :: Path Extant Dir -> String -> MD5Digest -> IO ()
+appendHash kiDir tag md5sum = do
+  let hashesFile = kiDir </> Path.Internal.Path "hashes"
+  appendFile (toFilePath hashesFile) (show md5sum ++ "  " ++ tag ++ "\n")
+
+
 writeInitialCommit :: Path Extant File
                    -> Path Extant Dir
                    -> Path Extant Dir
@@ -440,10 +470,13 @@ writeInitialCommit :: Path Extant File
                    -> Path Extant Dir
                    -> MD5Digest
                    -> IO ()
-writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir _ = do
-  _ <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
-  _ <- gitCommitAll targetDir "Initial commit."
-  pure ()
+writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
+  repo    <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
+  isDirty <- gitIsDirty repo
+  when isDirty $ do
+    printf "fatal: non-empty working tree in freshly cloned ki repo\n"
+    exitFailure
+  appendHash kiDir (toFilePath colFile) md5sum
 
 
 writeRepo :: Path Extant File
@@ -452,32 +485,32 @@ writeRepo :: Path Extant File
           -> Path Extant Dir
           -> Path Extant Dir
           -> Path Extant Dir
-          -> IO ()
+          -> IO Repo
 writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
   conn  <- SQL.open (toFilePath colFile)
-  ns    <- SQL.query_ conn "SELECT (nid,guid,mid,tags,flds,sfld) FROM notes" :: IO [SQLNote]
-  cs    <- SQL.query_ conn "SELECT (id,nid,did,ord) FROM cards" :: IO [SQLCard]
-  ds    <- SQL.query_ conn "SELECT (id,name) FROM decks" :: IO [SQLDeck]
-  nts   <- SQL.query_ conn "SELECT (id,name,config) FROM notetypes" :: IO [SQLModel]
-  flds  <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM fields" :: IO [SQLField]
-  tmpls <- SQL.query_ conn "SELECT (ntid,ord,name,config) FROM templates" :: IO [SQLTemplate]
+  ns    <- SQL.query_ conn "SELECT id,mid,guid,tags,flds,sfld FROM notes" :: IO [SQLNote]
+  cs    <- SQL.query_ conn "SELECT id,nid,did,ord FROM cards" :: IO [SQLCard]
+  ds    <- SQL.query_ conn "SELECT id,name FROM decks" :: IO [SQLDeck]
+  nts   <- SQL.query_ conn "SELECT id,name,config FROM notetypes" :: IO [SQLModel]
+  flds  <- SQL.query_ conn "SELECT ntid,ord,name,config FROM fields" :: IO [SQLField]
+  tmpls <- SQL.query_ conn "SELECT ntid,ord,name,config FROM templates" :: IO [SQLTemplate]
   let
     fieldsByMid = (mapFieldsByMid . map getField) flds
     templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
-    fieldsAndTemplatesByMid = getFieldsAndTemplatesByMid fieldsByMid templatesByMid
-    models    = map (getModel fieldsAndTemplatesByMid) nts
-    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _) -> (mid, m))) models)
+    maybeModels = map (getModel fieldsByMid templatesByMid) nts
+    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _ _) -> (mid, m))) maybeModels)
     colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
     serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
     cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
     preorder  = mkDeckTree ds
     postorder = reverse preorder
-  ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit."
+  ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit"
   _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
   forM_ postorder (writeDeck targetDir cards)
+  gitCommitAll targetDir "Initial commit"
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
@@ -552,24 +585,47 @@ escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
 type Prefix = Text
 type Suffix = Text
 data MediaFilename = MediaFilename !Filename !Prefix !Suffix
+  deriving Show
 data MediaTag = MediaTag !Filename !Prefix !Suffix
+  deriving Show
+
 
 mediaTagEditor :: MediaTag -> Text
 mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
 
+
+tagNameParser :: Parser Text
+tagNameParser = do
+  A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
+
+
+mediaAttrParser :: Parser Text
+mediaAttrParser = do
+  A.asciiCI "src=" <|> A.asciiCI "data="
+
+
+-- | Parse the characters between the tag name and the `src`/`data` attribute.
+--
+-- This substring will always be nonempty, hence the `spacer`.
+prefixAttrsParser :: Parser Text
+prefixAttrsParser = do
+  spacer <- A.notChar '>'
+  T.cons spacer <$> (T.pack <$> A.manyTill (A.notChar '>') (lookAhead mediaAttrParser))
+
+
+-- | Parse an HTML tag for some media file.
+--
+-- This parser expects the input stream to end immediately after the tag, thus
+-- it is only suitable to be used with `streamEdit`.
 mediaTagParser :: Parser MediaTag
 mediaTagParser = do
-  tagName <- A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
-  tagSuffixHead <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
-  tagSuffixPith <- T.pack <$> A.many1 (A.notChar '>')
-  tagSuffixLast <- T.singleton <$> A.satisfy (A.notInClass "a-zA-Z_")
+  tagName <- tagNameParser
+  prefixAttrs <- prefixAttrsParser
   attr    <- A.asciiCI "src=" <|> A.asciiCI "data="
   (MediaFilename fname pre suf) <-
     (dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser) <* A.char '>'
-  pure $ MediaTag
-    fname
-    ("<" <> tagName <> tagSuffixHead <> tagSuffixPith <> tagSuffixLast <> attr <> pre)
-    (suf <> ">")
+  A.endOfInput
+  pure $ MediaTag fname ("<" <> tagName <> prefixAttrs <> attr <> pre) (suf <> ">")
 
 
 restOfTagParser :: Parser Text
@@ -640,4 +696,7 @@ mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filenam
 
 main :: IO ()
 main = do
-  clone "" ""
+  args <- getArgs
+  case args of
+    [col, tgt] -> clone col tgt
+    _ -> putStrLn "Usage: ki <collection.anki2> <target>"
