@@ -28,9 +28,7 @@ Install the following dependencies:
 Then open a terminal or command-line window, and install with the following
 command:
 ```bash
-python3 --version; python3 --version | grep -q '3.9\|3.10\|3.11\|3.12' \
-  && python3 -m pip install git+https://github.com/langfield/ki.git@main \
-  || echo 'Python 3.9+ required'
+python3 -m pip install git+https://github.com/langfield/ki.git@main
 ```
 
 ### Questions
