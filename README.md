@@ -27,7 +27,7 @@ Install the following dependencies:
 
 Then open a terminal or command-line window, and install with the following
 command:
-```bash
+```console
 python3 -m pip install git+https://github.com/langfield/ki.git@main
 ```
 
