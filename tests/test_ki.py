@@ -1684,6 +1684,7 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     mocker.patch("ki.backup")
     mocker.patch("ki.functional.rglob")
     mocker.patch("ki.append_md5sum")
+    mocker.patch("ki.commit_hashes_file")
 
     # Write collection.
     _ = write_collection([], {}, kirepo, parse, head_kirepo, con)

@@ -1530,6 +1530,13 @@ def addmedia(col: Collection, m: MediaBytes) -> AddedMedia:
     return AddedMedia(file=m.file, new_name=col.media.add_file(m.file))
 
 
+@beartype
+def commit_hashes_file(kirepo: KiRepo) -> None:
+    """Add and commit hashes file."""
+    kirepo.repo.index.add(f"{KI}/{HASHES_FILE}")
+    kirepo.repo.index.commit("Update collection hashes file.")
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -1818,9 +1825,8 @@ def _pull(kirepo: KiRepo) -> None:
     append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
+    commit_hashes_file(kirepo)
 
-    kirepo.repo.index.add(f"{KI}/{HASHES_FILE}")
-    kirepo.repo.index.commit("Update collection hashes file.")
 
 
 # PUSH
@@ -1964,8 +1970,9 @@ def write_collection(
     _ = set(map(warn, warnings))
     col.close(save=True)
 
-    # Append collection checksum to hashes file.
+    # Append and commit collection checksum to hashes file.
     append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
+    commit_hashes_file(kirepo)
 
     # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
     kirepo.repo.delete_tag(LCA)

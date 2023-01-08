@@ -1875,3 +1875,24 @@ def test_push_rejects_updates_on_reset_to_prior_commit(tmp_path: Path):
         repo.git.reset(["--hard", "HEAD~1"])
         with pytest.raises(UpdatesRejectedError):
             push(runner)
+
+
+def test_push_leaves_working_tree_clean(tmp_path: Path):
+    """Does the push command commit the hashes file?"""
+    KOREAN: SampleCollection = get_test_collection("tiny_korean")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, KOREAN.col_file)
+        assert os.path.isdir(KOREAN.repodir)
+
+        os.chdir(KOREAN.repodir)
+        shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
+        repo = git.Repo(".")
+        F.commitall(repo, "msg")
+        push(runner)
+
+        os.chdir("..")
+        repo = git.Repo(KOREAN.repodir)
+        assert not repo.is_dirty()
