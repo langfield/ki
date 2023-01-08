@@ -18,3 +18,7 @@ integration:
 	KITEST=1 coverage run -m pytest -vv -s tests/test_integration.py
 report:
 	coverage html
+isolate:
+	sed -z -i 's/def test/@pytest.mark.skip\ndef test/g' tests/*.py
+unisolate:
+	sed -z -i 's/@pytest.mark.skip\n//g' tests/*.py
