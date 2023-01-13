@@ -59,6 +59,7 @@ GIT = ".git"
 GITMODULES_FILE = ".gitmodules"
 PIPE = subprocess.PIPE
 STDOUT = subprocess.STDOUT
+BRANCH_NAME = "main"
 
 # Emoji regex character classes.
 EMOJIS = "\U0001F600-\U0001F64F"
@@ -383,6 +384,18 @@ def unsubmodule(repo: git.Repo) -> git.Repo:
         repo.git.rm(gitmodules_file)
         _ = repo.index.commit("Remove `.gitmodules` file.")
     return repo
+
+
+@beartype
+def init(targetdir: Dir) -> Tuple[git.Repo, str]:
+    """Run `git init`, returning the repo and initial branch name."""
+    branch = BRANCH_NAME
+    try:
+        repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    except git.GitCommandError:
+        branch = "master"
+        repo = git.Repo.init(targetdir)
+    return repo, branch
 
 
 @beartype
