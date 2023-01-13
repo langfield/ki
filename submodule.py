@@ -8,7 +8,7 @@ import git_filter_repo
 from beartype import beartype
 from beartype.typing import List
 
-from ki import copy_repo, BRANCH_NAME
+from ki import cp_repo, BRANCH_NAME
 from ki.types import Dir, Rev
 import ki.maybes as M
 import ki.functional as F

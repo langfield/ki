@@ -164,7 +164,7 @@ DEV_NULL = "/dev/null"
 BATCH_SIZE = 300
 HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
-BRANCH_NAME = "main"
+BRANCH_NAME = F.BRANCH_NAME
 MAX_FILENAME_LEN = 60
 IGNORE_DIRS = set([GIT, KI, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
@@ -1624,8 +1624,8 @@ def _clone(
     -------
     repo : git.Repo
         The cloned repository.
-    md5sum : str
-        The hash of the Anki collection file.
+    branch_name : str
+        The name of the default branch.
     """
     # Initialize empty ki repo.
     kidir, mediadir = M.empty_kirepo(targetdir)
@@ -1638,7 +1638,7 @@ def _clone(
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
 
     # Initialize as git repo and commit contents.
-    repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
+    repo, branch = F.init(targetdir)
     root = F.root(repo)
     F.commitall(repo, msg)
 
@@ -1670,7 +1670,7 @@ def _clone(
     repo.git.reset(["--soft", "HEAD~1"])
     repo.git.commit(message=msg, amend=True)
 
-    return repo, md5sum
+    return repo, branch
 
 
 @ki.command()
@@ -1742,7 +1742,7 @@ def _pull(kirepo: KiRepo) -> None:
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, _ = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
+    remote_repo, branch = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
@@ -1812,7 +1812,7 @@ def _pull(kirepo: KiRepo) -> None:
     # fast-forward only updates the branch pointer.
     lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    echo(git_pull(REMOTE_NAME, BRANCH_NAME, kirepo.root))
+    echo(git_pull(REMOTE_NAME, branch, kirepo.root))
     kirepo.repo.delete_remote(lca_remote)
 
     # The merge will have overwritten the hashes file with only the collection
