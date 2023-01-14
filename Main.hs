@@ -181,19 +181,30 @@ data Repo = Repo !(Path Extant Dir) !Git.Config
 -- ========================== Path utility functions ==========================
 
 
+mkInternalDir :: Text -> Path a Dir
+mkInternalDir s = Path.Internal.Path (T.unpack withSlash)
+  where
+    stripped = subRegex' "\\/+$" "" s
+    withSlash = if T.null stripped then "./" else stripped <> "/"
+
+
+castDir :: Path b Dir -> Path b' Dir
+castDir = mkInternalDir . T.pack . toFilePath
+
+
 -- | Ensure a directory is empty, creating it if necessary, and returning
 -- `Nothing` if it was not.
 ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Extant Dir))
 ensureEmpty dir = do
   ensureDir dir
   contents <- listDir dir
-  pure $ if contents == ([], []) then Just $ Path.Internal.Path (toFilePath dir) else Nothing
+  pure $ if contents == ([], []) then Just $ castDir dir else Nothing
 
 
 ensureExtantDir :: Path Abs Dir -> IO (Path Extant Dir)
 ensureExtantDir dir = do
   ensureDir dir
-  pure $ Path.Internal.Path (toFilePath dir)
+  pure $ castDir dir
 
 
 getExtantFile :: Path Abs File -> IO (Maybe (Path Extant File))
@@ -223,17 +234,17 @@ mkNewFile dir name contents = do
 -- ======================= Repository utility functions =======================
 
 
-gitCommitAll :: Path Extant Dir -> String -> IO Repo
-gitCommitAll root msg = do
+gitForceCommitAll :: Path Extant Dir -> String -> IO Repo
+gitForceCommitAll root msg = do
   Git.runGit gitConfig $ do
     Git.initDB False >> Git.add ["."]
-    isDirty <- gitIsDirty' (toFilePath root)
-    if isDirty then Git.commit [] author email msg [] else pure ()
+    Git.commit [] author email msg ["--allow-empty"]
   pure (Repo root gitConfig)
   where
     gitConfig = Git.makeConfig (toFilePath root) Nothing
     author    = "ki-author"
     email     = "ki-email"
+
 
 -- | Clone a local repository into the given directory, which must exist and be
 -- empty (data invariant).
@@ -246,6 +257,7 @@ gitClone (Repo root config) tgt = do
       Left  err -> Git.gitError err "clone"
   pure $ Repo tgt $ Git.makeConfig (toFilePath tgt) Nothing
 
+
 gitIsDirty' :: FilePath -> Git.GitCtx Bool
 gitIsDirty' root = do
   staged   <- Git.gitExec "diff-index" ["--quiet", "--cached", "HEAD", "--", root] []
@@ -256,11 +268,27 @@ gitIsDirty' root = do
     (_, _, Left _) -> pure False
     (_, _, _) -> pure True
 
+
 gitIsDirty :: Repo -> IO Bool
 gitIsDirty (Repo root config) = Git.runGit config $ gitIsDirty' (toFilePath root)
 
 
 -- ================================ Core logic ================================
+
+
+gitCommitKiRepo :: Path Extant Dir -> String -> IO Repo
+gitCommitKiRepo root msg = do
+  Git.runGit gitConfig $ do
+    Git.initDB False
+    _ <- Git.gitExec "submodule" ["add", "./_media/"] []
+    Git.add ["."]
+    isDirty <- gitIsDirty' (toFilePath root)
+    if isDirty then Git.commit [] author email msg [] else pure ()
+  pure (Repo root gitConfig)
+  where
+    gitConfig = Git.makeConfig (toFilePath root) Nothing
+    author    = "ki-author"
+    email     = "ki-email"
 
 
 -- | Convert a list of raw `SQLDeck`s into a preorder traversal of components.
@@ -309,7 +337,7 @@ plainToHtml s
   | t =~ htmlRegex = T.replace "\n" "<br>" t
   | otherwise = t
   where
-    htmlRegex = "</?\\s*[a-z-][^>]*\\s*>|(\\&(?:[\\w\\d]+|#\\d+|#x[a-f\\d]+);)" :: Text
+    htmlRegex = "<\\/?\\s*[a-z-][^>]*\\s*>|(\\&([\\w\\d]+|#\\d+|#x[a-f\\d]+);)" :: Text
     sub :: Text -> Text
     sub =
       subRegex' "<div>\\s*</div>" ""
@@ -354,8 +382,13 @@ guidToHex guid = case val of
   Just x  -> T.pack $ showHex x ""
   Nothing -> T.pack $ show $ md5 $ LB.fromStrict $ encodeUtf8 guid
   where
-    digits = mapM (\c -> T.findIndex (== c) b91s) (T.unpack guid)
-    val    = L.foldl' (\acc x -> acc * 91 + x) 0 <$> digits
+    -- It is important that we use `Integer` here and not `Int`, because
+    -- otherwise, we get an overflow.
+    b91Digits = mapM (\c -> fromIntegral <$> T.findIndex (== c) b91s) (T.unpack guid)
+    val    = L.foldl' go 0 <$> b91Digits
+
+    go :: Integer -> Integer -> Integer
+    go acc x = acc * 91 + x
 
 
 -- | Construct a filename (without extension) for a given markdown note.
@@ -426,7 +459,7 @@ clone colPath targetPath = do
 --
 -- We could use `takeBaseName` instead.
 ankiMediaDirname :: Path Extant File -> Path Rel Dir
-ankiMediaDirname colFile = Path.Internal.Path $ stem ++ ".media"
+ankiMediaDirname colFile = mkInternalDir $ T.pack $ stem ++ ".media"
   where stem = (takeBaseName . toFilePath) colFile
 
 
@@ -438,9 +471,9 @@ continueClone colFile targetDir = do
   -- Add the backups directory to the `.gitignore` file.
   writeFile (toFilePath gitIgnore) ".ki/backups\n"
   -- Create `.ki` and `_media` subdirectories.
-  maybeKiDir     <- ensureEmpty (absify targetDir </> Path.Internal.Path ".ki/")
-  maybeMediaDir  <- ensureEmpty (absify targetDir </> Path.Internal.Path "_media")
-  maybeModelsDir <- ensureEmpty (absify targetDir </> Path.Internal.Path "_models")
+  maybeKiDir     <- ensureEmpty (absify targetDir </> mkInternalDir ".ki/")
+  maybeMediaDir  <- ensureEmpty (absify targetDir </> mkInternalDir "_media/")
+  maybeModelsDir <- ensureEmpty (absify targetDir </> mkInternalDir "_models/")
   ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
   case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
     (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty\n"
@@ -505,12 +538,16 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
     cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
     preorder  = mkDeckTree ds
     postorder = reverse preorder
-  ankiMediaRepo <- gitCommitAll ankiMediaDir "Initial commit"
+  ankiMediaRepo <- gitForceCommitAll ankiMediaDir "Initial commit"
+  printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
   _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
   forM_ postorder (writeDeck targetDir cards)
-  gitCommitAll targetDir "Initial commit"
+  printf "Committing contents to repository...\n"
+  repo <- gitCommitKiRepo targetDir "Initial commit"
+  printf "Done!\n"
+  pure repo
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
@@ -576,7 +613,7 @@ htmlToScreen =
     . T.replace "\\\\}" "\\}"
     . T.replace "\\\\{" "\\{"
     . T.replace "\\\\\\\\" "\\\\"
-    . subRegex' "\\<style\\>(?s:.)*\\<\\/style\\>" ""
+    . subRegex' "\\<style\\>\\<\\/style\\>" ""
 
 
 escapeMediaFilenames :: Text -> Text
@@ -687,7 +724,7 @@ mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
 mkDeckDir targetDir (p : ps) =
   absify targetDir
-    </> foldr ((</>) . Path.Internal.Path . T.unpack) ((Path.Internal.Path . T.unpack) p) ps
+    </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
 
 
 mkNotePath :: Path Extant Dir -> Text -> Path Abs File
