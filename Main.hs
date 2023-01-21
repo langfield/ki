@@ -15,6 +15,7 @@ import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
+import Database.SQLite.Simple (SQLData (..))
 import Foreign.C.String (CString, peekCString, withCString)
 import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
@@ -67,7 +68,7 @@ data Extant
   deriving Typeable
 
 -- Nid, Mid, Guid, Tags, Flds, SortFld
-data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !SQL.SQLData
+data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !SQLData
   deriving Show
 
 -- Cid, Nid, Did, Ord
@@ -103,6 +104,9 @@ data SQLTemplate = SQLTemplate
 
 newtype Mid = Mid Integer deriving (Eq, Ord, Show, ToYAML)
 
+data Field = Field !FieldOrd !FieldName !Text
+  deriving Show
+
 newtype Cid = Cid Integer deriving Show
 newtype Did = Did Integer deriving (Eq, Ord, Show)
 newtype Nid = Nid Integer deriving (Eq, Ord, Show)
@@ -112,9 +116,6 @@ newtype Fields = Fields [Field] deriving Show
 newtype DeckName = DeckName Text deriving Show
 newtype SortField = SortField Text deriving Show
 newtype ModelName = ModelName Text deriving (ToYAML, Show)
-
-data Field = Field !FieldOrd !FieldName !Text
-  deriving Show
 
 newtype Ord' = Ord' Integer deriving Show
 
@@ -176,6 +177,13 @@ instance ToYAML Model where
     ["mid" .= mid, "ord" .= ord, "fieldsByOrd" .= fieldsByOrd, "templatesByOrd" .= templatesByOrd]
 
 data Repo = Repo !(Path Extant Dir) !Git.Config
+
+type Prefix = Text
+type Suffix = Text
+data MediaFilename = MediaFilename !Filename !Prefix !Suffix
+  deriving Show
+data MediaTag = MediaTag !Filename !Prefix !Suffix
+  deriving Show
 
 
 -- ========================== Path utility functions ==========================
@@ -258,10 +266,10 @@ gitClone (Repo root config) tgt = do
   pure $ Repo tgt $ Git.makeConfig (toFilePath tgt) Nothing
 
 
-gitIsDirty' :: FilePath -> Git.GitCtx Bool
-gitIsDirty' root = do
-  staged   <- Git.gitExec "diff-index" ["--quiet", "--cached", "HEAD", "--", root] []
-  unstaged <- Git.gitExec "diff-files" ["--quiet", root] []
+gitIsDirty' :: Git.GitCtx Bool
+gitIsDirty' = do
+  staged   <- Git.gitExec "diff-index" ["--quiet", "--cached", "HEAD", "--"] []
+  unstaged <- Git.gitExec "diff-files" ["--quiet"] []
   empty    <- Git.gitExec "rev-parse" ["HEAD"] []
   case (staged, unstaged, empty) of
     (Right _, Right _, _) -> pure False
@@ -270,7 +278,7 @@ gitIsDirty' root = do
 
 
 gitIsDirty :: Repo -> IO Bool
-gitIsDirty (Repo root config) = Git.runGit config $ gitIsDirty' (toFilePath root)
+gitIsDirty (Repo _ config) = Git.runGit config gitIsDirty'
 
 
 -- ================================ Core logic ================================
@@ -282,8 +290,7 @@ gitCommitKiRepo root msg = do
     Git.initDB False
     _ <- Git.gitExec "submodule" ["add", "./_media/"] []
     Git.add ["."]
-    isDirty <- gitIsDirty' (toFilePath root)
-    if isDirty then Git.commit [] author email msg [] else pure ()
+    Git.commit [] author email msg []
   pure (Repo root gitConfig)
   where
     gitConfig = Git.makeConfig (toFilePath root) Nothing
@@ -297,7 +304,7 @@ mkDeckTree :: [SQLDeck] -> [Deck]
 mkDeckTree = L.sort . map unpack
   where
     unpack :: SQLDeck -> Deck
-    unpack (SQLDeck did fullname) = Deck (T.splitOn "::" fullname) (Did did)
+    unpack (SQLDeck did fullname) = Deck (T.splitOn "\x1f" fullname) (Did did)
 
 
 mapFieldsByMid :: [FieldDef] -> Map Mid (Map FieldOrd FieldDef)
@@ -415,12 +422,20 @@ zipEq _  [] = Nothing
 zipEq (x : xs) (y : ys) = ((x, y) :) <$> zipEq xs ys
 
 
+mkSortField :: SQLData -> Maybe SortField
+mkSortField (SQLInteger k) = Just $ SortField (T.pack $ show k)
+mkSortField (SQLText t) = Just $ SortField t
+mkSortField (SQLFloat x) = Just $ SortField (T.pack $ show x)
+mkSortField (SQLBlob s) = Just $ SortField (T.pack $ show s)
+mkSortField SQLNull = Just $ SortField ""
+
+
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
   (Model _ modelName fieldsByOrd _) <- M.lookup (Mid mid) modelsByMid
   fields <- map mkField <$> (zipEq fs . L.sort . M.elems) fieldsByOrd
-  -- TODO: Cast the sort field!
-  let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) (SortField "")
+  sortField <- mkSortField sfld
+  let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) sortField
   pure (ColNote mdNote (Nid nid) (mkFilename mdNote))
   where
     ts = T.words tags
@@ -443,17 +458,6 @@ getCard colnotesByNid decks (SQLCard cid nid did ord) = case (maybeColNote, mayb
 
 
 
--- Parse the collection and target directory, then call `continueClone`.
-clone :: String -> String -> IO ()
-clone colPath targetPath = do
-  maybeColFile   <- resolveFile' colPath >>= getExtantFile
-  maybeTargetDir <- resolveDir' targetPath >>= ensureEmpty
-  case (maybeColFile, maybeTargetDir) of
-    (Nothing, _) -> printf "fatal: collection file '%s' does not exist\n" colPath
-    (_, Nothing) -> printf "fatal: targetdir '%s' not empty\n" targetPath
-    (Just colFile, Just targetDir) -> continueClone colFile targetDir
-
-
 -- | This grabs the filename without the file extension, appends `.media`, and
 -- then converts it back to a path.
 --
@@ -463,97 +467,12 @@ ankiMediaDirname colFile = mkInternalDir $ T.pack $ stem ++ ".media"
   where stem = (takeBaseName . toFilePath) colFile
 
 
-continueClone :: Path Extant File -> Path Extant Dir -> IO ()
-continueClone colFile targetDir = do
-  -- Hash the collection file.
-  colFileContents <- LB.readFile (toFilePath colFile)
-  let colFileMD5 = md5 colFileContents
-  -- Add the backups directory to the `.gitignore` file.
-  writeFile (toFilePath gitIgnore) ".ki/backups\n"
-  -- Create `.ki` and `_media` subdirectories.
-  maybeKiDir     <- ensureEmpty (absify targetDir </> mkInternalDir ".ki/")
-  maybeMediaDir  <- ensureEmpty (absify targetDir </> mkInternalDir "_media/")
-  maybeModelsDir <- ensureEmpty (absify targetDir </> mkInternalDir "_models/")
-  ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
-  case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
-    (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty\n"
-    (_, Nothing, _) -> printf "fatal: new '_media' directory not empty\n"
-    (_, _, Nothing) -> printf "fatal: new '_models' directory not empty\n"
-    -- Write repository contents and commit.
-    (Just kiDir, Just mediaDir, Just modelsDir) ->
-      writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
-  where
-    gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
-    ankiUserDir = parent colFile :: Path Extant Dir
-
-
 
 -- | Append the md5sum of the collection file to the hashes file.
 appendHash :: Path Extant Dir -> String -> MD5Digest -> IO ()
 appendHash kiDir tag md5sum = do
   let hashesFile = kiDir </> Path.Internal.Path "hashes"
   appendFile (toFilePath hashesFile) (show md5sum ++ "  " ++ tag ++ "\n")
-
-
-writeInitialCommit :: Path Extant File
-                   -> Path Extant Dir
-                   -> Path Extant Dir
-                   -> Path Extant Dir
-                   -> Path Extant Dir
-                   -> Path Extant Dir
-                   -> MD5Digest
-                   -> IO ()
-writeInitialCommit colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
-  repo    <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir
-  isDirty <- gitIsDirty repo
-  when isDirty $ do
-    printf "fatal: non-empty working tree in freshly cloned ki repo\n"
-    exitFailure
-  appendHash kiDir (toFilePath colFile) md5sum
-
-
-writeRepo :: Path Extant File
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> Path Extant Dir
-          -> IO Repo
-writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir = do
-  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
-  conn  <- SQL.open (toFilePath colFile)
-  ns    <- SQL.query_ conn "SELECT id,mid,guid,tags,flds,sfld FROM notes" :: IO [SQLNote]
-  cs    <- SQL.query_ conn "SELECT id,nid,did,ord FROM cards" :: IO [SQLCard]
-  ds    <- SQL.query_ conn "SELECT id,name FROM decks" :: IO [SQLDeck]
-  nts   <- SQL.query_ conn "SELECT id,name,config FROM notetypes" :: IO [SQLModel]
-  flds  <- SQL.query_ conn "SELECT ntid,ord,name,config FROM fields" :: IO [SQLField]
-  tmpls <- SQL.query_ conn "SELECT ntid,ord,name,config FROM templates" :: IO [SQLTemplate]
-  let
-    fieldsByMid = (mapFieldsByMid . map getField) flds
-    templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
-    maybeModels = map (getModel fieldsByMid templatesByMid) nts
-    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _ _) -> (mid, m))) maybeModels)
-    colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
-    serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
-    cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
-    preorder  = mkDeckTree ds
-    postorder = reverse preorder
-  ankiMediaRepo <- gitForceCommitAll ankiMediaDir "Initial commit"
-  printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
-  _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
-  -- Dump all models to top-level `_models` subdirectory.
-  forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  forM_ postorder (writeDeck targetDir cards)
-  printf "Committing contents to repository...\n"
-  repo <- gitCommitKiRepo targetDir "Initial commit"
-  printf "Done!\n"
-  pure repo
-  where
-    remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
-    config = JSON.Object $ M.singleton "remote" remote
-
-    unpack :: ColNote -> (Nid, ColNote)
-    unpack c@(ColNote _ nid _) = (nid, c)
 
 
 writeModel :: Path Extant Dir -> (Mid, ByteString) -> IO ()
@@ -566,134 +485,16 @@ writeDeck targetDir cards deck@(Deck _ did) = do
   foldM_ (writeCard targetDir deck) M.empty deckCards
   where deckCards = filter (\(Card _ _ did' _ _ _) -> did' == did) cards
 
--- | Write an Anki card to disk in a target directory.
---
--- Here, we must check if we've written a file for this note before. If not,
--- then we write one and move on. If we have, then there are two remaining
--- cases:
--- - We've written a file in this deck before, in which case we should have
---    some kind of reference or handle to it.
--- - We've written a file but not in this deck, in which case we must write a
---    link to the extant file.
-writeCard :: Path Extant Dir
-          -> Deck
-          -> Map Nid (Map Did (Path Extant File))
-          -> Card
-          -> IO (Map Nid (Map Did (Path Extant File)))
-writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ filename))
-  = do
-    deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
-    payload <- mkPayload mdnote
-    case M.lookup nid noteFilesByDidByNid of
-      Nothing -> do
-        file <- mkNewFile deckDir filename payload
-        pure $ M.insert nid (M.singleton did file) noteFilesByDidByNid
-      Just noteFilesByDid ->
-        case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
-          (Just _ , _) -> pure noteFilesByDidByNid
-          (Nothing, Just noteFile) -> do
-            link <- mkFileLink noteFile (mkNotePath deckDir filename)
-            pure $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
-          (Nothing, Nothing) -> pure noteFilesByDidByNid
+
+mkNotePath :: Path Extant Dir -> Text -> Path Abs File
+mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filename
 
 
-htmlToScreen :: Text -> Text
-htmlToScreen =
-  T.strip
-    . subRegex' "\\<b\\>\\s*\\<\\/b\\>" ""
-    . subRegex' "src= ?\n\"" "src=\""
-    . T.replace "<br />" "\n"
-    . T.replace "<br/>" "\n"
-    . T.replace "<br>" "\n"
-    . T.replace "&nbsp;" " "
-    . T.replace "&amp;" "&"
-    . T.replace "&gt;" ">"
-    . T.replace "&lt;" "<"
-    . T.replace "\\*}" "*}"
-    . T.replace "\\\\}" "\\}"
-    . T.replace "\\\\{" "\\{"
-    . T.replace "\\\\\\\\" "\\\\"
-    . subRegex' "\\<style\\>\\<\\/style\\>" ""
-
-
-escapeMediaFilenames :: Text -> Text
-escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
-
-type Prefix = Text
-type Suffix = Text
-data MediaFilename = MediaFilename !Filename !Prefix !Suffix
-  deriving Show
-data MediaTag = MediaTag !Filename !Prefix !Suffix
-  deriving Show
-
-
-mediaTagEditor :: MediaTag -> Text
-mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
-
-
-tagNameParser :: Parser Text
-tagNameParser = do
-  A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
-
-
-mediaAttrParser :: Parser Text
-mediaAttrParser = do
-  A.asciiCI "src=" <|> A.asciiCI "data="
-
-
--- | Parse the characters between the tag name and the `src`/`data` attribute.
---
--- This substring will always be nonempty, hence the `spacer`.
-prefixAttrsParser :: Parser Text
-prefixAttrsParser = do
-  spacer <- A.notChar '>'
-  T.cons spacer <$> (T.pack <$> A.manyTill (A.notChar '>') (lookAhead mediaAttrParser))
-
-
--- | Parse an HTML tag for some media file.
---
--- This parser expects the input stream to end immediately after the tag, thus
--- it is only suitable to be used with `streamEdit`.
-mediaTagParser :: Parser MediaTag
-mediaTagParser = do
-  tagName <- tagNameParser
-  prefixAttrs <- prefixAttrsParser
-  attr    <- A.asciiCI "src=" <|> A.asciiCI "data="
-  (MediaFilename fname pre suf) <-
-    (dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser) <* A.char '>'
-  A.endOfInput
-  pure $ MediaTag fname ("<" <> tagName <> prefixAttrs <> attr <> pre) (suf <> ">")
-
-
-restOfTagParser :: Parser Text
-restOfTagParser = do
-  T.pack <$> many (A.notChar '>')
-
-
-dubQuotedFilenameParser :: Parser MediaFilename
-dubQuotedFilenameParser = do
-  filename <- A.char '"' >> T.pack <$> A.many1 (A.notChar '"') <* A.char '"'
-  rest     <- restOfTagParser
-  pure $ MediaFilename filename "\"" ("\"" <> rest)
-
-
-quotedFilenameParser :: Parser MediaFilename
-quotedFilenameParser = do
-  filename <- A.char '\'' >> T.pack <$> A.many1 (A.notChar '\'') <* A.char '\''
-  rest     <- restOfTagParser
-  pure $ MediaFilename filename "'" ("'" <> rest)
-
-
-unquotedFilenameParser :: Parser MediaFilename
-unquotedFilenameParser = do
-  filename <- T.pack <$> A.many1 (A.satisfy $ A.notInClass " >")
-  rest     <- A.option "" spaceAndRestParser
-  pure $ MediaFilename filename "" rest
-  where
-    spaceAndRestParser :: Parser Text
-    spaceAndRestParser = do
-      rest <- A.asciiCI "\x20" >> T.pack <$> many (A.notChar '>')
-      pure $ " " <> rest
+mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
+mkDeckDir targetDir [] = absify targetDir
+mkDeckDir targetDir (p : ps) =
+  absify targetDir
+    </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
 
 
 mkPayload :: MdNote -> IO Text
@@ -720,15 +521,216 @@ mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) 
       pure $ s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) tidyText <> "\n"
 
 
-mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
-mkDeckDir targetDir [] = absify targetDir
-mkDeckDir targetDir (p : ps) =
-  absify targetDir
-    </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
+-- | Write an Anki card to disk in a target directory.
+--
+-- Here, we must check if we've written a file for this note before. If not,
+-- then we write one and move on. If we have, then there are two remaining
+-- cases:
+-- - We've written a file in this deck before, in which case we should have
+--    some kind of reference or handle to it.
+-- - We've written a file but not in this deck, in which case we must write a
+--    link to the extant file.
+writeCard :: Path Extant Dir
+          -> Deck
+          -> Map Nid (Map Did (Path Extant File))
+          -> Card
+          -> IO (Map Nid (Map Did (Path Extant File)))
+writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ stem))
+  = do
+    deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
+    payload <- mkPayload mdnote
+    case M.lookup nid noteFilesByDidByNid of
+      Nothing -> do
+        file <- mkNewFile deckDir filename payload
+        pure $ M.insert nid (M.singleton did file) noteFilesByDidByNid
+      Just noteFilesByDid ->
+        case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
+          (Just _ , _) -> pure noteFilesByDidByNid
+          (Nothing, Just noteFile) -> do
+            link <- mkFileLink noteFile (mkNotePath deckDir filename)
+            pure $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
+          (Nothing, Nothing) -> pure noteFilesByDidByNid
+  where
+    filename = stem <> ".md"
 
 
-mkNotePath :: Path Extant Dir -> Text -> Path Abs File
-mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filename
+htmlToScreen :: Text -> Text
+htmlToScreen =
+  T.strip
+    . subRegex' "\\<b\\>\\s*\\<\\/b\\>" ""
+    . subRegex' "src= ?\n\"" "src=\""
+    . T.replace "<br />" "\n"
+    . T.replace "<br/>" "\n"
+    . T.replace "<br>" "\n"
+    . T.replace "&nbsp;" " "
+    . T.replace "&amp;" "&"
+    . T.replace "&gt;" ">"
+    . T.replace "&lt;" "<"
+    . T.replace "\\*}" "*}"
+    . T.replace "\\\\}" "\\}"
+    . T.replace "\\\\{" "\\{"
+    . T.replace "\\\\\\\\" "\\\\"
+    . subRegex' "\\<style\\>\\<\\/style\\>" ""
+
+
+tagNameParser :: Parser Text
+tagNameParser = do
+  A.asciiCI "<" >> A.asciiCI "img" <|> A.asciiCI "audio" <|> A.asciiCI "object"
+
+
+mediaAttrParser :: Parser Text
+mediaAttrParser = do
+  A.asciiCI "src=" <|> A.asciiCI "data="
+
+
+-- | Parse the characters between the tag name and the `src`/`data` attribute.
+--
+-- This substring will always be nonempty, hence the `spacer`.
+prefixAttrsParser :: Parser Text
+prefixAttrsParser = do
+  spacer <- A.notChar '>'
+  T.cons spacer <$> (T.pack <$> A.manyTill (A.notChar '>') (lookAhead mediaAttrParser))
+
+
+unquotedFilenameParser :: Parser MediaFilename
+unquotedFilenameParser = do
+  filename <- T.pack <$> A.many1 (A.satisfy $ A.notInClass " >")
+  rest     <- A.option "" spaceAndRestParser
+  pure $ MediaFilename filename "" rest
+  where
+    spaceAndRestParser :: Parser Text
+    spaceAndRestParser = do
+      rest <- A.asciiCI "\x20" >> T.pack <$> many (A.notChar '>')
+      pure $ " " <> rest
+
+
+restOfTagParser :: Parser Text
+restOfTagParser = do
+  T.pack <$> many (A.notChar '>')
+
+
+dubQuotedFilenameParser :: Parser MediaFilename
+dubQuotedFilenameParser = do
+  filename <- A.char '"' >> T.pack <$> A.many1 (A.notChar '"') <* A.char '"'
+  rest     <- restOfTagParser
+  pure $ MediaFilename filename "\"" ("\"" <> rest)
+
+
+quotedFilenameParser :: Parser MediaFilename
+quotedFilenameParser = do
+  filename <- A.char '\'' >> T.pack <$> A.many1 (A.notChar '\'') <* A.char '\''
+  rest     <- restOfTagParser
+  pure $ MediaFilename filename "'" ("'" <> rest)
+
+
+-- | Parse an HTML tag for some media file.
+--
+-- This parser expects the input stream to end immediately after the tag, thus
+-- it is only suitable to be used with `streamEdit`.
+mediaTagParser :: Parser MediaTag
+mediaTagParser = do
+  tagName <- tagNameParser
+  prefixAttrs <- prefixAttrsParser
+  attr    <- A.asciiCI "src=" <|> A.asciiCI "data="
+  (MediaFilename fname pre suf) <-
+    (dubQuotedFilenameParser <|> quotedFilenameParser <|> unquotedFilenameParser) <* A.char '>'
+  A.endOfInput
+  pure $ MediaTag fname ("<" <> tagName <> prefixAttrs <> attr <> pre) (suf <> ">")
+
+
+-- | URI-decode all media filenames within HTML media tags.
+escapeMediaFilenames :: Text -> Text
+escapeMediaFilenames = streamEdit mediaTagParser mediaTagEditor
+
+
+-- | URI-decode a media filename within some HTML media tag.
+mediaTagEditor :: MediaTag -> Text
+mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
+
+
+writeRepo :: Path Extant File
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> Path Extant Dir
+          -> MD5Digest
+          -> IO Repo
+writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
+  LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
+  conn  <- SQL.open (toFilePath colFile)
+  ns    <- SQL.query_ conn "SELECT id,mid,guid,tags,flds,sfld FROM notes" :: IO [SQLNote]
+  cs    <- SQL.query_ conn "SELECT id,nid,did,ord FROM cards" :: IO [SQLCard]
+  ds    <- SQL.query_ conn "SELECT id,name FROM decks" :: IO [SQLDeck]
+  nts   <- SQL.query_ conn "SELECT id,name,config FROM notetypes" :: IO [SQLModel]
+  flds  <- SQL.query_ conn "SELECT ntid,ord,name,config FROM fields" :: IO [SQLField]
+  tmpls <- SQL.query_ conn "SELECT ntid,ord,name,config FROM templates" :: IO [SQLTemplate]
+  let
+    fieldsByMid = (mapFieldsByMid . map getField) flds
+    templatesByMid = (mapTemplatesByMid . map getTemplate) tmpls
+    maybeModels = map (getModel fieldsByMid templatesByMid) nts
+    modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _ _) -> (mid, m))) maybeModels)
+    colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
+    serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
+    cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
+    preorder  = mkDeckTree ds
+    postorder = reverse preorder
+  ankiMediaRepo <- gitForceCommitAll ankiMediaDir "Initial commit"
+  printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
+  _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
+  -- Dump all models to top-level `_models` subdirectory.
+  forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
+  forM_ postorder (writeDeck targetDir cards)
+  appendHash kiDir (toFilePath colFile) md5sum
+  printf "Committing contents to repository...\n"
+  repo <- gitCommitKiRepo targetDir "Initial commit"
+  printf "Done!\n"
+  pure repo
+  where
+    remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
+    config = JSON.Object $ M.singleton "remote" remote
+
+    unpack :: ColNote -> (Nid, ColNote)
+    unpack c@(ColNote _ nid _) = (nid, c)
+
+
+continueClone :: Path Extant File -> Path Extant Dir -> IO ()
+continueClone colFile targetDir = do
+  -- Hash the collection file.
+  colFileContents <- LB.readFile (toFilePath colFile)
+  let colFileMD5 = md5 colFileContents
+  -- Add the backups directory to the `.gitignore` file.
+  writeFile (toFilePath gitIgnore) ".ki/backups\n"
+  -- Create `.ki` and `_media` subdirectories.
+  maybeKiDir     <- ensureEmpty (absify targetDir </> mkInternalDir ".ki/")
+  maybeMediaDir  <- ensureEmpty (absify targetDir </> mkInternalDir "_media/")
+  maybeModelsDir <- ensureEmpty (absify targetDir </> mkInternalDir "_models/")
+  ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
+  case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
+    (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty\n"
+    (_, Nothing, _) -> printf "fatal: new '_media' directory not empty\n"
+    (_, _, Nothing) -> printf "fatal: new '_models' directory not empty\n"
+    -- Write repository contents and commit.
+    (Just kiDir, Just mediaDir, Just modelsDir) -> do
+      repo <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
+      isDirty <- gitIsDirty repo
+      when isDirty $ do
+        printf "fatal: non-empty working tree in freshly cloned ki repo\n"
+        exitFailure
+  where
+    gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
+    ankiUserDir = parent colFile :: Path Extant Dir
+
+
+-- Parse the collection and target directory, then call `continueClone`.
+clone :: String -> String -> IO ()
+clone colPath targetPath = do
+  maybeColFile   <- resolveFile' colPath >>= getExtantFile
+  maybeTargetDir <- resolveDir' targetPath >>= ensureEmpty
+  case (maybeColFile, maybeTargetDir) of
+    (Nothing, _) -> printf "fatal: collection file '%s' does not exist\n" colPath
+    (_, Nothing) -> printf "fatal: targetdir '%s' not empty\n" targetPath
+    (Just colFile, Just targetDir) -> continueClone colFile targetDir
 
 
 main :: IO ()
