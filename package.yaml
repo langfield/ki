@@ -36,6 +36,7 @@ dependencies:
 - regex-tdfa
 - regex-compat
 - pretty-simple
+- terminal-progress-bar
 
 ghc-options:
 - -Wall

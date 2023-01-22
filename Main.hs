@@ -21,6 +21,7 @@ import Replace.Attoparsec.Text (streamEdit)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath (takeBaseName)
+import System.ProgressBar (ProgressBar, Progress (..), ProgressBarWidth (..), Style (..), newProgressBar, incProgress, defStyle)
 import Text.Printf (printf)
 import Text.Regex (mkRegex, subRegex)
 import Text.Regex.TDFA ((=~))
@@ -472,12 +473,6 @@ writeModel modelsDir (mid, s) =
   LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
 
 
-writeDeck :: Path Extant Dir -> [Card] -> Deck -> IO ()
-writeDeck targetDir cards deck@(Deck _ did) = do
-  foldM_ (writeCard targetDir deck) M.empty deckCards
-  where deckCards = filter (\(Card _ _ did' _ _ _) -> did' == did) cards
-
-
 mkNotePath :: Path Extant Dir -> Text -> Path Abs File
 mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filename
 
@@ -509,39 +504,6 @@ mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) 
     go :: Text -> Field -> Text
     go s (Field _ (FieldName name) text) =
       s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) text <> "\n"
-
-
--- | Write an Anki card to disk in a target directory.
---
--- Here, we must check if we've written a file for this note before. If not,
--- then we write one and move on. If we have, then there are two remaining
--- cases:
--- - We've written a file in this deck before, in which case we should have
---    some kind of reference or handle to it.
--- - We've written a file but not in this deck, in which case we must write a
---    link to the extant file.
-writeCard :: Path Extant Dir
-          -> Deck
-          -> Map Nid (Map Did (Path Extant File))
-          -> Card
-          -> IO (Map Nid (Map Did (Path Extant File)))
-writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ stem))
-  = do
-    deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
-    case M.lookup nid noteFilesByDidByNid of
-      Nothing -> do
-        file <- mkNewFile deckDir filename payload
-        pure $ M.insert nid (M.singleton did file) noteFilesByDidByNid
-      Just noteFilesByDid ->
-        case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
-          (Just _ , _) -> pure noteFilesByDidByNid
-          (Nothing, Just noteFile) -> do
-            link <- mkFileLink noteFile (mkNotePath deckDir filename)
-            pure $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
-          (Nothing, Nothing) -> pure noteFilesByDidByNid
-  where
-    filename = stem <> ".md"
-    payload  = mkPayload mdnote
 
 
 htmlToScreen :: Text -> Text
@@ -638,6 +600,47 @@ mediaTagEditor :: MediaTag -> Text
 mediaTagEditor (MediaTag filename prefix suffix) = prefix <> URI.decodeText filename <> suffix
 
 
+-- | Write an Anki card to disk in a target directory.
+--
+-- Here, we must check if we've written a file for this note before. If not,
+-- then we write one and move on. If we have, then there are two remaining
+-- cases:
+-- - We've written a file in this deck before, in which case we should have
+--    some kind of reference or handle to it.
+-- - We've written a file but not in this deck, in which case we must write a
+--    link to the extant file.
+writeCard :: Path Extant Dir
+          -> Deck
+          -> ProgressBar ()
+          -> Map Nid (Map Did (Path Extant File))
+          -> Card
+          -> IO (Map Nid (Map Did (Path Extant File)))
+writeCard targetDir (Deck parts did) pb noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ stem))
+  = do
+    incProgress pb 1
+    deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
+    case M.lookup nid noteFilesByDidByNid of
+      Nothing -> do
+        file <- mkNewFile deckDir filename payload
+        pure $ M.insert nid (M.singleton did file) noteFilesByDidByNid
+      Just noteFilesByDid ->
+        case (M.lookup did noteFilesByDid, fst <$> M.minView noteFilesByDid) of
+          (Just _ , _) -> pure noteFilesByDidByNid
+          (Nothing, Just noteFile) -> do
+            link <- mkFileLink noteFile (mkNotePath deckDir filename)
+            pure $ M.insert nid (M.insert did link noteFilesByDid) noteFilesByDidByNid
+          (Nothing, Nothing) -> pure noteFilesByDidByNid
+  where
+    filename = stem <> ".md"
+    payload  = mkPayload mdnote
+
+
+writeDeck :: Path Extant Dir -> [Card] -> ProgressBar () -> Deck -> IO ()
+writeDeck targetDir cards pb deck@(Deck _ did) = do
+  foldM_ (writeCard targetDir deck pb) M.empty deckCards
+  where deckCards = filter (\(Card _ _ did' _ _ _) -> did' == did) cards
+
+
 writeRepo :: Path Extant File
           -> Path Extant Dir
           -> Path Extant Dir
@@ -670,7 +673,8 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
   _kiMediaRepo <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  forM_ postorder (writeDeck targetDir cards)
+  pb <- newProgressBar (defStyle { styleWidth = ConstantWidth 72 }) 10 (Progress 0 (length cards) ())
+  forM_ postorder (writeDeck targetDir cards pb)
   appendHash kiDir (toFilePath colFile) md5sum
   printf "Committing contents to repository...\n"
   repo <- gitCommitKiRepo targetDir "Initial commit"
