@@ -21,7 +21,15 @@ import Replace.Attoparsec.Text (streamEdit)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath (takeBaseName)
-import System.ProgressBar (ProgressBar, Progress (..), ProgressBarWidth (..), Style (..), newProgressBar, incProgress, defStyle)
+import System.ProgressBar
+  ( Progress(..)
+  , ProgressBar
+  , ProgressBarWidth(..)
+  , Style(..)
+  , defStyle
+  , incProgress
+  , newProgressBar
+  )
 import Text.Printf (printf)
 import Text.Regex (mkRegex, subRegex)
 import Text.Regex.TDFA ((=~))
@@ -673,7 +681,10 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
   _kiMediaRepo <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  pb <- newProgressBar (defStyle { styleWidth = ConstantWidth 72 }) 10 (Progress 0 (length cards) ())
+  pb <- newProgressBar
+    (defStyle { styleWidth = ConstantWidth 72 })
+    10
+    (Progress 0 (length cards) ())
   forM_ postorder (writeDeck targetDir cards pb)
   appendHash kiDir (toFilePath colFile) md5sum
   printf "Committing contents to repository...\n"
