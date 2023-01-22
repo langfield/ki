@@ -15,12 +15,13 @@ char* tidy(char* input) {
 
   TidyDoc tdoc = tidyCreate();                     // Initialize "document"
 
-  // ok = tidyOptSetBool( tdoc, TidyQuiet, yes ) && ok;
   ok = tidyOptSetValue( tdoc, TidyIndentContent, "true" );
   ok = tidyOptSetBool( tdoc, TidyOmitOptionalTags, yes ) && ok;
   ok = tidyOptSetBool( tdoc, TidyMark, no ) && ok;
   ok = tidyOptSetValue( tdoc, TidyBodyOnly, "yes" ) && ok;
   ok = tidyOptSetInt( tdoc, TidyWrapLen, 120 ) && ok;
+  ok = tidyOptSetValue( tdoc, TidyForceOutput, "true" ) && ok;
+  ok = tidyOptSetValue( tdoc, TidyHtmlOut, "true" ) && ok;
   if ( ok )
       rc = tidySetErrorBuffer( tdoc, &errbuf );      // Capture diagnostics
   if ( rc >= 0 )
