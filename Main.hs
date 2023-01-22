@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main (main) where
@@ -9,14 +8,12 @@ import Data.Attoparsec.Combinator (lookAhead)
 import Data.Attoparsec.Text (Parser)
 import Data.ByteString.Lazy (ByteString)
 import Data.Digest.Pure.MD5 (MD5Digest, md5)
-import Data.Foldable (foldlM)
 import Data.Map (Map)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Typeable (Typeable)
 import Data.YAML ((.=), ToYAML(..))
-import Database.SQLite.Simple (SQLData (..))
-import Foreign.C.String (CString, peekCString, withCString)
+import Database.SQLite.Simple (SQLData(..))
 import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
 import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
@@ -41,11 +38,6 @@ import qualified Database.SQLite.Simple as SQL
 import qualified Lib.Git as Git
 import qualified Network.URI.Encode as URI
 import qualified Path.Internal
-
-foreign import ccall "htidy.h tidy" tidy' :: CString -> IO CString
-
-tidy :: String -> IO String
-tidy s = withCString s tidy' >>= peekCString
 
 maxFilenameSize :: Int
 maxFilenameSize = 60
@@ -192,7 +184,7 @@ data MediaTag = MediaTag !Filename !Prefix !Suffix
 mkInternalDir :: Text -> Path a Dir
 mkInternalDir s = Path.Internal.Path (T.unpack withSlash)
   where
-    stripped = subRegex' "\\/+$" "" s
+    stripped  = subRegex' "\\/+$" "" s
     withSlash = if T.null stripped then "./" else stripped <> "/"
 
 
@@ -392,7 +384,7 @@ guidToHex guid = case val of
     -- It is important that we use `Integer` here and not `Int`, because
     -- otherwise, we get an overflow.
     b91Digits = mapM (\c -> fromIntegral <$> T.findIndex (== c) b91s) (T.unpack guid)
-    val    = L.foldl' go 0 <$> b91Digits
+    val = L.foldl' go 0 <$> b91Digits
 
     go :: Integer -> Integer -> Integer
     go acc x = acc * 91 + x
@@ -433,7 +425,7 @@ mkSortField SQLNull = Just $ SortField ""
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
   (Model _ modelName fieldsByOrd _) <- M.lookup (Mid mid) modelsByMid
-  fields <- map mkField <$> (zipEq fs . L.sort . M.elems) fieldsByOrd
+  fields    <- map mkField <$> (zipEq fs . L.sort . M.elems) fieldsByOrd
   sortField <- mkSortField sfld
   let mdNote = MdNote (Guid guid) modelName (Tags ts) (Fields fields) sortField
   pure (ColNote mdNote (Nid nid) (mkFilename mdNote))
@@ -493,14 +485,12 @@ mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filenam
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
 mkDeckDir targetDir (p : ps) =
-  absify targetDir
-    </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
+  absify targetDir </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
 
 
-mkPayload :: MdNote -> IO Text
+mkPayload :: MdNote -> Text
 mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) _) = do
-  body <- foldlM go "" fields
-  pure $ header <> "\n" <> body
+  header <> "\n" <> body
   where
     header =
       T.intercalate "\n"
@@ -515,10 +505,10 @@ mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) 
            ]
         ++ tags
         ++ ["```", ""]
-    go :: Text -> Field -> IO Text
-    go s (Field _ (FieldName name) text) = do
-      tidyText <- T.pack <$> (tidy . T.unpack) text
-      pure $ s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) tidyText <> "\n"
+    body = L.foldl' go "" fields
+    go :: Text -> Field -> Text
+    go s (Field _ (FieldName name) text) =
+      s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) text <> "\n"
 
 
 -- | Write an Anki card to disk in a target directory.
@@ -538,7 +528,6 @@ writeCard :: Path Extant Dir
 writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColNote mdnote _ stem))
   = do
     deckDir <- ensureExtantDir (mkDeckDir targetDir parts)
-    payload <- mkPayload mdnote
     case M.lookup nid noteFilesByDidByNid of
       Nothing -> do
         file <- mkNewFile deckDir filename payload
@@ -552,6 +541,7 @@ writeCard targetDir (Deck parts did) noteFilesByDidByNid (Card _ nid _ _ _ (ColN
           (Nothing, Nothing) -> pure noteFilesByDidByNid
   where
     filename = stem <> ".md"
+    payload  = mkPayload mdnote
 
 
 htmlToScreen :: Text -> Text
@@ -677,7 +667,7 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
     postorder = reverse preorder
   ankiMediaRepo <- gitForceCommitAll ankiMediaDir "Initial commit"
   printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
-  _kiMediaRepo  <- gitClone ankiMediaRepo mediaDir
+  _kiMediaRepo <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
   forM_ postorder (writeDeck targetDir cards)
@@ -712,7 +702,7 @@ continueClone colFile targetDir = do
     (_, _, Nothing) -> printf "fatal: new '_models' directory not empty\n"
     -- Write repository contents and commit.
     (Just kiDir, Just mediaDir, Just modelsDir) -> do
-      repo <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
+      repo    <- writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir colFileMD5
       isDirty <- gitIsDirty repo
       when isDirty $ do
         printf "fatal: non-empty working tree in freshly cloned ki repo\n"

@@ -49,9 +49,6 @@ ghc-options:
 - -Wredundant-constraints
 
 cc-options: -shared
-c-sources: htidy.c
-include-dirs: /usr/include/tidy
-extra-libraries: tidy
 
 executables:
   Ki-exe:
