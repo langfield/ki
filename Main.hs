@@ -116,7 +116,10 @@ newtype Tags = Tags [Text] deriving Show
 newtype Fields = Fields [Field] deriving Show
 newtype DeckName = DeckName Text deriving Show
 newtype SortField = SortField Text deriving Show
-newtype ModelName = ModelName Text deriving (ToYAML, Show)
+newtype ModelName = ModelName Text deriving (ToYAML)
+
+instance Show ModelName where
+  show (ModelName name) = T.unpack name
 
 newtype Ord' = Ord' Integer deriving Show
 
@@ -222,9 +225,9 @@ getExtantFile file = do
   if exists then pure $ Just $ Path.Internal.Path (toFilePath file) else pure Nothing
 
 
--- | Convert from an `Extant` or `Missing` path to an `Abs` path.
-absify :: Path a b -> Path Abs b
-absify (Path.Internal.Path s) = Path.Internal.Path s
+-- | Convert from an `Extant` or `Missing` directory to an `Abs` directory.
+absify :: Path a Dir -> Path Abs Dir
+absify (Path.Internal.Path s) = mkInternalDir (T.pack s)
 
 
 mkFileLink :: Path Extant File -> Path Abs File -> IO (Path Extant File)
@@ -476,9 +479,10 @@ appendHash kiDir tag md5sum = do
   appendFile (toFilePath hashesFile) (show md5sum ++ "  " ++ tag ++ "\n")
 
 
-writeModel :: Path Extant Dir -> (Mid, ByteString) -> IO ()
-writeModel modelsDir (mid, s) =
-  LB.writeFile (toFilePath $ modelsDir </> Path.Internal.Path (show mid ++ ".yaml")) s
+writeModel :: Path Extant Dir -> Model -> IO ()
+writeModel modelsDir m@(Model _ modelName _ _) = LB.writeFile
+  (toFilePath $ modelsDir </> Path.Internal.Path (show modelName ++ ".yaml"))
+  (Y.encode [m])
 
 
 mkNotePath :: Path Extant Dir -> Text -> Path Abs File
@@ -488,7 +492,11 @@ mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filenam
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
 mkDeckDir targetDir (p : ps) =
-  absify targetDir </> foldr ((</>) . mkInternalDir) (mkInternalDir p) ps
+  absify targetDir </> L.foldl' go (mkInternalDir p) ps
+  where
+    go :: Path Rel Dir -> Text -> Path Rel Dir
+    go acc x = acc </> mkInternalDir x
+
 
 
 mkPayload :: MdNote -> Text
@@ -680,11 +688,8 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
   printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
   _kiMediaRepo <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
-  forM_ (M.assocs serializedModelsByMid) (writeModel modelsDir)
-  pb <- newProgressBar
-    (defStyle { styleWidth = ConstantWidth 72 })
-    10
-    (Progress 0 (length cards) ())
+  forM_ (M.elems modelsByMid) (writeModel modelsDir)
+  pb <- newProgressBar style 10 (Progress 0 (length cards) ())
   forM_ postorder (writeDeck targetDir cards pb)
   appendHash kiDir (toFilePath colFile) md5sum
   printf "Committing contents to repository...\n"
@@ -694,6 +699,7 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
   where
     remote = JSON.Object $ M.singleton "path" $ (JSON.String . T.pack . toFilePath) colFile
     config = JSON.Object $ M.singleton "remote" remote
+    style  = defStyle { styleWidth = ConstantWidth 72 }
 
     unpack :: ColNote -> (Nid, ColNote)
     unpack c@(ColNote _ nid _) = (nid, c)
