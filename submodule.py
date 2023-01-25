@@ -38,7 +38,7 @@ HTTPS remote of the form:   `https://github.com/user/submodule.git`
 In the above examples, you should replace `user` with the relevant username,
 and `submodule` with the relelvant repo name. If you are using a hosted git
 server other than `github.com`, then you should replace `github.com` with the
-relelvant URL.\n
+relevant URL.\n
 """
 
 
