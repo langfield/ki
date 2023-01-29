@@ -15,6 +15,16 @@ copyright:           "2022 Author name here"
 # common to point users to the README.md file.
 description:         Please see the README on GitHub at <https://github.com/githubuser/ki#readme>
 
+custom-setup:
+  dependencies:
+  - base
+  - Cabal
+  - proto-lens-setup
+
+build-tools: proto-lens-protoc:proto-lens-protoc
+
+extra-source-files: proto/**/*.proto
+
 dependencies:
 - base >= 4.7 && < 5
 - path
@@ -26,7 +36,6 @@ dependencies:
 - sqlite-simple
 - slugify
 - containers
-- protobuf
 - libgit
 - filepath
 - HsYAML
@@ -37,6 +46,19 @@ dependencies:
 - regex-compat
 - pretty-simple
 - terminal-progress-bar
+
+library:
+  dependencies:
+  - base
+  - proto-lens-runtime
+
+  exposed-modules:
+  - Proto.Notetypes
+  - Proto.Notetypes_Fields
+  - Proto.Collection
+  - Proto.Collection_Fields
+  - Proto.Generic
+  - Proto.Generic_Fields
 
 ghc-options:
 - -Wall
@@ -58,6 +80,13 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+
+    dependencies:
+    - proto-lens
+    # The following dependency works around a bug with Cabal-1.*.  It is not
+    # needed with Cabal-2.0 or later (stack lts-10.0 or later).
+    - proto-lens-runtime
+    - Ki
 
 tests:
   Ki-test:

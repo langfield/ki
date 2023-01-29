@@ -48,6 +48,8 @@ import qualified Lib.Git as Git
 import qualified Network.URI.Encode as URI
 import qualified Path.Internal
 
+import Proto.Notetypes
+
 maxFilenameSize :: Int
 maxFilenameSize = 60
 
@@ -365,7 +367,7 @@ getModel :: Map Mid (Map FieldOrd FieldDef)
          -> Map Mid (Map TemplateOrd Template)
          -> SQLModel
          -> Maybe Model
-getModel fieldsByOrdByMid templatesByOrdByMid (SQLModel mid name _) =
+getModel fieldsByOrdByMid templatesByOrdByMid (SQLModel mid name configBytes) =
   case (M.lookup (Mid mid) fieldsByOrdByMid, M.lookup (Mid mid) templatesByOrdByMid) of
     (Just fieldsByOrd, Just templatesByOrd) ->
       Just (Model (Mid mid) (ModelName name) fieldsByOrd templatesByOrd)
@@ -680,7 +682,6 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
     maybeModels = map (getModel fieldsByMid templatesByMid) nts
     modelsByMid = M.fromList (MB.mapMaybe (fmap (\m@(Model mid _ _ _) -> (mid, m))) maybeModels)
     colnotesByNid = M.fromList $ MB.mapMaybe (fmap unpack . mkColNote modelsByMid) ns
-    serializedModelsByMid = M.map (Y.encode . (: [])) modelsByMid
     cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
     preorder  = mkDeckTree ds
     postorder = reverse preorder

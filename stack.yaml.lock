@@ -43,6 +43,34 @@ packages:
       size: 426
   original:
     hackage: dlist-0.8.0.8@sha256:90ca348bffdc62d7070bcf0e97c728f8d01b24fbc7ea08d2909157d0da76534c,2066
+- completed:
+    hackage: proto-lens-0.7.1.2@sha256:1d16d73948f4100e1de8374356c3fcfacc63dcc7b8d2130c580f79bdb0139bc5,2973
+    pantry-tree:
+      sha256: ba5309be6798f16f77a0b74c388ee58b0e10f57de5e791a751754e3bef8d424c
+      size: 1857
+  original:
+    hackage: proto-lens-0.7.1.2
+- completed:
+    hackage: proto-lens-protoc-0.7.1.1@sha256:4b3b97d5caac9a9f8a85d426d5ad8a129f36e852dd05f42e614d9912030b9700,2233
+    pantry-tree:
+      sha256: 29b98e24202b2bc2f1d6a02c368ea943534eed236253a4cd7ff8d26a98a5e626
+      size: 1219
+  original:
+    hackage: proto-lens-protoc-0.7.1.1
+- completed:
+    hackage: proto-lens-setup-0.4.0.6@sha256:42765a1e1bdf61d3f3e8a4cca60bb9534d59e37541d5ba1927e3224420f4e475,3121
+    pantry-tree:
+      sha256: e7024619c506492ae4c6bdcdd64051c4af5481f289d156aec8302f636686075c
+      size: 235
+  original:
+    hackage: proto-lens-setup-0.4.0.6
+- completed:
+    hackage: proto-lens-runtime-0.7.0.3@sha256:5165848fa8c112716a4d550dcd8dda8858226294ce3e24462e5b0d9050de9899,3051
+    pantry-tree:
+      sha256: 5f45965abaf9a76cf9f91a2a54803ed34cf7987c2fe87dac1782f8f8be65bf35
+      size: 168
+  original:
+    hackage: proto-lens-runtime-0.7.0.3
 snapshots:
 - completed:
     sha256: 428ec8d5ce932190d3cbe266b9eb3c175cd81e984babf876b64019e2cbe4ea68

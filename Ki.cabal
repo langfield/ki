@@ -1,4 +1,4 @@
-cabal-version: 1.12
+cabal-version: 1.24
 
 -- This file has been generated from package.yaml by hpack version 0.35.1.
 --
@@ -14,11 +14,59 @@ maintainer:     example@example.com
 copyright:      2022 Author name here
 license:        RPL
 license-file:   LICENSE
-build-type:     Simple
+build-type:     Custom
+extra-source-files:
+    proto/collection.proto
+    proto/generic.proto
+    proto/notetypes.proto
 
 source-repository head
   type: git
   location: https://github.com/githubuser/ki
+
+custom-setup
+  setup-depends:
+      Cabal
+    , base
+    , proto-lens-setup
+
+library
+  exposed-modules:
+      Proto.Notetypes
+      Proto.Notetypes_Fields
+      Proto.Collection
+      Proto.Collection_Fields
+      Proto.Generic
+      Proto.Generic_Fields
+  other-modules:
+      Paths_Ki
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  cc-options: -shared
+  build-tool-depends:
+      proto-lens-protoc:proto-lens-protoc
+  build-depends:
+      HsYAML
+    , attoparsec
+    , base
+    , bytestring
+    , containers
+    , filepath
+    , libgit
+    , microaeson
+    , path
+    , path-io
+    , pretty-simple
+    , proto-lens-runtime
+    , pureMD5
+    , regex-compat
+    , regex-tdfa
+    , replace-attoparsec
+    , slugify
+    , sqlite-simple
+    , terminal-progress-bar
+    , text
+    , uri-encode
+  default-language: Haskell2010
 
 executable Ki-exe
   main-is: Main.hs
@@ -26,8 +74,11 @@ executable Ki-exe
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   cc-options: -shared
+  build-tool-depends:
+      proto-lens-protoc:proto-lens-protoc
   build-depends:
       HsYAML
+    , Ki
     , attoparsec
     , base >=4.7 && <5
     , bytestring
@@ -38,7 +89,8 @@ executable Ki-exe
     , path
     , path-io
     , pretty-simple
-    , protobuf
+    , proto-lens
+    , proto-lens-runtime
     , pureMD5
     , regex-compat
     , regex-tdfa
@@ -57,6 +109,8 @@ test-suite Ki-test
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   cc-options: -shared
+  build-tool-depends:
+      proto-lens-protoc:proto-lens-protoc
   build-depends:
       HsYAML
     , attoparsec
@@ -69,7 +123,6 @@ test-suite Ki-test
     , path
     , path-io
     , pretty-simple
-    , protobuf
     , pureMD5
     , regex-compat
     , regex-tdfa
