@@ -53,6 +53,7 @@ library
     , filepath
     , libgit
     , microaeson
+    , microlens
     , path
     , path-io
     , pretty-simple
@@ -72,7 +73,7 @@ executable Ki-exe
   main-is: Main.hs
   other-modules:
       Paths_Ki
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N -Wno-missing-export-lists
   cc-options: -shared
   build-tool-depends:
       proto-lens-protoc:proto-lens-protoc
@@ -86,6 +87,7 @@ executable Ki-exe
     , filepath
     , libgit
     , microaeson
+    , microlens
     , path
     , path-io
     , pretty-simple
@@ -120,6 +122,7 @@ test-suite Ki-test
     , filepath
     , libgit
     , microaeson
+    , microlens
     , path
     , path-io
     , pretty-simple
