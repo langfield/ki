@@ -47,10 +47,14 @@ dependencies:
 - pretty-simple
 - terminal-progress-bar
 - microlens
+- leancheck
+- leancheck-instances
+- hspec
 
 library:
   dependencies:
   - base
+  - proto-lens
   - proto-lens-runtime
 
   exposed-modules:
@@ -60,6 +64,7 @@ library:
   - Proto.Collection_Fields
   - Proto.Generic
   - Proto.Generic_Fields
+  - Ki
 
 ghc-options:
 - -Wall
@@ -76,7 +81,8 @@ cc-options: -shared
 
 executables:
   Ki-exe:
-    main:                Main.hs
+    main: Main.hs
+    source-dirs: .
     ghc-options:
     - -threaded
     - -rtsopts
@@ -92,8 +98,16 @@ executables:
 
 tests:
   Ki-test:
-    main:                Tests.hs
+    main: Tests.hs
+    source-dirs: tests
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+
+    dependencies:
+    - proto-lens
+    # The following dependency works around a bug with Cabal-1.*.  It is not
+    # needed with Cabal-2.0 or later (stack lts-10.0 or later).
+    - proto-lens-runtime
+    - Ki

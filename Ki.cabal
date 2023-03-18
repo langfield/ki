@@ -38,6 +38,7 @@ library
       Proto.Collection_Fields
       Proto.Generic
       Proto.Generic_Fields
+      Ki
   other-modules:
       Paths_Ki
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
@@ -51,12 +52,16 @@ library
     , bytestring
     , containers
     , filepath
+    , hspec
+    , leancheck
+    , leancheck-instances
     , libgit
     , microaeson
     , microlens
     , path
     , path-io
     , pretty-simple
+    , proto-lens
     , proto-lens-runtime
     , pureMD5
     , regex-compat
@@ -72,7 +77,10 @@ library
 executable Ki-exe
   main-is: Main.hs
   other-modules:
+      Ki
       Paths_Ki
+  hs-source-dirs:
+      ./
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N -Wno-missing-export-lists
   cc-options: -shared
   build-tool-depends:
@@ -85,6 +93,9 @@ executable Ki-exe
     , bytestring
     , containers
     , filepath
+    , hspec
+    , leancheck
+    , leancheck-instances
     , libgit
     , microaeson
     , microlens
@@ -109,23 +120,31 @@ test-suite Ki-test
   main-is: Tests.hs
   other-modules:
       Paths_Ki
+  hs-source-dirs:
+      tests
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   cc-options: -shared
   build-tool-depends:
       proto-lens-protoc:proto-lens-protoc
   build-depends:
       HsYAML
+    , Ki
     , attoparsec
     , base >=4.7 && <5
     , bytestring
     , containers
     , filepath
+    , hspec
+    , leancheck
+    , leancheck-instances
     , libgit
     , microaeson
     , microlens
     , path
     , path-io
     , pretty-simple
+    , proto-lens
+    , proto-lens-runtime
     , pureMD5
     , regex-compat
     , regex-tdfa
