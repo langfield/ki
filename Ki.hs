@@ -55,6 +55,7 @@ import qualified Path.Internal
 import qualified Proto.Notetypes as ANKI
 import qualified Proto.Notetypes_Fields as ANKI
 
+-- Upper bound on the length of Ki-generated card filenames.
 maxFilenameSize :: Int
 maxFilenameSize = 60
 
@@ -73,6 +74,12 @@ b91s = b91Alphas <> b91Symbols
 -- there is a file or directory there) and paths that do not.
 data Extant
   deriving Typeable
+
+
+-- Types prefixed with `SQL` are product types designed to hold the raw data
+-- parsed from the `.anki2` SQLite3 database dump binary. Each of these is then
+-- parsed into a more structured twin. For example, `SQLNote`s are parsed into
+-- `ColNote`s via `mkColNote`.
 
 -- Nid, Mid, Guid, Tags, Flds, SortFld
 data SQLNote = SQLNote !Integer !Integer !Text !Text !Text !SQLData
@@ -175,12 +182,15 @@ data CardRequirement = CardRequirement
   }
   deriving (Eq, Show)
 
+-- Wrappers around `proto-lens`-generated types.
 newtype NotetypeConfig = NotetypeConfig ANKI.Notetype'Config deriving (Eq, Show)
 newtype NotetypeConfigKind = NotetypeConfigKind ANKI.Notetype'Config'Kind deriving (Eq, Show)
 newtype NotetypeConfigCardRequirementKind = NotetypeConfigCardRequirementKind ANKI.Notetype'Config'CardRequirement'Kind deriving (Eq, Show)
 newtype NotetypeConfigCardRequirement = NotetypeConfigCardRequirement ANKI.Notetype'Config'CardRequirement deriving (Eq, Show)
 newtype FieldDefConfig = FieldDefConfig ANKI.Notetype'Field'Config deriving (Eq, Show)
 newtype TemplateConfig = TemplateConfig ANKI.Notetype'Template'Config deriving (Eq, Show)
+
+-- ToYAML instances for serializing models (notetypes).
 
 instance ToYAML FieldDefConfig where
   toYAML (FieldDefConfig config) = Y.mapping
@@ -286,7 +296,7 @@ data MediaTag = MediaTag !Filename !Prefix !Suffix
 getDir :: Text -> Path a Dir
 getDir s = Path.Internal.Path (T.unpack withSlash)
   where
-    stripped  = subRegex' "\\/+$" "" s
+    stripped  = subRegexText "\\/+$" "" s
     withSlash = if T.null stripped then "./" else stripped <> "/"
 
 -- | Cast a directory to absolute or relative.
@@ -332,6 +342,7 @@ mkNewFile dir name contents = do
 
 -- ======================= Repository utility functions =======================
 
+-- | Commit in a directory with a given message even if there are no staged changes.
 gitForceCommitAll :: Path Extant Dir -> String -> IO Repo
 gitForceCommitAll root msg = do
   GIT.runGit gitConfig $ do
@@ -354,6 +365,7 @@ gitClone (Repo root config) tgt = do
       Left  err -> GIT.gitError err "clone"
   pure $ Repo tgt $ GIT.makeConfig (toFilePath tgt) Nothing
 
+-- | Check if the stage or working directory is dirty (libgit function).
 gitIsDirty' :: GIT.GitCtx Bool
 gitIsDirty' = do
   staged   <- GIT.gitExec "diff-index" ["--quiet", "--cached", "HEAD", "--"] []
@@ -364,11 +376,14 @@ gitIsDirty' = do
     (_, _, Left _) -> pure False
     (_, _, _) -> pure True
 
+-- | Check if the stage or working directory is dirty.
 gitIsDirty :: Repo -> IO Bool
 gitIsDirty (Repo _ config) = GIT.runGit config gitIsDirty'
 
 -- ================================ Core logic ================================
 
+-- | Commit in a ki repository with some message, adding `_media/` subdirectory
+-- as a submodule.
 gitCommitKiRepo :: Path Extant Dir -> String -> IO Repo
 gitCommitKiRepo root msg = do
   GIT.runGit gitConfig $ do
@@ -390,6 +405,11 @@ mkDeckTree = L.sort . map unpack
     unpack :: SQLDeck -> Deck
     unpack (SQLDeck did fullname) = Deck (T.splitOn "\x1f" fullname) (Did did)
 
+-- | Associate each model ID with a map of field ordinals to field definitions.
+--
+-- * Each model has a set of fields, so this is the outer map.
+-- * Field definitions are numbered (ordinals), so the inner map sends field
+-- ordinals to the field definitions themselves.
 mapFieldDefsByMid :: [FieldDef] -> Map Mid (Map FieldOrd FieldDef)
 mapFieldDefsByMid = foldr go M.empty
   where
@@ -398,6 +418,11 @@ mapFieldDefsByMid = foldr go M.empty
       then M.adjust (M.insert ord fld) mid fieldDefsByOrdByMid
       else M.insert mid (M.singleton ord fld) fieldDefsByOrdByMid
 
+-- | Associate each model ID with a map of template ordinals to template definitions.
+--
+-- * Each model has a set of templates, so this is the outer map.
+-- * Templates are numbered (ordinals), so the inner map sends template
+-- ordinals to the template definitions themselves.
 mapTemplatesByMid :: [Template] -> Map Mid (Map TemplateOrd Template)
 mapTemplatesByMid = foldr go M.empty
   where
@@ -406,18 +431,21 @@ mapTemplatesByMid = foldr go M.empty
       then M.adjust (M.insert ord tmpl) mid tmplsByOrdByMid
       else M.insert mid (M.singleton ord tmpl) tmplsByOrdByMid
 
+-- | Drop all characters within (and including) '<', '>' characters.
 stripHtmlTags :: String -> String
 stripHtmlTags "" = ""
 stripHtmlTags ('<' : xs) = stripHtmlTags $ drop 1 $ dropWhile (/= '>') xs
 stripHtmlTags (x : xs) = x : stripHtmlTags xs
 
-subRegex' :: Text -> Text -> Text -> Text
-subRegex' pat rep t = T.pack $ subRegex (mkRegex pat') t' rep'
+-- | A wrapper around `subRegex` that works on `Text` instead of `String`.
+subRegexText :: Text -> Text -> Text -> Text
+subRegexText pat rep t = T.pack $ subRegex (mkRegex pat') t' rep'
   where
     pat' = T.unpack pat
     rep' = T.unpack rep
     t'   = T.unpack t
 
+-- | Convert a plaintext representation of an anki note field to HTML (lossy).
 plainToHtml :: Text -> Text
 plainToHtml s
   | t =~ htmlRegex = T.replace "\n" "<br>" t
@@ -426,15 +454,17 @@ plainToHtml s
     htmlRegex = "<\\/?\\s*[a-z-][^>]*\\s*>|(\\&([\\w\\d]+|#\\d+|#x[a-f\\d]+);)" :: Text
     sub :: Text -> Text
     sub =
-      subRegex' "<div>\\s*</div>" ""
-        . subRegex' "<i>\\s*</i>" ""
-        . subRegex' "<b>\\s*</b>" ""
+      subRegexText "<div>\\s*</div>" ""
+        . subRegexText "<i>\\s*</i>" ""
+        . subRegexText "<b>\\s*</b>" ""
         . T.replace "&nbsp;" " "
         . T.replace "&amp;" "&"
         . T.replace "&gt;" ">"
         . T.replace "&lt;" "<"
     t = sub s
 
+-- Convert data for a model (notetype) from generic SQL types into a
+-- domain-specific representation.
 mkModel :: Map Mid (Map FieldOrd FieldDef)
         -> Map Mid (Map TemplateOrd Template)
         -> SQLModel
@@ -450,6 +480,8 @@ mkModel fieldsByOrdByMid templatesByOrdByMid (SQLModel mid name configBytes) =
         Just $ Model (Mid mid) (ModelName name) fieldsByOrd templatesByOrd (NotetypeConfig config)
       _ -> Nothing
 
+-- | Convert data for a field definition from generic SQL types into a
+-- domain-specific representation.
 mkFieldDef :: SQLField -> Maybe FieldDef
 mkFieldDef (SQLField mid ord name bytes) =
   case decodeMessage (LB.toStrict bytes) :: Either String ANKI.Notetype'Field'Config of
@@ -457,6 +489,8 @@ mkFieldDef (SQLField mid ord name bytes) =
       Just $ FieldDef (Mid mid) (FieldOrd ord) (FieldName name) (FieldDefConfig config)
     _ -> Nothing
 
+-- | Convert data for a card template definition from generic SQL types into a
+-- domain-specific representation.
 mkTemplate :: SQLTemplate -> Maybe Template
 mkTemplate (SQLTemplate mid ord name bytes) =
   case decodeMessage (LB.toStrict bytes) :: Either String ANKI.Notetype'Template'Config of
@@ -464,6 +498,7 @@ mkTemplate (SQLTemplate mid ord name bytes) =
       Just $ Template (Mid mid) (TemplateOrd ord) (TemplateName name) (TemplateConfig config)
     _ -> Nothing
 
+-- | Convert the raw contents of a field into an appropriate filename.
 mkSlug :: Text -> Text
 mkSlug = slugifyUnicode . T.take maxFilenameSize . T.pack . stripHtmlTags . T.unpack . plainToHtml
 
@@ -501,12 +536,14 @@ mkFilename (MdNote (Guid guid) (ModelName model) _ (Fields fields) (SortField sf
     long     = mkSlug $ T.concat $ map (\(Field _ _ s) -> s) fields
     fallback = model <> "--" <> guidToHex guid
 
+-- | Zip two lists, returning `Nothing` if they don't have the same length.
 zipEq :: [a] -> [b] -> Maybe [(a, b)]
 zipEq [] [] = Just []
 zipEq [] _  = Nothing
 zipEq _  [] = Nothing
 zipEq (x : xs) (y : ys) = ((x, y) :) <$> zipEq xs ys
 
+-- | Parse the sort field of a note (could be several different types).
 mkSortField :: SQLData -> Maybe SortField
 mkSortField (SQLInteger k) = Just $ SortField (T.pack $ show k)
 mkSortField (SQLText t) = Just $ SortField t
@@ -514,6 +551,7 @@ mkSortField (SQLFloat x) = Just $ SortField (T.pack $ show x)
 mkSortField (SQLBlob s) = Just $ SortField (T.pack $ show s)
 mkSortField SQLNull = Just $ SortField ""
 
+-- | Convert a `SQLNote` (generic) into the custom `ColNote` type.
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
   (Model _ modelName fieldsByOrd _ _) <- M.lookup (Mid mid) modelsByMid
@@ -552,12 +590,14 @@ appendHash kiDir tag md5sum = do
   let hashesFile = kiDir </> Path.Internal.Path "hashes"
   appendFile (toFilePath hashesFile) (show md5sum ++ "  " ++ tag ++ "\n")
 
+-- | A YAML helper function that ensures we use multiline strings.
 useBlockStrings :: Y.Scalar -> Either String (Y.Tag, Y.ScalarStyle, Text)
 useBlockStrings (Y.SStr s)
   | '\n' `elem` T.unpack s = Right (Y.untagged, Y.Literal Y.Keep Y.IndentAuto, s)
   | otherwise = Y.schemaEncoderScalar Y.coreSchemaEncoder (Y.SStr s)
 useBlockStrings scalar = Y.schemaEncoderScalar Y.coreSchemaEncoder scalar
 
+-- | Dump a model to disk in the given extant directory.
 writeModel :: Path Extant Dir -> Model -> IO ()
 writeModel modelsDir m@(Model _ modelName _ _ _) = LB.writeFile path payload
   where
@@ -565,9 +605,11 @@ writeModel modelsDir m@(Model _ modelName _ _ _) = LB.writeFile path payload
     payload = Y.encodeNode' schemaEncoder Y.UTF8 (map (Y.Doc . Y.toYAML) [m])
     path    = toFilePath $ modelsDir </> Path.Internal.Path (show modelName ++ ".yaml")
 
+-- | Get an absolute path given a directory and a filename.
 mkNotePath :: Path Extant Dir -> Text -> Path Abs File
 mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filename
 
+-- | Given the 'parts' of a full deck name, construct the absolute path to that deck.
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
 mkDeckDir targetDir (p : ps) = absify targetDir </> L.foldl' go (getDir p) ps
@@ -575,6 +617,7 @@ mkDeckDir targetDir (p : ps) = absify targetDir </> L.foldl' go (getDir p) ps
     go :: Path Rel Dir -> Text -> Path Rel Dir
     go acc x = acc </> getDir x
 
+-- | Serialize a markdown note into plaintext, ready to be written to a file.
 mkPayload :: MdNote -> Text
 mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) _) = do
   header <> "\n" <> body
@@ -597,11 +640,12 @@ mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) 
     go s (Field _ (FieldName name) text) =
       s <> "\n## " <> name <> "\n" <> (escapeMediaFilenames . htmlToScreen) text <> "\n"
 
+-- | Convert HTML into plaintext.
 htmlToScreen :: Text -> Text
 htmlToScreen =
   T.strip
-    . subRegex' "\\<b\\>\\s*\\<\\/b\\>" ""
-    . subRegex' "src= ?\n\"" "src=\""
+    . subRegexText "\\<b\\>\\s*\\<\\/b\\>" ""
+    . subRegexText "src= ?\n\"" "src=\""
     . T.replace "<br />" "\n"
     . T.replace "<br/>" "\n"
     . T.replace "<br>" "\n"
@@ -613,7 +657,9 @@ htmlToScreen =
     . T.replace "\\\\}" "\\}"
     . T.replace "\\\\{" "\\{"
     . T.replace "\\\\\\\\" "\\\\"
-    . subRegex' "\\<style\\>\\<\\/style\\>" ""
+    . subRegexText "\\<style\\>\\<\\/style\\>" ""
+
+-- ============================ Attoparsec parsers ===========================
 
 tagNameParser :: Parser Text
 tagNameParser = do
@@ -631,17 +677,6 @@ prefixAttrsParser = do
   spacer <- A.notChar '>'
   T.cons spacer <$> (T.pack <$> A.manyTill (A.notChar '>') (lookAhead mediaAttrParser))
 
-unquotedFilenameParser :: Parser MediaFilename
-unquotedFilenameParser = do
-  filename <- T.pack <$> A.many1 (A.satisfy $ A.notInClass " >")
-  rest     <- A.option "" spaceAndRestParser
-  pure $ MediaFilename filename "" rest
-  where
-    spaceAndRestParser :: Parser Text
-    spaceAndRestParser = do
-      rest <- A.asciiCI "\x20" >> T.pack <$> many (A.notChar '>')
-      pure $ " " <> rest
-
 restOfTagParser :: Parser Text
 restOfTagParser = do
   T.pack <$> many (A.notChar '>')
@@ -657,6 +692,17 @@ quotedFilenameParser = do
   filename <- A.char '\'' >> T.pack <$> A.many1 (A.notChar '\'') <* A.char '\''
   rest     <- restOfTagParser
   pure $ MediaFilename filename "'" ("'" <> rest)
+
+unquotedFilenameParser :: Parser MediaFilename
+unquotedFilenameParser = do
+  filename <- T.pack <$> A.many1 (A.satisfy $ A.notInClass " >")
+  rest     <- A.option "" spaceAndRestParser
+  pure $ MediaFilename filename "" rest
+  where
+    spaceAndRestParser :: Parser Text
+    spaceAndRestParser = do
+      rest <- A.asciiCI "\x20" >> T.pack <$> many (A.notChar '>')
+      pure $ " " <> rest
 
 -- | Parse an HTML tag for some media file.
 --
@@ -714,11 +760,13 @@ writeCard targetDir (Deck parts did) pb noteFilesByDidByNid (Card _ nid _ _ _ (C
     filename = stem <> ".md"
     payload  = mkPayload mdnote
 
+-- | Write all the cards for a given deck.
 writeDeck :: Path Extant Dir -> [Card] -> ProgressBar () -> Deck -> IO ()
 writeDeck targetDir cards pb deck@(Deck _ did) = do
   foldM_ (writeCard targetDir deck pb) M.empty deckCards
   where deckCards = filter (\(Card _ _ did' _ _ _) -> did' == did) cards
 
+-- | Write files to an empty, initialized ki repository.
 writeRepo :: Path Extant File
           -> Path Extant Dir
           -> Path Extant Dir
@@ -728,7 +776,9 @@ writeRepo :: Path Extant File
           -> MD5Digest
           -> IO Repo
 writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
+  -- Dump location of `.anki2` file to `.ki/config`.
   LB.writeFile (toFilePath $ kiDir </> Path.Internal.Path "config") $ JSON.encode config
+  -- Read all the relevant SQL tables into memory.
   conn  <- SQL.open (toFilePath colFile)
   ns    <- SQL.query_ conn "SELECT id,mid,guid,tags,flds,sfld FROM notes" :: IO [SQLNote]
   cs    <- SQL.query_ conn "SELECT id,nid,did,ord FROM cards" :: IO [SQLCard]
@@ -736,6 +786,7 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
   nts   <- SQL.query_ conn "SELECT id,name,config FROM notetypes" :: IO [SQLModel]
   flds  <- SQL.query_ conn "SELECT ntid,ord,name,config FROM fields" :: IO [SQLField]
   tmpls <- SQL.query_ conn "SELECT ntid,ord,name,config FROM templates" :: IO [SQLTemplate]
+  -- Parse and preprocess all the raw data from the SQL tables.
   let
     fieldDefsByMid = (mapFieldDefsByMid . MB.mapMaybe mkFieldDef) flds
     templatesByMid = (mapTemplatesByMid . MB.mapMaybe mkTemplate) tmpls
@@ -745,11 +796,13 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
     cards     = MB.mapMaybe (getCard colnotesByNid ds) cs
     preorder  = mkDeckTree ds
     postorder = reverse preorder
+  -- Commit all files in `collection.media/` (remote), and clone into `_media/`.
   ankiMediaRepo <- gitForceCommitAll ankiMediaDir "Initial commit"
   printf "Cloning media from Anki media directory '%s'...\n" (toFilePath ankiMediaDir)
   _kiMediaRepo <- gitClone ankiMediaRepo mediaDir
   -- Dump all models to top-level `_models` subdirectory.
   forM_ (M.elems modelsByMid) (writeModel modelsDir)
+  -- Serialize the cards for each deck.
   pb <- newProgressBar style 10 (Progress 0 (length cards) ())
   forM_ postorder (writeDeck targetDir cards pb)
   appendHash kiDir (toFilePath colFile) md5sum
@@ -765,6 +818,7 @@ writeRepo colFile targetDir kiDir mediaDir ankiMediaDir modelsDir md5sum = do
     unpack :: ColNote -> (Nid, ColNote)
     unpack c@(ColNote _ nid _) = (nid, c)
 
+-- | Clone an extant anki collection file into an extant target directory.
 continueClone :: Path Extant File -> Path Extant Dir -> IO ()
 continueClone colFile targetDir = do
   -- Hash the collection file.
@@ -792,7 +846,7 @@ continueClone colFile targetDir = do
     gitIgnore   = absify targetDir </> Path.Internal.Path ".gitignore" :: Path Abs File
     ankiUserDir = parent colFile :: Path Extant Dir
 
--- Parse the collection and target directory, then call `continueClone`.
+-- | Parse the collection and target directory, then call `continueClone`.
 clone :: String -> String -> IO ()
 clone colPath targetPath = do
   maybeColFile   <- resolveFile' colPath >>= getExtantFile
