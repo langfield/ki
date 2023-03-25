@@ -282,14 +282,16 @@ data MediaTag = MediaTag !Filename !Prefix !Suffix
 
 -- ========================== Path utility functions ==========================
 
-mkInternalDir :: Text -> Path a Dir
-mkInternalDir s = Path.Internal.Path (T.unpack withSlash)
+-- | Cast a path name to a directory (absolute or relative).
+getDir :: Text -> Path a Dir
+getDir s = Path.Internal.Path (T.unpack withSlash)
   where
     stripped  = subRegex' "\\/+$" "" s
     withSlash = if T.null stripped then "./" else stripped <> "/"
 
+-- | Cast a directory to absolute or relative.
 castDir :: Path b Dir -> Path b' Dir
-castDir = mkInternalDir . T.pack . toFilePath
+castDir = getDir . T.pack . toFilePath
 
 -- | Ensure a directory is empty, creating it if necessary, and returning
 -- `Nothing` if it was not.
@@ -299,11 +301,13 @@ ensureEmpty dir = do
   contents <- listDir dir
   pure $ if contents == ([], []) then Just $ castDir dir else Nothing
 
+-- | Ensure a directory exists, creating it if necessary, and casting to `Extant`.
 ensureExtantDir :: Path Abs Dir -> IO (Path Extant Dir)
 ensureExtantDir dir = do
   ensureDir dir
   pure $ castDir dir
 
+-- | Check if a file exists, returning a `Maybe`.
 getExtantFile :: Path Abs File -> IO (Maybe (Path Extant File))
 getExtantFile file = do
   exists <- doesFileExist file
@@ -311,13 +315,15 @@ getExtantFile file = do
 
 -- | Convert from an `Extant` or `Missing` directory to an `Abs` directory.
 absify :: Path a Dir -> Path Abs Dir
-absify (Path.Internal.Path s) = mkInternalDir (T.pack s)
+absify (Path.Internal.Path s) = getDir (T.pack s)
 
+-- | Create a symlink to the first argument at the second argument, returning the link.
 mkFileLink :: Path Extant File -> Path Abs File -> IO (Path Extant File)
 mkFileLink tgt lnk = do
   createFileLink tgt lnk
   pure $ ((Path.Internal.Path . T.unpack) . T.pack . toFilePath) lnk
 
+-- | Create a file with contents in some extant directory (overwrites).
 mkNewFile :: Path Extant Dir -> Text -> Text -> IO (Path Extant File)
 mkNewFile dir name contents = do
   writeFile (toFilePath file) (T.unpack contents)
@@ -537,7 +543,7 @@ getCard colnotesByNid decks (SQLCard cid nid did ord) = case (maybeColNote, mayb
 --
 -- We could use `takeBaseName` instead.
 ankiMediaDirname :: Path Extant File -> Path Rel Dir
-ankiMediaDirname colFile = mkInternalDir $ T.pack $ stem ++ ".media"
+ankiMediaDirname colFile = getDir $ T.pack $ stem ++ ".media"
   where stem = (takeBaseName . toFilePath) colFile
 
 -- | Append the md5sum of the collection file to the hashes file.
@@ -564,10 +570,10 @@ mkNotePath dir filename = absify dir </> (Path.Internal.Path . T.unpack) filenam
 
 mkDeckDir :: Path Extant Dir -> [Text] -> Path Abs Dir
 mkDeckDir targetDir [] = absify targetDir
-mkDeckDir targetDir (p : ps) = absify targetDir </> L.foldl' go (mkInternalDir p) ps
+mkDeckDir targetDir (p : ps) = absify targetDir </> L.foldl' go (getDir p) ps
   where
     go :: Path Rel Dir -> Text -> Path Rel Dir
-    go acc x = acc </> mkInternalDir x
+    go acc x = acc </> getDir x
 
 mkPayload :: MdNote -> Text
 mkPayload (MdNote (Guid guid) (ModelName modelName) (Tags tags) (Fields fields) _) = do
@@ -767,9 +773,9 @@ continueClone colFile targetDir = do
   -- Add the backups directory to the `.gitignore` file.
   writeFile (toFilePath gitIgnore) ".ki/backups\n"
   -- Create `.ki` and `_media` subdirectories.
-  maybeKiDir     <- ensureEmpty (absify targetDir </> mkInternalDir ".ki/")
-  maybeMediaDir  <- ensureEmpty (absify targetDir </> mkInternalDir "_media/")
-  maybeModelsDir <- ensureEmpty (absify targetDir </> mkInternalDir "_models/")
+  maybeKiDir     <- ensureEmpty (absify targetDir </> getDir ".ki/")
+  maybeMediaDir  <- ensureEmpty (absify targetDir </> getDir "_media/")
+  maybeModelsDir <- ensureEmpty (absify targetDir </> getDir "_models/")
   ankiMediaDir   <- ensureExtantDir (absify ankiUserDir </> ankiMediaDirname colFile)
   case (maybeKiDir, maybeMediaDir, maybeModelsDir) of
     (Nothing, _, _) -> printf "fatal: new '.ki' directory not empty\n"
