@@ -137,6 +137,15 @@ instance Show ModelName where
 newtype Ord' = Ord' Integer deriving Show
 
 type Filename = Text
+
+-- Anki core types.
+--
+-- N.B.: `MdNote` stands for "markdown note", and is a representation of the
+-- data that is dumped to a card file in a ki repository.
+--
+-- A `ColNote` ("collection note") is a wrapper around a markdown note that
+-- includes the `Nid` (note ID), and the filename.
+
 data MdNote = MdNote !Guid !ModelName !Tags !Fields !SortField
   deriving Show
 data ColNote = ColNote !MdNote !Nid !Filename
@@ -463,7 +472,7 @@ plainToHtml s
         . T.replace "&lt;" "<"
     t = sub s
 
--- Convert data for a model (notetype) from generic SQL types into a
+-- | Convert data for a model (notetype) from generic SQL types into a
 -- domain-specific representation.
 mkModel :: Map Mid (Map FieldOrd FieldDef)
         -> Map Mid (Map TemplateOrd Template)
@@ -551,7 +560,8 @@ mkSortField (SQLFloat x) = Just $ SortField (T.pack $ show x)
 mkSortField (SQLBlob s) = Just $ SortField (T.pack $ show s)
 mkSortField SQLNull = Just $ SortField ""
 
--- | Convert a `SQLNote` (generic) into the custom `ColNote` type.
+-- | Convert a `SQLNote` (an anki note expressed via the SQLite3 type system)
+-- into a `ColNote` (an anki note expressed via our custom Haskell types).
 mkColNote :: Map Mid Model -> SQLNote -> Maybe ColNote
 mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
   (Model _ modelName fieldsByOrd _ _) <- M.lookup (Mid mid) modelsByMid
@@ -565,6 +575,8 @@ mkColNote modelsByMid (SQLNote nid mid guid tags flds sfld) = do
     mkField :: (Text, FieldDef) -> Field
     mkField (s, FieldDef _ ord name _) = Field ord name s
 
+-- | Convert a `SQLCard` (an anki card expressed via the SQLite3 type system)
+-- into a `Card` (an anki card expressed via our custom Haskell types).
 getCard :: Map Nid ColNote -> [SQLDeck] -> SQLCard -> Maybe Card
 getCard colnotesByNid decks (SQLCard cid nid did ord) = case (maybeColNote, maybeDeckName) of
   (Just colnote, Just deckName) ->
