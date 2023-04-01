@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Ki (clone, getArgs, maxFilenameSize) where
+module Ki (clone, getArgs, getDir, maxFilenameSize) where
 
 import Control.Applicative ((<|>), many)
 import Control.Monad (foldM_, forM_, when)

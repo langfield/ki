@@ -1,9 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
 import Test.LeanCheck
 import Test.LeanCheck.Instances ()
+import Test.Hspec (describe, hspec, it, shouldBe)
 
-import Test.Hspec (describe, it)
+import qualified Path.Internal
 
-import Ki (maxFilenameSize)
+import Ki (maxFilenameSize, getDir)
 
 main :: IO ()
-main = putStrLn $ "Test suite not yet implemented " ++ show maxFilenameSize
+main = hspec $ do
+  describe "getDir" $ do
+    it "Does something reasonable when given an empty string" $ do
+      getDir "" `shouldBe` Path.Internal.Path ""
