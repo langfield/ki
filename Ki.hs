@@ -301,7 +301,7 @@ data MediaTag = MediaTag !Filename !Prefix !Suffix
 
 -- ========================== Path utility functions ==========================
 
--- | Cast a path name to a directory (absolute or relative).
+-- | Cast a path name to a directory (absolute or relative, stripping pathseps).
 getDir :: Text -> Path a Dir
 getDir s = Path.Internal.Path (T.unpack withSlash)
   where
