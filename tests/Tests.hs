@@ -24,3 +24,5 @@ main = hspec $ do
   describe "'castDir :: Path b Dir -> Path b' Dir'" $ do
     it "casts an absolute to a relative" $ do
       castDir (Path.Internal.Path "a" :: Path Abs Dir) `shouldBe` (Path.Internal.Path "a" :: Path Rel Dir)
+    it "casts a relative to an absolute" $ do
+      castDir (Path.Internal.Path "a" :: Path Rel Dir) `shouldBe` (Path.Internal.Path "a" :: Path Abs Dir)
