@@ -6,7 +6,7 @@ import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
 
 import qualified Path.Internal
 
-import Ki (getDir)
+import Ki (getDir, castDir)
 
 main :: IO ()
 main = hspec $ do
@@ -21,3 +21,6 @@ main = hspec $ do
       toFilePath (getDir "a" :: Path Abs Dir) `shouldBe` "/a"
     it "strips pathseps" $ do
       getDir "a/b" `shouldBe` (Path.Internal.Path "ab" :: Path Rel Dir)
+  describe "'castDir :: Path b Dir -> Path b' Dir'" $ do
+    it "casts an absolute to a relative" $ do
+      castDir (Path.Internal.Path "a" :: Path Abs Dir) `shouldBe` (Path.Internal.Path "a" :: Path Rel Dir)
