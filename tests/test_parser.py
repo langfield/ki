@@ -615,13 +615,12 @@ s
 
 def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
-    with pytest.raises(UnexpectedToken) as exc:
-        parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
-    err = exc.value
-    assert err.line == 12
-    assert err.column == 1
-    assert err.token == "##"
-    assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
+    transformer = NoteTransformer()
+    tree = parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
+    with pytest.raises(VisitError) as exc:
+        transformer.transform(tree)
+    err = exc.value.orig_exc
+    assert "Nonterminating fields" in str(err)
 
 
 EMPTY_FIELD_ONE_NEWLINE = r"""# a
@@ -688,7 +687,7 @@ s
 """
 
 
-def test_empty_field_with_at_least_two_newlines_parse():
+def test_empty_field_with_at_least_two_newlines_parses():
     """
     Do empty fields with at least two newlines get parsed and transformed OK?
     """
@@ -765,7 +764,7 @@ def test_last_field_needs_one_trailing_newline():
     assert err.line == 15
     assert err.column == 1
     assert err.token == "s"
-    assert err.expected == {"EMPTYFIELD", "FIELDLINE"}
+    assert err.expected == {"LF", "FIELDSENTINEL", "FIELDLINE"}
 
 
 LAST_FIELD_FIVE_TRAILING_NEWLINES = r"""# a
@@ -841,6 +840,35 @@ def test_tag_validation():
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 
+WEIRD_BUG = r"""# Note
+```
+guid: L>KHLS3F1w
+notetype: Basic
+```
+
+### Tags
+```
+```
+
+## Front
+
+Edit the layout/card types from the editor or browser
+
+
+## Back
+
+Ctrl+L
+
+"""
+
+def test_parser_handles_leading_newlines_in_fields():
+    """Does the parser handle this seemingly fine note?"""
+    parser = get_parser()
+    transformer = NoteTransformer()
+    tree = parser.parse(WEIRD_BUG)
+    flatnote = transformer.transform(tree)
+    assert flatnote.fields["Front"] == "\nEdit the layout/card types from the editor or browser\n"
+    assert flatnote.fields["Back"] == "\nCtrl+L\n"
 
 def test_parser_handles_special_characters_in_guid():
     """In particular, does it allow colons?"""
@@ -884,6 +912,7 @@ def test_transformer_goods():
             tree = parser.parse(good)
             transformer.transform(tree)
         except (UnexpectedToken, VisitError) as err:
+            print(good)
             raise err
 
 
