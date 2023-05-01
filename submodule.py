@@ -94,6 +94,12 @@ def main() -> None:
     repo.git.rm(args.deck, r=True)
     repo.index.commit(f"Remove '{args.deck}'")
 
+    # Remove folder in case git does not remove it.
+    # This happens if there are empty folders inside the removed desks folder, such as _media
+    deskdir: Dir = F.root(repo).joinpath(args.deck)
+    if deskdir.exists():
+        F.rmtree(deskdir)
+
     # Add, initialize, and update the submodule.
     repo.git.submodule("add", args.remote, args.deck)
     repo.git.submodule("init")
