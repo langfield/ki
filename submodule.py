@@ -90,8 +90,16 @@ def main() -> None:
     out = copy.git.push("--set-upstream", REMOTE_NAME, BRANCH_NAME, force=True)
     print(out)
 
-    # Remove the deck and commit the deletion.
-    repo.git.rm(args.deck, r=True)
+    # Remove the deck and commit the deletion in the original repo.
+    F.chdir(kirepo.root)
+    try:
+        repo.git.rm(args.deck, r=True, f=True)
+    except git.exc.GitCommandError as err:
+        if "did not match any files" not in err.stderr:
+            raise err
+    deck = F.chk(Path(args.deck))
+    if isinstance(deck, Dir):
+        F.rmtree(deck)
     repo.index.commit(f"Remove '{args.deck}'")
 
     # Add, initialize, and update the submodule.
