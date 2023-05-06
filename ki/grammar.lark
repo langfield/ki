@@ -9,12 +9,11 @@ note: header "\n" tags "\n" field* terminalfield
 
 // Only allow one newline after a field, but it can have many newlines within
 // it, and fields can be empty.
-field: fieldheader (EMPTYFIELD | FIELDLINE+)
-terminalfield: fieldheader (EMPTYFIELD | FIELDLINE+)
+field: fieldheader LF* FIELDLINE*
+terminalfield: fieldheader LF* FIELDLINE*
 fieldheader: FIELDSENTINEL " "* ANKINAME "\n"
 FIELDLINE: /(?!##)(?:[^\0\x07\x08\x0b\x0c\r\n])+/ "\n"+
 FIELDSENTINEL: "##"
-EMPTYFIELD: "\n"+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HEADER ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -25,8 +24,8 @@ header: (title TRIPLEBACKTICKS GUID NOTETYPE TRIPLEBACKTICKS)
 
 // === TITLE ===
 
-// Titles are alphameric + some limited punctuation, and must start with a
-// nonspace char. Exactly 1 space between #s and start-of-title.
+// Titles are alphanumeric + some limited punctuation, and must start with a
+// nonspace char. Exactly 1 space between #s and start of title.
 title: "#" TITLENAME "\n"+
 TITLENAME: TITLECHAR (" " | TITLECHAR)*
 TITLECHAR: /[a-zA-Z0-9_-]/
@@ -70,4 +69,5 @@ TRIPLEBACKTICKS: "```\n"
 %import common.ESCAPED_STRING
 %import common.INT
 %import common.WS_INLINE
+%import common.LF
 %ignore WS_INLINE

@@ -122,6 +122,7 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         content = "".join(lines)
         if content[-2:] != "\n\n":
+            print(lines)
             raise RuntimeError(
                 f"Nonterminating fields must have >= 1 trailing empty line:\n{content}"
             )
@@ -153,10 +154,6 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -> str:
-        return str(t)
-
-    @beartype
-    def EMPTYFIELD(self, t: Token) -> str:
         return str(t)
 
     @beartype
