@@ -401,14 +401,13 @@ def get_notes(collection: File) -> List[ColNote]:
 
 
 @beartype
-def get_repo_with_submodules(runner: CliRunner, col_file: File) -> git.Repo:
-    """Return repo with committed submodule."""
+def get_repo_with_submodules(runner: CliRunner, COL: SampleCollection) -> git.Repo:
+    """Return repo with a new committed submodule created from a new directory."""
     # Clone collection in cwd.
-    ORIGINAL = get_test_collection("original")
-    clone(runner, col_file)
-    repo = git.Repo(ORIGINAL.repodir)
+    clone(runner, COL.col_file)
+    repo = git.Repo(COL.repodir)
     cwd = F.cwd()
-    os.chdir(ORIGINAL.repodir)
+    os.chdir(COL.repodir)
 
     # Create submodule out of GITREPO_PATH.
     submodule_name = SUBMODULE_DIRNAME
@@ -873,7 +872,7 @@ def test_unsubmodule_removes_gitmodules(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        repo = get_repo_with_submodules(runner, ORIGINAL)
         gitmodules_path = Path(repo.working_dir) / ".gitmodules"
         assert gitmodules_path.exists()
         F.unsubmodule(repo)
@@ -888,7 +887,7 @@ def test_diff2_handles_submodules():
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem():
-        repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        repo = get_repo_with_submodules(runner, ORIGINAL)
 
         os.chdir(ORIGINAL.repodir)
 
@@ -1424,7 +1423,7 @@ def test_cp_repo_handles_submodules(tmp_path: Path):
     ORIGINAL = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL)
 
         os.chdir(repo.working_dir)
 
