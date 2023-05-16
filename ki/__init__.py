@@ -1807,6 +1807,15 @@ def _pull(kirepo: KiRepo) -> None:
     lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
     F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
 
+    # For each submodule that is new, `deinit --all` it.
+
+    # Move all files in the LCA repo that reside in directories corresponding
+    # to submodules into temporary locations, and commit the removals.
+
+    # Pull.
+
+    # Submodule sync and `update --init`.
+
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
     # fast-forward only updates the branch pointer.
