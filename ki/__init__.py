@@ -197,6 +197,18 @@ TYPECHANGED = GitChangeType.TYPECHANGED
 
 
 @beartype
+def do(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
+    """Perform some action on an iterable."""
+    set(map(f, xs))
+
+
+@beartype
+def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
+    """Perform some action on an iterable of tuples, unpacking arguments."""
+    set(starmap(f, xs))
+
+
+@beartype
 def lock(col_file: File) -> sqlite3.Connection:
     """Check that lock can be acquired on a SQLite3 database given a path."""
     try:
@@ -509,7 +521,7 @@ def update_note(
     missing = {key for key in decknote.fields if key not in note}
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
     fields = [(key, field) for key, field in decknote.fields.items() if key in note]
-    _ = set(starmap(partial(update_field, decknote, note), fields))
+    stardo(partial(update_field, decknote, note), fields)
     note.flush()
 
     # Remove if unhealthy.
@@ -530,11 +542,9 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
     if len(decknote.fields.keys()) != len(names):
         warnings.append(WrongFieldCountWarning(decknote, names))
 
-    for x, y in zip(names, decknote.fields.keys()):
-        if x != y:
-            warnings.append(InconsistentFieldNamesWarning(x, y, decknote))
-
-    return warnings
+    mk_warning = lambda n, k: InconsistentFieldNamesWarning(n, k, decknote)
+    names_and_keys = F.starfilter(lambda n, k: n != k, zip(names, decknote.fields.keys()))
+    return warnings + list(starmap(mk_warning, names_and_keys))
 
 
 @beartype
@@ -864,14 +874,11 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
     instance method, but does not make any use of `self`, and so could be a
     staticmethod. It is a pure function.
     """
-    # First check the styling
+    # First check the styling.
     if fname in model["css"]:
         return True
-    # If no reference to fname then check the templates as well
-    for t in model["tmpls"]:
-        if fname in t["qfmt"] or fname in t["afmt"]:
-            return True
-    return False
+    # If no reference to fname then check the templates as well.
+    return any(map(lambda t: fname in t["qfmt"] or fname in t["afmt"], model["tmpls"]))
 
 
 @beartype
@@ -1022,7 +1029,7 @@ def write_decks(
     # Write cards and models to disk for each deck.
     write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
     notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
-    _: Set[Optional[T]] = set(map(partial(write_models, col, models), decks))
+    do(partial(write_models, col, models), decks)
 
     # Get all POSIX-style symlinks created on Windows.
     cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
@@ -1479,7 +1486,8 @@ def pull_sm(
     to the patched submodule in each corresponding submodule in the main
     repository, and then pulling from that remote. Then the remote is deleted.
     """
-    # TODO: What if a submodule was deleted (or added) entirely?
+    # TODO: What if a submodule was deleted entirely? (Note that we treat the
+    # case where submodules are added in the caller.)
     sm_repo = sub.sm_repo
     sm_rel_root = sub.rel_root
     remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
@@ -1573,10 +1581,8 @@ def clone(collection: str, directory: str = "") -> None:
             if new:
                 return F.rmtree(targetdir)
             _, dirs, files = F.shallow_walk(targetdir)
-            for directory in dirs:
-                F.rmtree(directory)
-            for file in files:
-                os.remove(file)
+            do(F.rmtree, dirs)
+            do(os.remove, files)
         except PermissionError as _:
             pass
         return F.chk(targetdir)
@@ -1769,19 +1775,19 @@ def _pull(kirepo: KiRepo) -> None:
     # (relative to the working directory of `lca_repo`) to the submodule repos
     # themselves.
     subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
-    _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
+    do(partial(rm_remote_sm, remote_repo), subrepos.values())
     if len(lca_repo.submodules) > 0:
         F.commitall(remote_repo, msg="Remove submodule directories.")
 
     # Apply and commit patches within submodules.
     patch_paths = set(F.cat(map(partial(apply, subrepos), patches)))
     msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
-    _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
+    do(lambda s: F.commitall(s.sm_repo, msg), subrepos.values())
 
     # Pull changes from remote into each submodule.
-    subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
-    subs = filter(lambda s: s.rel_root in subrepos, subs)
-    _ = set(map(partial(pull_sm, subrepos), subs))
+    sms: Dict[Path, Submodule] = M.submodules(kirepo.repo)
+    common_sms = filter(lambda s: s.rel_root in subrepos, sms.values())
+    do(partial(pull_sm, subrepos), common_sms)
 
     # Commit new submodules commits in `lca_repo`.
     if len(patch_paths) > 0:
@@ -1807,10 +1813,19 @@ def _pull(kirepo: KiRepo) -> None:
     lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
     F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
 
-    # For each submodule that is new, `deinit --all` it.
+    # For each submodule that is new, `deinit` it.
+    new_sms = {k: v for k, v in sms.items() if v.rel_root not in subrepos}
+    do(lambda p: kirepo.repo.git.submodule(["deinit", str(p)]), new_sms.keys())
+
+    def backup_sm(p: Path) -> File:
+        """Copy a directory to a temporary file."""
+        raise NotImplementedError
 
     # Move all files in the LCA repo that reside in directories corresponding
-    # to submodules into temporary locations, and commit the removals.
+    # to new submodules into temporary locations, and commit the removals.
+    rel_sm_paths: Iterable[Path] = new_sms.keys()
+    # lca_repo.working_dir
+    tmps: Set[File] = map(backup_sm, new_sms.keys())
 
     # Pull.
 
@@ -1835,7 +1850,6 @@ def _pull(kirepo: KiRepo) -> None:
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
     commit_hashes_file(kirepo)
-
 
 
 # PUSH
@@ -1894,7 +1908,7 @@ def push() -> PushResult:
     xs, ys = tee(diff2(remote_repo, parse))
     deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
     warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
-    _ = set(map(warn, warnings))
+    do(warn, warnings)
 
     # If there are no changes, quit.
     if not deltas:
@@ -1953,7 +1967,7 @@ def write_collection(
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
     push_fn = partial(push_note, col, timestamp_ns, guids, new_nids)
-    _ = set(map(warn, F.cat(map(push_fn, map(parse, deltas)))))
+    do(warn, F.cat(map(push_fn, map(parse, deltas))))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -1976,7 +1990,7 @@ def write_collection(
     added_media: Iterable[AddedMedia] = map(partial(addmedia, col), mbytes)
     renames = filter(lambda a: a.file.name != a.new_name, added_media)
     warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
-    _ = set(map(warn, warnings))
+    do(warn, warnings)
     col.close(save=True)
 
     # Append and commit collection checksum to hashes file.

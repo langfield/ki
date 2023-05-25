@@ -442,3 +442,9 @@ def progressbar(xs: Iterable[T], s: str) -> Iterable[T]:
     ys: Iterable[T] = tqdm(xs, ncols=80)
     ys.set_description(s)
     return ys
+
+
+@beartype
+def starfilter(f: Callable[[Any, ...], bool], xs: Iterable[Tuple[Any, ...]]) -> Iterable[Tuple[Any, ...]]:
+    """Filter an iterable, automatically unpacking tuple arguments."""
+    return filter(lambda x: f(*x), xs)
