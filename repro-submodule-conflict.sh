@@ -50,6 +50,7 @@ rm -rf /tmp/b
 mv b /tmp/b
 git add .
 git commit -m "Remove b"
+git status
 git checkout master
 git merge --no-edit remote
 git submodule sync
