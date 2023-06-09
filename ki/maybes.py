@@ -3,12 +3,12 @@
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, import-self
+# pylint: disable=no-value-for-parameter
 
 import re
 import traceback
 import configparser
 from pathlib import Path
-from functools import partial
 
 import git
 from lark import Lark
@@ -64,6 +64,8 @@ from ki.types import (
     GitFileModeParseError,
 )
 from ki.transformer import NoteTransformer
+
+curried = F.curried
 
 KI = ".ki"
 GIT = F.GIT
@@ -447,12 +449,13 @@ def deckd(deck_name: str, targetdir: Dir) -> Dir:
     return F.force_mkdir(deck_path)
 
 
+@curried
 @beartype
 def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]:
     """Get the deck directory and did for a decknode."""
     did = root.deck_id
     name = col.decks.name(did)
-    children: List[Deck] = list(map(partial(M.tree, col, targetd), root.children))
+    children: List[Deck] = list(map(M.tree(col, targetd), root.children))
     if root.deck_id == 0:
         deckdir, mediadir = None, None
         return Root(
@@ -475,6 +478,7 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]
     )
 
 
+@curried
 @beartype
 def winlink(targetd: Dir, l: PlannedLink) -> Optional[WindowsLink]:
     """Create the symlink `l` and return any windows links."""
@@ -504,6 +508,7 @@ def dotki(kidir: EmptyDir) -> DotKi:
     return DotKi(config=config, backups=backups)
 
 
+@curried
 @beartype
 def submodule(parent_repo: git.Repo, sm: git.Submodule) -> Submodule:
     """
@@ -527,7 +532,7 @@ def submodules(r: git.Repo) -> Dict[Path, Submodule]:
     """Map submodule relative roots to `Submodule`s."""
     sms: Iterable[git.Submodule] = r.submodules
     sms = filter(lambda sm: sm.exists() and sm.module_exists(), sms)
-    subs: Iterable[Submodule] = map(partial(M.submodule, r), sms)
+    subs: Iterable[Submodule] = map(M.submodule(r), sms)
     return {s.rel_root: s for s in subs}
 
 

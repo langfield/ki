@@ -826,7 +826,7 @@ def test_pull_handles_non_standard_submodule_branch_names(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL)
         os.chdir(repo.working_dir)
 
         # Copy a new note into the submodule.
@@ -993,6 +993,58 @@ def test_pull_leaves_no_working_tree_changes(tmp_path: Path):
 
         repo = git.Repo(ORIGINAL.repodir)
         assert not repo.is_dirty()
+
+
+def test_pull_succeeds_with_new_submodules(tmp_path: Path):
+    """Does a nontrivial pull succeed when we add a new submodule?"""
+    MULTIDECK: SampleCollection = get_test_collection("multideck")
+    submodule_py_path = os.path.abspath("submodule.py")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        # Clone collection in cwd.
+        clone(runner, MULTIDECK.col_file)
+        repo = git.Repo(MULTIDECK.repodir)
+        cwd = F.cwd()
+
+        rem_path = F.mkdir(F.chk(Path("aa_remote")))
+        rem = git.Repo.init(rem_path, initial_branch=BRANCH_NAME)
+        os.chdir(rem_path)
+        Path("some_file").write_text("hello")
+        rem.git.add(".")
+        rem.git.commit(["-m", "hello"])
+        os.chdir("..")
+        rem.git.checkout(["-b", "alt"])
+        remote_path = str(Path(os.path.abspath(rem.working_dir)) / ".git")
+
+        # Here we call submodule.py
+        p = subprocess.run(
+            [
+                "python3",
+                submodule_py_path,
+                "--kirepo",
+                MULTIDECK.repodir,
+                "--deck",
+                "aa",
+                "--remote",
+                remote_path,
+            ],
+            capture_output=True,
+            encoding="UTF-8",
+        )
+        print(p.stdout)
+        print(p.stderr)
+
+        # Make change in Anki, adding a card to the submodule.
+        col = M.collection(MULTIDECK.col_file)
+        nt = col.models.current()
+        note = col.new_note(nt)
+        did = col.decks.id("aa::bb", create=False)
+        col.add_note(note, did)
+        col.close(save=True)
+
+        os.chdir(repo.working_dir)
+        out = pull(runner)
+        print(out)
 
 
 # PUSH
@@ -1429,7 +1481,7 @@ def test_push_handles_submodules(tmp_path: Path):
     ORIGINAL: SampleCollection = get_test_collection("original")
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL.col_file)
+        repo: git.Repo = get_repo_with_submodules(runner, ORIGINAL)
         os.chdir(repo.working_dir)
 
         # Edit a file within the submodule.

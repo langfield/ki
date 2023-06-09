@@ -2,6 +2,7 @@
 """Type-safe, non Anki-specific functions."""
 
 # pylint: disable=import-self, too-many-return-statements
+# pylint: disable=no-value-for-parameter
 
 import os
 import re
@@ -17,7 +18,7 @@ import unicodedata
 from types import TracebackType
 from pathlib import Path
 from itertools import chain
-from functools import partial
+from functools import reduce, partial, update_wrapper, wraps
 
 import git
 from tqdm import tqdm
@@ -52,6 +53,8 @@ from ki.types import (
     Rev,
 )
 
+_has_type_hint_support = sys.version_info[:2] >= (3, 5)
+
 T = TypeVar("T")
 
 UTF8 = "UTF-8"
@@ -69,6 +72,69 @@ FLAGS = "\U0001F1E0-\U0001F1FF"
 
 # Regex to filter out bad stuff from filenames.
 SLUG_REGEX = re.compile(r"[^\w\s\-" + EMOJIS + PICTOGRAPHS + TRANSPORTS + FLAGS + "]")
+
+
+@beartype
+def curried(func: Callable[[Any, ...], T]) -> Callable[[Any, ...], T]:
+    """A decorator that makes the function curried
+
+    Usage example:
+
+    >>> @curried
+    ... def sum5(a, b, c, d, e):
+    ...     return a + b + c + d + e
+    ...
+    >>> sum5(1)(2)(3)(4)(5)
+    15
+    >>> sum5(1, 2, 3)(4, 5)
+    15
+    """
+
+    def _args_len(func):
+        # pylint: disable=import-outside-toplevel
+        good = True
+        try:
+            from inspect import signature
+
+            signature(func)
+        except TypeError:
+            good = False
+
+        if good and _has_type_hint_support:
+            from inspect import signature
+
+            args = signature(func).parameters
+        else:
+            from inspect import getfullargspec
+
+            args = getfullargspec(func).args
+
+        return len(args)
+
+    @wraps(func)
+    def _curried(*args, **kwargs):
+        f = func
+        count = 0
+        while isinstance(f, partial):
+            if f.args:
+                count += len(f.args)
+            f = f.func
+
+        if count == _args_len(f) - len(args):
+            return func(*args, **kwargs)
+
+        para_func = partial(func, *args, **kwargs)
+        if hasattr(f, "__name__"):
+            update_wrapper(para_func, f)
+        return curried(para_func)
+
+    def _curried_lambda(*args, **kwargs):
+        return partial(func, *args, **kwargs)
+
+    if func.__name__ == "<lambda>":
+        return _curried_lambda
+
+    return _curried
 
 
 def rmtree2(path: str) -> None:
@@ -101,6 +167,13 @@ def rmtree(target: Dir) -> NoFile:
 def copytree(source: Dir, target: NoFile) -> Dir:
     """Call shutil.copytree()."""
     shutil.copytree(source, target, symlinks=True)
+    return Dir(target.resolve())
+
+
+@beartype
+def movetree(source: Dir, target: NoFile) -> Dir:
+    """Call shutil.move()."""
+    shutil.move(source, target)
     return Dir(target.resolve())
 
 
@@ -355,6 +428,7 @@ def unlink(file: Union[File, Link, WindowsLink]) -> NoFile:
     return NoFile(file)
 
 
+@curried
 @beartype
 def rmsm(repo: git.Repo, sm: git.Submodule) -> git.Commit:
     """Remove a git submodule."""
@@ -378,7 +452,7 @@ def unsubmodule(repo: git.Repo) -> git.Repo:
     Un-submodule all the git submodules (converts them to ordinary subdirs and
     destroys commit history). Commit the changes to the main repository.
     """
-    _: List[git.Commit] = list(map(partial(F.rmsm, repo), repo.submodules))
+    _: List[git.Commit] = list(map(F.rmsm(repo), repo.submodules))
     gitmodules_file: Path = F.root(repo) / GITMODULES_FILE
     if gitmodules_file.exists():
         repo.git.rm(gitmodules_file)
@@ -417,6 +491,7 @@ def commitall(repo: git.Repo, msg: str) -> git.Commit:
     return repo.index.commit(msg)
 
 
+@curried
 @beartype
 def git_rm(repo: git.Repo, path: str) -> str:
     """Remove a path in a repo."""
@@ -442,3 +517,17 @@ def progressbar(xs: Iterable[T], s: str) -> Iterable[T]:
     ys: Iterable[T] = tqdm(xs, ncols=80)
     ys.set_description(s)
     return ys
+
+
+@beartype
+def starfilter(
+    f: Callable[[Any, ...], bool], xs: Iterable[Tuple[Any, ...]]
+) -> Iterable[Tuple[Any, ...]]:
+    """Filter an iterable, automatically unpacking tuple arguments."""
+    return filter(lambda x: f(*x), xs)
+
+
+@beartype
+def part(p: Callable[[T], bool], xs: Iterable[T]) -> Tuple[Iterable[T], Iterable[T]]:
+    """Partition a list on a boolean predicate (Trues, Falses)."""
+    return reduce(lambda s, x: s[not p(x)].append(x) or s, xs, ([], []))

@@ -11,6 +11,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
+# pylint: disable=no-value-for-parameter, not-callable
 
 import os
 import re
@@ -35,7 +36,7 @@ import dataclasses
 import configparser
 from pathlib import Path
 from itertools import chain, starmap, tee
-from functools import partial, reduce
+from functools import reduce
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from collections import namedtuple
@@ -44,7 +45,6 @@ import git
 import click
 import whatthepatch
 from lark import Lark
-from more_itertools import peekable
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
@@ -149,6 +149,8 @@ from ki.maybes import (
 )
 from ki.transformer import NoteTransformer, FlatNote
 
+curried = F.curried
+
 logging.basicConfig(level=logging.INFO)
 
 TQ = F.progressbar
@@ -194,6 +196,18 @@ RENAMED = GitChangeType.RENAMED
 DELETED = GitChangeType.DELETED
 MODIFIED = GitChangeType.MODIFIED
 TYPECHANGED = GitChangeType.TYPECHANGED
+
+
+@beartype
+def do(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
+    """Perform some action on an iterable."""
+    set(map(f, xs))
+
+
+@beartype
+def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
+    """Perform some action on an iterable of tuples, unpacking arguments."""
+    set(starmap(f, xs))
 
 
 @beartype
@@ -306,16 +320,15 @@ def is_ignorable(root: Dir, path: Path) -> bool:
     return False
 
 
+@curried
+@beartype
 def mungediff(
     parse: Callable[[Delta], DeckNote], a_root: Dir, b_root: Dir, d: git.Diff
 ) -> Iterable[Union[Delta, Warning]]:
     """Extract deltas and warnings from a collection of diffs."""
-    # Callables.
-    is_ignorable_a: Callable[[Path], bool] = partial(is_ignorable, a_root)
-    is_ignorable_b: Callable[[Path], bool] = partial(is_ignorable, b_root)
     a, b = d.a_path, d.b_path
     a, b = a if a else b, b if b else a
-    if is_ignorable_a(Path(a)) or is_ignorable_b(Path(b)):
+    if is_ignorable(a_root, Path(a)) or is_ignorable(b_root, Path(b)):
         return []
 
     # Get absolute and relative paths to 'a' and 'b'.
@@ -352,7 +365,7 @@ def diff2(
     diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
 
     # Get the diffs for each change type (e.g. 'DELETED').
-    return chain(*map(partial(mungediff, parse, a_root, b_root), diffidx))
+    return chain(*map(mungediff(parse, a_root, b_root), diffidx))
 
 
 @beartype
@@ -401,6 +414,7 @@ def get_guid(fields: List[str]) -> str:
     return "".join(reversed(chars))
 
 
+@curried
 @beartype
 def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> DeckNote:
     """Parse with lark."""
@@ -443,6 +457,7 @@ def plain_to_html(plain: str) -> str:
     return plain.strip()
 
 
+@curried
 @beartype
 def update_field(decknote: DeckNote, note: Note, key: str, field: str) -> None:
     """Update a field contained in `note`."""
@@ -509,7 +524,7 @@ def update_note(
     missing = {key for key in decknote.fields if key not in note}
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
     fields = [(key, field) for key, field in decknote.fields.items() if key in note]
-    _ = set(starmap(partial(update_field, decknote, note), fields))
+    stardo(update_field(decknote, note), fields)
     note.flush()
 
     # Remove if unhealthy.
@@ -530,11 +545,11 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
     if len(decknote.fields.keys()) != len(names):
         warnings.append(WrongFieldCountWarning(decknote, names))
 
-    for x, y in zip(names, decknote.fields.keys()):
-        if x != y:
-            warnings.append(InconsistentFieldNamesWarning(x, y, decknote))
-
-    return warnings
+    mk_warning = lambda n, k: InconsistentFieldNamesWarning(n, k, decknote)
+    names_and_keys = F.starfilter(
+        lambda n, k: n != k, zip(names, decknote.fields.keys())
+    )
+    return warnings + list(starmap(mk_warning, names_and_keys))
 
 
 @beartype
@@ -673,6 +688,7 @@ def add_db_note(
     return col.get_note(nid)
 
 
+@curried
 @beartype
 def push_note(
     col: Collection,
@@ -747,6 +763,7 @@ def get_header_lines(colnote) -> List[str]:
     return lines
 
 
+@curried
 @beartype
 def localmedia(s: str, regex: str) -> Iterable[str]:
     """Return local media filenames matching the given regex pattern."""
@@ -759,9 +776,10 @@ def localmedia(s: str, regex: str) -> Iterable[str]:
 def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
     """A copy of `MediaManager.files_in_str()`, but without LaTeX rendering."""
     s = (s.strip()).replace('"', "")
-    return F.cat(map(partial(localmedia, s), col.media.regexps))
+    return F.cat(map(localmedia(s), col.media.regexps))
 
 
+@curried
 @beartype
 def copy_note_media(
     col: Collection, src: Dir, tgt: Dir, row: NoteDBRow
@@ -783,6 +801,7 @@ def copy_note_media(
     return frozenset(starmap(F.copyfile, srcdsts))
 
 
+@curried
 @beartype
 def copy_notetype_media(
     src: Dir, tgt: Dir, paths: Set[Path], m: NotetypeDict
@@ -838,8 +857,8 @@ def copy_media_files(
     query: str = "select * from notes where id in " + strnids
     rows: List[NoteDBRow] = [NoteDBRow(*row) for row in col.db.all(query)]
     rows = TQ(rows, "Media")
-    copy_fn = partial(copy_note_media, col, media_dir, media_target_dir)
-    media: Dict[int, Set[File]] = {row.nid: copy_fn(row) for row in rows}
+    copy_fn = copy_note_media(col, media_dir, media_target_dir)
+    media = {row.nid: copy_fn(row) for row in rows}
     mids = col.db.list("select distinct mid from notes where id in " + strnids)
 
     # Copy notetype template media files.
@@ -848,8 +867,7 @@ def copy_media_files(
     paths = set(filter(lambda f: str(f).startswith("_"), paths))
     models = filter(lambda m: int(m["id"]) in mids, col.models.all())
 
-    nt_copy_fn = partial(copy_notetype_media, media_dir, media_target_dir, paths)
-    mediasets: Iterable[FrozenSet[File]] = map(nt_copy_fn, models)
+    mediasets = map(copy_notetype_media(media_dir, media_target_dir, paths), models)
     media[NOTETYPE_NID] = reduce(lambda x, y: x.union(y), mediasets, set())
 
     return media
@@ -864,23 +882,21 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
     instance method, but does not make any use of `self`, and so could be a
     staticmethod. It is a pure function.
     """
-    # First check the styling
+    # First check the styling.
     if fname in model["css"]:
         return True
-    # If no reference to fname then check the templates as well
-    for t in model["tmpls"]:
-        if fname in t["qfmt"] or fname in t["afmt"]:
-            return True
-    return False
+    # If no reference to fname then check the templates as well.
+    return any(map(lambda t: fname in t["qfmt"] or fname in t["afmt"], model["tmpls"]))
 
 
+@curried
 @beartype
-def write_fields(root: Dir, colnote: ColNote) -> Iterable[Tuple[str, File]]:
+def write_fields(root: Dir, n: Note) -> Iterable[Tuple[str, File]]:
     """Write a note's fields to be tidied."""
-    results = starmap(partial(write_field, root, colnote.n.id), colnote.n.items())
-    return filter(lambda f: f is not None, results)
+    return filter(None, starmap(write_field(root, n.id), n.items()))
 
 
+@curried
 @beartype
 def write_field(
     root: Dir, nid: int, name: str, text: str
@@ -916,8 +932,8 @@ def write_repository(
     nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
-    fields_fn = partial(write_fields, root)
-    fieldfiles = dict(F.cat(map(fields_fn, TQ(colnotes.values(), "Fields"))))
+    ns: Iterable[Note] = map(lambda c: c.n, colnotes.values())
+    fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, "Fields"))))
     tidy_html_recursively(root)
 
     windows_links: Set[WindowsLink] = write_decks(
@@ -941,9 +957,7 @@ def postorder(node: Union[Root, Deck]) -> List[Deck]:
     processed all its children.
     """
     descendants: List[Deck] = reduce(lambda xs, x: xs + postorder(x), node.children, [])
-    if isinstance(node, Root):
-        return descendants
-    return descendants + [node]
+    return descendants if isinstance(node, Root) else descendants + [node]
 
 
 @beartype
@@ -953,9 +967,7 @@ def preorder(node: Union[Root, Deck]) -> List[Deck]:
     we've processed all its ancestors.
     """
     descendants: List[Deck] = reduce(lambda xs, x: xs + preorder(x), node.children, [])
-    if isinstance(node, Root):
-        return descendants
-    return [node] + descendants
+    return descendants if isinstance(node, Root) else [node] + descendants
 
 
 @beartype
@@ -1012,26 +1024,24 @@ def write_decks(
 
     # Construct an iterable of all decks except the trivial deck.
     root: Deck = M.tree(col, targetdir, col.decks.deck_tree())
-    xs, ys = tee(postorder(root), 2)
-    bads: List[Deck] = list(filter(lambda d: MEDIA in d.fullname, ys))
-    if len(bads) > 0:
+    collisions, decks = F.part(lambda d: MEDIA in d.fullname, postorder(root))
+    if any(True for _ in collisions):
         warn(MediaDirectoryDeckNameCollisionWarning())
-    decks: Iterable[Deck] = filter(lambda d: MEDIA not in d.fullname, xs)
     decks = TQ(list(decks), "Decks")
 
     # Write cards and models to disk for each deck.
-    write = partial(write_deck, col, targetdir, colnotes, tidy_field_files)
+    write = write_deck(col, targetdir, colnotes, tidy_field_files)
     notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
-    _: Set[Optional[T]] = set(map(partial(write_models, col, models), decks))
+    do(write_models(col, models), decks)
 
     # Get all POSIX-style symlinks created on Windows.
     cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
-    links: Iterable[Optional[WindowsLink]] = map(lambda c: c.link, cardfiles)
-    windows_links: Set[WindowsLink] = set(filter(lambda l: l is not None, links))
+    links: Iterable[WindowsLink] = set(filter(None, map(lambda c: c.link, cardfiles)))
 
-    return windows_links | symlink_media(col, root, targetdir, media)
+    return links | symlink_media(col, root, targetdir, media)
 
 
+@curried
 @beartype
 def write_deck(
     col: Collection,
@@ -1044,10 +1054,11 @@ def write_deck(
     """Write all the cards to disk for a single deck."""
     did: DeckId = deck.did
     cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = partial(write_card, colnotes, fieldfiles, targetd, deck.deckd)
+    write = write_card(colnotes, fieldfiles, targetd, deck.deckd)
     return reduce(write, cards, notefiles)
 
 
+@curried
 @beartype
 def write_card(
     colnotes: Dict[int, ColNote],
@@ -1075,6 +1086,7 @@ def write_card(
     return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
 
 
+@curried
 @beartype
 def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -> None:
     """Write the `models.json` file for the given deck."""
@@ -1106,6 +1118,7 @@ def parentmap(root: Union[Root, Deck]) -> Dict[str, Union[Root, Deck]]:
     return parents | reduce(lambda x, y: x | y, map(parentmap, root.children), {})
 
 
+@curried
 @beartype
 def planned_link(
     parents: Dict[str, Union[Root, Deck]], deck: Deck, media_file: File
@@ -1123,6 +1136,7 @@ def planned_link(
     return PlannedLink(link=link, tgt=tgt)
 
 
+@curried
 @beartype
 def symlink_deck_media(
     col: Collection,
@@ -1136,14 +1150,11 @@ def symlink_deck_media(
     descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
     cards: Iterable[Card] = map(col.get_card, descendants)
     nids: Set[NoteId] = {NOTETYPE_NID} | set(map(lambda c: c.nid, cards))
-    nids = filter(lambda nid: nid in media, nids)
 
     # Get link path and target for each media file, and create the links.
-    files: Iterable[File] = F.cat(map(lambda nid: media[nid], nids))
-    optional_plinks = map(partial(planned_link, parents, deck), files)
-    plinks: Iterable[PlannedLink] = filter(lambda l: l is not None, optional_plinks)
-    windows_links = map(partial(M.winlink, targetd), plinks)
-    return filter(lambda l: l is not None, windows_links)
+    files = F.cat(map(lambda nid: media[nid], filter(lambda nid: nid in media, nids)))
+    plinks = filter(None, map(planned_link(parents, deck), files))
+    return filter(None, map(M.winlink(targetd), plinks))
 
 
 @beartype
@@ -1156,9 +1167,7 @@ def symlink_media(
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
     decks: List[Deck] = preorder(root)
     parents: Dict[str, Union[Root, Deck]] = parentmap(root)
-    symlink_fn = partial(symlink_deck_media, col, targetd, media, parents)
-    windows_links: Iterable[WindowsLink] = F.cat(map(symlink_fn, decks))
-    return set(windows_links)
+    return set(F.cat(map(symlink_deck_media(col, targetd, media, parents), decks)))
 
 
 @beartype
@@ -1312,6 +1321,7 @@ def echo_note_change_types(deltas: Iterable[Delta]) -> None:
     echo("=" * (LPAD + RPAD))
 
 
+@curried
 @beartype
 def add_model(col: Collection, model: Notetype) -> None:
     """Add a model to the database."""
@@ -1399,6 +1409,7 @@ def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
     return patches
 
 
+@curried
 @beartype
 def rm_remote_sm(repo: git.Repo, sub: Submodule) -> Submodule:
     """Remove submodule directory from given repo."""
@@ -1419,6 +1430,7 @@ def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
     return a_in_submodule and b_in_submodule
 
 
+@curried
 @beartype
 def apply(subrepos: Dict[Path, Submodule], patch: Patch) -> Iterable[Path]:
     """Apply a patch within the relevant submodule repositories."""
@@ -1426,9 +1438,10 @@ def apply(subrepos: Dict[Path, Submodule], patch: Patch) -> Iterable[Path]:
     subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
     subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
     patch_dir: Dir = F.mkdtemp()
-    return map(partial(apply_in_subrepo, patch_dir, patch), subs)
+    return map(apply_in_subrepo(patch_dir, patch), subs)
 
 
+@curried
 @beartype
 def apply_in_subrepo(
     patch_dir: Dir,
@@ -1466,6 +1479,7 @@ def apply_in_subrepo(
     return patch.a
 
 
+@curried
 @beartype
 def pull_sm(
     subrepos: Dict[Path, git.Repo],
@@ -1479,7 +1493,8 @@ def pull_sm(
     to the patched submodule in each corresponding submodule in the main
     repository, and then pulling from that remote. Then the remote is deleted.
     """
-    # TODO: What if a submodule was deleted (or added) entirely?
+    # TODO: What if a submodule was deleted entirely? (Note that we treat the
+    # case where submodules are added in the caller.)
     sm_repo = sub.sm_repo
     sm_rel_root = sub.rel_root
     remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
@@ -1516,6 +1531,7 @@ def get_note_metadata(col: Collection) -> Dict[str, NoteMetadata]:
     return guids
 
 
+@curried
 @beartype
 def mediabytes(col: Collection, file: File) -> MediaBytes:
     """Get old bytes (from collection) and new bytes (from file) for media file."""
@@ -1524,6 +1540,7 @@ def mediabytes(col: Collection, file: File) -> MediaBytes:
     return MediaBytes(file=file, old=old, new=new)
 
 
+@curried
 @beartype
 def addmedia(col: Collection, m: MediaBytes) -> AddedMedia:
     """Add a media file to collection (possibly renaming)."""
@@ -1535,6 +1552,40 @@ def commit_hashes_file(kirepo: KiRepo) -> None:
     """Add and commit hashes file."""
     kirepo.repo.index.add(f"{KI}/{HASHES_FILE}")
     kirepo.repo.index.commit("Update collection hashes file.")
+
+
+@curried
+@beartype
+def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -> None:
+    """Use `git update-index` to set 120000 file mode on a windows symlink."""
+    # Convert to POSIX pathseps since that's what `git` wants.
+    link: str = abslink.relative_to(root).as_posix()
+    githash = repo.git.hash_object(["-w", f"{link}"])
+    target = f"120000,{githash},{link}"
+    repo.git.update_index(target, add=True, cacheinfo=True)
+
+
+@curried
+@beartype
+def backupd(tmpdir: Dir, lca_repo: git.Repo, p: Path) -> Dir:
+    """Move a relative directory to a temporary location."""
+    return F.movetree(F.chk(F.root(lca_repo) / p), F.chk(tmpdir / p))
+
+
+@curried
+@beartype
+def merge_new_sm(x: Tuple[Dir, Submodule]) -> None:
+    """Merge backed-up files into a new submodule."""
+    sm_dir, sm = x
+    sm_backup_repo, branch = F.init(sm_dir)
+    sm_backup_repo.git.add(all=True)
+    sm_backup_repo.index.commit("Submodule merge")
+    remote = sm.sm_repo.create_remote("sm-back", sm_backup_repo.git_dir)
+    sm.sm_repo.git.fetch("sm-back")
+    sm.sm_repo.git.merge(
+        [f"sm-back/{branch}"], no_edit=True, allow_unrelated_histories=True
+    )
+    sm.sm_repo.delete_remote(remote)
 
 
 @click.group()
@@ -1573,10 +1624,8 @@ def clone(collection: str, directory: str = "") -> None:
             if new:
                 return F.rmtree(targetdir)
             _, dirs, files = F.shallow_walk(targetdir)
-            for directory in dirs:
-                F.rmtree(directory)
-            for file in files:
-                os.remove(file)
+            do(F.rmtree, dirs)
+            do(os.remove, files)
         except PermissionError as _:
             pass
         return F.chk(targetdir)
@@ -1627,37 +1676,24 @@ def _clone(
     branch_name : str
         The name of the default branch.
     """
-    # Initialize empty ki repo.
     kidir, mediadir = M.empty_kirepo(targetdir)
     dotki: DotKi = M.dotki(kidir)
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
 
-    # Write notes to disk.
+    # Write note files to disk and commit.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
-
-    # Initialize as git repo and commit contents.
     repo, branch = F.init(targetdir)
-    root = F.root(repo)
     F.commitall(repo, msg)
-
-    # Use `git update-index` to set 120000 file mode on each windows symlink.
-    for abslink in windows_links:
-
-        # Convert to POSIX pathseps since that's what `git` wants.
-        link: str = abslink.relative_to(root).as_posix()
-        githash = repo.git.hash_object(["-w", f"{link}"])
-        target = f"120000,{githash},{link}"
-        repo.git.update_index(target, add=True, cacheinfo=True)
+    do(set_120000(repo, F.root(repo)), windows_links)
 
     # We do *not* call `git.add()` here since we call `git.update_index()` above.
     repo.index.commit(msg)
 
     # On Windows, there are changes left in the working tree at this point
-    # (because git sees that the mode of the actual underlying file is
-    # 100644), so we must stash them in order to ensure the repo is not
-    # left dirty.
+    # (because git sees that the mode of the actual underlying file is 100644),
+    # so we must stash them in order to ensure the repo is not left dirty.
     repo.git.stash("save")
     if repo.is_dirty():
         raise NonEmptyWorkingTreeError(repo)
@@ -1769,19 +1805,19 @@ def _pull(kirepo: KiRepo) -> None:
     # (relative to the working directory of `lca_repo`) to the submodule repos
     # themselves.
     subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
-    _ = set(map(partial(rm_remote_sm, remote_repo), subrepos.values()))
+    do(rm_remote_sm(remote_repo), subrepos.values())
     if len(lca_repo.submodules) > 0:
         F.commitall(remote_repo, msg="Remove submodule directories.")
 
     # Apply and commit patches within submodules.
-    patch_paths = set(F.cat(map(partial(apply, subrepos), patches)))
+    patch_paths = set(F.cat(map(apply(subrepos), patches)))
     msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
-    _ = set(map(lambda s: F.commitall(s.sm_repo, msg), subrepos.values()))
+    do(lambda s: F.commitall(s.sm_repo, msg), subrepos.values())
 
     # Pull changes from remote into each submodule.
-    subs: Iterable[Submodule] = M.submodules(kirepo.repo).values()
-    subs = filter(lambda s: s.rel_root in subrepos, subs)
-    _ = set(map(partial(pull_sm, subrepos), subs))
+    sms: Dict[Path, Submodule] = M.submodules(kirepo.repo)
+    subs = filter(lambda s: s.rel_root in subrepos, sms.values())
+    do(pull_sm(subrepos), subs)
 
     # Commit new submodules commits in `lca_repo`.
     if len(patch_paths) > 0:
@@ -1792,8 +1828,7 @@ def _pull(kirepo: KiRepo) -> None:
     dels: Iterable[git.Diff] = diffidx.iter_change_type(DELETED.value)
     dels = filter(lambda d: d.a_path != GITMODULES_FILE, dels)
     dels = filter(lambda d: F.isfile(F.chk(F.root(lca_repo) / d.a_path)), dels)
-    a_paths: Iterable[str] = map(lambda d: d.a_path, dels)
-    a_paths = set(map(partial(F.git_rm, lca_repo), a_paths))
+    a_paths: Iterable[str] = set(map(F.git_rm(lca_repo), map(lambda d: d.a_path, dels)))
 
     if len(a_paths) > 0:
         details: str = "".join(map(lambda a: f"Remove '{a}'\n", a_paths))
@@ -1807,6 +1842,18 @@ def _pull(kirepo: KiRepo) -> None:
     lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
     F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
 
+    # For each submodule that is new, `deinit` it.
+    new_sms = {k: v for k, v in sms.items() if v.rel_root not in subrepos}
+    do(lambda p: kirepo.repo.git.submodule(["deinit", str(p)]), new_sms.keys())
+
+    # Move all files in the LCA repo that reside in directories corresponding
+    # to new submodules into temporary locations, and commit the removals.
+    sm_backup_dir: Dir = F.mkdtemp()
+    tmps: Set[Dir] = set(map(backupd(sm_backup_dir, lca_repo), new_sms.keys()))
+    msg = "'Remove new submodule directories from LCA repo'"
+    lca_repo.git.add(all=True)
+    lca_repo.git.commit(["--allow-empty", "-m", msg])
+
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
     # fast-forward only updates the branch pointer.
@@ -1814,6 +1861,13 @@ def _pull(kirepo: KiRepo) -> None:
     kirepo.repo.git.config("pull.rebase", "false")
     echo(git_pull(REMOTE_NAME, branch, kirepo.root))
     kirepo.repo.delete_remote(lca_remote)
+
+    # Submodule sync, `update --init`, and merge backup files.
+    sync = lambda p: kirepo.repo.git.submodule(["sync", str(p)])
+    update = lambda p: kirepo.repo.git.submodule(["update", "--init", str(p)])
+    do(sync, new_sms.keys())
+    do(update, new_sms.keys())
+    do(merge_new_sm, zip(tmps, new_sms.values()))
 
     # The merge will have overwritten the hashes file with only the collection
     # hash from the fresh clone of the remote, so we checkout its state from
@@ -1826,7 +1880,6 @@ def _pull(kirepo: KiRepo) -> None:
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
     commit_hashes_file(kirepo)
-
 
 
 # PUSH
@@ -1880,15 +1933,12 @@ def push() -> PushResult:
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     # =================== NEW PUSH ARCHITECTURE ====================
 
-    parser, transformer = M.parser_and_transformer()
-    parse: Callable[[Delta], DeckNote] = partial(parse_note, parser, transformer)
-    xs, ys = tee(diff2(remote_repo, parse))
-    deltas: Iterable[Delta] = peekable(filter(lambda x: isinstance(x, Delta), xs))
-    warnings: Iterable[Warning] = filter(lambda y: isinstance(y, Warning), ys)
-    _ = set(map(warn, warnings))
+    parse: Callable[[Delta], DeckNote] = parse_note(*M.parser_and_transformer())
+    deltas, warnings = F.part(lambda x: isinstance(x, Delta), diff2(remote_repo, parse))
+    do(warn, warnings)
 
     # If there are no changes, quit.
-    if not deltas:
+    if len(set(deltas)) == 0:
         echo("ki push: up to date.")
         return PushResult.UP_TO_DATE
 
@@ -1917,7 +1967,7 @@ def write_collection(
 
     # Open collection and add new models to root `models.json` file.
     col: Collection = M.collection(new_col_file)
-    set(map(partial(add_model, col), models.values()))
+    do(add_model(col), models.values())
 
     # Stash both unstaged and staged files (including untracked).
     head_kirepo.repo.git.stash(include_untracked=True, keep_index=True)
@@ -1943,8 +1993,8 @@ def write_collection(
     guids = {k: v for k, v in guids.items() if k not in del_guids}
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
-    push_fn = partial(push_note, col, timestamp_ns, guids, new_nids)
-    _ = set(map(warn, F.cat(map(push_fn, map(parse, deltas)))))
+    decknotes: Iterable[DeckNote] = map(parse, deltas)
+    do(warn, F.cat(map(push_note(col, timestamp_ns, guids, new_nids), decknotes)))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)
@@ -1958,16 +2008,15 @@ def write_collection(
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
     media_files = map(M.linktarget, media_files)
-    mbytes: Iterable[MediaBytes] = map(partial(mediabytes, col), media_files)
+    mbytes: Iterable[MediaBytes] = map(mediabytes(col), media_files)
 
     # Skip media files whose twin in collection has same name and same data.
     mbytes = filter(lambda m: m.old == b"" or m.old != m.new, mbytes)
 
     # Add (and possibly rename) media paths.
-    added_media: Iterable[AddedMedia] = map(partial(addmedia, col), mbytes)
-    renames = filter(lambda a: a.file.name != a.new_name, added_media)
+    renames = filter(lambda a: a.file.name != a.new_name, map(addmedia(col), mbytes))
     warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
-    _ = set(map(warn, warnings))
+    do(warn, warnings)
     col.close(save=True)
 
     # Append and commit collection checksum to hashes file.

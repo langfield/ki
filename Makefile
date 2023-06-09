@@ -22,3 +22,5 @@ isolate:
 	sed -z -i 's/def test/@pytest.mark.skip\ndef test/g' tests/*.py
 unisolate:
 	sed -z -i 's/@pytest.mark.skip\n//g' tests/*.py
+count:
+	find ki/*.py -type f -exec python3 -m tokenize {} \; | wc -l
