@@ -82,8 +82,8 @@ def export_media(z: zipfile.ZipFile, files: List[str], fdir: str) -> Dict[str, s
 def main() -> None:
     """Compile a top-level deck into a ``.apkg`` binary."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--collection")
-    parser.add_argument("--deck")
+    parser.add_argument("--collection", required=True)
+    parser.add_argument("--deck", required=True)
     args: argparse.Namespace = parser.parse_args()
 
     col = Collection(args.collection)
