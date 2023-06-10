@@ -1047,6 +1047,31 @@ def test_pull_succeeds_with_new_submodules(tmp_path: Path):
         print(out)
 
 
+def test_pull_doesnt_update_collection_hash_unless_merge_succeeds(tmp_path: Path):
+    """If we leave changes in the work tree, can we pull again after failure?"""
+    ORIGINAL: SampleCollection = get_test_collection("original")
+    EDITED: SampleCollection = get_test_collection("edited")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+
+        # Clone collection in cwd.
+        clone(runner, ORIGINAL.col_file)
+
+        # Edit a note file, but don't commit.
+        os.chdir(ORIGINAL.repodir)
+        shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "a.md"))
+
+        # Edit collection.
+        shutil.copyfile(EDITED.path, ORIGINAL.col_file)
+
+        out = pull(runner)
+        logger.debug(out)
+        out = pull(runner)
+        assert out != "ki pull: up to date.\n"
+        assert "Aborting" in out
+        logger.debug(out)
+
+
 # PUSH
 
 

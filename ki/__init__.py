@@ -1859,7 +1859,8 @@ def _pull(kirepo: KiRepo) -> None:
     # fast-forward only updates the branch pointer.
     lca_remote = kirepo.repo.create_remote(REMOTE_NAME, lca_repo.git_dir)
     kirepo.repo.git.config("pull.rebase", "false")
-    echo(git_pull(REMOTE_NAME, branch, kirepo.root))
+    out = git_pull(REMOTE_NAME, branch, kirepo.root)
+    echo(out)
     kirepo.repo.delete_remote(lca_remote)
 
     # Submodule sync, `update --init`, and merge backup files.
@@ -1874,12 +1875,14 @@ def _pull(kirepo: KiRepo) -> None:
     # before the merge.
     kirepo.repo.git.checkout([head.sha, "--", f"{KI}/{HASHES_FILE}"])
 
-    # Append the hash of the collection to the hashes file, and raise an error
-    # if the collection was modified while we were pulling changes.
-    append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
+    # Raise an error if the collection was modified during pull.
     if F.md5(kirepo.col_file) != md5sum:
         raise CollectionChecksumError(kirepo.col_file)
-    commit_hashes_file(kirepo)
+
+    # Append the hash of the collection to the hashes file.
+    if "Aborting" not in out:
+        append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
+        commit_hashes_file(kirepo)
 
 
 # PUSH
