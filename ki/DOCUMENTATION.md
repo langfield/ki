@@ -649,9 +649,8 @@ syntax highlighted version of a code block from the clipboard. In effect, it
 generates a formatted HTML table for the code listing that gets dumped into the
 source of relevant note field.
 
-A fork of this addon for the latest version of Anki (2.1.49 at the time of
-writing), is available here:
-https://ankiweb.net/shared/info/1972239816
+A fork of this addon is available here:
+https://ankiweb.net/shared/info/1100811177
 
 And the source tree for the original addon is on github:
 https://github.com/glutanimate/syntax-highlighting

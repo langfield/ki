@@ -32,16 +32,18 @@
 </summary>
 <pre><code class="python">#!/usr/bin/env python3
 &#34;&#34;&#34;Types for ki.&#34;&#34;&#34;
+import json
 import sqlite3
 import textwrap
+import dataclasses
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
 import git
 import whatthepatch
-import prettyprinter as pp
-from anki.collection import Note
+from anki.decks import DeckTreeNode
+from anki.collection import Note, Card
 
 from beartype import beartype
 from beartype.typing import List, Dict, Any, Optional, Union
@@ -57,20 +59,21 @@ HINT = (
 )
 ERROR_MESSAGE_WIDTH = 69
 DATABASE_LOCKED_MSG = &#34;database is locked&#34;
+DeckId = int
 
 
 # TYPES
 
 
-class ExtantFile(type(Path())):
+class File(type(Path())):
     &#34;&#34;&#34;UNSAFE: Indicates that file *was* extant when it was resolved.&#34;&#34;&#34;
 
 
-class ExtantDir(type(Path())):
+class Dir(type(Path())):
     &#34;&#34;&#34;UNSAFE: Indicates that dir *was* extant when it was resolved.&#34;&#34;&#34;
 
 
-class EmptyDir(ExtantDir):
+class EmptyDir(Dir):
     &#34;&#34;&#34;UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved.&#34;&#34;&#34;
 
 
@@ -82,18 +85,18 @@ class Singleton(type(Path())):
     &#34;&#34;&#34;UNSAFE: A path consisting of a single component (e.g. `file`, not `dir/file`).&#34;&#34;&#34;
 
 
-class ExtantStrangePath(type(Path())):
+class PseudoFile(type(Path())):
     &#34;&#34;&#34;
     UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
     when it was resolved.
     &#34;&#34;&#34;
 
 
-class Symlink(type(Path())):
+class Link(type(Path())):
     &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;
 
 
-class LatentSymlink(type(Path())):
+class WindowsLink(type(Path())):
     &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;
 
 
@@ -102,7 +105,7 @@ class NoFile(NoPath):
 
     @property
     def parent(self):
-        return ExtantDir(super().parent)
+        return Dir(super().parent)
 
 
 # ENUMS
@@ -164,10 +167,16 @@ class NoteMetadata:
 @beartype
 @dataclass(frozen=True)
 class Delta:
-    &#34;&#34;&#34;The git delta for a single file.&#34;&#34;&#34;
+    &#34;&#34;&#34;
+    The git delta for a single file.
+
+    We don&#39;t instead store a root and a relative path, because we need the
+    `File` object to avoid making unnecessary syscalls to check that stuff
+    exists.
+    &#34;&#34;&#34;
 
     status: GitChangeType
-    path: ExtantFile
+    path: File
     relpath: Path
 
 
@@ -182,15 +191,16 @@ class KiRepo:
     Existence of collection path is guaranteed.
     &#34;&#34;&#34;
 
+    # pylint: disable=invalid-name
+
     repo: git.Repo
-    root: ExtantDir
-    ki_dir: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    last_push_file: ExtantFile
+    root: Dir
+    ki: Dir
+    col_file: File
+    backups_dir: Dir
+    config_file: File
+    hashes_file: File
+    models_file: File
 
 
 @beartype
@@ -249,7 +259,7 @@ class ColNote:
 
 @beartype
 @dataclass(frozen=True)
-class KiRepoRef:
+class KiRev:
     &#34;&#34;&#34;
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -261,7 +271,7 @@ class KiRepoRef:
 
 @beartype
 @dataclass(frozen=True)
-class RepoRef:
+class Rev:
     &#34;&#34;&#34;
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -273,19 +283,78 @@ class RepoRef:
 
 @beartype
 @dataclass(frozen=True)
-class WrittenNoteFile:
-    &#34;&#34;&#34;Store a written file and its primary deck id.&#34;&#34;&#34;
+class CardFile:
+    &#34;&#34;&#34;A card written to disk, either as a link or a file.&#34;&#34;&#34;
 
-    did: int
-    file: ExtantFile
+    card: Card
+    link: Optional[WindowsLink]
+    file: File
 
 
 @beartype
 @dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]
+class Deck:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: Dir
+    mediad: Dir
+    children: List[&#34;Deck&#34;]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
+class Root:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: None
+    mediad: None
+    children: List[Deck]
+    fullname: str
+
+
+@beartype
+@dataclass(frozen=True)
+class PlannedLink:
+    &#34;&#34;&#34;A not-yet-created symlink path and its extant target.&#34;&#34;&#34;
+
+    link: NoFile
+    tgt: Union[File, Link]
+
+
+@beartype
+@dataclass(frozen=True)
+class DotKi:
+    config: File
+    backups: EmptyDir
+
+
+@beartype
+@dataclass(frozen=True)
+class Submodule:
+    sm: git.Submodule
+    sm_repo: git.Repo
+    rel_root: Path
+    branch: str
+
+
+@beartype
+@dataclass(frozen=True)
+class MediaBytes:
+    &#34;&#34;&#34;A media file, its old bytes (from collection) and new bytes (from file).&#34;&#34;&#34;
+
+    file: File
+    old: bytes
+    new: bytes
+
+
+@beartype
+@dataclass(frozen=True)
+class AddedMedia:
+    &#34;&#34;&#34;An added media file and its (possibly changed) filename.&#34;&#34;&#34;
+
+    file: File
+    new_name: str
 
 
 @beartype
@@ -302,6 +371,26 @@ class NoteDBRow:
     csum: int
     flags: int
     data: str
+
+
+@beartype
+def notetype_json(notetype: Notetype) -&gt; str:
+    &#34;&#34;&#34;Return the JSON for a notetype as a string.&#34;&#34;&#34;
+    dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+    dictionary.pop(&#34;id&#34;)
+    inner = dictionary[&#34;dict&#34;]
+    inner.pop(&#34;id&#34;)
+    inner.pop(&#34;mod&#34;)
+    dictionary[&#34;dict&#34;] = inner
+    return json.dumps(dictionary, sort_keys=True, indent=4)
+
+
+@beartype
+def nt_str(notetype: Notetype) -&gt; str:
+    &#34;&#34;&#34;Display a notetype and its JSON.&#34;&#34;&#34;
+    # pylint: disable=invalid-name
+    s = notetype_json(notetype)
+    return f&#34;JSON for &#39;{notetype.id}&#39;:\n{s}&#34;
 
 
 # EXCEPTIONS
@@ -390,8 +479,8 @@ class NotKiRepoError(RuntimeError):
 
 class UpdatesRejectedError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
+    def __init__(self, col_file: File):
+        msg = f&#34;Failed to push some commits to &#39;{col_file}&#39;\n{HINT}&#34;
         super().__init__(errwrap(msg))
 
 
@@ -406,7 +495,7 @@ class TargetExistsError(RuntimeError):
 class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
-        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
+        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain rev &#39;{sha}&#39;&#34;
         super().__init__(errwrap(msg))
 
 
@@ -414,7 +503,7 @@ class GitHeadRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f&#34;&#34;&#34;
-        ValueError raised while trying to get ref &#39;HEAD&#39; from repo at
+        ValueError raised while trying to get rev &#39;HEAD&#39; from repo at
         &#39;{repo.working_dir}&#39;: &#39;{error}&#39;. This may have occurred because there
         are no commits in the current repository. However, this should never be
         the case, because ki repositories must be instantiated with a &#39;ki clone
@@ -425,7 +514,7 @@ class GitHeadRefNotFoundError(RuntimeError):
 
 class CollectionChecksumError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
+    def __init__(self, col_file: File):
         msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
         super().__init__(errwrap(msg))
 
@@ -502,12 +591,12 @@ class UnnamedNotetypeError(RuntimeError):
         a &#39;{MODELS_FILE}&#39; file in the current repository (may be
         contained in a subdirectory):
         &#34;&#34;&#34;
-        super().__init__(errwrap(msg) + &#34;\n&#34; + pp.pformat(nt))
+        super().__init__(errwrap(msg) + &#34;\n&#34; + str(nt))
 
 
 class SQLiteLockError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+    def __init__(self, col_file: File, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
             header = f&#34;fatal: {DATABASE_LOCKED_MSG} (Anki must not be running).&#34;
             super().__init__(header)
@@ -521,21 +610,6 @@ class SQLiteLockError(RuntimeError):
         pointing to the wrong location. (The latter may occur in the unlikely
         event that the collection file in the Anki data directory has been
         accidentally overwritten.)
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)
-
-
-class PathCreationCollisionError(RuntimeError):
-    @beartype
-    def __init__(self, root: ExtantDir, token: str):
-        header = &#34;Collision in children names for population of empty directory &#34;
-        header += f&#34;&#39;{root}&#39;:&#34;
-        msg = f&#34;&#34;&#34;
-        Attempted to create two children (files or directories) of the empty
-        directory specified above with the same name (&#39;{token}&#39;). This should
-        *never* happen, as population of empty directories only happens in
-        calls to &#39;F.fmkleaves()&#39;, and this is only used to populate the &#39;.ki/&#39;
-        directory, whose contents all ought to be distinct.
         &#34;&#34;&#34;
         super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)
 
@@ -619,6 +693,24 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n{details}&#34;)
 
 
+class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
+    @beartype
+    def __init__(self, orig: File, depth: int):
+        top = f&#34;Maximum windows symlink depth exceeded while resolving &#39;{orig}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This error means that we tried to resolve this
+        link, and recursively followed subsequent windows symlinks to a
+        ludicrous depth (&#39;{depth}&#39;). There is possibly a cycle within the link
+        graph, which indicates that the links were written incorrectly. In
+        practice, this should never happen. Please report this bug on GitHub at
+        https://github.com/langfield/ki/issues.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
 # WARNINGS
 
 
@@ -653,27 +745,6 @@ class InconsistentFieldNamesWarning(Warning):
         &#39;{y}&#39; in note with GUID &#39;{decknote.guid}&#39;.
         &#34;&#34;&#34;
         super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
-
-
-class UnhealthyNoteWarning(Warning):
-    @beartype
-    def __init__(self, nid: int, code: int):
-        top = f&#34;Warning: Note &#39;{nid}&#39; failed fields check with error code &#39;{code}&#39;&#34;
-        super().__init__(top)
-
-
-class UnPushedPathWarning(Warning):
-    @beartype
-    def __init__(self, path: Path, pattern: str):
-        msg = f&#34;Warning: ignoring &#39;{path}&#39; matching ignore pattern &#39;{pattern}&#39;&#34;
-        super().__init__(msg)
-
-
-class NotAnkiNoteWarning(Warning):
-    @beartype
-    def __init__(self, file: ExtantFile):
-        msg = f&#34;Warning: not Anki note &#39;{file}&#39;&#34;
-        super().__init__(msg)
 
 
 class DeletedFileNotFoundWarning(Warning):
@@ -713,21 +784,6 @@ class DiffTargetFileNotFoundWarning(Warning):
         super().__init__(f&#34;{top}\n\n{errwrap(msg1)}\n\n{errwrap(msg2)}&#34;)
 
 
-class MissingMediaFileWarning(Warning):
-    @beartype
-    def __init__(self, col_path: str, media_file: Path):
-        top = f&#34;Missing or bad media file &#39;{media_file}&#39; &#34;
-        top += f&#34;while processing collection &#39;{col_path}&#39;:&#34;
-        msg = f&#34;&#34;&#34;
-        Expected an extant file at the location specified above, but got a
-        &#39;{type(media_file)}&#39;. This may indicate a corrupted Anki collection, as
-        all media filenames present in note fields should correspond to extant
-        files within the media directory (usually called &#39;collection.media/&#39;
-        within the relevant Anki user profile directory).
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
-
-
 class RenamedMediaFileWarning(Warning):
     @beartype
     def __init__(self, src: str, dst: str):
@@ -737,7 +793,70 @@ class RenamedMediaFileWarning(Warning):
         contains another media file with the same name. In this case, Anki does
         some deduplication by renaming the new one.
         &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class MissingWindowsLinkTarget(Warning):
+    @beartype
+    def __init__(self, link: File, tgt: str):
+        top = f&#34;Failed to locate target &#39;{tgt}&#39; of windows symlink &#39;{link}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This warning means that the target of a windows
+        symlink is not extant, and thus the link could not be resolved.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class NotetypeCollisionWarning(Warning):
+    @beartype
+    def __init__(self, model: Notetype, existing: Notetype):
+        msg = &#34;&#34;&#34;
+        Collision: new notetype &#39;{model.name}&#39; has same name as existing
+        notetype with mid &#39;{existing.id}&#39;, but hashes differ.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{errwrap(msg)}\n\n{nt_str(model)}\n\n{nt_str(existing)}&#34;)
+
+
+class EmptyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f&#34;Found empty note with nid &#39;{note.id}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        Anki fields health check code: &#39;{health}&#39;
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class DuplicateNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int, rep: str):
+        top = &#34;Failed to add duplicate note to collection&#34;
+        msg = f&#34;&#34;&#34;
+        Notetype/fields of note with nid &#39;{note.id}&#39; are duplicate of existing note.
+        &#34;&#34;&#34;
+        field = f&#34;First field\n-----------\n{rep}&#34;
+        code = f&#34;Anki fields health check code: {health}&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}\n\n{field}\n\n{code}&#34;)
+
+
+class UnhealthyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f&#34;Note with nid &#39;{note.id}&#39; failed fields check with unknown error code&#34;
+        msg = f&#34;&#34;&#34;
+        Anki fields health check code: &#39;{health}&#39;
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
+
+
+class MediaDirectoryDeckNameCollisionWarning(Warning):
+    @beartype
+    def __init__(self):
+        top = &#34;Decks with name &#39;_media&#39; skipped as name is reserved&#34;
+        super().__init__(f&#34;{top}&#34;)</code></pre>
 </details>
 </section>
 <section>
@@ -765,11 +884,79 @@ def errwrap(msg: str) -&gt; str:
     return out</code></pre>
 </details>
 </dd>
+<dt id="ki.types.notetype_json"><code class="name flex">
+<span>def <span class="ident">notetype_json</span></span>(<span>notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Return the JSON for a notetype as a string.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def notetype_json(notetype: Notetype) -&gt; str:
+    &#34;&#34;&#34;Return the JSON for a notetype as a string.&#34;&#34;&#34;
+    dictionary: Dict[str, Any] = dataclasses.asdict(notetype)
+    dictionary.pop(&#34;id&#34;)
+    inner = dictionary[&#34;dict&#34;]
+    inner.pop(&#34;id&#34;)
+    inner.pop(&#34;mod&#34;)
+    dictionary[&#34;dict&#34;] = inner
+    return json.dumps(dictionary, sort_keys=True, indent=4)</code></pre>
+</details>
+</dd>
+<dt id="ki.types.nt_str"><code class="name flex">
+<span>def <span class="ident">nt_str</span></span>(<span>notetype: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>) ‑> str</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Display a notetype and its JSON.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def nt_str(notetype: Notetype) -&gt; str:
+    &#34;&#34;&#34;Display a notetype and its JSON.&#34;&#34;&#34;
+    # pylint: disable=invalid-name
+    s = notetype_json(notetype)
+    return f&#34;JSON for &#39;{notetype.id}&#39;:\n{s}&#34;</code></pre>
+</details>
+</dd>
 </dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
+<dt id="ki.types.AddedMedia"><code class="flex name class">
+<span>class <span class="ident">AddedMedia</span></span>
+<span>(</span><span>file: <a title="ki.types.File" href="#ki.types.File">File</a>, new_name: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>An added media file and its (possibly changed) filename.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class AddedMedia:
+    &#34;&#34;&#34;An added media file and its (possibly changed) filename.&#34;&#34;&#34;
+
+    file: File
+    new_name: str</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.AddedMedia.file"><code class="name">var <span class="ident">file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.AddedMedia.new_name"><code class="name">var <span class="ident">new_name</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
 <dt id="ki.types.AnkiAlreadyOpenError"><code class="flex name class">
 <span>class <span class="ident">AnkiAlreadyOpenError</span></span>
 <span>(</span><span>msg: str)</span>
@@ -819,6 +1006,41 @@ def errwrap(msg: str) -&gt; str:
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
+</dd>
+<dt id="ki.types.CardFile"><code class="flex name class">
+<span>class <span class="ident">CardFile</span></span>
+<span>(</span><span>card: anki.cards.Card, link: Optional[<a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a>], file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A card written to disk, either as a link or a file.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class CardFile:
+    &#34;&#34;&#34;A card written to disk, either as a link or a file.&#34;&#34;&#34;
+
+    card: Card
+    link: Optional[WindowsLink]
+    file: File</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.CardFile.card"><code class="name">var <span class="ident">card</span> : anki.cards.Card</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.CardFile.file"><code class="name">var <span class="ident">file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.CardFile.link"><code class="name">var <span class="ident">link</span> : Optional[<a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a>]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
 </dd>
 <dt id="ki.types.ColNote"><code class="flex name class">
 <span>class <span class="ident">ColNote</span></span>
@@ -877,7 +1099,7 @@ class ColNote:
 </dd>
 <dt id="ki.types.CollectionChecksumError"><code class="flex name class">
 <span>class <span class="ident">CollectionChecksumError</span></span>
-<span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
+<span>(</span><span>col_file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Unspecified run-time error.</p></div>
@@ -887,7 +1109,7 @@ class ColNote:
 </summary>
 <pre><code class="python">class CollectionChecksumError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
+    def __init__(self, col_file: File):
         msg = f&#34;Checksum mismatch on {col_file}. Was file changed?&#34;
         super().__init__(errwrap(msg))</code></pre>
 </details>
@@ -897,6 +1119,54 @@ class ColNote:
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
+</dd>
+<dt id="ki.types.Deck"><code class="flex name class">
+<span>class <span class="ident">Deck</span></span>
+<span>(</span><span>did: int, node: anki.decks_pb2.DeckTreeNode, deckd: <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a>, mediad: <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a>, children: list['<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>'], fullname: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Deck(did: int, node: anki.decks_pb2.DeckTreeNode, deckd: ki.types.Dir, mediad: ki.types.Dir, children: list['Deck'], fullname: str)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class Deck:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: Dir
+    mediad: Dir
+    children: List[&#34;Deck&#34;]
+    fullname: str</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.Deck.children"><code class="name">var <span class="ident">children</span> : list['<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>']</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Deck.deckd"><code class="name">var <span class="ident">deckd</span> : <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Deck.did"><code class="name">var <span class="ident">did</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Deck.fullname"><code class="name">var <span class="ident">fullname</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Deck.mediad"><code class="name">var <span class="ident">mediad</span> : <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Deck.node"><code class="name">var <span class="ident">node</span> : anki.decks_pb2.DeckTreeNode</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
 </dd>
 <dt id="ki.types.DeckNote"><code class="flex name class">
 <span>class <span class="ident">DeckNote</span></span>
@@ -980,10 +1250,13 @@ class DeckNote:
 </dd>
 <dt id="ki.types.Delta"><code class="flex name class">
 <span>class <span class="ident">Delta</span></span>
-<span>(</span><span>status: <a title="ki.types.GitChangeType" href="#ki.types.GitChangeType">GitChangeType</a>, path: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, relpath: pathlib.Path)</span>
+<span>(</span><span>status: <a title="ki.types.GitChangeType" href="#ki.types.GitChangeType">GitChangeType</a>, path: <a title="ki.types.File" href="#ki.types.File">File</a>, relpath: pathlib.Path)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>The git delta for a single file.</p></div>
+<div class="desc"><p>The git delta for a single file.</p>
+<p>We don't instead store a root and a relative path, because we need the
+<code><a title="ki.types.File" href="#ki.types.File">File</a></code> object to avoid making unnecessary syscalls to check that stuff
+exists.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -991,15 +1264,21 @@ class DeckNote:
 <pre><code class="python">@beartype
 @dataclass(frozen=True)
 class Delta:
-    &#34;&#34;&#34;The git delta for a single file.&#34;&#34;&#34;
+    &#34;&#34;&#34;
+    The git delta for a single file.
+
+    We don&#39;t instead store a root and a relative path, because we need the
+    `File` object to avoid making unnecessary syscalls to check that stuff
+    exists.
+    &#34;&#34;&#34;
 
     status: GitChangeType
-    path: ExtantFile
+    path: File
     relpath: Path</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.Delta.path"><code class="name">var <span class="ident">path</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
+<dt id="ki.types.Delta.path"><code class="name">var <span class="ident">path</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -1052,6 +1331,87 @@ class Delta:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
+<dt id="ki.types.Dir"><code class="flex name class">
+<span>class <span class="ident">Dir</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>UNSAFE: Indicates that dir <em>was</em> extant when it was resolved.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class Dir(type(Path())):
+    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a></li>
+</ul>
+</dd>
+<dt id="ki.types.DotKi"><code class="flex name class">
+<span>class <span class="ident">DotKi</span></span>
+<span>(</span><span>config: <a title="ki.types.File" href="#ki.types.File">File</a>, backups: <a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a>)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>DotKi(config: ki.types.File, backups: ki.types.EmptyDir)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class DotKi:
+    config: File
+    backups: EmptyDir</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.DotKi.backups"><code class="name">var <span class="ident">backups</span> : <a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.DotKi.config"><code class="name">var <span class="ident">config</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.types.DuplicateNoteWarning"><code class="flex name class">
+<span>class <span class="ident">DuplicateNoteWarning</span></span>
+<span>(</span><span>note: anki.notes.Note, health: int, rep: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class DuplicateNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int, rep: str):
+        top = &#34;Failed to add duplicate note to collection&#34;
+        msg = f&#34;&#34;&#34;
+        Notetype/fields of note with nid &#39;{note.id}&#39; are duplicate of existing note.
+        &#34;&#34;&#34;
+        field = f&#34;First field\n-----------\n{rep}&#34;
+        code = f&#34;Anki fields health check code: {health}&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}\n\n{field}\n\n{code}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="ki.types.EmptyDir"><code class="flex name class">
 <span>class <span class="ident">EmptyDir</span></span>
 <span>(</span><span>*args, **kwargs)</span>
@@ -1062,16 +1422,42 @@ class Delta:
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class EmptyDir(ExtantDir):
+<pre><code class="python">class EmptyDir(Dir):
     &#34;&#34;&#34;UNSAFE: Indicates that dir *was* empty (and extant) when it was resolved.&#34;&#34;&#34;</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li><a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></li>
+<li><a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></li>
 <li>pathlib.PosixPath</li>
 <li>pathlib.Path</li>
 <li>pathlib.PurePosixPath</li>
 <li>pathlib.PurePath</li>
+</ul>
+</dd>
+<dt id="ki.types.EmptyNoteWarning"><code class="flex name class">
+<span>class <span class="ident">EmptyNoteWarning</span></span>
+<span>(</span><span>note: anki.notes.Note, health: int)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class EmptyNoteWarning(Warning):
+    @beartype
+    def __init__(self, note: Note, health: int):
+        top = f&#34;Found empty note with nid &#39;{note.id}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        Anki fields health check code: &#39;{health}&#39;
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
 </ul>
 </dd>
 <dt id="ki.types.ExpectedDirectoryButGotFileError"><code class="flex name class">
@@ -1180,77 +1566,6 @@ class Delta:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.ExtantDir"><code class="flex name class">
-<span>class <span class="ident">ExtantDir</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that dir <em>was</em> extant when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantDir(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that dir *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-<h3>Subclasses</h3>
-<ul class="hlist">
-<li><a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a></li>
-</ul>
-</dd>
-<dt id="ki.types.ExtantFile"><code class="flex name class">
-<span>class <span class="ident">ExtantFile</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that file <em>was</em> extant when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantFile(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that file *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
-<dt id="ki.types.ExtantStrangePath"><code class="flex name class">
-<span>class <span class="ident">ExtantStrangePath</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
-when it was resolved.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ExtantStrangePath(type(Path())):
-    &#34;&#34;&#34;
-    UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
-    when it was resolved.
-    &#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
 <dt id="ki.types.Field"><code class="flex name class">
 <span>class <span class="ident">Field</span></span>
 <span>(</span><span>name: str, ord: Optional[int])</span>
@@ -1280,6 +1595,27 @@ class Field:
 <div class="desc"></div>
 </dd>
 </dl>
+</dd>
+<dt id="ki.types.File"><code class="flex name class">
+<span>class <span class="ident">File</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>UNSAFE: Indicates that file <em>was</em> extant when it was resolved.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class File(type(Path())):
+    &#34;&#34;&#34;UNSAFE: Indicates that file *was* extant when it was resolved.&#34;&#34;&#34;</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
+</ul>
 </dd>
 <dt id="ki.types.GitChangeType"><code class="flex name class">
 <span>class <span class="ident">GitChangeType</span></span>
@@ -1374,7 +1710,7 @@ class Field:
     @beartype
     def __init__(self, repo: git.Repo, error: Exception):
         msg = f&#34;&#34;&#34;
-        ValueError raised while trying to get ref &#39;HEAD&#39; from repo at
+        ValueError raised while trying to get rev &#39;HEAD&#39; from repo at
         &#39;{repo.working_dir}&#39;: &#39;{error}&#39;. This may have occurred because there
         are no commits in the current repository. However, this should never be
         the case, because ki repositories must be instantiated with a &#39;ki clone
@@ -1402,7 +1738,7 @@ class Field:
 <pre><code class="python">class GitRefNotFoundError(RuntimeError):
     @beartype
     def __init__(self, repo: git.Repo, sha: str):
-        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain ref &#39;{sha}&#39;&#34;
+        msg = f&#34;Repo at &#39;{repo.working_dir}&#39; doesn&#39;t contain rev &#39;{sha}&#39;&#34;
         super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -1441,7 +1777,7 @@ class Field:
 </dd>
 <dt id="ki.types.KiRepo"><code class="flex name class">
 <span>class <span class="ident">KiRepo</span></span>
-<span>(</span><span>repo: git.repo.base.Repo, root: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, ki_dir: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, backups_dir: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, config_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, hashes_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, models_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, last_push_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
+<span>(</span><span>repo: git.repo.base.Repo, root: <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a>, ki: <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a>, col_file: <a title="ki.types.File" href="#ki.types.File">File</a>, backups_dir: <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a>, config_file: <a title="ki.types.File" href="#ki.types.File">File</a>, hashes_file: <a title="ki.types.File" href="#ki.types.File">File</a>, models_file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>UNSAFE: A ki repository, including:
@@ -1463,43 +1799,40 @@ class KiRepo:
     Existence of collection path is guaranteed.
     &#34;&#34;&#34;
 
+    # pylint: disable=invalid-name
+
     repo: git.Repo
-    root: ExtantDir
-    ki_dir: ExtantDir
-    col_file: ExtantFile
-    backups_dir: ExtantDir
-    config_file: ExtantFile
-    hashes_file: ExtantFile
-    models_file: ExtantFile
-    last_push_file: ExtantFile</code></pre>
+    root: Dir
+    ki: Dir
+    col_file: File
+    backups_dir: Dir
+    config_file: File
+    hashes_file: File
+    models_file: File</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.KiRepo.backups_dir"><code class="name">var <span class="ident">backups_dir</span> : <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></code></dt>
+<dt id="ki.types.KiRepo.backups_dir"><code class="name">var <span class="ident">backups_dir</span> : <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.col_file"><code class="name">var <span class="ident">col_file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
+<dt id="ki.types.KiRepo.col_file"><code class="name">var <span class="ident">col_file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.config_file"><code class="name">var <span class="ident">config_file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
+<dt id="ki.types.KiRepo.config_file"><code class="name">var <span class="ident">config_file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.hashes_file"><code class="name">var <span class="ident">hashes_file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
+<dt id="ki.types.KiRepo.hashes_file"><code class="name">var <span class="ident">hashes_file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.ki_dir"><code class="name">var <span class="ident">ki_dir</span> : <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></code></dt>
+<dt id="ki.types.KiRepo.ki"><code class="name">var <span class="ident">ki</span> : <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.last_push_file"><code class="name">var <span class="ident">last_push_file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.types.KiRepo.models_file"><code class="name">var <span class="ident">models_file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
+<dt id="ki.types.KiRepo.models_file"><code class="name">var <span class="ident">models_file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -1507,14 +1840,14 @@ class KiRepo:
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepo.root"><code class="name">var <span class="ident">root</span> : <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></code></dt>
+<dt id="ki.types.KiRepo.root"><code class="name">var <span class="ident">root</span> : <a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 </dl>
 </dd>
-<dt id="ki.types.KiRepoRef"><code class="flex name class">
-<span>class <span class="ident">KiRepoRef</span></span>
+<dt id="ki.types.KiRev"><code class="flex name class">
+<span>class <span class="ident">KiRev</span></span>
 <span>(</span><span>kirepo: <a title="ki.types.KiRepo" href="#ki.types.KiRepo">KiRepo</a>, sha: str)</span>
 </code></dt>
 <dd>
@@ -1526,7 +1859,7 @@ commit hash of <code>repo</code>.</p></div>
 </summary>
 <pre><code class="python">@beartype
 @dataclass(frozen=True)
-class KiRepoRef:
+class KiRev:
     &#34;&#34;&#34;
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -1537,28 +1870,28 @@ class KiRepoRef:
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.KiRepoRef.kirepo"><code class="name">var <span class="ident">kirepo</span> : <a title="ki.types.KiRepo" href="#ki.types.KiRepo">KiRepo</a></code></dt>
+<dt id="ki.types.KiRev.kirepo"><code class="name">var <span class="ident">kirepo</span> : <a title="ki.types.KiRepo" href="#ki.types.KiRepo">KiRepo</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.KiRepoRef.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
+<dt id="ki.types.KiRev.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 </dl>
 </dd>
-<dt id="ki.types.LatentSymlink"><code class="flex name class">
-<span>class <span class="ident">LatentSymlink</span></span>
+<dt id="ki.types.Link"><code class="flex name class">
+<span>class <span class="ident">Link</span></span>
 <span>(</span><span>*args, **kwargs)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>UNSAFE: A POSIX-style symlink created on Windows with mode 100644.</p></div>
+<div class="desc"><p>UNSAFE: Indicates that this path was a symlink when tested.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class LatentSymlink(type(Path())):
-    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;</code></pre>
+<pre><code class="python">class Link(type(Path())):
+    &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1568,38 +1901,96 @@ class KiRepoRef:
 <li>pathlib.PurePath</li>
 </ul>
 </dd>
-<dt id="ki.types.Leaves"><code class="flex name class">
-<span>class <span class="ident">Leaves</span></span>
-<span>(</span><span>root: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, files: dict[str, <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>], dirs: dict[str, <a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a>])</span>
+<dt id="ki.types.MaximumWindowsLinkChainingDepthExceededError"><code class="flex name class">
+<span>class <span class="ident">MaximumWindowsLinkChainingDepthExceededError</span></span>
+<span>(</span><span>orig: <a title="ki.types.File" href="#ki.types.File">File</a>, depth: int)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Leaves(root: ki.types.ExtantDir, files: dict[str, ki.types.ExtantFile], dirs: dict[str, ki.types.EmptyDir])</p></div>
+<div class="desc"><p>Unspecified run-time error.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
+    @beartype
+    def __init__(self, orig: File, depth: int):
+        top = f&#34;Maximum windows symlink depth exceeded while resolving &#39;{orig}&#39;&#34;
+        msg = f&#34;&#34;&#34;
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This error means that we tried to resolve this
+        link, and recursively followed subsequent windows symlinks to a
+        ludicrous depth (&#39;{depth}&#39;). There is possibly a cycle within the link
+        graph, which indicates that the links were written incorrectly. In
+        practice, this should never happen. Please report this bug on GitHub at
+        https://github.com/langfield/ki/issues.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.RuntimeError</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
+<dt id="ki.types.MediaBytes"><code class="flex name class">
+<span>class <span class="ident">MediaBytes</span></span>
+<span>(</span><span>file: <a title="ki.types.File" href="#ki.types.File">File</a>, old: bytes, new: bytes)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A media file, its old bytes (from collection) and new bytes (from file).</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 @dataclass(frozen=True)
-class Leaves:
-    root: ExtantDir
-    files: Dict[str, ExtantFile]
-    dirs: Dict[str, EmptyDir]</code></pre>
+class MediaBytes:
+    &#34;&#34;&#34;A media file, its old bytes (from collection) and new bytes (from file).&#34;&#34;&#34;
+
+    file: File
+    old: bytes
+    new: bytes</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.Leaves.dirs"><code class="name">var <span class="ident">dirs</span> : dict[str, <a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a>]</code></dt>
+<dt id="ki.types.MediaBytes.file"><code class="name">var <span class="ident">file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.Leaves.files"><code class="name">var <span class="ident">files</span> : dict[str, <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>]</code></dt>
+<dt id="ki.types.MediaBytes.new"><code class="name">var <span class="ident">new</span> : bytes</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.Leaves.root"><code class="name">var <span class="ident">root</span> : <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></code></dt>
+<dt id="ki.types.MediaBytes.old"><code class="name">var <span class="ident">old</span> : bytes</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 </dl>
+</dd>
+<dt id="ki.types.MediaDirectoryDeckNameCollisionWarning"><code class="flex name class">
+<span>class <span class="ident">MediaDirectoryDeckNameCollisionWarning</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class MediaDirectoryDeckNameCollisionWarning(Warning):
+    @beartype
+    def __init__(self):
+        top = &#34;Decks with name &#39;_media&#39; skipped as name is reserved&#34;
+        super().__init__(f&#34;{top}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
 </dd>
 <dt id="ki.types.MissingDirectoryError"><code class="flex name class">
 <span>class <span class="ident">MissingDirectoryError</span></span>
@@ -1706,37 +2097,6 @@ class Leaves:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.MissingMediaFileWarning"><code class="flex name class">
-<span>class <span class="ident">MissingMediaFileWarning</span></span>
-<span>(</span><span>col_path: str, media_file: pathlib.Path)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingMediaFileWarning(Warning):
-    @beartype
-    def __init__(self, col_path: str, media_file: Path):
-        top = f&#34;Missing or bad media file &#39;{media_file}&#39; &#34;
-        top += f&#34;while processing collection &#39;{col_path}&#39;:&#34;
-        msg = f&#34;&#34;&#34;
-        Expected an extant file at the location specified above, but got a
-        &#39;{type(media_file)}&#39;. This may indicate a corrupted Anki collection, as
-        all media filenames present in note fields should correspond to extant
-        files within the media directory (usually called &#39;collection.media/&#39;
-        within the relevant Anki user profile directory).
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
 <dt id="ki.types.MissingNoteIdError"><code class="flex name class">
 <span>class <span class="ident">MissingNoteIdError</span></span>
 <span>(</span><span>nid: int)</span>
@@ -1813,6 +2173,36 @@ class Leaves:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
+<dt id="ki.types.MissingWindowsLinkTarget"><code class="flex name class">
+<span>class <span class="ident">MissingWindowsLinkTarget</span></span>
+<span>(</span><span>link: <a title="ki.types.File" href="#ki.types.File">File</a>, tgt: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class MissingWindowsLinkTarget(Warning):
+    @beartype
+    def __init__(self, link: File, tgt: str):
+        top = f&#34;Failed to locate target &#39;{tgt}&#39; of windows symlink &#39;{link}&#39;&#34;
+        msg = &#34;&#34;&#34;
+        Latent symlinks are regular files whose only contents are a path to
+        some other file, (possibly another windows symlink). They are used to
+        implement POSIX-compatible symlinks on Win32 systems where Developer
+        Mode is not enabled. This warning means that the target of a windows
+        symlink is not extant, and thus the link could not be resolved.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="ki.types.NoFile"><code class="flex name class">
 <span>class <span class="ident">NoFile</span></span>
 <span>(</span><span>*args, **kwargs)</span>
@@ -1828,7 +2218,7 @@ class Leaves:
 
     @property
     def parent(self):
-        return ExtantDir(super().parent)</code></pre>
+        return Dir(super().parent)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -1849,7 +2239,7 @@ class Leaves:
 </summary>
 <pre><code class="python">@property
 def parent(self):
-    return ExtantDir(super().parent)</code></pre>
+    return Dir(super().parent)</code></pre>
 </details>
 </dd>
 </dl>
@@ -1913,29 +2303,6 @@ def parent(self):
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li>builtins.RuntimeError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.types.NotAnkiNoteWarning"><code class="flex name class">
-<span>class <span class="ident">NotAnkiNoteWarning</span></span>
-<span>(</span><span>file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class NotAnkiNoteWarning(Warning):
-    @beartype
-    def __init__(self, file: ExtantFile):
-        msg = f&#34;Warning: not Anki note &#39;{file}&#39;&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2187,6 +2554,32 @@ class Notetype:
 </dd>
 </dl>
 </dd>
+<dt id="ki.types.NotetypeCollisionWarning"><code class="flex name class">
+<span>class <span class="ident">NotetypeCollisionWarning</span></span>
+<span>(</span><span>model: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>, existing: <a title="ki.types.Notetype" href="#ki.types.Notetype">Notetype</a>)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Base class for warning categories.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class NotetypeCollisionWarning(Warning):
+    @beartype
+    def __init__(self, model: Notetype, existing: Notetype):
+        msg = &#34;&#34;&#34;
+        Collision: new notetype &#39;{model.name}&#39; has same name as existing
+        notetype with mid &#39;{existing.id}&#39;, but hashes differ.
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{errwrap(msg)}\n\n{nt_str(model)}\n\n{nt_str(existing)}&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Warning</li>
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="ki.types.NotetypeKeyError"><code class="flex name class">
 <span>class <span class="ident">NotetypeKeyError</span></span>
 <span>(</span><span>key: str, name: str)</span>
@@ -2276,35 +2669,59 @@ class Patch:
 </dd>
 </dl>
 </dd>
-<dt id="ki.types.PathCreationCollisionError"><code class="flex name class">
-<span>class <span class="ident">PathCreationCollisionError</span></span>
-<span>(</span><span>root: <a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a>, token: str)</span>
+<dt id="ki.types.PlannedLink"><code class="flex name class">
+<span>class <span class="ident">PlannedLink</span></span>
+<span>(</span><span>link: <a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a>, tgt: Union[<a title="ki.types.File" href="#ki.types.File">File</a>, <a title="ki.types.Link" href="#ki.types.Link">Link</a>])</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Unspecified run-time error.</p></div>
+<div class="desc"><p>A not-yet-created symlink path and its extant target.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class PathCreationCollisionError(RuntimeError):
-    @beartype
-    def __init__(self, root: ExtantDir, token: str):
-        header = &#34;Collision in children names for population of empty directory &#34;
-        header += f&#34;&#39;{root}&#39;:&#34;
-        msg = f&#34;&#34;&#34;
-        Attempted to create two children (files or directories) of the empty
-        directory specified above with the same name (&#39;{token}&#39;). This should
-        *never* happen, as population of empty directories only happens in
-        calls to &#39;F.fmkleaves()&#39;, and this is only used to populate the &#39;.ki/&#39;
-        directory, whose contents all ought to be distinct.
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{header}\n{errwrap(msg)}&#34;)</code></pre>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class PlannedLink:
+    &#34;&#34;&#34;A not-yet-created symlink path and its extant target.&#34;&#34;&#34;
+
+    link: NoFile
+    tgt: Union[File, Link]</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.PlannedLink.link"><code class="name">var <span class="ident">link</span> : <a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.PlannedLink.tgt"><code class="name">var <span class="ident">tgt</span> : Union[<a title="ki.types.File" href="#ki.types.File">File</a>, <a title="ki.types.Link" href="#ki.types.Link">Link</a>]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.types.PseudoFile"><code class="flex name class">
+<span>class <span class="ident">PseudoFile</span></span>
+<span>(</span><span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
+when it was resolved.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class PseudoFile(type(Path())):
+    &#34;&#34;&#34;
+    UNSAFE: Indicates that path was extant but weird (e.g. a device or socket)
+    when it was resolved.
+    &#34;&#34;&#34;</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
-<li>builtins.RuntimeError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
 </ul>
 </dd>
 <dt id="ki.types.PushResult"><code class="flex name class">
@@ -2367,8 +2784,8 @@ class Patch:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.RepoRef"><code class="flex name class">
-<span>class <span class="ident">RepoRef</span></span>
+<dt id="ki.types.Rev"><code class="flex name class">
+<span>class <span class="ident">Rev</span></span>
 <span>(</span><span>repo: git.repo.base.Repo, sha: str)</span>
 </code></dt>
 <dd>
@@ -2380,7 +2797,7 @@ commit hash of <code>repo</code>.</p></div>
 </summary>
 <pre><code class="python">@beartype
 @dataclass(frozen=True)
-class RepoRef:
+class Rev:
     &#34;&#34;&#34;
     UNSAFE: A repo-commit pair, where `sha` is guaranteed to be an extant
     commit hash of `repo`.
@@ -2391,11 +2808,59 @@ class RepoRef:
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.RepoRef.repo"><code class="name">var <span class="ident">repo</span> : git.repo.base.Repo</code></dt>
+<dt id="ki.types.Rev.repo"><code class="name">var <span class="ident">repo</span> : git.repo.base.Repo</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="ki.types.RepoRef.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
+<dt id="ki.types.Rev.sha"><code class="name">var <span class="ident">sha</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
+</dd>
+<dt id="ki.types.Root"><code class="flex name class">
+<span>class <span class="ident">Root</span></span>
+<span>(</span><span>did: int, node: anki.decks_pb2.DeckTreeNode, deckd: None, mediad: None, children: list[<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>], fullname: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Root(did: int, node: anki.decks_pb2.DeckTreeNode, deckd: None, mediad: None, children: list[ki.types.Deck], fullname: str)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class Root:
+    did: DeckId
+    node: DeckTreeNode
+    deckd: None
+    mediad: None
+    children: List[Deck]
+    fullname: str</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.Root.children"><code class="name">var <span class="ident">children</span> : list[<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>]</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Root.deckd"><code class="name">var <span class="ident">deckd</span> : None</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Root.did"><code class="name">var <span class="ident">did</span> : int</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Root.fullname"><code class="name">var <span class="ident">fullname</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Root.mediad"><code class="name">var <span class="ident">mediad</span> : None</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Root.node"><code class="name">var <span class="ident">node</span> : anki.decks_pb2.DeckTreeNode</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -2403,7 +2868,7 @@ class RepoRef:
 </dd>
 <dt id="ki.types.SQLiteLockError"><code class="flex name class">
 <span>class <span class="ident">SQLiteLockError</span></span>
-<span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>, err: sqlite3.DatabaseError)</span>
+<span>(</span><span>col_file: <a title="ki.types.File" href="#ki.types.File">File</a>, err: sqlite3.DatabaseError)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Unspecified run-time error.</p></div>
@@ -2413,7 +2878,7 @@ class RepoRef:
 </summary>
 <pre><code class="python">class SQLiteLockError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile, err: sqlite3.DatabaseError):
+    def __init__(self, col_file: File, err: sqlite3.DatabaseError):
         if str(err) == DATABASE_LOCKED_MSG:
             header = f&#34;fatal: {DATABASE_LOCKED_MSG} (Anki must not be running).&#34;
             super().__init__(header)
@@ -2483,26 +2948,43 @@ class RepoRef:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.Symlink"><code class="flex name class">
-<span>class <span class="ident">Symlink</span></span>
-<span>(</span><span>*args, **kwargs)</span>
+<dt id="ki.types.Submodule"><code class="flex name class">
+<span>class <span class="ident">Submodule</span></span>
+<span>(</span><span>sm: git.objects.submodule.base.Submodule, sm_repo: git.repo.base.Repo, rel_root: pathlib.Path, branch: str)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>UNSAFE: Indicates that this path was a symlink when tested.</p></div>
+<div class="desc"><p>Submodule(sm: git.objects.submodule.base.Submodule, sm_repo: git.repo.base.Repo, rel_root: pathlib.Path, branch: str)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class Symlink(type(Path())):
-    &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;</code></pre>
+<pre><code class="python">@beartype
+@dataclass(frozen=True)
+class Submodule:
+    sm: git.Submodule
+    sm_repo: git.Repo
+    rel_root: Path
+    branch: str</code></pre>
 </details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="ki.types.Submodule.branch"><code class="name">var <span class="ident">branch</span> : str</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Submodule.rel_root"><code class="name">var <span class="ident">rel_root</span> : pathlib.Path</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Submodule.sm"><code class="name">var <span class="ident">sm</span> : git.objects.submodule.base.Submodule</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+<dt id="ki.types.Submodule.sm_repo"><code class="name">var <span class="ident">sm_repo</span> : git.repo.base.Repo</code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
+</dl>
 </dd>
 <dt id="ki.types.TargetExistsError"><code class="flex name class">
 <span>class <span class="ident">TargetExistsError</span></span>
@@ -2568,32 +3050,9 @@ class Template:
 </dd>
 </dl>
 </dd>
-<dt id="ki.types.UnPushedPathWarning"><code class="flex name class">
-<span>class <span class="ident">UnPushedPathWarning</span></span>
-<span>(</span><span>path: pathlib.Path, pattern: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class UnPushedPathWarning(Warning):
-    @beartype
-    def __init__(self, path: Path, pattern: str):
-        msg = f&#34;Warning: ignoring &#39;{path}&#39; matching ignore pattern &#39;{pattern}&#39;&#34;
-        super().__init__(msg)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
 <dt id="ki.types.UnhealthyNoteWarning"><code class="flex name class">
 <span>class <span class="ident">UnhealthyNoteWarning</span></span>
-<span>(</span><span>nid: int, code: int)</span>
+<span>(</span><span>note: anki.notes.Note, health: int)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Base class for warning categories.</p></div>
@@ -2603,9 +3062,12 @@ class Template:
 </summary>
 <pre><code class="python">class UnhealthyNoteWarning(Warning):
     @beartype
-    def __init__(self, nid: int, code: int):
-        top = f&#34;Warning: Note &#39;{nid}&#39; failed fields check with error code &#39;{code}&#39;&#34;
-        super().__init__(top)</code></pre>
+    def __init__(self, note: Note, health: int):
+        top = f&#34;Note with nid &#39;{note.id}&#39; failed fields check with unknown error code&#34;
+        msg = f&#34;&#34;&#34;
+        Anki fields health check code: &#39;{health}&#39;
+        &#34;&#34;&#34;
+        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -2632,7 +3094,7 @@ class Template:
         a &#39;{MODELS_FILE}&#39; file in the current repository (may be
         contained in a subdirectory):
         &#34;&#34;&#34;
-        super().__init__(errwrap(msg) + &#34;\n&#34; + pp.pformat(nt))</code></pre>
+        super().__init__(errwrap(msg) + &#34;\n&#34; + str(nt))</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -2643,7 +3105,7 @@ class Template:
 </dd>
 <dt id="ki.types.UpdatesRejectedError"><code class="flex name class">
 <span>class <span class="ident">UpdatesRejectedError</span></span>
-<span>(</span><span>col_file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
+<span>(</span><span>col_file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Unspecified run-time error.</p></div>
@@ -2653,8 +3115,8 @@ class Template:
 </summary>
 <pre><code class="python">class UpdatesRejectedError(RuntimeError):
     @beartype
-    def __init__(self, col_file: ExtantFile):
-        msg = f&#34;Failed to push some refs to &#39;{col_file}&#39;\n{HINT}&#34;
+    def __init__(self, col_file: File):
+        msg = f&#34;Failed to push some commits to &#39;{col_file}&#39;\n{HINT}&#34;
         super().__init__(errwrap(msg))</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -2664,35 +3126,26 @@ class Template:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.WrittenNoteFile"><code class="flex name class">
-<span>class <span class="ident">WrittenNoteFile</span></span>
-<span>(</span><span>did: int, file: <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a>)</span>
+<dt id="ki.types.WindowsLink"><code class="flex name class">
+<span>class <span class="ident">WindowsLink</span></span>
+<span>(</span><span>*args, **kwargs)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Store a written file and its primary deck id.</p></div>
+<div class="desc"><p>UNSAFE: A POSIX-style symlink created on Windows with mode 100644.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@beartype
-@dataclass(frozen=True)
-class WrittenNoteFile:
-    &#34;&#34;&#34;Store a written file and its primary deck id.&#34;&#34;&#34;
-
-    did: int
-    file: ExtantFile</code></pre>
+<pre><code class="python">class WindowsLink(type(Path())):
+    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;</code></pre>
 </details>
-<h3>Class variables</h3>
-<dl>
-<dt id="ki.types.WrittenNoteFile.did"><code class="name">var <span class="ident">did</span> : int</code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.types.WrittenNoteFile.file"><code class="name">var <span class="ident">file</span> : <a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-</dl>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>pathlib.PosixPath</li>
+<li>pathlib.Path</li>
+<li>pathlib.PurePosixPath</li>
+<li>pathlib.PurePath</li>
+</ul>
 </dd>
 <dt id="ki.types.WrongFieldCountWarning"><code class="flex name class">
 <span>class <span class="ident">WrongFieldCountWarning</span></span>
@@ -2743,15 +3196,32 @@ class WrittenNoteFile:
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
 <li><code><a title="ki.types.errwrap" href="#ki.types.errwrap">errwrap</a></code></li>
+<li><code><a title="ki.types.notetype_json" href="#ki.types.notetype_json">notetype_json</a></code></li>
+<li><code><a title="ki.types.nt_str" href="#ki.types.nt_str">nt_str</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
+<h4><code><a title="ki.types.AddedMedia" href="#ki.types.AddedMedia">AddedMedia</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.AddedMedia.file" href="#ki.types.AddedMedia.file">file</a></code></li>
+<li><code><a title="ki.types.AddedMedia.new_name" href="#ki.types.AddedMedia.new_name">new_name</a></code></li>
+</ul>
+</li>
+<li>
 <h4><code><a title="ki.types.AnkiAlreadyOpenError" href="#ki.types.AnkiAlreadyOpenError">AnkiAlreadyOpenError</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.AnkiDBNoteMissingFieldsError" href="#ki.types.AnkiDBNoteMissingFieldsError">AnkiDBNoteMissingFieldsError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.CardFile" href="#ki.types.CardFile">CardFile</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.CardFile.card" href="#ki.types.CardFile.card">card</a></code></li>
+<li><code><a title="ki.types.CardFile.file" href="#ki.types.CardFile.file">file</a></code></li>
+<li><code><a title="ki.types.CardFile.link" href="#ki.types.CardFile.link">link</a></code></li>
+</ul>
 </li>
 <li>
 <h4><code><a title="ki.types.ColNote" href="#ki.types.ColNote">ColNote</a></code></h4>
@@ -2767,6 +3237,17 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.CollectionChecksumError" href="#ki.types.CollectionChecksumError">CollectionChecksumError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.Deck" href="#ki.types.Deck">Deck</a></code></h4>
+<ul class="two-column">
+<li><code><a title="ki.types.Deck.children" href="#ki.types.Deck.children">children</a></code></li>
+<li><code><a title="ki.types.Deck.deckd" href="#ki.types.Deck.deckd">deckd</a></code></li>
+<li><code><a title="ki.types.Deck.did" href="#ki.types.Deck.did">did</a></code></li>
+<li><code><a title="ki.types.Deck.fullname" href="#ki.types.Deck.fullname">fullname</a></code></li>
+<li><code><a title="ki.types.Deck.mediad" href="#ki.types.Deck.mediad">mediad</a></code></li>
+<li><code><a title="ki.types.Deck.node" href="#ki.types.Deck.node">node</a></code></li>
+</ul>
 </li>
 <li>
 <h4><code><a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a></code></h4>
@@ -2794,7 +3275,23 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.DiffTargetFileNotFoundWarning" href="#ki.types.DiffTargetFileNotFoundWarning">DiffTargetFileNotFoundWarning</a></code></h4>
 </li>
 <li>
+<h4><code><a title="ki.types.Dir" href="#ki.types.Dir">Dir</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.DotKi" href="#ki.types.DotKi">DotKi</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.DotKi.backups" href="#ki.types.DotKi.backups">backups</a></code></li>
+<li><code><a title="ki.types.DotKi.config" href="#ki.types.DotKi.config">config</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.types.DuplicateNoteWarning" href="#ki.types.DuplicateNoteWarning">DuplicateNoteWarning</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.EmptyDir" href="#ki.types.EmptyDir">EmptyDir</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.EmptyNoteWarning" href="#ki.types.EmptyNoteWarning">EmptyNoteWarning</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.ExpectedDirectoryButGotFileError" href="#ki.types.ExpectedDirectoryButGotFileError">ExpectedDirectoryButGotFileError</a></code></h4>
@@ -2809,20 +3306,14 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.ExpectedNonexistentPathError" href="#ki.types.ExpectedNonexistentPathError">ExpectedNonexistentPathError</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.ExtantDir" href="#ki.types.ExtantDir">ExtantDir</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.types.ExtantFile" href="#ki.types.ExtantFile">ExtantFile</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.types.ExtantStrangePath" href="#ki.types.ExtantStrangePath">ExtantStrangePath</a></code></h4>
-</li>
-<li>
 <h4><code><a title="ki.types.Field" href="#ki.types.Field">Field</a></code></h4>
 <ul class="">
 <li><code><a title="ki.types.Field.name" href="#ki.types.Field.name">name</a></code></li>
 <li><code><a title="ki.types.Field.ord" href="#ki.types.Field.ord">ord</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="ki.types.File" href="#ki.types.File">File</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.GitChangeType" href="#ki.types.GitChangeType">GitChangeType</a></code></h4>
@@ -2853,30 +3344,35 @@ class WrittenNoteFile:
 <li><code><a title="ki.types.KiRepo.col_file" href="#ki.types.KiRepo.col_file">col_file</a></code></li>
 <li><code><a title="ki.types.KiRepo.config_file" href="#ki.types.KiRepo.config_file">config_file</a></code></li>
 <li><code><a title="ki.types.KiRepo.hashes_file" href="#ki.types.KiRepo.hashes_file">hashes_file</a></code></li>
-<li><code><a title="ki.types.KiRepo.ki_dir" href="#ki.types.KiRepo.ki_dir">ki_dir</a></code></li>
-<li><code><a title="ki.types.KiRepo.last_push_file" href="#ki.types.KiRepo.last_push_file">last_push_file</a></code></li>
+<li><code><a title="ki.types.KiRepo.ki" href="#ki.types.KiRepo.ki">ki</a></code></li>
 <li><code><a title="ki.types.KiRepo.models_file" href="#ki.types.KiRepo.models_file">models_file</a></code></li>
 <li><code><a title="ki.types.KiRepo.repo" href="#ki.types.KiRepo.repo">repo</a></code></li>
 <li><code><a title="ki.types.KiRepo.root" href="#ki.types.KiRepo.root">root</a></code></li>
 </ul>
 </li>
 <li>
-<h4><code><a title="ki.types.KiRepoRef" href="#ki.types.KiRepoRef">KiRepoRef</a></code></h4>
+<h4><code><a title="ki.types.KiRev" href="#ki.types.KiRev">KiRev</a></code></h4>
 <ul class="">
-<li><code><a title="ki.types.KiRepoRef.kirepo" href="#ki.types.KiRepoRef.kirepo">kirepo</a></code></li>
-<li><code><a title="ki.types.KiRepoRef.sha" href="#ki.types.KiRepoRef.sha">sha</a></code></li>
+<li><code><a title="ki.types.KiRev.kirepo" href="#ki.types.KiRev.kirepo">kirepo</a></code></li>
+<li><code><a title="ki.types.KiRev.sha" href="#ki.types.KiRev.sha">sha</a></code></li>
 </ul>
 </li>
 <li>
-<h4><code><a title="ki.types.LatentSymlink" href="#ki.types.LatentSymlink">LatentSymlink</a></code></h4>
+<h4><code><a title="ki.types.Link" href="#ki.types.Link">Link</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.Leaves" href="#ki.types.Leaves">Leaves</a></code></h4>
+<h4><code><a title="ki.types.MaximumWindowsLinkChainingDepthExceededError" href="#ki.types.MaximumWindowsLinkChainingDepthExceededError">MaximumWindowsLinkChainingDepthExceededError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.MediaBytes" href="#ki.types.MediaBytes">MediaBytes</a></code></h4>
 <ul class="">
-<li><code><a title="ki.types.Leaves.dirs" href="#ki.types.Leaves.dirs">dirs</a></code></li>
-<li><code><a title="ki.types.Leaves.files" href="#ki.types.Leaves.files">files</a></code></li>
-<li><code><a title="ki.types.Leaves.root" href="#ki.types.Leaves.root">root</a></code></li>
+<li><code><a title="ki.types.MediaBytes.file" href="#ki.types.MediaBytes.file">file</a></code></li>
+<li><code><a title="ki.types.MediaBytes.new" href="#ki.types.MediaBytes.new">new</a></code></li>
+<li><code><a title="ki.types.MediaBytes.old" href="#ki.types.MediaBytes.old">old</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="ki.types.MediaDirectoryDeckNameCollisionWarning" href="#ki.types.MediaDirectoryDeckNameCollisionWarning">MediaDirectoryDeckNameCollisionWarning</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.MissingDirectoryError" href="#ki.types.MissingDirectoryError">MissingDirectoryError</a></code></h4>
@@ -2891,9 +3387,6 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.MissingMediaDirectoryError" href="#ki.types.MissingMediaDirectoryError">MissingMediaDirectoryError</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.MissingMediaFileWarning" href="#ki.types.MissingMediaFileWarning">MissingMediaFileWarning</a></code></h4>
-</li>
-<li>
 <h4><code><a title="ki.types.MissingNoteIdError" href="#ki.types.MissingNoteIdError">MissingNoteIdError</a></code></h4>
 </li>
 <li>
@@ -2901,6 +3394,9 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.MissingTidyExecutableError" href="#ki.types.MissingTidyExecutableError">MissingTidyExecutableError</a></code></h4>
+</li>
+<li>
+<h4><code><a title="ki.types.MissingWindowsLinkTarget" href="#ki.types.MissingWindowsLinkTarget">MissingWindowsLinkTarget</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a></code></h4>
@@ -2913,9 +3409,6 @@ class WrittenNoteFile:
 </li>
 <li>
 <h4><code><a title="ki.types.NonEmptyWorkingTreeError" href="#ki.types.NonEmptyWorkingTreeError">NonEmptyWorkingTreeError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.types.NotAnkiNoteWarning" href="#ki.types.NotAnkiNoteWarning">NotAnkiNoteWarning</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.NotKiRepoError" href="#ki.types.NotKiRepoError">NotKiRepoError</a></code></h4>
@@ -2963,6 +3456,9 @@ class WrittenNoteFile:
 </ul>
 </li>
 <li>
+<h4><code><a title="ki.types.NotetypeCollisionWarning" href="#ki.types.NotetypeCollisionWarning">NotetypeCollisionWarning</a></code></h4>
+</li>
+<li>
 <h4><code><a title="ki.types.NotetypeKeyError" href="#ki.types.NotetypeKeyError">NotetypeKeyError</a></code></h4>
 </li>
 <li>
@@ -2977,7 +3473,14 @@ class WrittenNoteFile:
 </ul>
 </li>
 <li>
-<h4><code><a title="ki.types.PathCreationCollisionError" href="#ki.types.PathCreationCollisionError">PathCreationCollisionError</a></code></h4>
+<h4><code><a title="ki.types.PlannedLink" href="#ki.types.PlannedLink">PlannedLink</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.PlannedLink.link" href="#ki.types.PlannedLink.link">link</a></code></li>
+<li><code><a title="ki.types.PlannedLink.tgt" href="#ki.types.PlannedLink.tgt">tgt</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.types.PseudoFile" href="#ki.types.PseudoFile">PseudoFile</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.PushResult" href="#ki.types.PushResult">PushResult</a></code></h4>
@@ -2990,10 +3493,21 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.RenamedMediaFileWarning" href="#ki.types.RenamedMediaFileWarning">RenamedMediaFileWarning</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.RepoRef" href="#ki.types.RepoRef">RepoRef</a></code></h4>
+<h4><code><a title="ki.types.Rev" href="#ki.types.Rev">Rev</a></code></h4>
 <ul class="">
-<li><code><a title="ki.types.RepoRef.repo" href="#ki.types.RepoRef.repo">repo</a></code></li>
-<li><code><a title="ki.types.RepoRef.sha" href="#ki.types.RepoRef.sha">sha</a></code></li>
+<li><code><a title="ki.types.Rev.repo" href="#ki.types.Rev.repo">repo</a></code></li>
+<li><code><a title="ki.types.Rev.sha" href="#ki.types.Rev.sha">sha</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="ki.types.Root" href="#ki.types.Root">Root</a></code></h4>
+<ul class="two-column">
+<li><code><a title="ki.types.Root.children" href="#ki.types.Root.children">children</a></code></li>
+<li><code><a title="ki.types.Root.deckd" href="#ki.types.Root.deckd">deckd</a></code></li>
+<li><code><a title="ki.types.Root.did" href="#ki.types.Root.did">did</a></code></li>
+<li><code><a title="ki.types.Root.fullname" href="#ki.types.Root.fullname">fullname</a></code></li>
+<li><code><a title="ki.types.Root.mediad" href="#ki.types.Root.mediad">mediad</a></code></li>
+<li><code><a title="ki.types.Root.node" href="#ki.types.Root.node">node</a></code></li>
 </ul>
 </li>
 <li>
@@ -3006,7 +3520,13 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.StrangeExtantPathError" href="#ki.types.StrangeExtantPathError">StrangeExtantPathError</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.Symlink" href="#ki.types.Symlink">Symlink</a></code></h4>
+<h4><code><a title="ki.types.Submodule" href="#ki.types.Submodule">Submodule</a></code></h4>
+<ul class="">
+<li><code><a title="ki.types.Submodule.branch" href="#ki.types.Submodule.branch">branch</a></code></li>
+<li><code><a title="ki.types.Submodule.rel_root" href="#ki.types.Submodule.rel_root">rel_root</a></code></li>
+<li><code><a title="ki.types.Submodule.sm" href="#ki.types.Submodule.sm">sm</a></code></li>
+<li><code><a title="ki.types.Submodule.sm_repo" href="#ki.types.Submodule.sm_repo">sm_repo</a></code></li>
+</ul>
 </li>
 <li>
 <h4><code><a title="ki.types.TargetExistsError" href="#ki.types.TargetExistsError">TargetExistsError</a></code></h4>
@@ -3021,9 +3541,6 @@ class WrittenNoteFile:
 </ul>
 </li>
 <li>
-<h4><code><a title="ki.types.UnPushedPathWarning" href="#ki.types.UnPushedPathWarning">UnPushedPathWarning</a></code></h4>
-</li>
-<li>
 <h4><code><a title="ki.types.UnhealthyNoteWarning" href="#ki.types.UnhealthyNoteWarning">UnhealthyNoteWarning</a></code></h4>
 </li>
 <li>
@@ -3033,11 +3550,7 @@ class WrittenNoteFile:
 <h4><code><a title="ki.types.UpdatesRejectedError" href="#ki.types.UpdatesRejectedError">UpdatesRejectedError</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.WrittenNoteFile" href="#ki.types.WrittenNoteFile">WrittenNoteFile</a></code></h4>
-<ul class="">
-<li><code><a title="ki.types.WrittenNoteFile.did" href="#ki.types.WrittenNoteFile.did">did</a></code></li>
-<li><code><a title="ki.types.WrittenNoteFile.file" href="#ki.types.WrittenNoteFile.file">file</a></code></li>
-</ul>
+<h4><code><a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.WrongFieldCountWarning" href="#ki.types.WrongFieldCountWarning">WrongFieldCountWarning</a></code></h4>
