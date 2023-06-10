@@ -159,6 +159,8 @@ T = TypeVar("T")
 NoteId, DeckId, CardId = int, int, int
 CardFileMap = Dict[DeckId, List[CardFile]]
 
+GITATTRS_FILE = ".gitattributes"
+
 UTF8 = "UTF-8"
 URLS = "(https?|ftp)://"
 MEDIA = M.MEDIA
@@ -1681,6 +1683,7 @@ def _clone(
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
+    (targetdir / GITATTRS_FILE).write_text(f"*.md linguist-detectable\n")
 
     # Write note files to disk and commit.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
