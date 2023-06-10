@@ -46,7 +46,7 @@ from beartype.typing import (
     Union,
 )
 
-# pylint: disable=invalid-name, too-few-public-methods
+# pylint: disable=invalid-name, no-self-use, too-few-public-methods
 
 BACKTICKS = &#34;```\n&#34;
 
@@ -62,6 +62,16 @@ class Field:
 
 @beartype
 @dataclass(frozen=True)
+class Header:
+    &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
+
+    title: str
+    guid: str
+    model: str
+
+
+@beartype
+@dataclass(frozen=True)
 class FlatNote:
     &#34;&#34;&#34;Flat (as possible) representation of a note.&#34;&#34;&#34;
 
@@ -70,16 +80,6 @@ class FlatNote:
     model: str
     tags: List[str]
     fields: Dict[str, str]
-
-
-@beartype
-@dataclass(frozen=True)
-class Header:
-    &#34;&#34;&#34;Note metadata.&#34;&#34;&#34;
-
-    title: str
-    guid: str
-    model: str
 
 
 class NoteTransformer(Transformer):
@@ -107,7 +107,7 @@ class NoteTransformer(Transformer):
           Back
         s
     &#34;&#34;&#34;
-    # pylint: disable=no-self-use, missing-function-docstring
+    # pylint: disable=missing-function-docstring
 
     @beartype
     def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
@@ -154,6 +154,7 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         content = &#34;&#34;.join(lines)
         if content[-2:] != &#34;\n\n&#34;:
+            print(lines)
             raise RuntimeError(
                 f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
             )
@@ -185,10 +186,6 @@ class NoteTransformer(Transformer):
 
     @beartype
     def FIELDLINE(self, t: Token) -&gt; str:
-        return str(t)
-
-    @beartype
-    def EMPTYFIELD(self, t: Token) -&gt; str:
         return str(t)
 
     @beartype
@@ -380,7 +377,7 @@ s</p></div>
           Back
         s
     &#34;&#34;&#34;
-    # pylint: disable=no-self-use, missing-function-docstring
+    # pylint: disable=missing-function-docstring
 
     @beartype
     def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
@@ -427,6 +424,7 @@ s</p></div>
         lines = f[1:]
         content = &#34;&#34;.join(lines)
         if content[-2:] != &#34;\n\n&#34;:
+            print(lines)
             raise RuntimeError(
                 f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
             )
@@ -458,10 +456,6 @@ s</p></div>
 
     @beartype
     def FIELDLINE(self, t: Token) -&gt; str:
-        return str(t)
-
-    @beartype
-    def EMPTYFIELD(self, t: Token) -&gt; str:
         return str(t)
 
     @beartype
@@ -500,20 +494,6 @@ s</p></div>
 </summary>
 <pre><code class="python">@beartype
 def ANKINAME(self, t: Token) -&gt; str:
-    return str(t)</code></pre>
-</details>
-</dd>
-<dt id="ki.transformer.NoteTransformer.EMPTYFIELD"><code class="name flex">
-<span>def <span class="ident">EMPTYFIELD</span></span>(<span>self, t: lark.lexer.Token) ‑> str</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def EMPTYFIELD(self, t: Token) -&gt; str:
     return str(t)</code></pre>
 </details>
 </dd>
@@ -619,6 +599,7 @@ def field(self, f: List[str]) -&gt; Field:
     lines = f[1:]
     content = &#34;&#34;.join(lines)
     if content[-2:] != &#34;\n\n&#34;:
+        print(lines)
         raise RuntimeError(
             f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
         )
@@ -791,7 +772,6 @@ def title(self, t: List[str]) -&gt; str:
 <h4><code><a title="ki.transformer.NoteTransformer" href="#ki.transformer.NoteTransformer">NoteTransformer</a></code></h4>
 <ul class="two-column">
 <li><code><a title="ki.transformer.NoteTransformer.ANKINAME" href="#ki.transformer.NoteTransformer.ANKINAME">ANKINAME</a></code></li>
-<li><code><a title="ki.transformer.NoteTransformer.EMPTYFIELD" href="#ki.transformer.NoteTransformer.EMPTYFIELD">EMPTYFIELD</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.FIELDLINE" href="#ki.transformer.NoteTransformer.FIELDLINE">FIELDLINE</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.GUID" href="#ki.transformer.NoteTransformer.GUID">GUID</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.NOTETYPE" href="#ki.transformer.NoteTransformer.NOTETYPE">NOTETYPE</a></code></li>
