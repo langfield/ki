@@ -608,8 +608,9 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
 @beartype
 def backup(kirepo: KiRepo) -> int:
     """Backup collection to `.ki/backups`."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
     md5sum = F.md5(kirepo.col_file)
-    name = f"{md5sum}.anki2"
+    name = f"{timestamp}--{md5sum}.anki2"
     backup_file = F.chk(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
