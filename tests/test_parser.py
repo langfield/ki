@@ -840,6 +840,7 @@ def test_tag_validation():
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 
+
 WEIRD_BUG = r"""# Note
 ```
 guid: L>KHLS3F1w
@@ -861,14 +862,19 @@ Ctrl+L
 
 """
 
+
 def test_parser_handles_leading_newlines_in_fields():
     """Does the parser handle this seemingly fine note?"""
     parser = get_parser()
     transformer = NoteTransformer()
     tree = parser.parse(WEIRD_BUG)
     flatnote = transformer.transform(tree)
-    assert flatnote.fields["Front"] == "\nEdit the layout/card types from the editor or browser\n"
+    assert (
+        flatnote.fields["Front"]
+        == "\nEdit the layout/card types from the editor or browser\n"
+    )
     assert flatnote.fields["Back"] == "\nCtrl+L\n"
+
 
 def test_parser_handles_special_characters_in_guid():
     """In particular, does it allow colons?"""

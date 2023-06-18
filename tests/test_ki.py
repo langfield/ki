@@ -68,7 +68,6 @@ from ki import (
     check_fields_health,
     is_anki_note,
     parse_note,
-    lock,
     write_repository,
     get_target,
     push_note,
@@ -86,13 +85,11 @@ from ki import (
 from ki.types import (
     NoFile,
     PseudoFile,
-    WindowsLink,
     ExpectedEmptyDirectoryButGotNonEmptyDirectoryError,
     StrangeExtantPathError,
     MissingNotetypeError,
     MissingFieldOrdinalError,
     MissingNoteIdError,
-    ExpectedNonexistentPathError,
     DiffTargetFileNotFoundWarning,
     NotetypeKeyError,
     UnnamedNotetypeError,
@@ -1624,7 +1621,11 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
 
 def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
     """Are newlines stripped from all found media filenames?"""
-    s = 'Wie sieht die Linkstruktur von einem Hub in einem Web-Graphen aus?\x1fEin guter Hub zeigt auf viele Authorities:\n<div><img src=\n"paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg"></div>'
+    s = (
+        "Wie sieht die Linkstruktur von einem Hub in einem Web-Graphen aus?"
+        "\x1fEin guter Hub zeigt auf viele Authorities:"
+        '\n<div><img src=\n"paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg"></div>'
+    )
     mock = mocker.MagicMock()
     mock.__class__ = Collection
     mock.media.regexps = [
@@ -1645,7 +1646,7 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     col = open_collection(ORIGINAL.col_file)
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
-    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    write_decks(col, Dir(tmp_path), colnotes, {}, {})
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
@@ -1707,7 +1708,7 @@ def test_write_decks_warns_about_media_deck_name_collisions(
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     mock = mocker.patch("ki.warn")
-    links: Set[WindowsLink] = write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    write_decks(col, Dir(tmp_path), colnotes, {}, {})
 
     mock.assert_called_once()
     args = mock.call_args

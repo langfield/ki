@@ -103,7 +103,7 @@ def main() -> None:
     repo.index.commit(f"Remove '{args.deck}'")
 
     # Add, initialize, and update the submodule.
-    repo.git.submodule("add", args.remote, args.deck)
+    repo.create_submodule(url=args.remote, name=args.deck, path=args.deck, allow_unsafe_protocols=True)
     repo.git.submodule("init")
     repo.git.submodule("update")
 

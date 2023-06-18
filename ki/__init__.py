@@ -1728,6 +1728,7 @@ def pull() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
+        unlock(con)
         return
 
     _pull(kirepo)
@@ -1947,6 +1948,7 @@ def push() -> PushResult:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
+        unlock(con)
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
