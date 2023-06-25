@@ -1013,7 +1013,7 @@ def test_pull_succeeds_with_new_submodules(tmp_path: Path):
         remote_path = str(Path(os.path.abspath(rem.working_dir)) / ".git")
 
         # Here we call submodule.py
-        p = subprocess.run(
+        subprocess.run(
             [
                 "python3",
                 submodule_py_path,

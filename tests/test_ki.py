@@ -75,7 +75,7 @@ from ki import (
     append_md5sum,
     copy_media_files,
     diff2,
-    _clone,
+    _clone2,
     add_db_note,
     tidy_html_recursively,
     media_filenames_in_field,
@@ -810,7 +810,7 @@ def get_diff2_args() -> Tuple[git.Repo, Callable[[Delta], DeckNote]]:
     head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     parser, transformer = M.parser_and_transformer()

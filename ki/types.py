@@ -501,7 +501,6 @@ class MissingNotetypeError(RuntimeError):
 
 # TODO: We should also print which field ordinals *are* valid.
 class MissingFieldOrdinalError(RuntimeError):
-
     # pylint: disable=redefined-builtin
 
     @beartype

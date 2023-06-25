@@ -11,7 +11,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
-# pylint: disable=no-value-for-parameter, not-callable
+# pylint: disable=no-value-for-parameter, not-callable, unnecessary-lambda-assignment
 
 import os
 import re
@@ -1591,6 +1591,20 @@ def merge_new_sm(x: Tuple[Dir, Submodule]) -> None:
     sm.sm_repo.delete_remote(remote)
 
 
+@beartype
+def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
+    """Cleans up after failed clone operations."""
+    try:
+        if new:
+            return F.rmtree(targetdir)
+        _, dirs, files = F.shallow_walk(targetdir)
+        do(F.rmtree, dirs)
+        do(os.remove, files)
+    except PermissionError as _:
+        pass
+    return F.chk(targetdir)
+
+
 @click.group()
 @click.version_option()
 @beartype
@@ -1607,36 +1621,18 @@ def ki() -> None:
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
 def clone(collection: str, directory: str = "") -> None:
-    """
-    Clone an Anki collection into a directory.
+    """Clone an Anki collection into a directory."""
+    _clone1(collection, directory)
 
-    Parameters
-    ----------
-    collection : str
-        The path to an `.anki2` collection file.
-    directory : str, default=""
-        An optional path to a directory to clone the collection into.
-        Note: we check that this directory does not yet exist.
-    """
+
+@beartype
+def _clone1(collection: str, directory: str = "") -> None:
+    """Execute a clone op."""
     col_file: File = M.xfile(Path(collection))
-
-    @beartype
-    def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
-        """Cleans up after failed clone operations."""
-        try:
-            if new:
-                return F.rmtree(targetdir)
-            _, dirs, files = F.shallow_walk(targetdir)
-            do(F.rmtree, dirs)
-            do(os.remove, files)
-        except PermissionError as _:
-            pass
-        return F.chk(targetdir)
-
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+        _, _ = _clone2(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
@@ -1647,7 +1643,7 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def _clone(
+def _clone2(
     col_file: File,
     targetdir: EmptyDir,
     msg: str,
@@ -1684,7 +1680,7 @@ def _clone(
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
-    (targetdir / GITATTRS_FILE).write_text(f"*.md linguist-detectable\n")
+    (targetdir / GITATTRS_FILE).write_text("*.md linguist-detectable\n")
 
     # Write note files to disk and commit.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
@@ -1716,10 +1712,13 @@ def _clone(
 @ki.command()
 @beartype
 def pull() -> None:
-    """
-    Pull from a preconfigured remote Anki collection into an existing ki
-    repository.
-    """
+    """Pull changes into the current ki repository from an Anki collection."""
+    _pull1()
+
+
+@beartype
+def _pull1() -> None:
+    """Execute a pull op."""
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -1731,12 +1730,12 @@ def pull() -> None:
         unlock(con)
         return
 
-    _pull(kirepo)
+    _pull2(kirepo)
     unlock(con)
 
 
 @beartype
-def _pull(kirepo: KiRepo) -> None:
+def _pull2(kirepo: KiRepo) -> None:
     """
     Pull into `kirepo` without checking if we are already up-to-date.
 
@@ -1783,7 +1782,7 @@ def _pull(kirepo: KiRepo) -> None:
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, branch = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
+    remote_repo, branch = _clone2(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
@@ -1895,30 +1894,14 @@ def _pull(kirepo: KiRepo) -> None:
 
 @ki.command()
 @beartype
-def push() -> PushResult:
-    """
-    Push a ki repository into a .anki2 file.
+def push() -> None:
+    """Push commits from the currrent ki repository into an Anki collection."""
+    _push()
 
-    Consists of the following operations:
 
-        - Clone collection into a temp directory
-        - Delete all files and folders except `.git/`
-        - Copy into this temp directory all files and folders from the current
-          repository checked out at HEAD (excluding `.git*` stuff).
-        - Unsubmodule repo
-        - Add and commit everything
-        - Take diff from `HEAD~1` to `HEAD`.
-
-    Returns
-    -------
-    PushResult
-        An `Enum` indicating whether the push was nontrivial.
-
-    Raises
-    ------
-    UpdatesRejectedError
-        If the user needs to pull remote changes first.
-    """
+@beartype
+def _push() -> PushResult:
+    """Execute a push op."""
     # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
@@ -1935,7 +1918,7 @@ def push() -> PushResult:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
 
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
