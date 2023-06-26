@@ -1626,7 +1626,7 @@ def clone(collection: str, directory: str = "") -> None:
 
 
 @beartype
-def _clone1(collection: str, directory: str = "") -> None:
+def _clone1(collection: str, directory: str = "") -> git.Repo:
     """Execute a clone op."""
     col_file: File = M.xfile(Path(collection))
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
@@ -1637,6 +1637,7 @@ def _clone1(collection: str, directory: str = "") -> None:
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
         gc.collect()
+        return kirepo.repo
     except Exception as err:
         cleanup(targetdir, new)
         raise err

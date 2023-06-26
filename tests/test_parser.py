@@ -20,6 +20,7 @@ from ki import NoteTransformer
 # pylint: disable=too-many-lines, missing-function-docstring
 
 BAD_ASCII_CONTROLS = ["\0", "\a", "\b", "\v", "\f"]
+NOTES_DIR = Path(__file__).parent / "data" / "notes"
 
 
 def get_parser():
@@ -879,9 +880,7 @@ def test_parser_handles_leading_newlines_in_fields():
 def test_parser_handles_special_characters_in_guid():
     """In particular, does it allow colons?"""
     parser = get_parser()
-    good = Path("tests/data/notes/special_characters_in_guid.md").read_text(
-        encoding="UTF-8"
-    )
+    good = (NOTES_DIR / "special_characters_in_guid.md").read_text(encoding="UTF-8")
     try:
         parser.parse(good)
     except UnexpectedToken as err:
@@ -891,7 +890,7 @@ def test_parser_handles_special_characters_in_guid():
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
-    goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
+    goods = (NOTES_DIR / "good.md").read_text(encoding="UTF-8").split("---\n")
     for good in goods:
         try:
             parser.parse(good)
@@ -902,7 +901,7 @@ def test_parser_goods():
 def test_transformer():
     """Try out transformer."""
     parser = get_parser()
-    note = Path("tests/data/notes/noteLARK.md").read_text(encoding="UTF-8")
+    note = (NOTES_DIR / "noteLARK.md").read_text(encoding="UTF-8")
     tree = parser.parse(note)
     transformer = NoteTransformer()
     transformer.transform(tree)
@@ -912,7 +911,7 @@ def test_transformer_goods():
     """Try all good note examples."""
     parser = get_parser()
     transformer = NoteTransformer()
-    goods = Path("tests/data/notes/good.md").read_text(encoding="UTF-8").split("---\n")
+    goods = (NOTES_DIR / "good.md").read_text(encoding="UTF-8").split("---\n")
     for good in goods:
         try:
             tree = parser.parse(good)
