@@ -15,19 +15,21 @@ import git
 import pytest
 from loguru import logger
 from pytest_mock import MockerFixture
+
+import anki
 from anki.collection import Note, Collection
 
 from beartype import beartype
-from beartype.typing import List
+from beartype.typing import List, Tuple, Dict, Union
 
 import ki
 import ki.maybes as M
 import ki.functional as F
-from ki import MEDIA, LCA, _clone1
+from ki import MEDIA, LCA, _clone1, do
 from ki.types import (
-    KiRepo,
     Notetype,
     ColNote,
+    Dir,
     File,
     TargetExistsError,
     NotKiRepoError,
@@ -38,6 +40,7 @@ from ki.types import (
     MissingFieldOrdinalError,
     AnkiAlreadyOpenError,
 )
+from ki.functional import curried
 from tests.test_ki import (
     open_collection,
     GITREPO_PATH,
@@ -80,6 +83,7 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name, duplicate-code
 # pylint: disable=missing-function-docstring, too-many-locals, no-value-for-parameter
+# pylint: disable=unused-argument
 
 
 EDITED: SampleCollection = get_test_collection("edited")
@@ -157,9 +161,7 @@ def test_computes_and_stores_md5sum():
     clone(ORIGINAL.col_file)
 
     # Check that hash is written.
-    with open(
-        os.path.join(ORIGINAL.repodir, ".ki/hashes"), encoding="UTF-8"
-    ) as hashes_file:
+    with open(".ki/hashes", encoding="UTF-8") as hashes_file:
         hashes = hashes_file.read()
         assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
         assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" not in hashes
@@ -168,14 +170,10 @@ def test_computes_and_stores_md5sum():
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
 
     # Pull edited collection.
-    os.chdir(ORIGINAL.repodir)
     pull()
-    os.chdir("../")
 
     # Check that edited hash is written and old hash is still there.
-    with open(
-        os.path.join(ORIGINAL.repodir, ".ki/hashes"), encoding="UTF-8"
-    ) as hashes_file:
+    with open(".ki/hashes", encoding="UTF-8") as hashes_file:
         hashes = hashes_file.read()
         assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
         assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" in hashes
@@ -186,9 +184,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
     ORIGINAL: SampleCollection = get_test_collection("original")
     # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    assert os.path.isdir(ORIGINAL.repodir)
-
-    os.chdir(ORIGINAL.repodir)
     out = pull()
     assert "Merge made by the" not in out
     push()
@@ -206,13 +201,12 @@ def test_no_op_pull_push_cycle_is_idempotent():
 def test_output():
     """Does it print nice things?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-    out = clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Edit collection.
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
 
     # Pull edited collection.
-    os.chdir(ORIGINAL.repodir)
     out = pull()
 
     # Modify local repository.
@@ -223,13 +217,10 @@ def test_output():
     shutil.copyfile(NOTE_3_PATH, NOTE_3)
 
     # Commit.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
 
     # Push changes.
-    os.chdir(ORIGINAL.repodir)
     out = push()
     assert "Overwrote" in out
 
@@ -263,7 +254,7 @@ def test_clone_creates_directory():
 
     # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
+    os.chdir("../")
     assert os.path.isdir(ORIGINAL.repodir)
 
 
@@ -273,9 +264,8 @@ def test_clone_handles_html():
 
     # Clone collection in cwd.
     clone(HTML.col_file)
-    assert os.path.isdir(HTML.repodir)
 
-    path = Path(".") / HTML.repodir / "Default" / "あだ名.md"
+    path = Path("Default") / "あだ名.md"
     contents = path.read_text(encoding="UTF-8")
     snippet = """<table class="kanji-match">\n    """
     snippet += """<tbody>\n      """
@@ -289,9 +279,8 @@ def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
 
     # Clone collection in cwd.
     clone(HTML.col_file)
-    assert os.path.isdir(HTML.repodir)
 
-    path = Path(".") / HTML.repodir / "Default" / "on-evil.md"
+    path = Path("Default") / "on-evil.md"
     contents = path.read_text(encoding="UTF-8")
 
     # This line should not be broken.
@@ -321,6 +310,7 @@ def test_clone_cleans_up_on_error():
     HTML: SampleCollection = get_test_collection("html")
 
     clone(HTML.col_file)
+    os.chdir("../")
     assert os.path.isdir(HTML.repodir)
     F.rmtree(F.chk(Path(HTML.repodir)))
     old_path = os.environ["PATH"]
@@ -328,6 +318,7 @@ def test_clone_cleans_up_on_error():
         with pytest.raises(FileNotFoundError):
             os.environ["PATH"] = ""
             clone(HTML.col_file)
+        os.chdir("../")
         assert not os.path.isdir(HTML.repodir)
     finally:
         os.environ["PATH"] = old_path
@@ -356,6 +347,7 @@ def test_clone_displays_nice_errors_for_missing_dependencies():
     HTML: SampleCollection = get_test_collection("html")
 
     clone(HTML.col_file)
+    os.chdir("../")
     assert os.path.isdir(HTML.repodir)
     F.rmtree(F.chk(Path(HTML.repodir)))
     old_path = os.environ["PATH"]
@@ -414,13 +406,13 @@ def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
-    cloned_note_path = os.path.join(ORIGINAL.repodir, NOTE_0)
+    cloned_note_path = NOTE_0
 
     # Clone collection in cwd.
     clone(ORIGINAL.col_file)
 
     # Check that deck directory is created.
-    assert os.path.isdir(os.path.join(ORIGINAL.repodir, "Default"))
+    assert os.path.isdir("Default")
 
     # Compute hashes.
     cloned_md5 = F.md5(File(cloned_note_path))
@@ -433,15 +425,15 @@ def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     MULTIDECK: SampleCollection = get_test_collection("multideck")
     true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
-    cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
+    cloned_note_path = MULTI_NOTE_PATH
 
     # Clone collection in cwd.
     clone(MULTIDECK.col_file)
 
     # Check that deck directory is created and all subdirectories.
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "Default"))
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/bb/cc"))
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
+    assert os.path.isdir("Default")
+    assert os.path.isdir("aa/bb/cc")
+    assert os.path.isdir("aa/dd")
 
     # Compute hashes.
     cloned_md5 = F.md5(File(cloned_note_path))
@@ -453,42 +445,25 @@ def test_clone_generates_deck_tree_correctly():
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Check kidir exists.
-    kidir = os.path.join(ORIGINAL.repodir, ".ki/")
-    assert os.path.isdir(kidir)
+    assert os.path.isdir(".ki/")
 
 
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
+    os.chdir("../")
     assert is_git_repo(ORIGINAL.repodir)
 
 
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Construct repo object.
-    repo = git.Repo(ORIGINAL.repodir)
-
-    # Make sure there are no changes.
+    repo, _ = clone(ORIGINAL.col_file)
     changes = repo.head.commit.diff()
-    assert len(changes) == 0
-
-    # Make sure there is exactly 1 commit.
     commits = list(repo.iter_commits("HEAD"))
-    assert len(commits) == 1
+    assert len(changes) == 0 and len(commits) == 1
 
 
 def test_clone_leaves_collection_file_unchanged():
@@ -520,20 +495,16 @@ def test_clone_directory_argument_works():
 def test_clone_writes_media_files():
     """Does clone copy media files from the media directory into 'MEDIA'?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
-
     clone(MEDIACOL.col_file)
-    dot_media_path = Path("media") / MEDIA
-    audio_path = dot_media_path / "1sec.mp3"
-    assert dot_media_path.is_dir()
-    assert audio_path.is_file()
+    assert (Path(MEDIA) / "1sec.mp3").is_file()
 
 
 def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
     SPLIT: SampleCollection = get_test_collection("split")
 
     clone(SPLIT.col_file)
-    two = Path(SPLIT.repodir) / "top" / "b" / "a_Card 2.md"
-    orig = Path(SPLIT.repodir) / "top" / "a" / "a.md"
+    two = Path("top") / "b" / "a_Card 2.md"
+    orig = Path("top") / "a" / "a.md"
 
     if sys.platform == "win32":
         assert two.read_text(encoding="UTF-8") == r"../../top/a/a.md"
@@ -545,10 +516,10 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
 def test_clone_writes_plaintext_posix_symlinks_on_windows():
     SYMLINKS: SampleCollection = get_test_collection("symlinks")
 
-    clone(SYMLINKS.col_file)
+    repo, _ = clone(SYMLINKS.col_file)
 
     # Verify that there are no symlinks in the cloned sample repo.
-    for root, _, files in os.walk(SYMLINKS.repodir):
+    for root, _, files in os.walk("."):
         for file in files:
             path = os.path.join(root, file)
             if sys.platform == "win32":
@@ -566,7 +537,6 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows():
     winlinks = {str(link) for link in winlinks}
 
     # Check that each windows symlink has the correct file mode.
-    repo = git.Repo(SYMLINKS.repodir)
     for entry in repo.commit().tree.traverse():
         path = entry.path
         if isinstance(entry, git.Blob) and path in winlinks:
@@ -576,10 +546,7 @@ def test_clone_writes_plaintext_posix_symlinks_on_windows():
 
 def test_clone_url_decodes_media_src_attributes():
     DOUBLE: SampleCollection = get_test_collection("no_double_encodings")
-
     clone(DOUBLE.col_file)
-
-    os.chdir(DOUBLE.repodir)
     path = Path("DeepLearning for CV") / "list-some-pros-and-cons-of-dl.md"
     with open(path, "r", encoding="UTF-8") as f:
         contents: str = f.read()
@@ -589,11 +556,7 @@ def test_clone_url_decodes_media_src_attributes():
 def test_clone_leaves_no_working_tree_changes():
     """Does everything get committed at the end of a `clone()`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    repo = git.Repo(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
     assert not repo.is_dirty()
 
 
@@ -603,28 +566,17 @@ def test_clone_leaves_no_working_tree_changes():
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Delete collection and try to pull.
     os.remove(ORIGINAL.col_file)
     with pytest.raises(FileNotFoundError):
-        os.chdir(ORIGINAL.repodir)
         pull()
 
 
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Overwrite collection and try to pull.
     ORIGINAL.col_file.write_text("bad_contents")
-
-    os.chdir(ORIGINAL.repodir)
     with pytest.raises(SQLiteLockError):
         pull()
 
@@ -632,16 +584,9 @@ def test_pull_fails_if_collection_file_is_corrupted():
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    assert not os.path.isfile(os.path.join(ORIGINAL.repodir, NOTE_1))
-
-    # Edit collection.
+    assert not os.path.isfile(NOTE_1)
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
-    os.chdir(ORIGINAL.repodir)
     pull()
     assert os.path.isfile(NOTE_1)
 
@@ -649,33 +594,19 @@ def test_pull_writes_changes_correctly():
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    orig_hash = checksum_git_repository(ORIGINAL.repodir)
-
-    # Pull updated collection.
-    os.chdir(ORIGINAL.repodir)
+    orig_hash = checksum_git_repository(".")
     pull()
-    os.chdir("../")
-    new_hash = checksum_git_repository(ORIGINAL.repodir)
-
+    new_hash = checksum_git_repository(".")
     assert orig_hash == new_hash
 
 
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    assert not os.path.isfile(os.path.join(ORIGINAL.repodir, NOTE_1))
-
-    # Edit collection.
+    assert not os.path.isfile(NOTE_1)
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
-    os.chdir(ORIGINAL.repodir)
     out = pull()
     assert "Automatic merge failed; fix" not in out
 
@@ -683,33 +614,19 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    assert not os.path.isfile(os.path.join(ORIGINAL.repodir, NOTE_1))
-
-    # Edit collection.
+    assert not os.path.isfile(NOTE_1)
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
-    os.chdir(os.path.join(ORIGINAL.repodir, "Default"))
+    os.chdir("Default")
     pull()
 
 
 def test_pull_displays_errors_from_rev():
     """Does 'pull()' return early when the last push tag is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    kirepo: KiRepo = M.kirepo(F.chk(Path(ORIGINAL.repodir)))
-    kirepo.repo.delete_tag(LCA)
-
-    # Edit collection.
+    repo, _ = clone(ORIGINAL.col_file)
+    repo.delete_tag(LCA)
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    os.chdir(ORIGINAL.repodir)
     with pytest.raises(ValueError) as err:
         pull()
     assert LCA in str(err)
@@ -717,50 +634,34 @@ def test_pull_displays_errors_from_rev():
 
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Edit collection.
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
     mocker.patch("ki.F.md5", side_effect=["good", "good", "good", "bad"])
-
-    os.chdir(ORIGINAL.repodir)
     with pytest.raises(CollectionChecksumError):
         pull()
 
 
 def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Edit collection.
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    git.Repo.init(Path(ORIGINAL.repodir))
+    git.Repo.init(Path("."))
     effects = [git.InvalidGitRepositoryError()]
     mocker.patch("ki.M.repo", side_effect=effects)
-
-    os.chdir(ORIGINAL.repodir)
     with pytest.raises(git.InvalidGitRepositoryError):
         pull()
 
 
 def test_pull_handles_non_standard_submodule_branch_names():
     ORIGINAL: SampleCollection = get_test_collection("original")
-
     repo: git.Repo = get_repo_with_submodules(ORIGINAL)
-    os.chdir(repo.working_dir)
 
     # Copy a new note into the submodule.
-    note_path = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+    note_path = Path(SUBMODULE_DIRNAME) / "Default" / NOTE_2
     shutil.copyfile(NOTE_2_PATH, note_path)
 
     # Get a reference to the submodule repo.
-    subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
+    subrepo = git.Repo(SUBMODULE_DIRNAME)
     subrepo.git.branch(["-m", "main", "brain"])
 
     # Commit changes in submodule and parent repo.
@@ -768,12 +669,10 @@ def test_pull_handles_non_standard_submodule_branch_names():
     subrepo.index.commit("Add a new note.")
     repo.git.add(all=True)
     repo.index.commit("Update submodule.")
-
     push()
 
     # Edit collection (implicitly removes submodule).
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
     pull()
 
 
@@ -789,26 +688,21 @@ def test_pull_handles_uncommitted_submodule_commits():
     JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
     # Clone collection.
-    clone(UNCOMMITTED_SM.col_file)
+    repo, _ = clone(UNCOMMITTED_SM.col_file)
 
     # Check that the content of a note in the collection is correct.
-    os.chdir(UNCOMMITTED_SM.repodir)
     with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8") as f:
         note_text = f.read()
         expected = "that, that one\nthat, that one\nthis, this one"
         assert expected in note_text
-    os.chdir("../")
 
     # Delete `japanese-core-2000/` subdirectory, and commit.
-    sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-    F.rmtree(F.chk(sm_dir))
-    repo = git.Repo(UNCOMMITTED_SM.repodir)
+    F.rmtree(F.chk(Path(JAPANESE_SUBMODULE_DIRNAME)))
     repo.git.add(all=True)
     repo.index.commit("Delete cloned `japanese-core-2000` folder.")
     repo.close()
 
     # Push the deletion.
-    os.chdir(UNCOMMITTED_SM.repodir)
     push()
 
     # Copy a new directory of notes to `japanese-core-2000/` subdirectory,
@@ -853,55 +747,85 @@ def test_pull_handles_uncommitted_submodule_commits():
 
 
 def test_pull_removes_files_deleted_in_remote():
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    DELETED: SampleCollection = get_test_collection("deleted")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Edit collection.
-    shutil.copyfile(DELETED.path, ORIGINAL.col_file)
-
-    os.chdir(ORIGINAL.repodir)
+    a = mkcol({"Default": [("a", "b"), ("c", "d")]})
+    b = mkcol({"Default": [("c", "d")]})
+    clone(a)
+    assert (Path("Default") / "a.md").is_file()
+    shutil.copyfile(b, a)
     pull()
+    assert not Path("Default/a.md").is_file()
 
 
 def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks():
     BEFORE: SampleCollection = get_test_collection("duplicated_subdeck_before")
     AFTER: SampleCollection = get_test_collection("duplicated_subdeck_after")
-
-    # Clone.
     clone(BEFORE.col_file)
-
-    # Edit collection.
     shutil.copyfile(AFTER.path, BEFORE.col_file)
-
-    # Pull.
-    os.chdir(BEFORE.repodir)
     pull()
-
-    # Check.
     if os.path.isdir("onlydeck"):
         for _, _, filenames in os.walk("onlydeck"):
             assert len(filenames) == 0
+
+
+NoteSpec = Tuple[str, str]
+DeckSpec = Dict[str, List[Union[NoteSpec, "DeckSpec"]]]
+
+
+@curried
+@beartype
+def mkdeck(
+    col: Collection, parent: str, x: Tuple[str, List[Union[NoteSpec, DeckSpec]]]
+) -> None:
+    name, specs = x
+    fullname = name if parent == "" else f"{parent}::{name}"
+    did = col.decks.id(fullname)
+    ns, ds = F.part(lambda s: isinstance(s, tuple), specs)
+    do(mkbasic(col, did), ns)
+    do(lambda xs: do(mkdeck(col, fullname), xs), ds)
+
+
+@curried
+@beartype
+def mkbasic(col: Collection, did: int, fields: Tuple[str, str]) -> None:
+    nt = col.models.get(col.models.id_for_name("Basic"))
+    n = col.new_note(nt)
+    a, b = fields
+    n["Front"] = a
+    n["Back"] = b
+    col.add_note(n, did)
+
+
+@beartype
+def mkcol(x: DeckSpec) -> File:
+    file = F.chk(F.mkdtemp() / "a.anki2")
+    cwd: Dir = F.cwd()
+    try:
+        col = Collection(file)
+    except anki.errors.DBError as err:
+        raise AnkiAlreadyOpenError(str(err)) from err
+    finally:
+        F.chdir(cwd)
+    do(mkdeck(col, ""), x.items())
+    col.close(save=True)
+    return F.chk(file)
+
+
+def test_dsl_pull_leaves_no_working_tree_changes():
+    a = mkcol({"Default": [("a", "b"), ("c", "d")]})
+    b = mkcol({"Default": [("c", "d")]})
+    repo, _ = clone(a)
+    shutil.copyfile(b, a)
+    pull()
+    assert not repo.is_dirty()
 
 
 def test_pull_leaves_no_working_tree_changes():
     """Does everything get committed at the end of a `pull()`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     DELETED: SampleCollection = get_test_collection("deleted")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Edit collection.
+    repo, _ = clone(ORIGINAL.col_file)
     shutil.copyfile(DELETED.path, ORIGINAL.col_file)
-
-    os.chdir(ORIGINAL.repodir)
     pull()
-    os.chdir("..")
-
-    repo = git.Repo(ORIGINAL.repodir)
     assert not repo.is_dirty()
 
 
@@ -911,8 +835,8 @@ def test_pull_succeeds_with_new_submodules():
     submodule_py_path = os.path.abspath("submodule.py")
 
     # Clone collection in cwd.
-    clone(MULTIDECK.col_file)
-    repo = git.Repo(MULTIDECK.repodir)
+    repo, _ = clone(MULTIDECK.col_file)
+    os.chdir("../")
 
     rem_path = F.mkdir(F.chk(Path("aa_remote")))
     rem = git.Repo.init(rem_path, initial_branch=BRANCH_NAME)
@@ -956,17 +880,9 @@ def test_pull_succeeds_with_new_submodules():
 def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
     """If we leave changes in the work tree, can we pull again after failure?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Edit a note file, but don't commit.
-    os.chdir(ORIGINAL.repodir)
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "a.md"))
-
-    # Edit collection.
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
     pull()
     out = pull()
     assert out != "ki pull: up to date.\n"
@@ -980,29 +896,23 @@ def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     old_notes = get_notes(ORIGINAL.col_file)
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Edit a note.
-    note = os.path.join(ORIGINAL.repodir, NOTE_0)
-    with open(note, "a", encoding="UTF-8") as note_file:
+    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
 
     # Delete a note.
-    note = os.path.join(ORIGINAL.repodir, NOTE_4)
-    os.remove(note)
+    os.remove(NOTE_4)
 
     # Add a note.
-    shutil.copyfile(NOTE_2_PATH, os.path.join(ORIGINAL.repodir, NOTE_2))
+    shutil.copyfile(NOTE_2_PATH, NOTE_2)
 
     # Commit.
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
 
     # Push and check for changes.
-    os.chdir(ORIGINAL.repodir)
     push()
     new_notes = get_notes(ORIGINAL.col_file)
 
@@ -1031,15 +941,8 @@ def test_push_writes_changes_correctly():
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Swap a bit.
     randomly_swap_1_bit(ORIGINAL.col_file)
-
-    # Make sure ki complains.
-    os.chdir(ORIGINAL.repodir)
     with pytest.raises(UpdatesRejectedError):
         push()
 
@@ -1048,49 +951,30 @@ def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     old_hash = F.md5(ORIGINAL.col_file)
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Make change in repo.
-    note = os.path.join(ORIGINAL.repodir, NOTE_0)
-    with open(note, "a", encoding="UTF-8") as note_file:
+    repo, _ = clone(ORIGINAL.col_file)
+    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
-
-    # Commit.
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
-
-    os.chdir(ORIGINAL.repodir)
     push()
     assert os.path.isdir(".ki/backups")
-
     os.chdir(".ki/backups")
     paths = os.listdir()
-
     backup_exists = False
     for path in paths:
         if F.md5(F.chk(Path(path))) == old_hash:
             backup_exists = True
-
     assert backup_exists
 
 
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-
-    # Make change in repo.
-    note = os.path.join(ORIGINAL.repodir, NOTE_0)
-    with open(note, "a", encoding="UTF-8") as note_file:
+    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
 
     # DON'T COMMIT, push.
-    os.chdir(ORIGINAL.repodir)
     out = push()
     assert "ki push: up to date." in out
     assert len(os.listdir(".ki/backups")) == 0
@@ -1099,16 +983,9 @@ def test_push_doesnt_write_uncommitted_changes():
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-    assert not os.path.isfile(os.path.join(ORIGINAL.repodir, NOTE_1))
-
-    # Edit collection.
+    repo, _ = clone(ORIGINAL.col_file)
+    assert not os.path.isfile(NOTE_1)
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
-    os.chdir(ORIGINAL.repodir)
     pull()
     assert os.path.isfile(NOTE_1)
 
@@ -1123,8 +1000,6 @@ def test_push_doesnt_fail_after_pull():
     shutil.copyfile(NOTE_3_PATH, NOTE_3)
 
     # Commit.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
     repo.close()
@@ -1132,19 +1007,13 @@ def test_push_doesnt_fail_after_pull():
     gc.collect()
 
     # Push changes.
-    os.chdir(ORIGINAL.repodir)
     push()
 
 
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    assert os.path.isdir(ORIGINAL.repodir)
-
-    os.chdir(ORIGINAL.repodir)
     push()
     push()
     push()
@@ -1156,23 +1025,13 @@ def test_no_op_push_is_idempotent():
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Remove a note file.
-    os.chdir(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
 
     # Commit the deletion.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
-
-    # Push changes.
-    os.chdir(ORIGINAL.repodir)
     push()
 
     # Check that note is gone.
@@ -1184,46 +1043,34 @@ def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
 
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Remove a note file.
-    os.chdir(ORIGINAL.repodir)
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
 
     # Commit the deletion.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
 
     # Push changes.
-    os.chdir(os.path.join(ORIGINAL.repodir, "Default"))
+    os.chdir("Default")
     push()
 
 
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Add new files.
-    os.chdir(ORIGINAL.repodir)
     contents = os.listdir("Default")
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
     shutil.copyfile(NOTE_3_PATH, os.path.join("Default", NOTE_3))
 
-    # Commit the additions.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
+    # Commit/push the additions.
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
-
-    # Push changes.
-    os.chdir(ORIGINAL.repodir)
     push()
 
     # Make sure 2 new files actually got added.
@@ -1238,18 +1085,15 @@ def test_push_deletes_added_notes():
             os.remove(file)
 
     # Commit the deletions.
-    os.chdir("../../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
-    os.chdir(ORIGINAL.repodir)
 
     # Push changes.
     push()
 
     # Check that notes are gone.
     clone(ORIGINAL.col_file)
-    contents = os.listdir(os.path.join(ORIGINAL.repodir, "Default"))
+    contents = os.listdir("Default")
     notes = [path for path in contents if path[-3:] == ".md"]
     assert len(notes) == 2
 
@@ -1258,13 +1102,11 @@ def test_push_honors_ignore_patterns():
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Add and commit a new file that is not a note.
     Path("dummy_file").touch()
 
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1278,10 +1120,8 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone, edit, and commit.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1297,10 +1137,8 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone, edit, and commit.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1320,13 +1158,9 @@ def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_m
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone, edit, and commit.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
-
-    repo = git.Repo(".")
+    repo, _ = clone(ORIGINAL.col_file)
 
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1349,13 +1183,8 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone, edit, and commit.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
-
-    repo = git.Repo(".")
-
+    repo, _ = clone(ORIGINAL.col_file)
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1407,18 +1236,15 @@ def test_push_writes_media():
     MEDIACOL: SampleCollection = get_test_collection("media")
 
     # Clone.
-    clone(MEDIACOL.col_file)
+    repo, _ = clone(MEDIACOL.col_file)
 
     # Add a new note file containing media, and the corresponding media file.
-    root = F.cwd()
-    media_note_path = root / MEDIACOL.repodir / "Default" / MEDIA_NOTE
-    media_file_path = root / MEDIACOL.repodir / "Default" / MEDIA / MEDIA_FILENAME
+    media_note_path = Path("Default") / MEDIA_NOTE
+    media_file_path = Path("Default") / MEDIA / MEDIA_FILENAME
     shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
     shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
-    os.chdir(MEDIACOL.repodir)
 
     # Commit the additions.
-    repo = git.Repo(F.cwd())
     repo.git.add(all=True)
     repo.index.commit("Add air.md")
     repo.close()
@@ -1436,7 +1262,7 @@ def test_push_writes_media():
     # Check that added note and media file exist.
     col = open_collection(MEDIACOL.col_file)
     check = col.media.check()
-    assert os.path.isfile(Path(MEDIACOL.repodir) / "Default" / MEDIA_NOTE)
+    assert os.path.isfile(Path("Default") / MEDIA_NOTE)
     assert col.media.have(MEDIA_FILENAME)
     assert len(check.missing) == 0
     assert len(check.unused) == 0
@@ -1446,10 +1272,8 @@ def test_push_handles_foreign_models():
     """Just check that we don't return an exception from `push()`."""
     ORIGINAL: SampleCollection = get_test_collection("original")
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
-    clone(ORIGINAL.col_file)
-    shutil.copytree(japan_path, Path(ORIGINAL.repodir) / "Default" / "japan")
-    os.chdir(ORIGINAL.repodir)
-    repo = git.Repo(F.cwd())
+    repo, _ = clone(ORIGINAL.col_file)
+    shutil.copytree(japan_path, Path("Default") / "japan")
     repo.git.add(all=True)
     repo.index.commit("japan")
     push()
@@ -1459,10 +1283,8 @@ def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
-    clone(ORIGINAL.col_file)
-    shutil.copytree(japan_path, Path(ORIGINAL.repodir) / "Default" / "japan")
-    os.chdir(ORIGINAL.repodir)
-    repo = git.Repo(F.cwd())
+    repo, _ = clone(ORIGINAL.col_file)
+    shutil.copytree(japan_path, Path("Default") / "japan")
     repo.git.add(all=True)
     repo.index.commit("japan")
     con = sqlite3.connect(ORIGINAL.col_file)
@@ -1480,23 +1302,17 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     """
     ORIGINAL: SampleCollection = get_test_collection("original")
     COPY: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Remove a note file.
-    os.chdir(ORIGINAL.repodir)
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
 
     # Commit the deletion.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
     # Push changes.
-    os.chdir(ORIGINAL.repodir)
     out = push()
     notes = get_notes(ORIGINAL.col_file)
     notes = [colnote.n["Front"] for colnote in notes]
@@ -1512,7 +1328,6 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     # Remove again.
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
-    repo = git.Repo(F.cwd())
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
@@ -1534,25 +1349,21 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     COPY: SampleCollection = get_test_collection("original")
 
     # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     col = open_collection(ORIGINAL.col_file)
     orig_models = col.models.all_names_and_ids()
     col.close(save=False)
 
     # Remove a note file.
-    os.chdir(ORIGINAL.repodir)
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
 
     # Commit the deletion.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
     # Push changes.
-    os.chdir(ORIGINAL.repodir)
     push()
 
     # Revert the collection.
@@ -1565,7 +1376,6 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     # Remove again.
     assert os.path.isfile(NOTE_0)
     os.remove(NOTE_0)
-    repo = git.Repo(F.cwd())
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
@@ -1592,23 +1402,19 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
     ORIGINAL: SampleCollection = get_test_collection("original")
 
     # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Remove a note file.
-    os.chdir(ORIGINAL.repodir)
     assert os.path.isfile(NOTE_0)
     temp_note_0_file = F.mkdtemp() / "NOTE_0"
     shutil.move(NOTE_0, temp_note_0_file)
     assert not os.path.isfile(NOTE_0)
 
     # Commit the deletion.
-    os.chdir("../")
-    repo = git.Repo(ORIGINAL.repodir)
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
     # Push changes.
-    os.chdir(ORIGINAL.repodir)
     out = push()
 
     # Put file back.
@@ -1625,23 +1431,19 @@ def test_push_changes_deck_for_moved_notes():
     MULTIDECK: SampleCollection = get_test_collection("multideck")
 
     # Clone collection in cwd.
-    clone(MULTIDECK.col_file)
+    repo, _ = clone(MULTIDECK.col_file)
 
     # Move a note.
-    os.chdir(MULTIDECK.repodir)
     target = "aa/dd/cc.md"
     assert os.path.isfile(MULTI_NOTE_PATH)
     shutil.move(MULTI_NOTE_PATH, target)
     assert not os.path.isfile(MULTI_NOTE_PATH)
 
     # Commit the move.
-    os.chdir("../")
-    repo = git.Repo(MULTIDECK.repodir)
     repo.git.add(all=True)
     repo.index.commit("Move.")
 
     # Push changes.
-    os.chdir(MULTIDECK.repodir)
     push()
 
     # Check that deck has changed.
@@ -1662,17 +1464,14 @@ def test_push_is_trivial_for_committed_submodule_contents():
     JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
     # Clone collection in cwd.
-    out = clone(UNCOMMITTED_SM.col_file)
+    repo, out = clone(UNCOMMITTED_SM.col_file)
 
     # Delete a directory.
-    sm_dir = Path(UNCOMMITTED_SM.repodir) / JAPANESE_SUBMODULE_DIRNAME
-    F.rmtree(F.chk(sm_dir))
-    repo = git.Repo(UNCOMMITTED_SM.repodir)
+    F.rmtree(F.chk(Path(JAPANESE_SUBMODULE_DIRNAME)))
     repo.git.add(all=True)
     repo.index.commit("Delete cloned `japanese-core-2000` folder.")
 
     # Push deletion.
-    os.chdir(UNCOMMITTED_SM.repodir)
     out = push()
 
     # Add a submodule.
@@ -1697,14 +1496,12 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
     JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
 
     # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
+    repo, _ = clone(ORIGINAL.col_file)
 
     # Add a *subrepo* (not submodule).
     submodule_name = JAPANESE_SUBMODULE_DIRNAME
     shutil.copytree(japanese_gitrepo_path, submodule_name)
 
-    repo = git.Repo(".")
     p = subprocess.run(
         ["git", "add", "--all"], check=True, capture_output=True, encoding="UTF-8"
     )
@@ -1717,10 +1514,7 @@ def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_
 
 def test_push_handles_tags_containing_trailing_commas():
     COMMAS: SampleCollection = get_test_collection("commas")
-
-    # Clone collection in cwd.
-    clone(COMMAS.col_file)
-    os.chdir(COMMAS.repodir)
+    repo, _ = clone(COMMAS.col_file)
 
     c_file = Path("Default") / "c.md"
     with open(c_file, "r", encoding="UTF-8") as read_f:
@@ -1728,11 +1522,9 @@ def test_push_handles_tags_containing_trailing_commas():
         with open(c_file, "w", encoding="UTF-8") as write_f:
             write_f.write(contents)
 
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit("e")
     repo.close()
-
     push()
 
 
@@ -1740,8 +1532,7 @@ def test_push_correctly_encodes_quotes_in_html_tags():
     BROKEN: SampleCollection = get_test_collection("broken_media_links")
 
     # Clone collection in cwd.
-    clone(BROKEN.col_file)
-    os.chdir(BROKEN.repodir)
+    repo, _ = clone(BROKEN.col_file)
     note_file = (
         Path("🧙‍Recommendersysteme")
         / "wie-sieht-die-linkstruktur-von-einem-hub-in-einem-web-graphe.md"
@@ -1751,11 +1542,9 @@ def test_push_correctly_encodes_quotes_in_html_tags():
         with open(note_file, "w", encoding="UTF-8") as write_f:
             write_f.write(contents)
 
-    repo = git.Repo(".")
     repo.git.add(all=True)
     repo.index.commit("e")
     repo.close()
-
     push()
 
     notes = get_notes(BROKEN.col_file)
@@ -1772,12 +1561,8 @@ def test_push_rejects_updates_on_reset_to_prior_commit():
     KOREAN: SampleCollection = get_test_collection("tiny_korean")
 
     # Clone collection in cwd.
-    clone(KOREAN.col_file)
-    assert os.path.isdir(KOREAN.repodir)
-
-    os.chdir(KOREAN.repodir)
+    repo, _ = clone(KOREAN.col_file)
     shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
-    repo = git.Repo(".")
     F.commitall(repo, "msg")
     push()
 
@@ -1795,15 +1580,8 @@ def test_push_leaves_working_tree_clean():
     KOREAN: SampleCollection = get_test_collection("tiny_korean")
 
     # Clone collection in cwd.
-    clone(KOREAN.col_file)
-    assert os.path.isdir(KOREAN.repodir)
-
-    os.chdir(KOREAN.repodir)
+    repo, _ = clone(KOREAN.col_file)
     shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
-    repo = git.Repo(".")
     F.commitall(repo, "msg")
     push()
-
-    os.chdir("..")
-    repo = git.Repo(KOREAN.repodir)
     assert not repo.is_dirty()

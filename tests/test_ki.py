@@ -124,7 +124,7 @@ from ki.transformer import NoteTransformer
 
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name
 # pylint: disable=missing-function-docstring, too-many-instance-attributes
-# pylint: disable=too-many-statements
+# pylint: disable=too-many-statements, redefined-outer-name, unused-argument
 
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -337,7 +337,9 @@ def clone(
     """Make a test `ki clone` call."""
     d = F.mkdtemp()
     os.chdir(d)
-    return capture(_clone1, str(collection), directory)
+    repo, out = capture(_clone1, str(collection), directory)
+    os.chdir(repo.working_dir)
+    return repo, out
 
 
 @beartype
@@ -414,28 +416,19 @@ def get_notes(collection: File) -> List[ColNote]:
 @beartype
 def get_repo_with_submodules(COL: SampleCollection) -> git.Repo:
     """Return repo with a new committed submodule created from a new directory."""
-    # Clone collection in cwd.
-    clone(COL.col_file)
-    repo = git.Repo(COL.repodir)
-    cwd = F.cwd()
-    os.chdir(COL.repodir)
+    repo, _ = clone(COL.col_file)
 
     # Create submodule out of GITREPO_PATH.
-    submodule_name = SUBMODULE_DIRNAME
-    shutil.copytree(GITREPO_PATH, submodule_name)
-    sm_repo = git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
+    shutil.copytree(GITREPO_PATH, SUBMODULE_DIRNAME)
+    sm_repo = git.Repo.init(SUBMODULE_DIRNAME, initial_branch=BRANCH_NAME)
     sm_repo.git.add(all=True)
     _ = sm_repo.index.commit("Initial commit.")
     sm_repo.close()
 
     # Add as a submodule.
-    repo.git.submodule("add", Path(submodule_name).resolve())
+    repo.git.submodule("add", Path(SUBMODULE_DIRNAME).resolve())
     repo.git.add(all=True)
     _ = repo.index.commit("Add submodule.")
-
-    # Go back to the original current working directory.
-    os.chdir(cwd)
-
     return repo
 
 
@@ -837,23 +830,15 @@ def get_diff2_args() -> Tuple[git.Repo, Callable[[Delta], DeckNote]]:
 
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmpfs: None):
     ORIGINAL = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
     deltas: List[Delta] = diff2(*get_diff2_args())
-
     changed = [str(delta.path) for delta in deltas]
     assert changed == []
 
 
 def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmpfs: None):
     ORIGINAL = get_test_collection("original")
-
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
-
     shutil.copyfile(NOTE_2_PATH, NOTE_2)
     repo = git.Repo(".")
     repo.git.add(all=True)
@@ -897,8 +882,6 @@ def test_diff2_handles_submodules(tmpfs: None):
 
     repo = get_repo_with_submodules(ORIGINAL)
 
-    os.chdir(ORIGINAL.repodir)
-
     deltas: List[Delta] = diff2(*get_diff2_args())
     gc.collect()
 
@@ -939,7 +922,6 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
     ORIGINAL = get_test_collection("original")
 
     clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
     kirepo: KiRepo = M.kirepo(F.cwd())
 
     mocker.patch("ki.echo")
@@ -1083,6 +1065,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/` directory doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     F.rmtree(targetdir / KI)
     with pytest.raises(Exception) as error:
@@ -1092,6 +1075,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/` is a file instead of a directory.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     F.rmtree(targetdir / KI)
     (targetdir / KI).touch()
@@ -1102,6 +1086,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/backups` directory doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     F.rmtree(targetdir / KI / BACKUPS_DIR)
     with pytest.raises(Exception) as error:
@@ -1112,6 +1097,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/backups` is a file instead of a directory.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     F.rmtree(targetdir / KI / BACKUPS_DIR)
     (targetdir / KI / BACKUPS_DIR).touch()
@@ -1124,6 +1110,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/config` file doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     os.remove(targetdir / KI / CONFIG_FILE)
     with pytest.raises(Exception) as error:
@@ -1134,6 +1121,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/config` is a directory instead of a file.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     os.remove(targetdir / KI / CONFIG_FILE)
     os.mkdir(targetdir / KI / CONFIG_FILE)
@@ -1145,6 +1133,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/hashes` file doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     os.remove(targetdir / KI / HASHES_FILE)
     with pytest.raises(Exception) as error:
@@ -1155,6 +1144,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where `.ki/models` file doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     os.remove(targetdir / MODELS_FILE)
     with pytest.raises(Exception) as error:
@@ -1165,6 +1155,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
 
     # Case where collection file doesn't exist.
     clone(ORIGINAL.col_file)
+    os.chdir("../")
     targetdir: Dir = F.chk(Path(ORIGINAL.repodir))
     os.remove(ORIGINAL.col_file)
     with pytest.raises(Exception) as error:
@@ -1361,7 +1352,6 @@ def test_get_models_recursively(tmpfs: None):
     ORIGINAL = get_test_collection("original")
 
     clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
     os.remove(MODELS_FILE)
     with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
         json.dump(MODELS_DICT, models_f, ensure_ascii=False, indent=4)
@@ -1379,7 +1369,6 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
     ORIGINAL = get_test_collection("original")
 
     clone(ORIGINAL.col_file)
-    os.chdir(ORIGINAL.repodir)
     os.remove(MODELS_FILE)
     with open(Path(MODELS_FILE), "w", encoding="UTF-8") as models_f:
         json.dump(NAMELESS_MODELS_DICT, models_f, ensure_ascii=False, indent=4)
@@ -1487,10 +1476,9 @@ def test_cp_repo_preserves_git_symlink_file_modes(tmpfs: None):
     MEDIACOL: SampleCollection = get_test_collection("media")
 
     # Clone.
-    clone(MEDIACOL.col_file)
+    repo, _ = clone(MEDIACOL.col_file)
 
     # Check that filemode is initially 120000.
-    repo = git.Repo(MEDIACOL.repodir)
     onesec_file = F.root(repo) / "Default" / MEDIA / "1sec.mp3"
     mode = M.filemode(onesec_file)
     assert mode == 120000
