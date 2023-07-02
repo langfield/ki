@@ -75,7 +75,6 @@ b91s = b91Alphas <> b91Symbols
 data Extant
   deriving Typeable
 
-
 -- Types prefixed with `SQL` are product types designed to hold the raw data
 -- parsed from the `.anki2` SQLite3 database dump binary. Each of these is then
 -- parsed into a more structured twin. For example, `SQLNote`s are parsed into

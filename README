@@ -1,2 +1,5 @@
 Ki is a command-line tool for converting Anki collections and decks into git
 repositories. 
+
+Running multiple test files with HSpec:
+https://stackoverflow.com/questions/43263965/how-to-run-multiple-test-files-with-haskell-stack-project

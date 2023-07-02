@@ -2,11 +2,11 @@
 import Path (Abs, Dir, Path, Rel, toFilePath)
 import Test.LeanCheck ()
 import Test.LeanCheck.Instances ()
-import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe)
+import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe, shouldReturn)
 
 import qualified Path.Internal
 
-import Ki (getDir, castDir)
+mport Ki (Extant, getDir, castDir, ensureEmpty)
 
 main :: IO ()
 main = hspec $ do
@@ -26,3 +26,8 @@ main = hspec $ do
       castDir (Path.Internal.Path "a" :: Path Abs Dir) `shouldBe` (Path.Internal.Path "a" :: Path Rel Dir)
     it "casts a relative to an absolute" $ do
       castDir (Path.Internal.Path "a" :: Path Rel Dir) `shouldBe` (Path.Internal.Path "a" :: Path Abs Dir)
+  describe "'ensureEmpty :: Path Abs Dir -> IO (Maybe (Path Extant Dir))'" $ do
+    it "creates a nonexistent directory" $ do
+      ensureEmpty (Path.Internal.Path "a" :: Path Abs Dir) `shouldReturn` Just (Path.Internal.Path "a" :: Path Extant Dir)
+    it "creates a nonexistent nested directory" $ do
+      ensureEmpty (Path.Internal.Path "a/b" :: Path Abs Dir) `shouldReturn` Just (Path.Internal.Path "a/b" :: Path Extant Dir)
