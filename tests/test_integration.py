@@ -3,6 +3,7 @@
 import os
 import gc
 import sys
+import time
 import shutil
 import sqlite3
 import tempfile
@@ -25,7 +26,7 @@ from beartype.typing import List, Tuple, Dict, Union
 import ki
 import ki.maybes as M
 import ki.functional as F
-from ki import MEDIA, LCA, _clone1, do
+from ki import MEDIA, LCA, _clone1, do, get_guid, add_db_note
 from ki.types import (
     Notetype,
     ColNote,
@@ -89,6 +90,89 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 EDITED: SampleCollection = get_test_collection("edited")
 
 
+NoteSpec = Tuple[int, str, str]
+DeckSpec = Dict[str, List[Union[NoteSpec, "DeckSpec"]]]
+
+
+@curried
+@beartype
+def mkdeck(
+    col: Collection, parent: str, x: Tuple[str, List[Union[NoteSpec, DeckSpec]]]
+) -> None:
+    name, specs = x
+    fullname = name if parent == "" else f"{parent}::{name}"
+    did = col.decks.id(fullname)
+    ns, ds = F.part(lambda s: isinstance(s, tuple), specs)
+    do(mkbasic(col, did), ns)
+    do(lambda xs: do(mkdeck(col, fullname), xs), ds)
+
+
+@curried
+@beartype
+def mkbasic(col: Collection, did: int, spec: NoteSpec) -> None:
+    nid, fields = spec[0], spec[1:]
+    guid = get_guid(list(fields))
+    mid = col.models.id_for_name("Basic")
+    timestamp_ns: int = time.time_ns()
+    add_db_note(
+        col=col,
+        nid=nid,
+        guid=guid,
+        mid=mid,
+        mod=int(timestamp_ns // 1e9),
+        usn=-1,
+        tags=[],
+        fields=list(fields),
+        sfld="",
+        csum=0,
+        flags=0,
+        data="",
+    )
+
+
+@beartype
+def opencol(f: File) -> Collection:
+    cwd: Dir = F.cwd()
+    try:
+        col = Collection(f)
+    except anki.errors.DBError as err:
+        raise AnkiAlreadyOpenError(str(err)) from err
+    F.chdir(cwd)
+    return col
+
+
+@beartype
+def mkcol(x: DeckSpec) -> File:
+    file = F.touch(F.mkdtemp(), "a.anki2")
+    col = opencol(file)
+    do(mkdeck(col, ""), x.items())
+    col.close(save=True)
+    return F.chk(file)
+
+
+@beartype
+def rm(f: File, nid: int) -> File:
+    """Remove note with given `nid`."""
+    col = opencol(f)
+    col.remove_notes([nid])
+    col.close(save=True)
+    return f
+
+
+@beartype
+def edit(f: File, spec: NoteSpec) -> File:
+    """Edit a note with specified nid."""
+    col = opencol(f)
+    nid, fields = spec[0], spec[1:]
+    front, back = fields
+    note = col.get_note(nid)
+    note["Front"] = front
+    note["Back"] = back
+    note.flush()
+    col.close(save=True)
+    return f
+
+
 # CLI
 
 
@@ -141,7 +225,6 @@ def test_cli():
 # COMMON
 
 
-@beartype
 def test_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
     tempdir = tempfile.mkdtemp()
@@ -153,7 +236,6 @@ def test_fails_without_ki_subdirectory():
         push()
 
 
-@beartype
 def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -181,40 +263,57 @@ def test_computes_and_stores_md5sum():
 
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-    out = pull()
-    assert "Merge made by the" not in out
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    clone(a)
+    assert pull() == "ki pull: up to date.\n\n"
     push()
-    out = pull()
-    assert "Merge made by the" not in out
+    assert pull() == "ki pull: up to date.\n\n"
     push()
-    out = pull()
-    assert "Merge made by the" not in out
+    assert pull() == "ki pull: up to date.\n\n"
     push()
-    out = pull()
-    assert "Merge made by the" not in out
+    assert pull() == "ki pull: up to date.\n\n"
     push()
+
+
+@beartype
+def mknote(deck: str, fields: Tuple[str, str]) -> None:
+    """Write a markdown note to a deck from the root of a ki repository."""
+    front, back = fields
+    parts = deck.split("::")
+    path = Path("./" + "/".join(parts + [f"{front}.md"]))
+    s = f"""# Note
+```
+guid: {get_guid(list(fields))}
+notetype: Basic
+```
+
+### Tags
+```
+```
+
+## Front
+{front}
+
+## Back
+{back}
+"""
+    path.write_text(s, encoding="UTF-8")
 
 
 def test_output():
     """Does it print nice things?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    repo, _ = clone(ORIGINAL.col_file)
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    repo, _ = clone(a)
+    edit(a, (1, "aa", "bb"))
+    edit(a, (2, "f", "g"))
+    pull()
 
-    # Edit collection.
-    shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
-    out = pull()
-
-    # Modify local repository.
-    assert os.path.isfile(NOTE_7)
-    with open(NOTE_7, "a", encoding="UTF-8") as note_file:
-        note_file.write("e\n")
-    shutil.copyfile(NOTE_2_PATH, NOTE_2)
-    shutil.copyfile(NOTE_3_PATH, NOTE_3)
+    p = Path("Default/aa.md")
+    assert p.is_file()
+    with p.open("a", encoding="UTF-8") as f:
+        f.write("e\n")
+    mknote("Default", ("r", "s"))
+    mknote("Default", ("s", "t"))
 
     # Commit.
     repo.git.add(all=True)
@@ -765,49 +864,6 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
     if os.path.isdir("onlydeck"):
         for _, _, filenames in os.walk("onlydeck"):
             assert len(filenames) == 0
-
-
-NoteSpec = Tuple[str, str]
-DeckSpec = Dict[str, List[Union[NoteSpec, "DeckSpec"]]]
-
-
-@curried
-@beartype
-def mkdeck(
-    col: Collection, parent: str, x: Tuple[str, List[Union[NoteSpec, DeckSpec]]]
-) -> None:
-    name, specs = x
-    fullname = name if parent == "" else f"{parent}::{name}"
-    did = col.decks.id(fullname)
-    ns, ds = F.part(lambda s: isinstance(s, tuple), specs)
-    do(mkbasic(col, did), ns)
-    do(lambda xs: do(mkdeck(col, fullname), xs), ds)
-
-
-@curried
-@beartype
-def mkbasic(col: Collection, did: int, fields: Tuple[str, str]) -> None:
-    nt = col.models.get(col.models.id_for_name("Basic"))
-    n = col.new_note(nt)
-    a, b = fields
-    n["Front"] = a
-    n["Back"] = b
-    col.add_note(n, did)
-
-
-@beartype
-def mkcol(x: DeckSpec) -> File:
-    file = F.chk(F.mkdtemp() / "a.anki2")
-    cwd: Dir = F.cwd()
-    try:
-        col = Collection(file)
-    except anki.errors.DBError as err:
-        raise AnkiAlreadyOpenError(str(err)) from err
-    finally:
-        F.chdir(cwd)
-    do(mkdeck(col, ""), x.items())
-    col.close(save=True)
-    return F.chk(file)
 
 
 def test_dsl_pull_leaves_no_working_tree_changes():
