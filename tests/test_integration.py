@@ -173,6 +173,31 @@ def edit(f: File, spec: NoteSpec) -> File:
     return f
 
 
+@beartype
+def mknote(deck: str, fields: Tuple[str, str]) -> None:
+    """Write a markdown note to a deck from the root of a ki repository."""
+    front, back = fields
+    parts = deck.split("::")
+    path = Path("./" + "/".join(parts + [f"{front}.md"]))
+    s = f"""# Note
+```
+guid: {get_guid(list(fields))}
+notetype: Basic
+```
+
+### Tags
+```
+```
+
+## Front
+{front}
+
+## Back
+{back}
+"""
+    path.write_text(s, encoding="UTF-8")
+
+
 # CLI
 
 
@@ -273,31 +298,6 @@ def test_no_op_pull_push_cycle_is_idempotent():
     push()
     assert pull() == "ki pull: up to date.\n\n"
     push()
-
-
-@beartype
-def mknote(deck: str, fields: Tuple[str, str]) -> None:
-    """Write a markdown note to a deck from the root of a ki repository."""
-    front, back = fields
-    parts = deck.split("::")
-    path = Path("./" + "/".join(parts + [f"{front}.md"]))
-    s = f"""# Note
-```
-guid: {get_guid(list(fields))}
-notetype: Basic
-```
-
-### Tags
-```
-```
-
-## Front
-{front}
-
-## Back
-{back}
-"""
-    path.write_text(s, encoding="UTF-8")
 
 
 def test_output():
