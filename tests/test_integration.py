@@ -329,13 +329,11 @@ def test_output():
 
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    os.remove(ORIGINAL.col_file)
-
-    # Clone collection in cwd.
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.remove(a)
     with pytest.raises(FileNotFoundError):
-        clone(ORIGINAL.col_file)
-    assert not os.path.isdir(ORIGINAL.repodir)
+        clone(a)
+    assert not a.is_dir()
 
 
 def test_clone_fails_if_collection_is_already_open():
