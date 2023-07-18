@@ -338,21 +338,19 @@ def test_clone_fails_if_collection_doesnt_exist():
 
 def test_clone_fails_if_collection_is_already_open():
     """Does ki print a nice error message when Anki is accidentally left open?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    os.remove(ORIGINAL.col_file)
-    _ = open_collection(ORIGINAL.col_file)
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.remove(a)
+    _ = open_collection(a)
     with pytest.raises(AnkiAlreadyOpenError):
-        clone(ORIGINAL.col_file)
+        clone(a)
 
 
 def test_clone_creates_directory():
     """Does it create the directory?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    clone(a)
     os.chdir("../")
-    assert os.path.isdir(ORIGINAL.repodir)
+    assert os.path.isdir("a")
 
 
 def test_clone_handles_html():
