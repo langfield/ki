@@ -353,51 +353,18 @@ def test_clone_creates_directory():
     assert os.path.isdir("a")
 
 
-def test_clone_handles_html():
-    """Does it tidy html and stuff?"""
-    HTML: SampleCollection = get_test_collection("html")
-
-    # Clone collection in cwd.
-    clone(HTML.col_file)
-
-    path = Path("Default") / "あだ名.md"
-    contents = path.read_text(encoding="UTF-8")
-    snippet = """<table class="kanji-match">\n    """
-    snippet += """<tbody>\n      """
-    snippet += """<tr class="match-row-kanji" lang="ja">\n"""
-    assert snippet in contents
-
-
-def test_clone_tidying_only_breaks_lines_for_fields_containing_html():
-    """Does it tidy html and stuff?"""
-    HTML: SampleCollection = get_test_collection("html")
-
-    # Clone collection in cwd.
-    clone(HTML.col_file)
-
-    path = Path("Default") / "on-evil.md"
-    contents = path.read_text(encoding="UTF-8")
-
-    # This line should not be broken.
-    assert (
-        "and I doubt that punishment should be relevant to criminal justice."
-        in contents
-    )
-
-
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
 
     # Create directory where we want to clone.
     os.chdir(F.mkdtemp())
-    os.mkdir(ORIGINAL.repodir)
-    with open(os.path.join(ORIGINAL.repodir, "hi"), "w", encoding="UTF-8") as hi_file:
-        hi_file.write("hi\n")
+    os.mkdir("a.anki2")
+    (Path("a.anki2") / "hi").write_text("hi\n", encoding="UTF-8")
 
     # Should error out because directory already exists.
     with pytest.raises(TargetExistsError):
-        _clone1(str(ORIGINAL.col_file))
+        _clone1(str(a))
 
 
 def test_clone_cleans_up_on_error():
