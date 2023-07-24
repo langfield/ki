@@ -355,12 +355,12 @@ def test_clone_creates_directory():
 
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
-    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
 
     # Create directory where we want to clone.
     os.chdir(F.mkdtemp())
-    os.mkdir("a.anki2")
-    (Path("a.anki2") / "hi").write_text("hi\n", encoding="UTF-8")
+    os.mkdir("a")
+    (Path("a") / "hi").write_text("hi\n", encoding="UTF-8")
 
     # Should error out because directory already exists.
     with pytest.raises(TargetExistsError):
