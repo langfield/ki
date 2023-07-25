@@ -369,19 +369,19 @@ def test_clone_errors_when_directory_is_populated():
 
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
-    HTML: SampleCollection = get_test_collection("html")
+    ORIGINAL: SampleCollection = get_test_collection("original")
 
-    clone(HTML.col_file)
+    clone(ORIGINAL.col_file)
     os.chdir("../")
-    assert os.path.isdir(HTML.repodir)
-    F.rmtree(F.chk(Path(HTML.repodir)))
+    assert os.path.isdir(ORIGINAL.repodir)
+    F.rmtree(F.chk(Path(ORIGINAL.repodir)))
     old_path = os.environ["PATH"]
     try:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(git.GitCommandNotFound):
             os.environ["PATH"] = ""
-            clone(HTML.col_file)
+            clone(ORIGINAL.col_file)
         os.chdir("../")
-        assert not os.path.isdir(HTML.repodir)
+        assert not os.path.isdir(ORIGINAL.repodir)
     finally:
         os.environ["PATH"] = old_path
 
