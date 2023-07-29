@@ -812,8 +812,8 @@ def test_pull_handles_uncommitted_submodule_commits():
 
 
 def test_pull_removes_files_deleted_in_remote():
-    a = mkcol({"Default": [("a", "b"), ("c", "d")]})
-    b = mkcol({"Default": [("c", "d")]})
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    b = mkcol({"Default": [(2, "c", "d")]})
     clone(a)
     assert (Path("Default") / "a.md").is_file()
     shutil.copyfile(b, a)
@@ -833,8 +833,8 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
 
 
 def test_dsl_pull_leaves_no_working_tree_changes():
-    a = mkcol({"Default": [("a", "b"), ("c", "d")]})
-    b = mkcol({"Default": [("c", "d")]})
+    a = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    b = mkcol({"Default": [(2, "c", "d")]})
     repo, _ = clone(a)
     shutil.copyfile(b, a)
     pull()
