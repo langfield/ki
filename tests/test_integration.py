@@ -374,31 +374,35 @@ def test_clone_cleans_up_on_error():
     os.chdir("../")
     assert Path("a").is_dir()
     F.rmtree(F.chk(Path("a")))
+    cwd = os.getcwd()
     old_path = os.environ["PATH"]
     try:
         with pytest.raises(git.GitCommandNotFound):
             os.environ["PATH"] = ""
-            clone(a)
-        os.chdir("../")
+            _clone1(str(a))
+        assert os.getcwd() == cwd
         assert not Path("a").is_dir()
     finally:
         os.environ["PATH"] = old_path
 
 
-def test_clone_cleans_up_preserves_directories_that_exist_a_priori():
+def test_clone_clean_up_preserves_directories_that_exist_a_priori():
     """Does clone not delete targetdirs that already existed?"""
-    HTML: SampleCollection = get_test_collection("html")
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
 
     os.chdir(F.mkdtemp())
-    os.mkdir(HTML.repodir)
-    assert os.path.isdir(HTML.repodir)
+    os.mkdir("a")
+    assert os.path.isdir("a")
+    cwd = os.getcwd()
+    logger.debug(Path(".").resolve())
     old_path = os.environ["PATH"]
     try:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(git.GitCommandNotFound):
             os.environ["PATH"] = ""
-            _clone1(str(HTML.col_file))
-        assert os.path.isdir(HTML.repodir)
-        assert len(os.listdir(HTML.repodir)) == 0
+            _clone1(str(a))
+        assert os.getcwd() == cwd
+        assert os.path.isdir("a")
+        assert len(os.listdir("a")) == 0
     finally:
         os.environ["PATH"] = old_path
 
