@@ -387,7 +387,10 @@ def test_clone_cleans_up_on_error():
 
 
 def test_clone_clean_up_preserves_directories_that_exist_a_priori():
-    """Does clone not delete targetdirs that already existed?"""
+    """
+    When clone fails and the cleanup function is called, does it not delete
+    targetdirs that already existed?
+    """
     a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
 
     os.chdir(F.mkdtemp())
