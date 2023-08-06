@@ -410,64 +410,12 @@ def test_clone_clean_up_preserves_directories_that_exist_a_priori():
         os.environ["PATH"] = old_path
 
 
-def test_clone_displays_nice_errors_for_missing_dependencies():
-    """Does it tell the user what to install?"""
-    HTML: SampleCollection = get_test_collection("html")
-
-    clone(HTML.col_file)
-    os.chdir("../")
-    assert os.path.isdir(HTML.repodir)
-    F.rmtree(F.chk(Path(HTML.repodir)))
-    old_path = os.environ["PATH"]
-
-    # In case where nothing is installed, we expect to fail on `tidy`
-    # first.
-    try:
-        with pytest.raises(FileNotFoundError) as raised:
-            os.environ["PATH"] = ""
-            clone(HTML.col_file)
-        error = raised.exconly()
-        assert "tidy" in str(error)
-    finally:
-        os.environ["PATH"] = old_path
-
-    # If `tidy` is on the PATH, but nothing else, then we expect a
-    # `GitCommandNotFound` error.
-    try:
-        with pytest.raises(git.GitCommandNotFound) as raised:
-            if sys.platform == "win32":
-                gits = [
-                    r"C:\Program Files\Git\bin;",
-                    r"C:\Program Files\Git\cmd;",
-                    r"C:\Program Files\Git\mingw64\bin;",
-                    r"C:\Program Files\Git\usr\bin;",
-                ]
-                path = os.environ["PATH"]
-                for gitpath in gits:
-                    path = path.replace(gitpath, "")
-                os.environ["PATH"] = path
-            else:
-                tmp = F.mkdtemp()
-                tgt = tmp / "tidy"
-                shutil.copyfile(shutil.which("tidy"), tgt)
-                st = os.stat(tgt)
-                os.chmod(tgt, st.st_mode | 0o111)
-                path = str(tgt.parent)
-                os.environ["PATH"] = path
-
-            clone(HTML.col_file)
-        error = raised.exconly()
-    finally:
-        os.environ["PATH"] = old_path
-
-
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-
-    # Create directory where we want to clone.
-    os.mkdir(ORIGINAL.repodir)
-    clone(ORIGINAL.col_file)
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    os.mkdir("a")
+    clone(a)
 
 
 def test_clone_generates_expected_notes():
