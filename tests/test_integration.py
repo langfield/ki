@@ -420,21 +420,26 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    true_note_path = os.path.join(GITREPO_PATH, NOTE_0)
-    cloned_note_path = NOTE_0
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    # Check that deck directory is created.
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    clone(a)
     assert os.path.isdir("Default")
+    assert F.chk(Path("Default") / "a.md").read_text() == """# Note
+```
+guid: q/([o$8RAO
+notetype: Basic
+```
 
-    # Compute hashes.
-    cloned_md5 = F.md5(File(cloned_note_path))
-    true_md5 = F.md5(File(true_note_path))
+### Tags
+```
+```
 
-    assert cloned_md5 == true_md5
+## Front
+a
+
+## Back
+b
+"""
 
 
 def test_clone_generates_deck_tree_correctly():
