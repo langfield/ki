@@ -424,10 +424,22 @@ def test_clone_generates_expected_notes():
     os.chdir(F.mkdtemp())
     clone(a)
     assert os.path.isdir("Default")
-    original = Path(__file__).parent / "data" / "repos" / "original"
-    cloned_md5 = F.md5(F.chk(original / "Default" / "a.md"))
-    true_md5 = F.md5(F.chk(Path("Default") / "a.md"))
-    assert cloned_md5 == true_md5
+    assert F.chk(Path("Default") / "a.md").read_text() == """# Note
+```
+guid: q/([o$8RAO
+notetype: Basic
+```
+
+### Tags
+```
+```
+
+## Front
+a
+
+## Back
+b
+"""
 
 
 def test_clone_generates_deck_tree_correctly():
