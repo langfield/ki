@@ -102,9 +102,11 @@ def mkdeck(
     name, specs = x
     fullname = name if parent == "" else f"{parent}::{name}"
     did = col.decks.id(fullname)
+    ns: Iterable[NoteSpec]
+    ds: Iterable[DeckSpec]
     ns, ds = F.part(lambda s: isinstance(s, tuple), specs)
     do(mkbasic(col, did), ns)
-    do(lambda xs: do(mkdeck(col, fullname), xs), ds)
+    do(lambda d: do(mkdeck(col, fullname), d.items()), ds)
 
 
 @curried
@@ -114,7 +116,7 @@ def mkbasic(col: Collection, did: int, spec: NoteSpec) -> None:
     guid = get_guid(list(fields))
     mid = col.models.id_for_name("Basic")
     timestamp_ns: int = time.time_ns()
-    add_db_note(
+    note: Note = add_db_note(
         col=col,
         nid=nid,
         guid=guid,
@@ -128,6 +130,9 @@ def mkbasic(col: Collection, did: int, spec: NoteSpec) -> None:
         flags=0,
         data="",
     )
+    cids = [c.id for c in note.cards()]
+    if cids:
+        note.col.set_deck(cids, did)
 
 
 @beartype
@@ -424,7 +429,9 @@ def test_clone_generates_expected_notes():
     os.chdir(F.mkdtemp())
     clone(a)
     assert os.path.isdir("Default")
-    assert F.chk(Path("Default") / "a.md").read_text() == """# Note
+    assert (
+        (Path("Default") / "a.md").read_text()
+        == """# Note
 ```
 guid: q/([o$8RAO
 notetype: Basic
@@ -440,27 +447,47 @@ a
 ## Back
 b
 """
+    )
 
 
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
-    MULTIDECK: SampleCollection = get_test_collection("multideck")
-    true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
-    cloned_note_path = MULTI_NOTE_PATH
-
-    # Clone collection in cwd.
-    clone(MULTIDECK.col_file)
-
-    # Check that deck directory is created and all subdirectories.
+    a: File = mkcol(
+        {
+            ":a": [{":b:": []}],
+            "aa": [
+                (1, "a", "aa"),
+                {"bb": [(2, "bb", "bb"), {"cc": [(3, "cc", "cc")]}]},
+                {"dd": [(4, "dd", "dd")]},
+            ],
+            "blank": [{"blank": []}, {"Hello": []}],
+            "Default": [(5, "hello", "hello"), (6, "hello my enemy", "goodbye")],
+        }
+    )
+    os.chdir(F.mkdtemp())
+    clone(a)
     assert os.path.isdir("Default")
     assert os.path.isdir("aa/bb/cc")
     assert os.path.isdir("aa/dd")
+    assert (
+        (Path("aa") / "bb" / "cc" / "cc.md").read_text()
+        == """# Note
+```
+guid: (<hy(zm;W
+notetype: Basic
+```
 
-    # Compute hashes.
-    cloned_md5 = F.md5(File(cloned_note_path))
-    true_md5 = F.md5(File(true_note_path))
+### Tags
+```
+```
 
-    assert cloned_md5 == true_md5
+## Front
+cc
+
+## Back
+cc
+"""
+    )
 
 
 def test_clone_generates_ki_subdirectory():
