@@ -492,23 +492,26 @@ cc
 
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    clone(ORIGINAL.col_file)
-    assert os.path.isdir(".ki/")
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    clone(a)
+    assert Path(".ki/").is_dir()
 
 
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    clone(ORIGINAL.col_file)
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    clone(a)
     os.chdir("../")
-    assert is_git_repo(ORIGINAL.repodir)
+    assert is_git_repo("a")
 
 
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    repo, _ = clone(ORIGINAL.col_file)
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    repo, _ = clone(a)
     changes = repo.head.commit.diff()
     commits = list(repo.iter_commits("HEAD"))
     assert len(changes) == 0 and len(commits) == 1
@@ -516,27 +519,22 @@ def test_clone_commits_directory_contents():
 
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    original_md5 = F.md5(ORIGINAL.col_file)
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file)
-
-    updated_md5 = F.md5(ORIGINAL.col_file)
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
+    os.chdir(F.mkdtemp())
+    original_md5 = F.md5(a)
+    clone(a)
+    updated_md5 = F.md5(a)
     assert original_md5 == updated_md5
 
 
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-
+    a: File = mkcol({"Default": [(1, "a", "b"), (2, "c", "d")]})
     tempdir = tempfile.mkdtemp()
     target = os.path.join(tempdir, "TARGET")
     assert not os.path.isdir(target)
     assert not os.path.isfile(target)
-
-    # Clone collection in cwd.
-    clone(ORIGINAL.col_file, target)
+    clone(a, target)
     assert os.path.isdir(target)
 
 
