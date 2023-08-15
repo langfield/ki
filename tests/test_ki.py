@@ -432,6 +432,26 @@ def get_repo_with_submodules(COL: SampleCollection) -> git.Repo:
     return repo
 
 
+@beartype
+def get_repo_with_submodules_from_file(col_file: File) -> git.Repo:
+    """Return repo with a new committed submodule created from a new directory."""
+    repo, _ = clone(col_file)
+
+    # Create submodule out of GITREPO_PATH.
+    shutil.copytree(GITREPO_PATH, SUBMODULE_DIRNAME)
+    sm_repo = git.Repo.init(SUBMODULE_DIRNAME, initial_branch=BRANCH_NAME)
+    sm_repo.git.add(all=True)
+    _ = sm_repo.index.commit("Initial commit.")
+    sm_repo.close()
+
+    # Add as a submodule.
+    repo.git.submodule("add", Path(SUBMODULE_DIRNAME).resolve())
+    repo.git.add(all=True)
+    _ = repo.index.commit("Add submodule.")
+    return repo
+
+
+
 @pytest.fixture
 def tmpfs() -> None:
     """Run test in a subdirectory of /tmp."""
