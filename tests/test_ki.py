@@ -451,7 +451,6 @@ def get_repo_with_submodules_from_file(col_file: File) -> git.Repo:
     return repo
 
 
-
 @pytest.fixture
 def tmpfs() -> None:
     """Run test in a subdirectory of /tmp."""
