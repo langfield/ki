@@ -152,16 +152,43 @@ def rm(f: File, nid: int) -> File:
     return f
 
 
+@curried
 @beartype
-def edit(f: File, spec: NoteSpec) -> File:
-    """Edit a note with specified nid."""
-    col = opencol(f)
-    _, nid, fields = spec
+def editbasic(col: Collection, spec: NoteSpec) -> None:
+    fullname, nid, fields = spec
     front, back = fields
     note = col.get_note(nid)
     note["Front"] = front
     note["Back"] = back
+    did: int = col.decks.id(fullname, create=True)
+    cids = [c.id for c in note.cards()]
+    if cids:
+        col.set_deck(cids, did)
     note.flush()
+
+
+@beartype
+def edit(f: File, spec: NoteSpec) -> File:
+    """Edit a note with specified nid."""
+    col = opencol(f)
+    editbasic(col, spec)
+    col.close(save=True)
+    return f
+
+
+@beartype
+def editcol(
+    f: File,
+    adds: Optional[List[NoteSpec]] = None,
+    edits: Optional[List[NoteSpec]] = None,
+    deletes: Optional[List[int]] = None,
+) -> File:
+    """Edit an existing collection file."""
+    col = opencol(f)
+    adds, edits, deletes = adds or [], edits or [], deletes or []
+    do(mkbasic(col), adds)
+    do(editbasic(col), edits)
+    col.remove_notes(deletes)
     col.close(save=True)
     return f
 
@@ -390,7 +417,6 @@ def test_clone_clean_up_preserves_directories_that_exist_a_priori():
     os.mkdir("a")
     assert os.path.isdir("a")
     cwd = os.getcwd()
-    logger.debug(Path(".").resolve())
     old_path = os.environ["PATH"]
     try:
         with pytest.raises(git.GitCommandNotFound):
@@ -614,27 +640,19 @@ def test_pull_fails_if_collection_file_is_corrupted():
         pull()
 
 
-@beartype
-def editcol(
-    f: File,
-    additions: Optional[List[NoteSpec]] = None,
-    changes: Optional[List[NoteSpec]] = None,
-    deletions: Optional[List[int]] = None,
-) -> File:
-    """Edit an existing collection file."""
-    col = opencol(f)
-    raise NotImplementedError
-
-
-@pytest.mark.xfail
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     clone(a)
     f = Path("Default") / "f.md"
     assert not f.exists()
-    editcol(a, additions=[(3, "f", "g")], changes=[(1, "aa", "bb")], deletions=[2])
-    pull()
+    editcol(
+        a,
+        adds=[("Default", 3, ["f", "g"])],
+        edits=[("Default", 1, ["aa", "bb"])],
+        deletes=[2],
+    )
+    out = pull()
     assert f.is_file()
 
 
