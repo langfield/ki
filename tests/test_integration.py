@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import tempfile
 import subprocess
+import pprint as pp
 from pathlib import Path
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
@@ -916,9 +917,9 @@ def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
 
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    old_notes = get_notes(ORIGINAL.col_file)
-    repo, _ = clone(ORIGINAL.col_file)
+    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    old_notes = get_notes(a)
+    repo, _ = clone(a)
 
     # Edit a note.
     with open(NOTE_0, "a", encoding="UTF-8") as note_file:
@@ -936,21 +937,21 @@ def test_push_writes_changes_correctly():
 
     # Push and check for changes.
     push()
-    new_notes = get_notes(ORIGINAL.col_file)
+    new_notes = get_notes(a)
 
     # Check NOTE_4 was deleted.
     new_ids = [note.n.id for note in new_notes]
     assert NOTE_4_ID not in new_ids
 
-    # Check NOTE_0 was edited.
+    # Check that note with nid 1 was edited.
     old_note_0 = ""
     for note in new_notes:
-        if note.n.id == NOTE_0_ID:
+        if note.n.id == 1:
             old_note_0 = str(note)
     assert len(old_note_0) > 0
     found_0 = False
     for note in new_notes:
-        if note.n.id == NOTE_0_ID:
+        if note.n.id == 1:
             assert old_note_0 == str(note)
             found_0 = True
     assert found_0
