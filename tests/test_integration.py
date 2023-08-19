@@ -671,7 +671,7 @@ def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     clone(a)
-    assert not os.path.isfile(NOTE_1)
+    assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
     out = pull()
     assert "Automatic merge failed; fix" not in out
@@ -681,7 +681,7 @@ def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     clone(a)
-    assert not os.path.isfile(NOTE_1)
+    assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
     os.chdir("Default")
     pull()
@@ -723,7 +723,7 @@ def test_pull_handles_non_standard_submodule_branch_names():
     repo: git.Repo = get_repo_with_submodules_from_file(a)
 
     # Copy a new note into the submodule.
-    note_path = Path(SUBMODULE_DIRNAME) / "Default" / NOTE_2
+    note_path = Path(SUBMODULE_DIRNAME) / "Default" / "note123412341234.md"
     shutil.copyfile(NOTE_2_PATH, note_path)
 
     # Get a reference to the submodule repo.
@@ -922,14 +922,14 @@ def test_push_writes_changes_correctly():
     repo, _ = clone(a)
 
     # Edit a note.
-    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
-        note_file.write("e\n")
+    with open("Default/a.md", "a", encoding="UTF-8") as f:
+        f.write("e\n")
 
     # Delete a note.
-    os.remove(NOTE_4)
+    os.remove("Default/c.md")
 
     # Add a note.
-    shutil.copyfile(NOTE_2_PATH, NOTE_2)
+    shutil.copyfile(NOTE_2_PATH, "note123412341234.md")
 
     # Commit.
     repo.git.add(all=True)
@@ -941,6 +941,7 @@ def test_push_writes_changes_correctly():
 
     # Check NOTE_4 was deleted.
     new_ids = [note.n.id for note in new_notes]
+    logger.debug(new_ids)
     assert NOTE_4_ID not in new_ids
 
     # Check that note with nid 1 was edited.
@@ -975,7 +976,7 @@ def test_push_generates_correct_backup():
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     old_hash = F.md5(a)
     repo, _ = clone(a)
-    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
+    with open("Default/a.md", "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
@@ -994,7 +995,7 @@ def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     clone(a)
-    with open(NOTE_0, "a", encoding="UTF-8") as note_file:
+    with open("Default/a.md", "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
 
     # DON'T COMMIT, push.
@@ -1007,10 +1008,10 @@ def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     repo, _ = clone(a)
-    assert not os.path.isfile(NOTE_1)
+    assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
     pull()
-    assert os.path.isfile(NOTE_1)
+    assert os.path.isfile("Default/f.md")
 
     # Modify local file.
     assert os.path.isfile(NOTE_7)
@@ -1018,9 +1019,9 @@ def test_push_doesnt_fail_after_pull():
         note_file.write("e\n")
 
     # Add new file.
-    shutil.copyfile(NOTE_2_PATH, NOTE_2)
+    shutil.copyfile(NOTE_2_PATH, "note123412341234.md")
     # Add new file.
-    shutil.copyfile(NOTE_3_PATH, NOTE_3)
+    shutil.copyfile(NOTE_3_PATH, "note 3.md")
 
     # Commit.
     repo.git.add(all=True)
@@ -1049,8 +1050,8 @@ def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     repo, _ = clone(a)
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -1059,7 +1060,7 @@ def test_push_deletes_notes():
 
     # Check that note is gone.
     clone(a)
-    assert not os.path.isfile(NOTE_0)
+    assert not os.path.isfile("Default/a.md")
 
 
 def test_push_still_works_from_subdirectories():
@@ -1069,8 +1070,8 @@ def test_push_still_works_from_subdirectories():
     repo, _ = clone(a)
 
     # Remove a note file.
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -1088,8 +1089,8 @@ def test_push_deletes_added_notes():
 
     # Add new files.
     contents = os.listdir("Default")
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
-    shutil.copyfile(NOTE_3_PATH, os.path.join("Default", NOTE_3))
+    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
+    shutil.copyfile(NOTE_3_PATH, os.path.join("Default", "note 3.md"))
 
     # Commit/push the additions.
     repo.git.add(all=True)
@@ -1144,7 +1145,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1161,7 +1162,7 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1183,7 +1184,7 @@ def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_m
     # Clone, edit, and commit.
     repo, _ = clone(a)
 
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1207,7 +1208,7 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", NOTE_2))
+    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
     repo.git.add(all=True)
     repo.index.commit(".")
 
@@ -1238,7 +1239,7 @@ def test_push_handles_submodules():
 
     # Copy a new note into the submodule.
     shutil.copyfile(
-        NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / NOTE_2
+        NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "note123412341234.md"
     )
 
     subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
@@ -1328,8 +1329,8 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     repo, _ = clone(a)
 
     # Remove a note file.
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -1349,8 +1350,8 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     out = pull()
 
     # Remove again.
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
@@ -1379,8 +1380,8 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     col.close(save=False)
 
     # Remove a note file.
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -1397,8 +1398,8 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     pull()
 
     # Remove again.
-    assert os.path.isfile(NOTE_0)
-    os.remove(NOTE_0)
+    assert os.path.isfile("Default/a.md")
+    os.remove("Default/a.md")
     repo.git.add(all=True)
     repo.index.commit("Deleted.")
 
@@ -1428,10 +1429,10 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
     repo, _ = clone(a)
 
     # Remove a note file.
-    assert os.path.isfile(NOTE_0)
+    assert os.path.isfile("Default/a.md")
     temp_note_0_file = F.mkdtemp() / "NOTE_0"
-    shutil.move(NOTE_0, temp_note_0_file)
-    assert not os.path.isfile(NOTE_0)
+    shutil.move("Default/a.md", temp_note_0_file)
+    assert not os.path.isfile("Default/a.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -1441,7 +1442,7 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
     out = push()
 
     # Put file back.
-    shutil.move(temp_note_0_file, NOTE_0)
+    shutil.move(temp_note_0_file, "Default/a.md")
     repo.git.add(all=True)
     repo.index.commit("Added.")
 
