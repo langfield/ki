@@ -46,20 +46,9 @@ from ki.functional import curried
 from tests.test_ki import (
     open_collection,
     GITREPO_PATH,
-    MULTI_GITREPO_PATH,
-    MULTI_NOTE_PATH,
-    MULTI_NOTE_ID,
     SUBMODULE_DIRNAME,
-    NOTE_0,
-    NOTE_1,
-    NOTE_2,
-    NOTE_3,
-    NOTE_4,
-    NOTE_7,
     NOTE_2_PATH,
     NOTE_3_PATH,
-    NOTE_0_ID,
-    NOTE_4_ID,
     MEDIA_NOTE,
     MEDIA_NOTE_PATH,
     MEDIA_FILE_PATH,
@@ -939,10 +928,10 @@ def test_push_writes_changes_correctly():
     push()
     new_notes = get_notes(a)
 
-    # Check NOTE_4 was deleted.
-    new_ids = [note.n.id for note in new_notes]
+    # Check c.md was deleted.
+    new_ids: List[int] = [note.n.id for note in new_notes]
     logger.debug(new_ids)
-    assert NOTE_4_ID not in new_ids
+    assert 1645027705329 not in new_ids
 
     # Check that note with nid 1 was edited.
     old_note_0 = ""
@@ -957,7 +946,7 @@ def test_push_writes_changes_correctly():
             found_0 = True
     assert found_0
 
-    # Check NOTE_2 was added.
+    # Check note123412341234.md was added.
     assert len(old_notes) == 2
     assert len(new_notes) == 2
 
@@ -1014,8 +1003,8 @@ def test_push_doesnt_fail_after_pull():
     assert os.path.isfile("Default/f.md")
 
     # Modify local file.
-    assert os.path.isfile(NOTE_7)
-    with open(NOTE_7, "a", encoding="UTF-8") as note_file:
+    assert os.path.isfile("Default/aa.md")
+    with open("Default/aa.md", "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
 
     # Add new file.
@@ -1459,9 +1448,9 @@ def test_push_changes_deck_for_moved_notes():
 
     # Move a note.
     target = "aa/dd/cc.md"
-    assert os.path.isfile(MULTI_NOTE_PATH)
-    shutil.move(MULTI_NOTE_PATH, target)
-    assert not os.path.isfile(MULTI_NOTE_PATH)
+    assert os.path.isfile("aa/bb/cc/cc.md")
+    shutil.move("aa/bb/cc/cc.md", target)
+    assert not os.path.isfile("aa/bb/cc/cc.md")
 
     # Commit the move.
     repo.git.add(all=True)
@@ -1472,7 +1461,7 @@ def test_push_changes_deck_for_moved_notes():
 
     # Check that deck has changed.
     notes: List[ColNote] = get_notes(MULTIDECK.col_file)
-    notes = filter(lambda colnote: colnote.n.id == MULTI_NOTE_ID, notes)
+    notes = filter(lambda colnote: colnote.n.id == 1645985861853, notes)
     notes = list(notes)
     assert len(notes) == 1
     colnote = notes.pop()
