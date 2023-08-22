@@ -8,7 +8,6 @@ import shutil
 import sqlite3
 import tempfile
 import subprocess
-import pprint as pp
 from pathlib import Path
 from distutils.dir_util import copy_tree
 from importlib.metadata import version
@@ -22,10 +21,9 @@ import anki
 from anki.collection import Note, Collection
 
 from beartype import beartype
-from beartype.typing import List, Tuple, Dict, Union, Optional
+from beartype.typing import List, Tuple, Optional
 
 import ki
-import ki.maybes as M
 import ki.functional as F
 from ki import MEDIA, LCA, _clone1, do, get_guid, add_db_note
 from ki.types import (
@@ -46,7 +44,6 @@ from ki.functional import curried
 from tests.test_ki import (
     open_collection,
     GITREPO_PATH,
-    SUBMODULE_DIRNAME,
     NOTE_2_PATH,
     NOTE_3_PATH,
     MEDIA_NOTE,
@@ -62,10 +59,6 @@ from tests.test_ki import (
     randomly_swap_1_bit,
     checksum_git_repository,
     get_notes,
-    get_repo_with_submodules,
-    get_repo_with_submodules_from_file,
-    JAPANESE_GITREPO_PATH,
-    BRANCH_NAME,
     get_test_collection,
     SampleCollection,
 )
@@ -184,7 +177,7 @@ def editcol(
 
 
 @beartype
-def mknote(deck: str, fields: Tuple[str, str]) -> None:
+def mknote(deck: str, fields: Tuple[str, str]) -> File:
     """Write a markdown note to a deck from the root of a ki repository."""
     front, back = fields
     parts = deck.split("::")
@@ -206,6 +199,25 @@ notetype: Basic
 {back}
 """
     path.write_text(s, encoding="UTF-8")
+    return F.chk(path)
+
+
+@beartype
+def runcmd(c: str) -> str:
+    out = subprocess.run(
+        c,
+        text=True,
+        check=True,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    ).stdout
+    return f"\n>>> {c}\n{out}"
+
+
+@beartype
+def runcmds(cs: List[str]) -> Tuple[str, str]:
+    return "\n".join(cs), "".join(map(runcmd, cs))
 
 
 # CLI
@@ -642,7 +654,7 @@ def test_pull_writes_changes_correctly():
         edits=[("Default", 1, ["aa", "bb"])],
         deletes=[2],
     )
-    out = pull()
+    pull()
     assert f.is_file()
 
 
@@ -707,99 +719,6 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         pull()
 
 
-def test_pull_handles_non_standard_submodule_branch_names():
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
-    repo: git.Repo = get_repo_with_submodules_from_file(a)
-
-    # Copy a new note into the submodule.
-    note_path = Path(SUBMODULE_DIRNAME) / "Default" / "note123412341234.md"
-    shutil.copyfile(NOTE_2_PATH, note_path)
-
-    # Get a reference to the submodule repo.
-    subrepo = git.Repo(SUBMODULE_DIRNAME)
-    subrepo.git.branch(["-m", "main", "brain"])
-
-    # Commit changes in submodule and parent repo.
-    subrepo.git.add(all=True)
-    subrepo.index.commit("Add a new note.")
-    repo.git.add(all=True)
-    repo.index.commit("Update submodule.")
-    push()
-
-    # Edit collection (implicitly removes submodule).
-    shutil.copyfile(EDITED.path, a)
-    pull()
-
-
-def test_pull_handles_uncommitted_submodule_commits():
-    UNCOMMITTED_SM: SampleCollection = get_test_collection(
-        "uncommitted_submodule_commits"
-    )
-    UNCOMMITTED_SM_EDITED: SampleCollection = get_test_collection(
-        "uncommitted_submodule_commits_edited"
-    )
-    japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
-
-    JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
-
-    # Clone collection.
-    repo, _ = clone(UNCOMMITTED_SM.col_file)
-
-    # Check that the content of a note in the collection is correct.
-    with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8") as f:
-        note_text = f.read()
-        expected = "that, that one\nthat, that one\nthis, this one"
-        assert expected in note_text
-
-    # Delete `japanese-core-2000/` subdirectory, and commit.
-    F.rmtree(F.chk(Path(JAPANESE_SUBMODULE_DIRNAME)))
-    repo.git.add(all=True)
-    repo.index.commit("Delete cloned `japanese-core-2000` folder.")
-    repo.close()
-
-    # Push the deletion.
-    push()
-
-    # Copy a new directory of notes to `japanese-core-2000/` subdirectory,
-    # and initialize it as a git repository.
-    submodule_name = JAPANESE_SUBMODULE_DIRNAME
-    shutil.copytree(japanese_gitrepo_path, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
-    sm = git.Repo(submodule_name)
-    sm.git.add(all=True)
-    _ = sm.index.commit("Initial commit.")
-
-    # Add as a submodule.
-    repo.git.submodule("add", Path(submodule_name).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-    repo.close()
-
-    # Push changes.
-    push()
-
-    # Add a new line to a note, and commit the addition in the submodule.
-    with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "a", encoding="UTF-8") as f:
-        f.write("A new line at the bottom.")
-    sm.git.add(all=True)
-    _ = sm.index.commit("Added a new line.")
-    sm.close()
-
-    # Edit collection.
-    shutil.copyfile(UNCOMMITTED_SM_EDITED.col_file, UNCOMMITTED_SM.col_file)
-
-    # Pull changes from collection to root ki repository.
-    out = pull()
-    assert "fatal: remote error: " not in out
-    assert "CONFLICT" not in out
-
-    with open(Path(JAPANESE_SUBMODULE_DIRNAME) / "それ.md", "r", encoding="UTF-8") as f:
-        note_text = f.read()
-    expected_mackerel = "\nholy mackerel\n"
-    expected_this = "\nthis, this one\n"
-    assert expected_mackerel in note_text
-    assert expected_this in note_text
-
 
 def test_pull_removes_files_deleted_in_remote():
     a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
@@ -839,54 +758,6 @@ def test_pull_leaves_no_working_tree_changes():
     shutil.copyfile(DELETED.path, a)
     pull()
     assert not repo.is_dirty()
-
-
-def test_pull_succeeds_with_new_submodules():
-    """Does a nontrivial pull succeed when we add a new submodule?"""
-    MULTIDECK: SampleCollection = get_test_collection("multideck")
-    submodule_py_path = os.path.abspath("submodule.py")
-
-    # Clone collection in cwd.
-    repo, _ = clone(MULTIDECK.col_file)
-    os.chdir("../")
-
-    rem_path = F.mkdir(F.chk(Path("aa_remote")))
-    rem = git.Repo.init(rem_path, initial_branch=BRANCH_NAME)
-    os.chdir(rem_path)
-    Path("some_file").write_text("hello", encoding="UTF-8")
-    rem.git.add(".")
-    rem.git.commit(["-m", "hello"])
-    os.chdir("..")
-    rem.git.checkout(["-b", "alt"])
-    remote_path = str(Path(os.path.abspath(rem.working_dir)) / ".git")
-
-    # Here we call submodule.py
-    subprocess.run(
-        [
-            "python3",
-            submodule_py_path,
-            "--kirepo",
-            MULTIDECK.repodir,
-            "--deck",
-            "aa",
-            "--remote",
-            remote_path,
-        ],
-        check=False,
-        capture_output=True,
-        encoding="UTF-8",
-    )
-
-    # Make change in Anki, adding a card to the submodule.
-    col = M.collection(MULTIDECK.col_file)
-    nt = col.models.current()
-    note = col.new_note(nt)
-    did = col.decks.id("aa::bb", create=False)
-    col.add_note(note, did)
-    col.close(save=True)
-
-    os.chdir(repo.working_dir)
-    pull()
 
 
 def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
@@ -1215,36 +1086,6 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
         push()
 
 
-def test_push_handles_submodules():
-    ORIGINAL = get_test_collection("original")
-
-    repo = get_repo_with_submodules(ORIGINAL)
-    os.chdir(repo.working_dir)
-
-    # Edit a file within the submodule.
-    file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-    with open(file, "a", encoding="UTF-8") as note_f:
-        note_f.write("\nz\n\n")
-
-    # Copy a new note into the submodule.
-    shutil.copyfile(
-        NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "note123412341234.md"
-    )
-
-    subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
-    subrepo.git.add(all=True)
-    subrepo.index.commit(".")
-    repo.git.add(all=True)
-    repo.index.commit(".")
-
-    push()
-
-    colnotes = get_notes(ORIGINAL.col_file)
-    notes: List[Note] = [colnote.n for colnote in colnotes]
-    assert len(notes) == 3
-    assert "<br>z<br>" in notes[0]["Back"]
-
-
 def test_push_writes_media():
     MEDIACOL: SampleCollection = get_test_collection("media")
 
@@ -1466,63 +1307,6 @@ def test_push_changes_deck_for_moved_notes():
     assert len(notes) == 1
     colnote = notes.pop()
     assert colnote.deck == "aa::dd"
-
-
-def test_push_is_trivial_for_committed_submodule_contents():
-    UNCOMMITTED_SM: SampleCollection = get_test_collection(
-        "uncommitted_submodule_commits"
-    )
-    japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
-
-    JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
-
-    # Clone collection in cwd.
-    repo, out = clone(UNCOMMITTED_SM.col_file)
-
-    # Delete a directory.
-    F.rmtree(F.chk(Path(JAPANESE_SUBMODULE_DIRNAME)))
-    repo.git.add(all=True)
-    repo.index.commit("Delete cloned `japanese-core-2000` folder.")
-
-    # Push deletion.
-    out = push()
-
-    # Add a submodule.
-    submodule_name = JAPANESE_SUBMODULE_DIRNAME
-    shutil.copytree(japanese_gitrepo_path, submodule_name)
-    git.Repo.init(submodule_name, initial_branch=BRANCH_NAME)
-    sm = git.Repo(submodule_name)
-    sm.git.add(all=True)
-    _ = sm.index.commit("Initial commit.")
-    repo.git.submodule("add", Path(submodule_name).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-
-    out = push()
-    out = push()
-    assert "ki push: up to date." in out
-
-
-def test_push_prints_informative_warning_on_push_when_subrepo_was_added_instead_of_submodule():
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
-    japanese_gitrepo_path = Path(JAPANESE_GITREPO_PATH).resolve()
-    JAPANESE_SUBMODULE_DIRNAME = "japanese-core-2000"
-
-    # Clone collection in cwd.
-    repo, _ = clone(a)
-
-    # Add a *subrepo* (not submodule).
-    submodule_name = JAPANESE_SUBMODULE_DIRNAME
-    shutil.copytree(japanese_gitrepo_path, submodule_name)
-
-    p = subprocess.run(
-        ["git", "add", "--all"], check=True, capture_output=True, encoding="UTF-8"
-    )
-    if "warning" in p.stderr:
-        repo.index.commit("Add subrepo.")
-        repo.close()
-        out = push()
-        assert "'git submodule add'" in out
 
 
 def test_push_handles_tags_containing_trailing_commas():

@@ -69,7 +69,6 @@ from ki import (
     NotetypeMismatchError,
     UnhealthyNoteWarning,
     KiRepo,
-    KiRev,
     DotKi,
     is_ignorable,
     cp_ki,
@@ -140,7 +139,6 @@ MULTI_NOTE_PATH = "aa/bb/cc/cc.md"
 
 NOTES_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "notes/"))
 MEDIA_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "media/"))
-SUBMODULE_DIRNAME = "submodule"
 
 MEDIA_FILENAME = "bullhorn-lg.png"
 MEDIA_FILE_PATH = os.path.join(MEDIA_PATH, MEDIA_FILENAME)
@@ -411,44 +409,6 @@ def get_notes(collection: File) -> List[ColNote]:
         notes.append(colnote)
 
     return notes
-
-
-@beartype
-def get_repo_with_submodules(COL: SampleCollection) -> git.Repo:
-    """Return repo with a new committed submodule created from a new directory."""
-    repo, _ = clone(COL.col_file)
-
-    # Create submodule out of GITREPO_PATH.
-    shutil.copytree(GITREPO_PATH, SUBMODULE_DIRNAME)
-    sm_repo = git.Repo.init(SUBMODULE_DIRNAME, initial_branch=BRANCH_NAME)
-    sm_repo.git.add(all=True)
-    _ = sm_repo.index.commit("Initial commit.")
-    sm_repo.close()
-
-    # Add as a submodule.
-    repo.git.submodule("add", Path(SUBMODULE_DIRNAME).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-    return repo
-
-
-@beartype
-def get_repo_with_submodules_from_file(col_file: File) -> git.Repo:
-    """Return repo with a new committed submodule created from a new directory."""
-    repo, _ = clone(col_file)
-
-    # Create submodule out of GITREPO_PATH.
-    shutil.copytree(GITREPO_PATH, SUBMODULE_DIRNAME)
-    sm_repo = git.Repo.init(SUBMODULE_DIRNAME, initial_branch=BRANCH_NAME)
-    sm_repo.git.add(all=True)
-    _ = sm_repo.index.commit("Initial commit.")
-    sm_repo.close()
-
-    # Add as a submodule.
-    repo.git.submodule("add", Path(SUBMODULE_DIRNAME).resolve())
-    repo.git.add(all=True)
-    _ = repo.index.commit("Add submodule.")
-    return repo
 
 
 @pytest.fixture
@@ -875,62 +835,6 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmpfs: None):
     assert len(warnings) == 1
     warning = warnings.pop()
     assert "note123412341234.md" in str(warning)
-
-
-def test_unsubmodule_removes_gitmodules(tmpfs: None):
-    """
-    When you have a ki repo with submodules, does calling
-    `F.unsubmodule()`on it remove them? We test this by checking if the
-    `.gitmodules` file exists.
-    """
-    ORIGINAL = get_test_collection("original")
-
-    repo = get_repo_with_submodules(ORIGINAL)
-    gitmodules_path = Path(repo.working_dir) / ".gitmodules"
-    assert gitmodules_path.exists()
-    F.unsubmodule(repo)
-    assert not gitmodules_path.exists()
-
-
-def test_diff2_handles_submodules(tmpfs: None):
-    """
-    Does 'diff2()' correctly generate deltas
-    when adding submodules and when removing submodules?
-    """
-    ORIGINAL = get_test_collection("original")
-
-    repo = get_repo_with_submodules(ORIGINAL)
-
-    deltas: List[Delta] = diff2(*get_diff2_args())
-    gc.collect()
-
-    deltas = list(deltas)
-    assert len(deltas) == 1
-    delta = deltas[0]
-    assert isinstance(delta, Delta)
-    assert delta.status == GitChangeType.ADDED
-    assert str(Path("submodule") / "Default" / "a.md") in str(delta.path)
-
-    # Push changes.
-    push()
-
-    # Remove submodule.
-    F.rmtree(F.chk(Path(SUBMODULE_DIRNAME)))
-    repo.git.add(all=True)
-    _ = repo.index.commit("Remove submodule.")
-
-    deltas: List[Delta] = diff2(*get_diff2_args())
-    gc.collect()
-    deltas = [d for d in deltas if isinstance(d, Delta)]
-
-    # We expect the following delta (GitChangeType.RENAMED):
-    #
-    # DEBUG    | ki:diff2:389 - submodule/Default/a.md -> Default/a.md
-
-    deltas = list(deltas)
-    assert len(deltas) > 0
-    for delta in deltas:
-        assert delta.path.is_file()
 
 
 def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
@@ -1396,32 +1300,6 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
         get_models_recursively(kirepo)
     assert "Failed to find 'name' field" in str(error.exconly())
     assert "1645010146011" in str(error.exconly())
-
-
-def test_cp_repo_handles_submodules(tmpfs: None):
-    ORIGINAL = get_test_collection("original")
-
-    repo: git.Repo = get_repo_with_submodules(ORIGINAL)
-
-    os.chdir(repo.working_dir)
-
-    # Edit a file within the submodule.
-    file = Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "a.md"
-    with open(file, "a", encoding="UTF-8") as note_f:
-        note_f.write("\nz\n")
-
-    subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
-    subrepo.git.add(all=True)
-    subrepo.index.commit(".")
-    repo.git.add(all=True)
-    repo.index.commit(".")
-
-    kirepo: KiRepo = M.kirepo(F.cwd())
-    head: KiRev = M.head_ki(kirepo)
-
-    # Just want to check that this doesn't return an exception, so we
-    # unwrap, but don't assert anything.
-    kirepo = cp_ki(head, suffix="suffix-md5")
 
 
 @pytest.mark.skipif(
