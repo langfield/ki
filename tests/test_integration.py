@@ -712,8 +712,7 @@ def test_pull_handles_non_standard_submodule_branch_names():
     repo: git.Repo = get_repo_with_submodules_from_file(a)
 
     # Copy a new note into the submodule.
-    note_path = Path(SUBMODULE_DIRNAME) / "Default" / "note123412341234.md"
-    shutil.copyfile(NOTE_2_PATH, note_path)
+    mknote("submodule::Default", ("r", "s"))
 
     # Get a reference to the submodule repo.
     subrepo = git.Repo(SUBMODULE_DIRNAME)
@@ -724,11 +723,21 @@ def test_pull_handles_non_standard_submodule_branch_names():
     subrepo.index.commit("Add a new note.")
     repo.git.add(all=True)
     repo.index.commit("Update submodule.")
-    push()
+    out = push()
+
+    # One note is added from `get_repo_with_submodules_from_file()` call, and
+    # one note is added above.
+    assert "ADD                    2" in out
 
     # Edit collection (implicitly removes submodule).
     shutil.copyfile(EDITED.path, a)
-    pull()
+    out = pull()
+    logger.debug(out)
+    # TODO: Is this supposed to be here? Try on the command line.
+    # TODO: Is there an advantage to using bash testing instead, since then we
+    # could run all the tests from the command line? And also it would be
+    # easier to write new tests?
+    assert "warning: unable to rmdir 'submodule': Directory not empty" not in out
 
 
 def test_pull_handles_uncommitted_submodule_commits():
