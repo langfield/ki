@@ -7,6 +7,7 @@ import time
 import shutil
 import sqlite3
 import tempfile
+import functools
 import subprocess
 import pprint as pp
 from pathlib import Path
@@ -184,7 +185,7 @@ def editcol(
 
 
 @beartype
-def mknote(deck: str, fields: Tuple[str, str]) -> None:
+def mknote(deck: str, fields: Tuple[str, str]) -> File:
     """Write a markdown note to a deck from the root of a ki repository."""
     front, back = fields
     parts = deck.split("::")
@@ -206,6 +207,7 @@ notetype: Basic
 {back}
 """
     path.write_text(s, encoding="UTF-8")
+    return F.chk(path)
 
 
 # CLI
@@ -710,6 +712,7 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
 def test_pull_handles_non_standard_submodule_branch_names():
     a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
     repo: git.Repo = get_repo_with_submodules_from_file(a)
+    logger.debug(repo.working_dir)
 
     # Copy a new note into the submodule.
     mknote("submodule::Default", ("r", "s"))
@@ -733,10 +736,60 @@ def test_pull_handles_non_standard_submodule_branch_names():
     shutil.copyfile(EDITED.path, a)
     out = pull()
     logger.debug(out)
+    logger.debug(os.getcwd())
     # TODO: Is this supposed to be here? Try on the command line.
     # TODO: Is there an advantage to using bash testing instead, since then we
     # could run all the tests from the command line? And also it would be
     # easier to write new tests?
+    assert "warning: unable to rmdir 'submodule': Directory not empty" not in out
+
+
+@beartype
+def runcmd(c: str) -> str:
+    out = subprocess.run(
+        c,
+        text=True,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    ).stdout
+    return f"\n>>> {c}\n{out}"
+
+
+@beartype
+def runcmds(cs: List[str]) -> Tuple[str, str]:
+    return "\n".join(cs), "".join(map(runcmd, cs))
+
+
+def test_pull_handles_non_standard_submodule_branch_names_command_line():
+    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    cwd = F.mkdtemp()
+    os.chdir(cwd)
+    p = mknote("", ("r", "s"))
+    cs, out = runcmds(
+        [
+            f"ki clone {a}",
+            f"cd a && cp -r {GITREPO_PATH} submodule",
+            f"cd a/submodule && git init -b {BRANCH_NAME}",
+            f"cd a/submodule && git add . && git commit -m 'Initial commit.'",
+            f"cd a && git submodule add ./submodule",
+            f"cd a && git add . && git commit -m 'Add submodule.'",
+            f"cp {p} a/submodule/Default",
+            f"cd a/submodule && git branch -m main brain",
+            f"cd a/submodule && git add . && git commit -m 'Add a new note.'",
+            f"cd a && git add . && git commit -m 'Update submodule.'",
+            f"cd a && ki push",
+            f"cp {EDITED.path} {a}",
+            f"cd a && ki pull",
+        ],
+    )
+    logger.debug(out)
+    logger.debug(cwd)
+    logger.debug(cs)
+
+    # One note is added from `get_repo_with_submodules_from_file()` call, and
+    # one note is added above.
+    assert "ADD                    2" in out
     assert "warning: unable to rmdir 'submodule': Directory not empty" not in out
 
 
@@ -1237,7 +1290,8 @@ def test_push_handles_submodules():
 
     # Copy a new note into the submodule.
     shutil.copyfile(
-        NOTE_2_PATH, Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "note123412341234.md"
+        NOTE_2_PATH,
+        Path(repo.working_dir) / SUBMODULE_DIRNAME / "Default" / "note123412341234.md",
     )
 
     subrepo = git.Repo(Path(repo.working_dir) / SUBMODULE_DIRNAME)
