@@ -79,7 +79,7 @@ NoteSpec = Tuple[str, int, List[str]]
 
 @curried
 @beartype
-def mkbasic(col: Collection, spec: NoteSpec) -> None:
+def addnote(col: Collection, spec: NoteSpec) -> None:
     fullname, nid, fields = spec
     did = col.decks.id(fullname)
     guid = get_guid(list(fields))
@@ -119,7 +119,7 @@ def opencol(f: File) -> Collection:
 def mkcol(ns: List[NoteSpec], empty_decks: Optional[List[str]] = None) -> File:
     file = F.touch(F.mkdtemp(), "a.anki2")
     col = opencol(file)
-    do(mkbasic(col), ns)
+    do(addnote(col), ns)
     if empty_decks:
         do(col.decks.id, empty_decks)
     col.close(save=True)
@@ -169,22 +169,18 @@ def editcol(
     """Edit an existing collection file."""
     col = opencol(f)
     adds, edits, deletes = adds or [], edits or [], deletes or []
-    do(mkbasic(col), adds)
+    do(addnote(col), adds)
     do(editbasic(col), edits)
     col.remove_notes(deletes)
     col.close(save=True)
     return f
 
 
-@beartype
-def mknote(deck: str, fields: Tuple[str, str]) -> File:
-    """Write a markdown note to a deck from the root of a ki repository."""
+def mkbasic(guid: str, fields: Tuple[str, str]) -> str:
     front, back = fields
-    parts = deck.split("::")
-    path = Path("./" + "/".join(parts + [f"{front}.md"]))
-    s = f"""# Note
+    return f"""# Note
 ```
-guid: {get_guid(list(fields))}
+guid: {guid}
 notetype: Basic
 ```
 
@@ -198,7 +194,14 @@ notetype: Basic
 ## Back
 {back}
 """
-    path.write_text(s, encoding="UTF-8")
+
+
+@beartype
+def write_note(deck: str, fields: Tuple[str, str]) -> File:
+    """Write a markdown note to a deck from the root of a ki repository."""
+    front = fields[0]
+    path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
+    path.write_text(mkbasic(get_guid(list(fields)), fields), encoding="UTF-8")
     return F.chk(path)
 
 
@@ -334,8 +337,8 @@ def test_output():
     assert p.is_file()
     with p.open("a", encoding="UTF-8") as f:
         f.write("e\n")
-    mknote("Default", ("r", "s"))
-    mknote("Default", ("s", "t"))
+    write_note("Default", ("r", "s"))
+    write_note("Default", ("s", "t"))
 
     # Commit.
     repo.git.add(all=True)
