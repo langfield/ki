@@ -25,7 +25,7 @@ from beartype.typing import List, Tuple, Optional
 
 import ki
 import ki.functional as F
-from ki import MEDIA, LCA, _clone1, do, get_guid, add_db_note
+from ki import MEDIA, LCA, _clone1, do, stardo, get_guid, add_db_note
 from ki.types import (
     Notetype,
     ColNote,
@@ -74,16 +74,20 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 EDITED: SampleCollection = get_test_collection("edited")
 
 
-NoteSpec = Tuple[str, int, List[str]]
+Deck = str
+Nid = int
+Field = str
+Model = str
+NoteSpec = Tuple[Model, List[Deck], Nid, List[Field]]
 
 
 @curried
 @beartype
 def addnote(col: Collection, spec: NoteSpec) -> None:
-    fullname, nid, fields = spec
-    did = col.decks.id(fullname)
+    model, fullnames, nid, fields = spec
+    dids = list(map(col.decks.id, fullnames))
     guid = get_guid(list(fields))
-    mid = col.models.id_for_name("Basic")
+    mid = col.models.id_for_name(model)
     timestamp_ns: int = time.time_ns()
     note: Note = add_db_note(
         col=col,
@@ -100,8 +104,8 @@ def addnote(col: Collection, spec: NoteSpec) -> None:
         data="",
     )
     cids = [c.id for c in note.cards()]
-    if cids:
-        note.col.set_deck(cids, did)
+    assert len(dids) == len(cids)
+    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
 
 
 @beartype
@@ -137,16 +141,15 @@ def rm(f: File, nid: int) -> File:
 
 @curried
 @beartype
-def editbasic(col: Collection, spec: NoteSpec) -> None:
-    fullname, nid, fields = spec
-    front, back = fields
+def editnote(col: Collection, spec: NoteSpec) -> None:
+    model, fullnames, nid, fields = spec
     note = col.get_note(nid)
-    note["Front"] = front
-    note["Back"] = back
-    did: int = col.decks.id(fullname, create=True)
+    assert len(note.keys()) == len(fields)
+    stardo(lambda k, fld: note.__setitem__(k, fld), zip(note.keys(), fields))
+    dids = list(map(col.decks.id, fullnames))
     cids = [c.id for c in note.cards()]
-    if cids:
-        col.set_deck(cids, did)
+    assert len(dids) == len(cids)
+    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
     note.flush()
 
 
@@ -154,7 +157,7 @@ def editbasic(col: Collection, spec: NoteSpec) -> None:
 def edit(f: File, spec: NoteSpec) -> File:
     """Edit a note with specified nid."""
     col = opencol(f)
-    editbasic(col, spec)
+    editnote(col, spec)
     col.close(save=True)
     return f
 
@@ -170,7 +173,7 @@ def editcol(
     col = opencol(f)
     adds, edits, deletes = adds or [], edits or [], deletes or []
     do(addnote(col), adds)
-    do(editbasic(col), edits)
+    do(editnote(col), edits)
     col.remove_notes(deletes)
     col.close(save=True)
     return f
@@ -197,7 +200,7 @@ notetype: Basic
 
 
 @beartype
-def write_note(deck: str, fields: Tuple[str, str]) -> File:
+def write_basic(deck: str, fields: Tuple[str, str]) -> File:
     """Write a markdown note to a deck from the root of a ki repository."""
     front = fields[0]
     path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
@@ -313,7 +316,7 @@ def test_computes_and_stores_md5sum():
 
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     assert pull() == "ki pull: up to date.\n\n"
     push()
@@ -327,18 +330,18 @@ def test_no_op_pull_push_cycle_is_idempotent():
 
 def test_output():
     """Does it print nice things?"""
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
-    edit(a, ("Default", 1, ["aa", "bb"]))
-    edit(a, ("Default", 2, ["f", "g"]))
+    edit(a, ("Basic", ["Default"], 1, ["aa", "bb"]))
+    edit(a, ("Basic", ["Default"], 2, ["f", "g"]))
     pull()
 
     p = Path("Default/aa.md")
     assert p.is_file()
     with p.open("a", encoding="UTF-8") as f:
         f.write("e\n")
-    write_note("Default", ("r", "s"))
-    write_note("Default", ("s", "t"))
+    write_basic("Default", ("r", "s"))
+    write_basic("Default", ("s", "t"))
 
     # Commit.
     repo.git.add(all=True)
@@ -354,7 +357,7 @@ def test_output():
 
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.remove(a)
     with pytest.raises(FileNotFoundError):
         clone(a)
@@ -363,7 +366,7 @@ def test_clone_fails_if_collection_doesnt_exist():
 
 def test_clone_fails_if_collection_is_already_open():
     """Does ki print a nice error message when Anki is accidentally left open?"""
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.remove(a)
     _ = open_collection(a)
     with pytest.raises(AnkiAlreadyOpenError):
@@ -372,7 +375,7 @@ def test_clone_fails_if_collection_is_already_open():
 
 def test_clone_creates_directory():
     """Does it create the directory?"""
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     os.chdir("../")
     assert os.path.isdir("a")
@@ -380,7 +383,7 @@ def test_clone_creates_directory():
 
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Create directory where we want to clone.
     os.chdir(F.mkdtemp())
@@ -394,7 +397,7 @@ def test_clone_errors_when_directory_is_populated():
 
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     os.chdir("../")
     assert Path("a").is_dir()
@@ -416,7 +419,7 @@ def test_clone_clean_up_preserves_directories_that_exist_a_priori():
     When clone fails and the cleanup function is called, does it not delete
     targetdirs that already existed?
     """
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     os.chdir(F.mkdtemp())
     os.mkdir("a")
@@ -436,7 +439,7 @@ def test_clone_clean_up_preserves_directories_that_exist_a_priori():
 
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     os.mkdir("a")
     clone(a)
@@ -444,7 +447,7 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
 
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     clone(a)
     assert os.path.isdir("Default")
@@ -473,12 +476,12 @@ def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     a: File = mkcol(
         [
-            ("aa", 1, ["a", "aa"]),
-            ("aa::bb", 2, ["bb", "bb"]),
-            ("aa::bb::cc", 3, ["cc", "cc"]),
-            ("aa::dd", 4, ["dd", "dd"]),
-            ("Default", 5, ["hello", "hello"]),
-            ("Default", 6, ["hello my enemy", "goodbye"]),
+            ("Basic", ["aa"], 1, ["a", "aa"]),
+            ("Basic", ["aa::bb"], 2, ["bb", "bb"]),
+            ("Basic", ["aa::bb::cc"], 3, ["cc", "cc"]),
+            ("Basic", ["aa::dd"], 4, ["dd", "dd"]),
+            ("Basic", ["Default"], 5, ["hello", "hello"]),
+            ("Basic", ["Default"], 6, ["hello my enemy", "goodbye"]),
         ],
         empty_decks=[":a:::b:", "blank::blank", "blank::Hello"],
     )
@@ -510,7 +513,7 @@ cc
 
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     clone(a)
     assert Path(".ki/").is_dir()
@@ -518,7 +521,7 @@ def test_clone_generates_ki_subdirectory():
 
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     clone(a)
     os.chdir("../")
@@ -527,7 +530,7 @@ def test_cloned_collection_is_git_repository():
 
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     repo, _ = clone(a)
     changes = repo.head.commit.diff()
@@ -537,7 +540,7 @@ def test_clone_commits_directory_contents():
 
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     os.chdir(F.mkdtemp())
     original_md5 = F.md5(a)
     clone(a)
@@ -547,7 +550,7 @@ def test_clone_leaves_collection_file_unchanged():
 
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     tempdir = tempfile.mkdtemp()
     target = os.path.join(tempdir, "TARGET")
     assert not os.path.isdir(target)
@@ -619,7 +622,7 @@ def test_clone_url_decodes_media_src_attributes():
 
 def test_clone_leaves_no_working_tree_changes():
     """Does everything get committed at the end of a `clone()`?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
     assert not repo.is_dirty()
 
@@ -629,7 +632,7 @@ def test_clone_leaves_no_working_tree_changes():
 
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     os.remove(a)
     with pytest.raises(FileNotFoundError):
@@ -638,7 +641,7 @@ def test_pull_fails_if_collection_no_longer_exists():
 
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     a.write_text("bad_contents")
     with pytest.raises(SQLiteLockError):
@@ -647,14 +650,14 @@ def test_pull_fails_if_collection_file_is_corrupted():
 
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     f = Path("Default") / "f.md"
     assert not f.exists()
     editcol(
         a,
-        adds=[("Default", 3, ["f", "g"])],
-        edits=[("Default", 1, ["aa", "bb"])],
+        adds=[("Basic", ["Default"], 3, ["f", "g"])],
+        edits=[("Basic", ["Default"], 1, ["aa", "bb"])],
         deletes=[2],
     )
     pull()
@@ -663,7 +666,7 @@ def test_pull_writes_changes_correctly():
 
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     orig_hash = checksum_git_repository(".")
     pull()
@@ -673,7 +676,7 @@ def test_pull_unchanged_collection_is_no_op():
 
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
@@ -683,7 +686,7 @@ def test_pull_avoids_unnecessary_merge_conflicts():
 
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo route?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
@@ -693,7 +696,7 @@ def test_pull_still_works_from_subdirectories():
 
 def test_pull_displays_errors_from_rev():
     """Does 'pull()' return early when the last push tag is missing?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
     repo.delete_tag(LCA)
     shutil.copyfile(EDITED.path, a)
@@ -703,7 +706,7 @@ def test_pull_displays_errors_from_rev():
 
 
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     shutil.copyfile(EDITED.path, a)
     mocker.patch("ki.F.md5", side_effect=["good", "good", "good", "bad"])
@@ -712,7 +715,7 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
 
 
 def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     shutil.copyfile(EDITED.path, a)
     git.Repo.init(Path("."))
@@ -724,8 +727,8 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
 
 
 def test_pull_removes_files_deleted_in_remote():
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
-    b = mkcol([("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
+    b = mkcol([("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     assert (Path("Default") / "a.md").is_file()
     shutil.copyfile(b, a)
@@ -745,8 +748,8 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
 
 
 def test_dsl_pull_leaves_no_working_tree_changes():
-    a = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
-    b = mkcol([("Default", 2, ["c", "d"])])
+    a = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
+    b = mkcol([("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
     shutil.copyfile(b, a)
     pull()
@@ -755,7 +758,7 @@ def test_dsl_pull_leaves_no_working_tree_changes():
 
 def test_pull_leaves_no_working_tree_changes():
     """Does everything get committed at the end of a `pull()`?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     DELETED: SampleCollection = get_test_collection("deleted")
     repo, _ = clone(a)
     shutil.copyfile(DELETED.path, a)
@@ -765,7 +768,7 @@ def test_pull_leaves_no_working_tree_changes():
 
 def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
     """If we leave changes in the work tree, can we pull again after failure?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "a.md"))
     shutil.copyfile(EDITED.path, a)
@@ -780,7 +783,7 @@ def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
 
 def test_push_writes_changes_correctly():
     """If there are committed changes, does push change the collection file?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     old_notes = get_notes(a)
     repo, _ = clone(a)
 
@@ -827,7 +830,7 @@ def test_push_writes_changes_correctly():
 
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     randomly_swap_1_bit(a)
     with pytest.raises(UpdatesRejectedError):
@@ -836,7 +839,7 @@ def test_push_verifies_md5sum():
 
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     old_hash = F.md5(a)
     repo, _ = clone(a)
     with open("Default/a.md", "a", encoding="UTF-8") as note_file:
@@ -856,7 +859,7 @@ def test_push_generates_correct_backup():
 
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     with open("Default/a.md", "a", encoding="UTF-8") as note_file:
         note_file.write("e\n")
@@ -869,7 +872,7 @@ def test_push_doesnt_write_uncommitted_changes():
 
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
     assert not os.path.isfile("Default/f.md")
     shutil.copyfile(EDITED.path, a)
@@ -899,7 +902,7 @@ def test_push_doesnt_fail_after_pull():
 
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     clone(a)
     push()
     push()
@@ -911,7 +914,7 @@ def test_no_op_push_is_idempotent():
 
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
@@ -928,7 +931,7 @@ def test_push_deletes_notes():
 
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     repo, _ = clone(a)
 
@@ -947,7 +950,7 @@ def test_push_still_works_from_subdirectories():
 
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     repo, _ = clone(a)
 
     # Add new files.
@@ -986,7 +989,7 @@ def test_push_deletes_added_notes():
 
 
 def test_push_honors_ignore_patterns():
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone collection in cwd.
     repo, _ = clone(a)
@@ -1004,7 +1007,7 @@ def test_push_honors_ignore_patterns():
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
@@ -1021,7 +1024,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
 
 
 def test_push_displays_errors_from_head(mocker: MockerFixture):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
@@ -1042,7 +1045,7 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
 def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_model_adding(
     mocker: MockerFixture,
 ):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
@@ -1067,7 +1070,7 @@ def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_m
 def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
@@ -1127,7 +1130,7 @@ def test_push_writes_media():
 
 def test_push_handles_foreign_models():
     """Just check that we don't return an exception from `push()`."""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     repo, _ = clone(a)
     shutil.copytree(japan_path, Path("Default") / "japan")
@@ -1138,7 +1141,7 @@ def test_push_handles_foreign_models():
 
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     repo, _ = clone(a)
     shutil.copytree(japan_path, Path("Default") / "japan")
@@ -1157,7 +1160,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     within the ki repo, then push again, the push should *not* be a no-op. The
     changes are currently applied in Anki, and the push should undo them.
     """
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
     COPY: SampleCollection = get_test_collection("original")
     repo, _ = clone(a)
 
@@ -1256,7 +1259,7 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
 
     The last push, in particular, should add the note back in.
     """
-    a: File = mkcol([("Default", 1, ["a", "b"]), ("Default", 2, ["c", "d"])])
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", "b"]), ("Basic", ["Default"], 2, ["c", "d"])])
 
     # Clone collection in cwd.
     repo, _ = clone(a)

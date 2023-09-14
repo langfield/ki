@@ -203,13 +203,13 @@ TYPECHANGED = GitChangeType.TYPECHANGED
 @beartype
 def do(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
     """Perform some action on an iterable."""
-    set(map(f, xs))
+    list(map(f, xs))
 
 
 @beartype
 def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
     """Perform some action on an iterable of tuples, unpacking arguments."""
-    set(starmap(f, xs))
+    list(starmap(f, xs))
 
 
 @beartype
