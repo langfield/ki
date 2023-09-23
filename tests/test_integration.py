@@ -21,7 +21,7 @@ import anki
 from anki.collection import Note, Collection
 
 from beartype import beartype
-from beartype.typing import List, Tuple, Optional
+from beartype.typing import List, Tuple, Optional, Union
 
 import ki
 import ki.functional as F
@@ -79,6 +79,22 @@ Nid = int
 Field = str
 Model = str
 NoteSpec = Tuple[Model, List[Deck], Nid, List[Field]]
+
+
+@beartype
+def read(path: Union[str, Path]) -> str:
+    return Path(path).read_text(encoding="UTF-8")
+
+
+@beartype
+def write(path: Union[str, Path], s: str) -> None:
+    Path(path).write_text(s, encoding="UTF-8")
+
+
+@beartype
+def append(path: Union[str, Path], s: str) -> None:
+    with Path(path).open("a", encoding="UTF-8") as f:
+        f.write(s)
 
 
 @curried
@@ -204,7 +220,7 @@ def write_basic(deck: str, fields: Tuple[str, str]) -> File:
     """Write a markdown note to a deck from the root of a ki repository."""
     front = fields[0]
     path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
-    path.write_text(mkbasic(get_guid(list(fields)), fields), encoding="UTF-8")
+    write(path, mkbasic(get_guid(list(fields)), fields))
     return F.chk(path)
 
 
@@ -292,26 +308,20 @@ def test_fails_without_ki_subdirectory():
 def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
-    # Clone collection in cwd.
     clone(ORIGINAL.col_file)
 
     # Check that hash is written.
-    with open(".ki/hashes", encoding="UTF-8") as hashes_file:
-        hashes = hashes_file.read()
-        assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
-        assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" not in hashes
+    hashes = read(".ki/hashes")
+    assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
+    assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" not in hashes
 
-    # Edit collection.
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
-
-    # Pull edited collection.
     pull()
 
     # Check that edited hash is written and old hash is still there.
-    with open(".ki/hashes", encoding="UTF-8") as hashes_file:
-        hashes = hashes_file.read()
-        assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
-        assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" in hashes
+    hashes = read(".ki/hashes")
+    assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
+    assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" in hashes
 
 
 def test_no_op_pull_push_cycle_is_idempotent():
@@ -342,8 +352,7 @@ def test_output():
 
     p = Path("Default/aa.md")
     assert p.is_file()
-    with p.open("a", encoding="UTF-8") as f:
-        f.write("e\n")
+    append(p, "e\n")
     write_basic("Default", ("r", "s"))
     write_basic("Default", ("s", "t"))
 
@@ -400,7 +409,7 @@ def test_clone_errors_when_directory_is_populated():
     # Create directory where we want to clone.
     os.chdir(F.mkdtemp())
     os.mkdir("a")
-    (Path("a") / "hi").write_text("hi\n", encoding="UTF-8")
+    write("a/hi", "hi\n")
 
     # Should error out because directory already exists.
     with pytest.raises(TargetExistsError):
@@ -610,11 +619,10 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
 
 
 def test_clone_url_decodes_media_src_attributes():
-    DOUBLE: SampleCollection = get_test_collection("no_double_encodings")
-    clone(DOUBLE.col_file)
-    path = Path("DeepLearning for CV") / "list-some-pros-and-cons-of-dl.md"
-    with open(path, "r", encoding="UTF-8") as f:
-        contents: str = f.read()
+    back = "<img src=\"Screenshot%202019-05-01%20at%2014.40.56.png\">"
+    a: File = mkcol([("Basic", ["Default"], 1, ["a", back])])
+    clone(a)
+    contents = read("Default/a.md")
     assert '<img src="Screenshot 2019-05-01 at 14.40.56.png">' in contents
 
 
@@ -815,8 +823,7 @@ def test_push_writes_changes_correctly():
     repo, _ = clone(a)
 
     # Edit a note.
-    with open("Default/a.md", "a", encoding="UTF-8") as f:
-        f.write("e\n")
+    append("Default/a.md", "e\n")
 
     # Delete a note.
     os.remove("Default/c.md")
@@ -873,8 +880,7 @@ def test_push_generates_correct_backup():
     a: File = mkcol([c1, c2])
     old_hash = F.md5(a)
     repo, _ = clone(a)
-    with open("Default/a.md", "a", encoding="UTF-8") as note_file:
-        note_file.write("e\n")
+    append("Default/a.md", "e\n")
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
     push()
@@ -894,8 +900,7 @@ def test_push_doesnt_write_uncommitted_changes():
     c2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([c1, c2])
     clone(a)
-    with open("Default/a.md", "a", encoding="UTF-8") as note_file:
-        note_file.write("e\n")
+    append("Default/a.md", "e\n")
 
     # DON'T COMMIT, push.
     out = push()
@@ -916,8 +921,7 @@ def test_push_doesnt_fail_after_pull():
 
     # Modify local file.
     assert os.path.isfile("Default/aa.md")
-    with open("Default/aa.md", "a", encoding="UTF-8") as note_file:
-        note_file.write("e\n")
+    append("Default/aa.md", "e\n")
 
     # Add new file.
     shutil.copyfile(NOTE_2_PATH, "note123412341234.md")
@@ -1379,13 +1383,9 @@ def test_push_changes_deck_for_moved_notes():
 def test_push_handles_tags_containing_trailing_commas():
     COMMAS: SampleCollection = get_test_collection("commas")
     repo, _ = clone(COMMAS.col_file)
-
-    c_file = Path("Default") / "c.md"
-    with open(c_file, "r", encoding="UTF-8") as read_f:
-        contents = read_f.read().replace("tag2", "tag3")
-        with open(c_file, "w", encoding="UTF-8") as write_f:
-            write_f.write(contents)
-
+    s = read("Default/c.md")
+    s = s.replace("tag2", "tag3")
+    write("Default/c.md", s)
     repo.git.add(all=True)
     repo.index.commit("e")
     repo.close()
@@ -1401,10 +1401,9 @@ def test_push_correctly_encodes_quotes_in_html_tags():
         Path("🧙‍Recommendersysteme")
         / "wie-sieht-die-linkstruktur-von-einem-hub-in-einem-web-graphe.md"
     )
-    with open(note_file, "r", encoding="UTF-8") as read_f:
-        contents = read_f.read().replace("guter", "guuter")
-        with open(note_file, "w", encoding="UTF-8") as write_f:
-            write_f.write(contents)
+    s = read(note_file)
+    s = s.replace("guter", "guuter")
+    write(note_file, s)
 
     repo.git.add(all=True)
     repo.index.commit("e")
