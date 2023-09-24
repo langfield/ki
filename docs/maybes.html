@@ -45,7 +45,7 @@ from pathlib import Path
 import git
 from lark import Lark
 from beartype import beartype
-from beartype.typing import Union, Dict, Any, Optional, List, Tuple, Iterable
+from beartype.typing import Union, Dict, Any, List, Tuple, Iterable
 
 import anki
 from anki.decks import DeckTreeNode
@@ -63,7 +63,6 @@ from ki.types import (
     NoFile,
     Link,
     PseudoFile,
-    WindowsLink,
     KiRepo,
     KiRev,
     Rev,
@@ -91,9 +90,8 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
-    AnkiAlreadyOpenError,
-    MaximumWindowsLinkChainingDepthExceededError,
     GitFileModeParseError,
+    AnkiAlreadyOpenError,
 )
 from ki.transformer import NoteTransformer
 
@@ -324,39 +322,15 @@ def collection(col_file: File) -&gt; Collection:
 
 
 @beartype
-def linktarget(orig: File) -&gt; File:
-    &#34;&#34;&#34;Follow a windows symlink inside a git repo, or return regular file unchanged.&#34;&#34;&#34;
-    # Check file mode, and follow symlink if applicable.
-    depth = 0
-    file = orig
-    while M.filemode(file) == 120000:
-        target: str = file.read_text(encoding=&#34;UTF-8&#34;)
-        parent: Dir = F.parent(file)
-        file = M.xfile(parent / target)
-        depth += 1
-        if depth &gt; 999:
-            raise MaximumWindowsLinkChainingDepthExceededError(orig, depth)
-    return file
-
-
-@beartype
-def hardlink(link: Union[File, Link]) -&gt; File:
-    &#34;&#34;&#34;Replace a possibly windows symlink with its target.&#34;&#34;&#34;
+def hardlink(l: Link) -&gt; File:
+    &#34;&#34;&#34;Replace a symlink with its target.&#34;&#34;&#34;
     # Treat true POSIX symlink case.
-    if isinstance(link, Link):
-        tgt = F.chk(link.resolve())
-        return F.copyfile(tgt, link)
-
-    # Treat windows symlink case.
-    tgt = M.linktarget(link)
-    if tgt != link:
-        link: NoFile = F.unlink(link)
-        link: File = F.copyfile(tgt, link)
-    return link
+    tgt = F.chk(l.resolve())
+    return F.copyfile(tgt, l)
 
 
 @beartype
-def filemode(file: Union[File, Dir, PseudoFile, Link, WindowsLink]) -&gt; int:
+def filemode(file: Union[File, Dir, PseudoFile, Link]) -&gt; int:
     &#34;&#34;&#34;Get git file mode.&#34;&#34;&#34;
     try:
         # We must search from file upwards in case inside submodule.
@@ -512,16 +486,15 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -&gt; Union[Root, De
 
 @curried
 @beartype
-def winlink(targetd: Dir, l: PlannedLink) -&gt; Optional[WindowsLink]:
-    &#34;&#34;&#34;Create the symlink `l` and return any windows links.&#34;&#34;&#34;
+def link(targetd: Dir, l: PlannedLink) -&gt; None:
+    &#34;&#34;&#34;Create the symlink `l`.&#34;&#34;&#34;
     distance = len(l.link.parent.relative_to(targetd).parts)
     target: Path = Path(&#34;../&#34; * distance) / l.tgt.relative_to(targetd)
     try:
-        link: Union[Link, WindowsLink] = F.symlink(l.link, target)
+        F.symlink(l.link, target)
     except OSError as _:
         trace = traceback.format_exc(limit=3)
         F.yellow(f&#34;Failed to create symlink &#39;{l.link}&#39; -&gt; &#39;{target}&#39;\n{trace}&#34;)
-    return link if isinstance(link, WindowsLink) else None
 
 
 @beartype
@@ -776,7 +749,7 @@ def field(fld: Dict[str, Any]) -&gt; Field:
 </details>
 </dd>
 <dt id="ki.maybes.filemode"><code class="name flex">
-<span>def <span class="ident">filemode</span></span>(<span>file: Union[<a title="ki.types.File" href="types.html#ki.types.File">File</a>, <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, <a title="ki.types.PseudoFile" href="types.html#ki.types.PseudoFile">PseudoFile</a>, <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>, <a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]) ‑> int</span>
+<span>def <span class="ident">filemode</span></span>(<span>file: Union[<a title="ki.types.File" href="types.html#ki.types.File">File</a>, <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, <a title="ki.types.PseudoFile" href="types.html#ki.types.PseudoFile">PseudoFile</a>, <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>]) ‑> int</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Get git file mode.</p></div>
@@ -785,7 +758,7 @@ def field(fld: Dict[str, Any]) -&gt; Field:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def filemode(file: Union[File, Dir, PseudoFile, Link, WindowsLink]) -&gt; int:
+def filemode(file: Union[File, Dir, PseudoFile, Link]) -&gt; int:
     &#34;&#34;&#34;Get git file mode.&#34;&#34;&#34;
     try:
         # We must search from file upwards in case inside submodule.
@@ -833,28 +806,20 @@ def gitcopy(r: git.Repo, remote_root: Dir, unsub: bool) -&gt; git.Repo:
 </details>
 </dd>
 <dt id="ki.maybes.hardlink"><code class="name flex">
-<span>def <span class="ident">hardlink</span></span>(<span>link: Union[<a title="ki.types.File" href="types.html#ki.types.File">File</a>, <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>]) ‑> <a title="ki.types.File" href="types.html#ki.types.File">File</a></span>
+<span>def <span class="ident">hardlink</span></span>(<span>l: <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>) ‑> <a title="ki.types.File" href="types.html#ki.types.File">File</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Replace a possibly windows symlink with its target.</p></div>
+<div class="desc"><p>Replace a symlink with its target.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def hardlink(link: Union[File, Link]) -&gt; File:
-    &#34;&#34;&#34;Replace a possibly windows symlink with its target.&#34;&#34;&#34;
+def hardlink(l: Link) -&gt; File:
+    &#34;&#34;&#34;Replace a symlink with its target.&#34;&#34;&#34;
     # Treat true POSIX symlink case.
-    if isinstance(link, Link):
-        tgt = F.chk(link.resolve())
-        return F.copyfile(tgt, link)
-
-    # Treat windows symlink case.
-    tgt = M.linktarget(link)
-    if tgt != link:
-        link: NoFile = F.unlink(link)
-        link: File = F.copyfile(tgt, link)
-    return link</code></pre>
+    tgt = F.chk(l.resolve())
+    return F.copyfile(tgt, l)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.head"><code class="name flex">
@@ -948,29 +913,26 @@ def kirepo(cwd: Dir) -&gt; KiRepo:
     )</code></pre>
 </details>
 </dd>
-<dt id="ki.maybes.linktarget"><code class="name flex">
-<span>def <span class="ident">linktarget</span></span>(<span>orig: <a title="ki.types.File" href="types.html#ki.types.File">File</a>) ‑> <a title="ki.types.File" href="types.html#ki.types.File">File</a></span>
+<dt id="ki.maybes.link"><code class="name flex">
+<span>def <span class="ident">link</span></span>(<span>targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, l: <a title="ki.types.PlannedLink" href="types.html#ki.types.PlannedLink">PlannedLink</a>) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Follow a windows symlink inside a git repo, or return regular file unchanged.</p></div>
+<div class="desc"><p>Create the symlink <code>l</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@beartype
-def linktarget(orig: File) -&gt; File:
-    &#34;&#34;&#34;Follow a windows symlink inside a git repo, or return regular file unchanged.&#34;&#34;&#34;
-    # Check file mode, and follow symlink if applicable.
-    depth = 0
-    file = orig
-    while M.filemode(file) == 120000:
-        target: str = file.read_text(encoding=&#34;UTF-8&#34;)
-        parent: Dir = F.parent(file)
-        file = M.xfile(parent / target)
-        depth += 1
-        if depth &gt; 999:
-            raise MaximumWindowsLinkChainingDepthExceededError(orig, depth)
-    return file</code></pre>
+<pre><code class="python">@curried
+@beartype
+def link(targetd: Dir, l: PlannedLink) -&gt; None:
+    &#34;&#34;&#34;Create the symlink `l`.&#34;&#34;&#34;
+    distance = len(l.link.parent.relative_to(targetd).parts)
+    target: Path = Path(&#34;../&#34; * distance) / l.tgt.relative_to(targetd)
+    try:
+        F.symlink(l.link, target)
+    except OSError as _:
+        trace = traceback.format_exc(limit=3)
+        F.yellow(f&#34;Failed to create symlink &#39;{l.link}&#39; -&gt; &#39;{target}&#39;\n{trace}&#34;)</code></pre>
 </details>
 </dd>
 <dt id="ki.maybes.nofile"><code class="name flex">
@@ -1245,29 +1207,6 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -&gt; Union[Root, De
     )</code></pre>
 </details>
 </dd>
-<dt id="ki.maybes.winlink"><code class="name flex">
-<span>def <span class="ident">winlink</span></span>(<span>targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, l: <a title="ki.types.PlannedLink" href="types.html#ki.types.PlannedLink">PlannedLink</a>) ‑> Optional[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Create the symlink <code>l</code> and return any windows links.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def winlink(targetd: Dir, l: PlannedLink) -&gt; Optional[WindowsLink]:
-    &#34;&#34;&#34;Create the symlink `l` and return any windows links.&#34;&#34;&#34;
-    distance = len(l.link.parent.relative_to(targetd).parts)
-    target: Path = Path(&#34;../&#34; * distance) / l.tgt.relative_to(targetd)
-    try:
-        link: Union[Link, WindowsLink] = F.symlink(l.link, target)
-    except OSError as _:
-        trace = traceback.format_exc(limit=3)
-        F.yellow(f&#34;Failed to create symlink &#39;{l.link}&#39; -&gt; &#39;{target}&#39;\n{trace}&#34;)
-    return link if isinstance(link, WindowsLink) else None</code></pre>
-</details>
-</dd>
 <dt id="ki.maybes.xdir"><code class="name flex">
 <span>def <span class="ident">xdir</span></span>(<span>path: pathlib.Path, info: str = '') ‑> <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a></span>
 </code></dt>
@@ -1360,7 +1299,7 @@ def xfile(path: Path, info: str = &#34;&#34;) -&gt; File:
 <li><code><a title="ki.maybes.head" href="#ki.maybes.head">head</a></code></li>
 <li><code><a title="ki.maybes.head_ki" href="#ki.maybes.head_ki">head_ki</a></code></li>
 <li><code><a title="ki.maybes.kirepo" href="#ki.maybes.kirepo">kirepo</a></code></li>
-<li><code><a title="ki.maybes.linktarget" href="#ki.maybes.linktarget">linktarget</a></code></li>
+<li><code><a title="ki.maybes.link" href="#ki.maybes.link">link</a></code></li>
 <li><code><a title="ki.maybes.nofile" href="#ki.maybes.nofile">nofile</a></code></li>
 <li><code><a title="ki.maybes.nopath" href="#ki.maybes.nopath">nopath</a></code></li>
 <li><code><a title="ki.maybes.notetype" href="#ki.maybes.notetype">notetype</a></code></li>
@@ -1371,7 +1310,6 @@ def xfile(path: Path, info: str = &#34;&#34;) -&gt; File:
 <li><code><a title="ki.maybes.submodules" href="#ki.maybes.submodules">submodules</a></code></li>
 <li><code><a title="ki.maybes.template" href="#ki.maybes.template">template</a></code></li>
 <li><code><a title="ki.maybes.tree" href="#ki.maybes.tree">tree</a></code></li>
-<li><code><a title="ki.maybes.winlink" href="#ki.maybes.winlink">winlink</a></code></li>
 <li><code><a title="ki.maybes.xdir" href="#ki.maybes.xdir">xdir</a></code></li>
 <li><code><a title="ki.maybes.xfile" href="#ki.maybes.xfile">xfile</a></code></li>
 </ul>
