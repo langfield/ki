@@ -7,15 +7,12 @@
 import os
 import re
 import sys
-import stat
-import errno
 import shutil
 import hashlib
 import tempfile
 import functools
 import subprocess
 import unicodedata
-from types import TracebackType
 from pathlib import Path
 from itertools import chain
 from functools import reduce, partial, update_wrapper, wraps
@@ -32,7 +29,6 @@ from beartype.typing import (
     Tuple,
     Callable,
     Any,
-    Type,
     FrozenSet,
     Iterable,
     TypeVar,
@@ -46,7 +42,6 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    WindowsLink,
     Singleton,
     PseudoFile,
     KiRev,
@@ -137,29 +132,10 @@ def curried(func: Callable[[Any, ...], T]) -> Callable[[Any, ...], T]:
     return _curried
 
 
-def rmtree2(path: str) -> None:
-    """On windows, rmtree fails for readonly dirs."""
-
-    def handle_remove_readonly(
-        func: Callable[..., Any],
-        path: str,
-        exc: Tuple[Type[OSError], OSError, TracebackType],
-    ) -> None:
-        excvalue = exc[1]
-        if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
-            for p in (path, os.path.dirname(path)):
-                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
-            func(path)
-        else:
-            raise excvalue
-
-    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
-
-
 @beartype
 def rmtree(target: Dir) -> NoFile:
-    """Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows."""
-    rmtree2(str(target))
+    """Equivalent to `shutil.rmtree()`."""
+    shutil.rmtree(target)
     return NoFile(target)
 
 
@@ -268,14 +244,8 @@ def writeb(path: Union[File, NoFile], bs: bytes) -> File:
 
 
 @beartype
-def symlink(path: NoFile, target: Path) -> Union[Link, WindowsLink]:
+def symlink(path: NoFile, target: Path) -> Link:
     """Link `path` to `target`."""
-    if sys.platform == "win32":
-        with open(path, "w", encoding="UTF-8") as f:
-            f.write(str(target.as_posix()))
-            return WindowsLink(path)
-
-    # Treat POSIX systems.
     os.symlink(target, path)
     return Link(path)
 
@@ -422,7 +392,7 @@ def mkdir(path: NoPath) -> EmptyDir:
 
 
 @beartype
-def unlink(file: Union[File, Link, WindowsLink]) -> NoFile:
+def unlink(file: Union[File, Link]) -> NoFile:
     """Safely unlink a file."""
     os.unlink(file)
     return NoFile(file)

@@ -13,7 +13,7 @@ from pathlib import Path
 import git
 from lark import Lark
 from beartype import beartype
-from beartype.typing import Union, Dict, Any, Optional, List, Tuple, Iterable
+from beartype.typing import Union, Dict, Any, List, Tuple, Iterable
 
 import anki
 from anki.decks import DeckTreeNode
@@ -31,7 +31,6 @@ from ki.types import (
     NoFile,
     Link,
     PseudoFile,
-    WindowsLink,
     KiRepo,
     KiRev,
     Rev,
@@ -59,9 +58,8 @@ from ki.types import (
     NotKiRepoError,
     GitRefNotFoundError,
     GitHeadRefNotFoundError,
-    AnkiAlreadyOpenError,
-    MaximumWindowsLinkChainingDepthExceededError,
     GitFileModeParseError,
+    AnkiAlreadyOpenError,
 )
 from ki.transformer import NoteTransformer
 
@@ -292,39 +290,15 @@ def collection(col_file: File) -> Collection:
 
 
 @beartype
-def linktarget(orig: File) -> File:
-    """Follow a windows symlink inside a git repo, or return regular file unchanged."""
-    # Check file mode, and follow symlink if applicable.
-    depth = 0
-    file = orig
-    while M.filemode(file) == 120000:
-        target: str = file.read_text(encoding="UTF-8")
-        parent: Dir = F.parent(file)
-        file = M.xfile(parent / target)
-        depth += 1
-        if depth > 999:
-            raise MaximumWindowsLinkChainingDepthExceededError(orig, depth)
-    return file
-
-
-@beartype
-def hardlink(link: Union[File, Link]) -> File:
-    """Replace a possibly windows symlink with its target."""
+def hardlink(l: Link) -> File:
+    """Replace a symlink with its target."""
     # Treat true POSIX symlink case.
-    if isinstance(link, Link):
-        tgt = F.chk(link.resolve())
-        return F.copyfile(tgt, link)
-
-    # Treat windows symlink case.
-    tgt = M.linktarget(link)
-    if tgt != link:
-        link: NoFile = F.unlink(link)
-        link: File = F.copyfile(tgt, link)
-    return link
+    tgt = F.chk(l.resolve())
+    return F.copyfile(tgt, l)
 
 
 @beartype
-def filemode(file: Union[File, Dir, PseudoFile, Link, WindowsLink]) -> int:
+def filemode(file: Union[File, Dir, PseudoFile, Link]) -> int:
     """Get git file mode."""
     try:
         # We must search from file upwards in case inside submodule.
@@ -480,16 +454,15 @@ def tree(col: Collection, targetd: Dir, root: DeckTreeNode) -> Union[Root, Deck]
 
 @curried
 @beartype
-def winlink(targetd: Dir, l: PlannedLink) -> Optional[WindowsLink]:
-    """Create the symlink `l` and return any windows links."""
+def link(targetd: Dir, l: PlannedLink) -> None:
+    """Create the symlink `l`."""
     distance = len(l.link.parent.relative_to(targetd).parts)
     target: Path = Path("../" * distance) / l.tgt.relative_to(targetd)
     try:
-        link: Union[Link, WindowsLink] = F.symlink(l.link, target)
+        F.symlink(l.link, target)
     except OSError as _:
         trace = traceback.format_exc(limit=3)
         F.yellow(f"Failed to create symlink '{l.link}' -> '{target}'\n{trace}")
-    return link if isinstance(link, WindowsLink) else None
 
 
 @beartype
