@@ -129,12 +129,10 @@ def opencol(f: File) -> Collection:
 
 
 @beartype
-def mkcol(ns: List[NoteSpec], empty_decks: Optional[List[str]] = None) -> File:
+def mkcol(ns: List[NoteSpec]) -> File:
     file = F.touch(F.mkdtemp(), "a.anki2")
     col = opencol(file)
     do(addnote(col), ns)
-    if empty_decks:
-        do(col.decks.id, empty_decks)
     col.close(save=True)
     return F.chk(file)
 
@@ -504,9 +502,14 @@ def test_clone_generates_deck_tree_correctly():
             ("Basic", ["aa::dd"], 4, ["dd", "dd"]),
             ("Basic", ["Default"], 5, ["hello", "hello"]),
             ("Basic", ["Default"], 6, ["hello my enemy", "goodbye"]),
-        ],
-        empty_decks=[":a:::b:", "blank::blank", "blank::Hello"],
+        ]
     )
+
+    # Create empty decks.
+    col = opencol(a)
+    do(col.decks.id, [":a:::b:", "blank::blank", "blank::Hello"])
+    col.close(save=True)
+
     os.chdir(F.mkdtemp())
     clone(a)
     assert os.path.isdir("Default")
