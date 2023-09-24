@@ -11,11 +11,11 @@ clean:
 	rm -rf *.egg-info
 	rm -rf htmlcov/
 test:
-	KITEST=1 coverage run -m pytest -vv -s tests/
+	KITEST=1 coverage run -m pytest -W ignore::DeprecationWarning -vv -s tests/
 unit:
-	KITEST=1 coverage run -m pytest -vv -s tests/test_ki.py tests/test_parser.py
+	KITEST=1 coverage run -m pytest -W ignore::DeprecationWarning -vv -s tests/test_ki.py tests/test_parser.py
 integration:
-	KITEST=1 coverage run -m pytest -vv -s tests/test_integration.py
+	KITEST=1 coverage run -m pytest -W ignore::DeprecationWarning -vv -s tests/test_integration.py
 report:
 	coverage html
 isolate:

@@ -11,7 +11,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
-# pylint: disable=no-value-for-parameter, not-callable
+# pylint: disable=no-value-for-parameter, not-callable, unnecessary-lambda-assignment
 
 import os
 import re
@@ -203,13 +203,13 @@ TYPECHANGED = GitChangeType.TYPECHANGED
 @beartype
 def do(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
     """Perform some action on an iterable."""
-    set(map(f, xs))
+    list(map(f, xs))
 
 
 @beartype
 def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -> None:
     """Perform some action on an iterable of tuples, unpacking arguments."""
-    set(starmap(f, xs))
+    list(starmap(f, xs))
 
 
 @beartype
@@ -1376,152 +1376,6 @@ def mediadata(col: Collection, fname: str) -> bytes:
 
 
 @beartype
-def unquote_diff_path(path: str) -> str:
-    """Unquote a diff/patch path."""
-    if len(path) <= 4:
-        return path
-    if path[0] == '"' and path[-1] == '"':
-        path = path.lstrip('"').rstrip('"')
-    if path[:2] in ("a/", "b/"):
-        path = path[2:]
-    return path
-
-
-@beartype
-def get_patches(unsub_repo: git.Repo) -> Iterable[Patch]:
-    """Get all patches from HEAD to FETCH_HEAD in a flattened git repository."""
-    raw_unified_patch = unsub_repo.git.diff(["HEAD", "FETCH_HEAD"], binary=True)
-
-    # Construct patches for every file in the flattenened/unsubmoduled checkout
-    # of the revision of the last successful `ki push`. Each patch is the diff
-    # between the relevant file in the flattened (all submodules converted to
-    # ordinary directories) repository and the same file in the Anki remote (a
-    # fresh `ki clone` of the current database).
-    patches: List[Patch] = []
-    f = io.StringIO()
-    with redirect_stdout(f):
-        for diff in whatthepatch.parse_patch(raw_unified_patch):
-            a_path = unquote_diff_path(diff.header.old_path)
-            b_path = unquote_diff_path(diff.header.new_path)
-            if a_path == DEV_NULL:
-                a_path = b_path
-            if b_path == DEV_NULL:
-                b_path = a_path
-            patch = Patch(Path(a_path), Path(b_path), diff)
-            patches.append(patch)
-    return patches
-
-
-@curried
-@beartype
-def rm_remote_sm(repo: git.Repo, sub: Submodule) -> Submodule:
-    """Remove submodule directory from given repo."""
-    if os.path.isdir(F.root(repo) / sub.rel_root):
-        repo.git.rm(["-r", str(sub.rel_root)])
-    return sub
-
-
-@beartype
-def has_patch(patch: Patch, sm_rel_root: Path) -> bool:
-    """Check if patch path is relative to the given root."""
-    # TODO: We must also treat case where we moved a file into or out of a
-    # submodule, but we just do this for now. In this case, we may have
-    # `patch.a` not be relative to the submodule root (if we moved a file into
-    # the sm dir), or vice-versa.
-    a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
-    b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
-    return a_in_submodule and b_in_submodule
-
-
-@curried
-@beartype
-def apply(subrepos: Dict[Path, Submodule], patch: Patch) -> Iterable[Path]:
-    """Apply a patch within the relevant submodule repositories."""
-    # Consider only repos containing patch, ignore submodule 'file' itself.
-    subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
-    subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
-    patch_dir: Dir = F.mkdtemp()
-    return map(apply_in_subrepo(patch_dir, patch), subs)
-
-
-@curried
-@beartype
-def apply_in_subrepo(
-    patch_dir: Dir,
-    patch: Patch,
-    sub: Submodule,
-) -> Path:
-    """Apply a patch within a submodule."""
-    # Hash the patch to use as a filename.
-    blake2 = hashlib.blake2s()
-    blake2.update(patch.diff.text.encode())
-    patch_hash: str = blake2.hexdigest()
-    patch_path: NoFile = F.chk(patch_dir / patch_hash)
-
-    # We write as bytes so that it is not necessary to strip trailing linefeeds
-    # from each line so that `git apply` is happy on Windows (equivalent to
-    # running `dos2unix`).
-    patch_b: bytes = patch.diff.text.encode("UTF-8")
-    F.writeb(patch_path, patch_b)
-
-    # Number of leading path components to drop from diff paths.
-    parts: str = str(len(sub.rel_root.parts) + 1)
-
-    # TODO: More tests are needed to make sure that the `git apply` call is not
-    # flaky. In particular, we must treat new and deleted files.
-    #
-    # Note that it is unnecessary to use `--3way` here, because this submodule
-    # is supposed to represent a fast-forward from the last successful push to
-    # the current state of the remote.  There should be no nontrivial merging
-    # involved.
-    #
-    # Then -p<n> flag tells `git apply` to drop the first n leading path
-    # components from both diff paths. So if n is 2, we map `a/dog/cat` ->
-    # `cat`.
-    sub.sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
-    return patch.a
-
-
-@curried
-@beartype
-def pull_sm(
-    subrepos: Dict[Path, git.Repo],
-    sub: Submodule,
-) -> Submodule:
-    """
-    Safely pull changes within a submodule.
-
-    New commits in submodules within `lca_repo` are be pulled into the
-    submodules within `kirepo.repo`. This is done by adding a remote pointing
-    to the patched submodule in each corresponding submodule in the main
-    repository, and then pulling from that remote. Then the remote is deleted.
-    """
-    # TODO: What if a submodule was deleted entirely? (Note that we treat the
-    # case where submodules are added in the caller.)
-    sm_repo = sub.sm_repo
-    sm_rel_root = sub.rel_root
-    remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
-    branch: str = sub.branch
-
-    # TODO: What's in `upstream` that isn't already in `branch`?
-    remote_sm.git.branch("upstream")
-
-    # Simulate a `git merge --strategy=theirs upstream`.
-    remote_sm.git.checkout(["-b", "tmp", "upstream"])
-    remote_sm.git.merge(["-s", "ours", branch])
-    remote_sm.git.checkout(branch)
-    remote_sm.git.merge("tmp")
-    remote_sm.git.branch(["-D", "tmp"])
-
-    sm_remote = sm_repo.create_remote(REMOTE_NAME, F.gitd(remote_sm))
-    echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
-    sm_repo.delete_remote(sm_remote)
-    remote_sm.close()
-    sm_repo.close()
-    return sub
-
-
-@beartype
 def get_note_metadata(col: Collection) -> Dict[str, NoteMetadata]:
     """
     Construct a map from guid -> (nid, mod, mid), adapted from
@@ -1568,27 +1422,18 @@ def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -> None:
     repo.git.update_index(target, add=True, cacheinfo=True)
 
 
-@curried
 @beartype
-def backupd(tmpdir: Dir, lca_repo: git.Repo, p: Path) -> Dir:
-    """Move a relative directory to a temporary location."""
-    return F.movetree(F.chk(F.root(lca_repo) / p), F.chk(tmpdir / p))
-
-
-@curried
-@beartype
-def merge_new_sm(x: Tuple[Dir, Submodule]) -> None:
-    """Merge backed-up files into a new submodule."""
-    sm_dir, sm = x
-    sm_backup_repo, branch = F.init(sm_dir)
-    sm_backup_repo.git.add(all=True)
-    sm_backup_repo.index.commit("Submodule merge")
-    remote = sm.sm_repo.create_remote("sm-back", sm_backup_repo.git_dir)
-    sm.sm_repo.git.fetch("sm-back")
-    sm.sm_repo.git.merge(
-        [f"sm-back/{branch}"], no_edit=True, allow_unrelated_histories=True
-    )
-    sm.sm_repo.delete_remote(remote)
+def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
+    """Cleans up after failed clone operations."""
+    try:
+        if new:
+            return F.rmtree(targetdir)
+        _, dirs, files = F.shallow_walk(targetdir)
+        do(F.rmtree, dirs)
+        do(os.remove, files)
+    except PermissionError as _:
+        pass
+    return F.chk(targetdir)
 
 
 @click.group()
@@ -1607,47 +1452,30 @@ def ki() -> None:
 @click.argument("collection")
 @click.argument("directory", required=False, default="")
 def clone(collection: str, directory: str = "") -> None:
-    """
-    Clone an Anki collection into a directory.
+    """Clone an Anki collection into a directory."""
+    _clone1(collection, directory)
 
-    Parameters
-    ----------
-    collection : str
-        The path to an `.anki2` collection file.
-    directory : str, default=""
-        An optional path to a directory to clone the collection into.
-        Note: we check that this directory does not yet exist.
-    """
+
+@beartype
+def _clone1(collection: str, directory: str = "") -> git.Repo:
+    """Execute a clone op."""
     col_file: File = M.xfile(Path(collection))
-
-    @beartype
-    def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
-        """Cleans up after failed clone operations."""
-        try:
-            if new:
-                return F.rmtree(targetdir)
-            _, dirs, files = F.shallow_walk(targetdir)
-            do(F.rmtree, dirs)
-            do(os.remove, files)
-        except PermissionError as _:
-            pass
-        return F.chk(targetdir)
-
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(col_file, targetdir, msg="Initial commit", silent=False)
+        _, _ = _clone2(col_file, targetdir, msg="Initial commit", silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
         gc.collect()
+        return kirepo.repo
     except Exception as err:
         cleanup(targetdir, new)
         raise err
 
 
 @beartype
-def _clone(
+def _clone2(
     col_file: File,
     targetdir: EmptyDir,
     msg: str,
@@ -1684,7 +1512,7 @@ def _clone(
     md5sum = F.md5(col_file)
     echo(f"Cloning into '{targetdir}'...", silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
-    (targetdir / GITATTRS_FILE).write_text(f"*.md linguist-detectable\n")
+    (targetdir / GITATTRS_FILE).write_text("*.md linguist-detectable\n")
 
     # Write note files to disk and commit.
     windows_links = write_repository(col_file, targetdir, dotki, mediadir)
@@ -1716,10 +1544,13 @@ def _clone(
 @ki.command()
 @beartype
 def pull() -> None:
-    """
-    Pull from a preconfigured remote Anki collection into an existing ki
-    repository.
-    """
+    """Pull changes into the current ki repository from an Anki collection."""
+    _pull1()
+
+
+@beartype
+def _pull1() -> None:
+    """Execute a pull op."""
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -1731,12 +1562,12 @@ def pull() -> None:
         unlock(con)
         return
 
-    _pull(kirepo)
+    _pull2(kirepo)
     unlock(con)
 
 
 @beartype
-def _pull(kirepo: KiRepo) -> None:
+def _pull2(kirepo: KiRepo) -> None:
     """
     Pull into `kirepo` without checking if we are already up-to-date.
 
@@ -1783,50 +1614,12 @@ def _pull(kirepo: KiRepo) -> None:
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, branch = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
+    remote_repo, branch = _clone2(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
     anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-
-    # =================== NEW PULL ARCHITECTURE ====================
-    # Update all submodules in `unsub_repo`. This is critically important,
-    # because it essentially 'rolls-back' commits made in submodules since the
-    # last successful ki push in the main repository. Our `cp_repo()` call does
-    # a `reset --hard` to the commit of the last push, but this does *not* do
-    # an equivalent rollback for submodules. So they may contain new local
-    # changes that we don't want. Calling `git submodule update` here checks
-    # out the commit that *was* recorded in the submodule file at the rev of
-    # the last push.
-    unsub_repo.git.submodule("update")
-    lca_repo.git.submodule("update")
-    unsub_repo = F.unsubmodule(unsub_repo)
     anki_remote.fetch()
-    unsub_remote.fetch()
-    patches: Iterable[Patch] = get_patches(unsub_repo)
-
-    # Remove submodules from `remote_repo` and map the roots of each submodule
-    # (relative to the working directory of `lca_repo`) to the submodule repos
-    # themselves.
-    subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
-    do(rm_remote_sm(remote_repo), subrepos.values())
-    if len(lca_repo.submodules) > 0:
-        F.commitall(remote_repo, msg="Remove submodule directories.")
-
-    # Apply and commit patches within submodules.
-    patch_paths = set(F.cat(map(apply(subrepos), patches)))
-    msg = "Applying patches:\n\n" + "".join(map(lambda p: f"  `{p}`\n", patch_paths))
-    do(lambda s: F.commitall(s.sm_repo, msg), subrepos.values())
-
-    # Pull changes from remote into each submodule.
-    sms: Dict[Path, Submodule] = M.submodules(kirepo.repo)
-    subs = filter(lambda s: s.rel_root in subrepos, sms.values())
-    do(pull_sm(subrepos), subs)
-
-    # Commit new submodules commits in `lca_repo`.
-    if len(patch_paths) > 0:
-        F.commitall(lca_repo, msg=msg)
 
     # Handle deleted files, preferring `theirs`.
     diffidx = lca_repo.commit("HEAD").diff(lca_repo.commit("FETCH_HEAD"))
@@ -1839,25 +1632,9 @@ def _pull(kirepo: KiRepo) -> None:
         details: str = "".join(map(lambda a: f"Remove '{a}'\n", a_paths))
         F.commitall(lca_repo, msg=f"Remove files deleted in remote.\n\n{details}")
 
-    # =================== NEW PULL ARCHITECTURE ====================
-
-    # TODO: There is an unsub-like process above performed on `remote_repo`,
-    # can we just pass unsub=True here instead?
     remote_root: Dir = F.root(remote_repo)
     lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
     F.commitall(lca_repo, f"Pull changes from repository at `{remote_root}`")
-
-    # For each submodule that is new, `deinit` it.
-    new_sms = {k: v for k, v in sms.items() if v.rel_root not in subrepos}
-    do(lambda p: kirepo.repo.git.submodule(["deinit", str(p)]), new_sms.keys())
-
-    # Move all files in the LCA repo that reside in directories corresponding
-    # to new submodules into temporary locations, and commit the removals.
-    sm_backup_dir: Dir = F.mkdtemp()
-    tmps: Set[Dir] = set(map(backupd(sm_backup_dir, lca_repo), new_sms.keys()))
-    msg = "'Remove new submodule directories from LCA repo'"
-    lca_repo.git.add(all=True)
-    lca_repo.git.commit(["--allow-empty", "-m", msg])
 
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
@@ -1867,13 +1644,6 @@ def _pull(kirepo: KiRepo) -> None:
     out = git_pull(REMOTE_NAME, branch, kirepo.root)
     echo(out)
     kirepo.repo.delete_remote(lca_remote)
-
-    # Submodule sync, `update --init`, and merge backup files.
-    sync = lambda p: kirepo.repo.git.submodule(["sync", str(p)])
-    update = lambda p: kirepo.repo.git.submodule(["update", "--init", str(p)])
-    do(sync, new_sms.keys())
-    do(update, new_sms.keys())
-    do(merge_new_sm, zip(tmps, new_sms.values()))
 
     # The merge will have overwritten the hashes file with only the collection
     # hash from the fresh clone of the remote, so we checkout its state from
@@ -1895,30 +1665,14 @@ def _pull(kirepo: KiRepo) -> None:
 
 @ki.command()
 @beartype
-def push() -> PushResult:
-    """
-    Push a ki repository into a .anki2 file.
+def push() -> None:
+    """Push commits from the currrent ki repository into an Anki collection."""
+    _push()
 
-    Consists of the following operations:
 
-        - Clone collection into a temp directory
-        - Delete all files and folders except `.git/`
-        - Copy into this temp directory all files and folders from the current
-          repository checked out at HEAD (excluding `.git*` stuff).
-        - Unsubmodule repo
-        - Add and commit everything
-        - Take diff from `HEAD~1` to `HEAD`.
-
-    Returns
-    -------
-    PushResult
-        An `Enum` indicating whether the push was nontrivial.
-
-    Raises
-    ------
-    UpdatesRejectedError
-        If the user needs to pull remote changes first.
-    """
+@beartype
+def _push() -> PushResult:
+    """Execute a push op."""
     # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
@@ -1930,16 +1684,14 @@ def push() -> PushResult:
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
 
-    # =================== NEW PUSH ARCHITECTURE ====================
     head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
 
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
-    # =================== NEW PUSH ARCHITECTURE ====================
 
     parse: Callable[[Delta], DeckNote] = parse_note(*M.parser_and_transformer())
     deltas, warnings = F.part(lambda x: isinstance(x, Delta), diff2(remote_repo, parse))
