@@ -46,11 +46,6 @@ from tests.test_ki import (
     GITREPO_PATH,
     NOTE_2_PATH,
     NOTE_3_PATH,
-    MEDIA_NOTE,
-    MEDIA_NOTE_PATH,
-    MEDIA_FILE_PATH,
-    MEDIA_FILENAME,
-    TEST_DATA_PATH,
     invoke,
     clone,
     pull,
@@ -64,6 +59,7 @@ from tests.test_ki import (
 )
 
 
+DATA = Path(__file__).parent / "data"
 PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name, duplicate-code
@@ -602,7 +598,7 @@ def test_clone_writes_media_files():
     """Does clone copy media files from the media directory into 'MEDIA'?"""
     a: File = mkcol([("Basic", ["Default"], 1, ["a", "b[sound:1sec.mp3]"])])
     col = opencol(a)
-    col.media.add_file(Path(__file__).parent / "data/media/1sec.mp3")
+    col.media.add_file(DATA / "media/1sec.mp3")
     col.close(save=True)
     clone(a)
     assert (Path(MEDIA) / "1sec.mp3").is_file()
@@ -790,9 +786,9 @@ def test_pull_leaves_no_working_tree_changes():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
-    DELETED: SampleCollection = get_test_collection("deleted")
+    b: File = mkcol([n2])
     repo, _ = clone(a)
-    shutil.copyfile(DELETED.path, a)
+    shutil.copyfile(b, a)
     pull()
     assert not repo.is_dirty()
 
@@ -803,12 +799,13 @@ def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "a.md"))
+    guid = "ed85e553fd0a6de8a58512acd265e76e13eb4303"
+    write("Default/a.md", mkbasic(guid, ("r", "s")))
     shutil.copyfile(EDITED.path, a)
     pull()
     out = pull()
-    assert out != "ki pull: up to date.\n"
-    assert "Aborting" in out
+    assert "Your local changes to the following files" in out
+    assert "Default/a.md" in out
 
 
 # PUSH
@@ -819,7 +816,7 @@ def test_push_writes_changes_correctly():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
-    old_notes = get_notes(a)
+    assert len(get_notes(a)) == 2
     repo, _ = clone(a)
 
     # Edit a note.
@@ -829,37 +826,22 @@ def test_push_writes_changes_correctly():
     os.remove("Default/c.md")
 
     # Add a note.
-    shutil.copyfile(NOTE_2_PATH, "note123412341234.md")
+    guid = "ed85e553fd0a6de8a58512acd265e76e13eb4303"
+    write("Default/note1234.md", mkbasic(guid, ("r", "s")))
 
-    # Commit.
-    repo.git.add(all=True)
-    repo.index.commit("Added 'e'.")
-
-    # Push and check for changes.
-    push()
-    new_notes = get_notes(a)
+    # Commit and push.
+    F.commitall(repo, ".")
+    out = push()
+    assert "ADD                    1" in out
+    assert "DELETE                 1" in out
+    assert "MODIFY                 1" in out
+    notes = get_notes(a)
+    assert len(notes) == 2
 
     # Check c.md was deleted.
-    new_ids: List[int] = [note.n.id for note in new_notes]
-    logger.debug(new_ids)
-    assert 1645027705329 not in new_ids
-
-    # Check that note with nid 1 was edited.
-    old_note_0 = ""
-    for note in new_notes:
-        if note.n.id == 1:
-            old_note_0 = str(note)
-    assert len(old_note_0) > 0
-    found_0 = False
-    for note in new_notes:
-        if note.n.id == 1:
-            assert old_note_0 == str(note)
-            found_0 = True
-    assert found_0
-
-    # Check note123412341234.md was added.
-    assert len(old_notes) == 2
-    assert len(new_notes) == 2
+    nids = [note.n.id for note in notes]
+    assert 1 in nids
+    assert 2 not in nids
 
 
 def test_push_verifies_md5sum():
@@ -1150,37 +1132,31 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
 
 
 def test_push_writes_media():
-    MEDIACOL: SampleCollection = get_test_collection("media")
-
-    # Clone.
-    repo, _ = clone(MEDIACOL.col_file)
+    a = mkcol([])
+    repo, _ = clone(a)
 
     # Add a new note file containing media, and the corresponding media file.
-    media_note_path = Path("Default") / MEDIA_NOTE
-    media_file_path = Path("Default") / MEDIA / MEDIA_FILENAME
-    shutil.copyfile(MEDIA_NOTE_PATH, media_note_path)
-    shutil.copyfile(MEDIA_FILE_PATH, media_file_path)
-
-    # Commit the additions.
-    repo.git.add(all=True)
-    repo.index.commit("Add air.md")
+    write_basic("Default", ("air", "<img src=\"bullhorn-lg.png\">"))
+    col = opencol(a)
+    col.media.add_file(DATA / "media/bullhorn-lg.png")
+    col.close(save=True)
+    F.commitall(repo, ".")
     repo.close()
+    out = push()
+    assert "ADD                    1" in out
 
-    # Push the commit.
-    push()
-
-    # Annihilate the repo root.
+    # Annihilate the repo root and re-clone.
     os.chdir("../")
-    F.rmtree(F.chk(Path(MEDIACOL.repodir)))
-
-    # Re-clone the pushed collection.
-    clone(MEDIACOL.col_file)
+    assert os.path.isdir("a")
+    shutil.rmtree("a")
+    assert not os.path.isdir("a")
+    clone(a)
 
     # Check that added note and media file exist.
-    col = open_collection(MEDIACOL.col_file)
+    col = opencol(a)
     check = col.media.check()
-    assert os.path.isfile(Path("Default") / MEDIA_NOTE)
-    assert col.media.have(MEDIA_FILENAME)
+    assert os.path.isfile("Default/air.md")
+    assert col.media.have("bullhorn-lg.png")
     assert len(check.missing) == 0
     assert len(check.unused) == 0
 
@@ -1190,24 +1166,20 @@ def test_push_handles_foreign_models():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
-    japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
     repo, _ = clone(a)
-    shutil.copytree(japan_path, Path("Default") / "japan")
-    repo.git.add(all=True)
-    repo.index.commit("japan")
-    push()
+    shutil.copytree(DATA / "repos/japanese-core-2000", "Default/japan")
+    F.commitall(repo, ".")
+    out = push()
+    assert "ADD                    1" in out
 
 
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-    japan_path = (Path(TEST_DATA_PATH) / "repos" / "japanese-core-2000").resolve()
+    a: File = mkcol([n1])
     repo, _ = clone(a)
-    shutil.copytree(japan_path, Path("Default") / "japan")
-    repo.git.add(all=True)
-    repo.index.commit("japan")
+    shutil.copytree(DATA / "repos/japanese-core-2000", "Default/japan")
+    F.commitall(repo, ".")
     con = sqlite3.connect(a)
     con.isolation_level = "EXCLUSIVE"
     con.execute("BEGIN EXCLUSIVE")
@@ -1224,16 +1196,13 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
-    COPY: SampleCollection = get_test_collection("original")
+    b: File = mkcol([n1, n2])
     repo, _ = clone(a)
 
     # Remove a note file.
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
-
-    # Commit the deletion.
-    repo.git.add(all=True)
-    repo.index.commit("Deleted.")
+    F.commitall(repo, ".")
 
     # Push changes.
     out = push()
@@ -1243,7 +1212,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
 
     # Revert the collection.
     os.remove(a)
-    shutil.copyfile(COPY.col_file, a)
+    shutil.copyfile(b, a)
 
     # Pull again.
     out = pull()
@@ -1251,16 +1220,14 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     # Remove again.
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
-    repo.git.add(all=True)
-    repo.index.commit("Deleted.")
+    F.commitall(repo, ".")
 
     # Push changes.
     out = push()
     notes = get_notes(a)
-    notes = [colnote.n["Front"] for colnote in notes]
-    assert "a" not in notes
-    assert notes == ["c"]
-    assert "ki push: up to date." not in out
+    fronts = [colnote.n["Front"] for colnote in notes]
+    assert fronts == ["c"]
+    assert "DELETE                 1" in out
 
 
 def test_push_doesnt_unnecessarily_deduplicate_notetypes():
