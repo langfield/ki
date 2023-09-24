@@ -84,7 +84,6 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    WindowsLink,
     PseudoFile,
     GitChangeType,
     Patch,
@@ -129,7 +128,6 @@ from ki.types import (
     InconsistentFieldNamesWarning,
     MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
-    GitFileModeParseError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
     EmptyNoteWarning,
@@ -918,7 +916,7 @@ def write_repository(
     targetdir: Dir,
     dotki: DotKi,
     media_target_dir: EmptyDir,
-) -> Set[WindowsLink]:
+) -> None:
     """Write notes to appropriate directories in `targetdir`."""
     # Create config file.
     config = configparser.ConfigParser()
@@ -939,7 +937,7 @@ def write_repository(
     fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, "Fields"))))
     tidy_html_recursively(root)
 
-    windows_links: Set[WindowsLink] = write_decks(
+    write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
@@ -949,8 +947,6 @@ def write_repository(
 
     F.rmtree(root)
     col.close(save=False)
-
-    return windows_links
 
 
 @beartype
@@ -980,7 +976,7 @@ def write_decks(
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
     tidy_field_files: Dict[str, File],
-) -> Set[WindowsLink]:
+) -> None:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1010,11 +1006,7 @@ def write_decks(
     And actually, both of these cases are nicely taken care of for us by the
     `DeckManager.cids()` function, which has a `children: bool` parameter
     which toggles whether or not to get the card ids of subdecks or not.
-
-    Return all windows symlinks created on Windows whose file modes we must set.
     """
-    # pylint: disable=too-many-locals
-    #
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
@@ -1034,14 +1026,10 @@ def write_decks(
 
     # Write cards and models to disk for each deck.
     write = write_deck(col, targetdir, colnotes, tidy_field_files)
-    notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
+    reduce(write, decks, {})
     do(write_models(col, models), decks)
 
-    # Get all POSIX-style symlinks created on Windows.
-    cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
-    links: Iterable[WindowsLink] = set(filter(None, map(lambda c: c.link, cardfiles)))
-
-    return links | symlink_media(col, root, targetdir, media)
+    symlink_media(col, root, targetdir, media)
 
 
 @curried
@@ -1078,14 +1066,14 @@ def write_card(
     if len(cardfile_map) == 0:
         payload: str = get_note_payload(colnote, fieldfiles)
         note_path: NoFile = get_note_path(colnote, deckd)
-        file, link = F.write(note_path, payload), None
+        file = F.write(note_path, payload)
     elif len(cardfiles) > 0:
-        file, link = cardfiles[0].file, cardfiles[0].link
+        file = cardfiles[0].file
     else:
         existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file
-        link: Optional[WindowsLink] = get_link(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, link=link, file=file)
+        mklink(targetd, colnote, deckd, card, file)
+    cardfile = CardFile(card, file=file)
     return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
 
 
@@ -1106,12 +1094,12 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 
 
 @beartype
-def get_link(
+def mklink(
     targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -> Optional[WindowsLink]:
+) -> None:
     """Return a windows link for a card if one is necessary."""
     note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
-    return M.winlink(targetd, PlannedLink(link=note_path, tgt=file))
+    M.link(targetd, PlannedLink(link=note_path, tgt=file))
 
 
 @beartype
@@ -1147,7 +1135,7 @@ def symlink_deck_media(
     media: Dict[int, Set[File]],
     parents: Dict[str, Union[Root, Deck]],
     deck: Deck,
-) -> Iterable[WindowsLink]:
+) -> None:
     """Create chained symlinks for a single deck."""
     # Get nids for all descendant notes with media.
     descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
@@ -1157,7 +1145,7 @@ def symlink_deck_media(
     # Get link path and target for each media file, and create the links.
     files = F.cat(map(lambda nid: media[nid], filter(lambda nid: nid in media, nids)))
     plinks = filter(None, map(planned_link(parents, deck), files))
-    return filter(None, map(M.winlink(targetd), plinks))
+    do(M.link(targetd), plinks)
 
 
 @beartype
@@ -1166,11 +1154,11 @@ def symlink_media(
     root: Root,
     targetd: Dir,
     media: Dict[int, Set[File]],
-) -> Set[WindowsLink]:
+) -> None:
     """Chain symlinks up the deck tree into top-level `<collection>/_media/`."""
     decks: List[Deck] = preorder(root)
     parents: Dict[str, Union[Root, Deck]] = parentmap(root)
-    return set(F.cat(map(symlink_deck_media(col, targetd, media, parents), decks)))
+    return do(symlink_deck_media(col, targetd, media, parents), decks)
 
 
 @beartype
@@ -1411,17 +1399,6 @@ def commit_hashes_file(kirepo: KiRepo) -> None:
     kirepo.repo.index.commit("Update collection hashes file.")
 
 
-@curried
-@beartype
-def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -> None:
-    """Use `git update-index` to set 120000 file mode on a windows symlink."""
-    # Convert to POSIX pathseps since that's what `git` wants.
-    link: str = abslink.relative_to(root).as_posix()
-    githash = repo.git.hash_object(["-w", f"{link}"])
-    target = f"120000,{githash},{link}"
-    repo.git.update_index(target, add=True, cacheinfo=True)
-
-
 @beartype
 def cleanup(targetdir: Dir, new: bool) -> Union[Dir, EmptyDir, NoPath]:
     """Cleans up after failed clone operations."""
@@ -1514,30 +1491,16 @@ def _clone2(
     (targetdir / GITIGNORE_FILE).write_text(f"{KI}/{BACKUPS_DIR}\n")
     (targetdir / GITATTRS_FILE).write_text("*.md linguist-detectable\n")
 
-    # Write note files to disk and commit.
-    windows_links = write_repository(col_file, targetdir, dotki, mediadir)
+    # Write note files to disk.
+    write_repository(col_file, targetdir, dotki, mediadir)
     repo, branch = F.init(targetdir)
-    F.commitall(repo, msg)
-    do(set_120000(repo, F.root(repo)), windows_links)
-
-    # We do *not* call `git.add()` here since we call `git.update_index()` above.
-    repo.index.commit(msg)
-
-    # On Windows, there are changes left in the working tree at this point
-    # (because git sees that the mode of the actual underlying file is 100644),
-    # so we must stash them in order to ensure the repo is not left dirty.
-    repo.git.stash("save")
-    if repo.is_dirty():
-        raise NonEmptyWorkingTreeError(repo)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(kidir, col_file.name, md5sum)
 
-    # Squash last two commits together.
-    repo.git.add([KI])
-    repo.git.reset(["--soft", "HEAD~1"])
-    repo.git.commit(message=msg, amend=True)
-
+    F.commitall(repo, msg)
+    if repo.is_dirty():
+        raise NonEmptyWorkingTreeError(repo)
     return repo, branch
 
 
@@ -1609,7 +1572,6 @@ def _pull2(kirepo: KiRepo) -> None:
     head: Rev = M.head(kirepo.repo)
     rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
     lca_repo: git.Repo = cp_repo(rev, f"{LOCAL_SUFFIX}-{md5sum}")
-    unsub_repo: git.Repo = cp_repo(rev, f"unsub-{LOCAL_SUFFIX}-{md5sum}")
 
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
@@ -1765,10 +1727,9 @@ def write_collection(
     F.copyfile(new_col_file, kirepo.col_file)
     echo(f"Overwrote '{kirepo.col_file}'")
 
-    # Add media files to collection and follow windows symlinks.
+    # Add media files to collection.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
-    media_files = map(M.linktarget, media_files)
     mbytes: Iterable[MediaBytes] = map(mediabytes(col), media_files)
 
     # Skip media files whose twin in collection has same name and same data.
