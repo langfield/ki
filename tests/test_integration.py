@@ -1272,42 +1272,22 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
 
 
 def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
-    """
-    The following operation should be nontrivial:
-    - Clone
-    - Delete a note
-    - Push
-    - Add note back
-    - Push again
-
-    The last push, in particular, should add the note back in.
-    """
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-
-    # Clone collection in cwd.
+    a: File = mkcol([n1])
     repo, _ = clone(a)
 
-    # Remove a note file.
-    assert os.path.isfile("Default/a.md")
-    temp_note_0_file = F.mkdtemp() / "NOTE_0"
-    shutil.move("Default/a.md", temp_note_0_file)
-    assert not os.path.isfile("Default/a.md")
-
-    # Commit the deletion.
-    repo.git.add(all=True)
-    repo.index.commit("Deleted.")
-
-    # Push changes.
+    # Remove a note file, push.
+    tmp = F.mkdtemp() / "tmp.md"
+    shutil.move("Default/a.md", tmp)
+    F.commitall(repo, ".")
     out = push()
+    assert "DELETE                 1" in out
 
-    # Put file back.
-    shutil.move(temp_note_0_file, "Default/a.md")
-    repo.git.add(all=True)
-    repo.index.commit("Added.")
+    # Put file back, commit.
+    shutil.move(tmp, "Default/a.md")
+    F.commitall(repo, ".")
 
-    # Push again.
+    # Push should be nontrivial.
     out = push()
     assert "ADD                    1" in out
 
