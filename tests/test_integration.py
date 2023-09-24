@@ -64,9 +64,6 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # pylint: disable=unused-argument
 
 
-EDITED: SampleCollection = get_test_collection("edited")
-
-
 Deck = str
 Nid = int
 Field = str
@@ -306,6 +303,7 @@ def test_computes_and_stores_md5sum():
     assert f"a68250f8ee3dc8302534f908bcbafc6a  {ORIGINAL.filename}" in hashes
     assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" not in hashes
 
+    EDITED: SampleCollection = get_test_collection("edited")
     shutil.copyfile(EDITED.path, ORIGINAL.col_file)
     pull()
 
@@ -664,12 +662,9 @@ def test_pull_writes_changes_correctly():
     clone(a)
     f = Path("Default") / "f.md"
     assert not f.exists()
-    editcol(
-        a,
-        adds=[("Basic", ["Default"], 3, ["f", "g"])],
-        edits=[("Basic", ["Default"], 1, ["aa", "bb"])],
-        deletes=[2],
-    )
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     pull()
     assert f.is_file()
 
@@ -693,7 +688,9 @@ def test_pull_avoids_unnecessary_merge_conflicts():
     a: File = mkcol([n1, n2])
     clone(a)
     assert not os.path.isfile("Default/f.md")
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     out = pull()
     assert "Automatic merge failed; fix" not in out
 
@@ -705,7 +702,9 @@ def test_pull_still_works_from_subdirectories():
     a: File = mkcol([n1, n2])
     clone(a)
     assert not os.path.isfile("Default/f.md")
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     os.chdir("Default")
     pull()
 
@@ -717,7 +716,9 @@ def test_pull_displays_errors_from_rev():
     a: File = mkcol([n1, n2])
     repo, _ = clone(a)
     repo.delete_tag(LCA)
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     with pytest.raises(ValueError) as err:
         pull()
     assert LCA in str(err)
@@ -728,7 +729,9 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     mocker.patch("ki.F.md5", side_effect=["good", "good", "good", "bad"])
     with pytest.raises(CollectionChecksumError):
         pull()
@@ -739,7 +742,9 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     git.Repo.init(Path("."))
     effects = [git.InvalidGitRepositoryError()]
     mocker.patch("ki.M.repo", side_effect=effects)
@@ -801,7 +806,9 @@ def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
     clone(a)
     guid = "ed85e553fd0a6de8a58512acd265e76e13eb4303"
     write("Default/a.md", mkbasic(guid, ("r", "s")))
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     pull()
     out = pull()
     assert "Your local changes to the following files" in out
@@ -896,11 +903,13 @@ def test_push_doesnt_fail_after_pull():
     a: File = mkcol([n1, n2])
     repo, _ = clone(a)
     assert not os.path.isfile("Default/f.md")
-    shutil.copyfile(EDITED.path, a)
+    n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
+    n3 = ("Basic", ["Default"], 3, ["f", "g"])
+    editcol(a, adds=[n3], edits=[n1], deletes=[2])
     pull()
     assert os.path.isfile("Default/f.md")
 
-    # Modify local file (pulled from EDITED).
+    # Modify local file.
     assert os.path.isfile("Default/aa.md")
     append("Default/aa.md", "e\n")
 
