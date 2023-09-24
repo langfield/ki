@@ -635,7 +635,7 @@ decks in exactly the same way they work on large, complex software projects.
 
 # pylint: disable=invalid-name, missing-class-docstring, broad-except
 # pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
-# pylint: disable=no-value-for-parameter, not-callable
+# pylint: disable=no-value-for-parameter, not-callable, unnecessary-lambda-assignment
 
 import os
 import re
@@ -708,7 +708,6 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    WindowsLink,
     PseudoFile,
     GitChangeType,
     Patch,
@@ -753,7 +752,6 @@ from ki.types import (
     InconsistentFieldNamesWarning,
     MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
-    GitFileModeParseError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
     EmptyNoteWarning,
@@ -782,6 +780,8 @@ TQ = F.progressbar
 T = TypeVar(&#34;T&#34;)
 NoteId, DeckId, CardId = int, int, int
 CardFileMap = Dict[DeckId, List[CardFile]]
+
+GITATTRS_FILE = &#34;.gitattributes&#34;
 
 UTF8 = &#34;UTF-8&#34;
 URLS = &#34;(https?|ftp)://&#34;
@@ -825,13 +825,13 @@ TYPECHANGED = GitChangeType.TYPECHANGED
 @beartype
 def do(f: Callable[[Any], Any], xs: Iterable[Any]) -&gt; None:
     &#34;&#34;&#34;Perform some action on an iterable.&#34;&#34;&#34;
-    set(map(f, xs))
+    list(map(f, xs))
 
 
 @beartype
 def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -&gt; None:
     &#34;&#34;&#34;Perform some action on an iterable of tuples, unpacking arguments.&#34;&#34;&#34;
-    set(starmap(f, xs))
+    list(starmap(f, xs))
 
 
 @beartype
@@ -1230,8 +1230,9 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
 @beartype
 def backup(kirepo: KiRepo) -&gt; int:
     &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
+    timestamp = datetime.datetime.now().strftime(&#34;%Y-%m-%d--%Hh-%Mm-%Ss&#34;)
     md5sum = F.md5(kirepo.col_file)
-    name = f&#34;{md5sum}.anki2&#34;
+    name = f&#34;{timestamp}--{md5sum}.anki2&#34;
     backup_file = F.chk(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
@@ -1539,7 +1540,7 @@ def write_repository(
     targetdir: Dir,
     dotki: DotKi,
     media_target_dir: EmptyDir,
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Write notes to appropriate directories in `targetdir`.&#34;&#34;&#34;
     # Create config file.
     config = configparser.ConfigParser()
@@ -1560,7 +1561,7 @@ def write_repository(
     fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, &#34;Fields&#34;))))
     tidy_html_recursively(root)
 
-    windows_links: Set[WindowsLink] = write_decks(
+    write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
@@ -1570,8 +1571,6 @@ def write_repository(
 
     F.rmtree(root)
     col.close(save=False)
-
-    return windows_links
 
 
 @beartype
@@ -1601,7 +1600,7 @@ def write_decks(
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
     tidy_field_files: Dict[str, File],
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -1631,11 +1630,7 @@ def write_decks(
     And actually, both of these cases are nicely taken care of for us by the
     `DeckManager.cids()` function, which has a `children: bool` parameter
     which toggles whether or not to get the card ids of subdecks or not.
-
-    Return all windows symlinks created on Windows whose file modes we must set.
     &#34;&#34;&#34;
-    # pylint: disable=too-many-locals
-    #
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
@@ -1655,14 +1650,10 @@ def write_decks(
 
     # Write cards and models to disk for each deck.
     write = write_deck(col, targetdir, colnotes, tidy_field_files)
-    notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
+    reduce(write, decks, {})
     do(write_models(col, models), decks)
 
-    # Get all POSIX-style symlinks created on Windows.
-    cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
-    links: Iterable[WindowsLink] = set(filter(None, map(lambda c: c.link, cardfiles)))
-
-    return links | symlink_media(col, root, targetdir, media)
+    symlink_media(col, root, targetdir, media)
 
 
 @curried
@@ -1699,14 +1690,14 @@ def write_card(
     if len(cardfile_map) == 0:
         payload: str = get_note_payload(colnote, fieldfiles)
         note_path: NoFile = get_note_path(colnote, deckd)
-        file, link = F.write(note_path, payload), None
+        file = F.write(note_path, payload)
     elif len(cardfiles) &gt; 0:
-        file, link = cardfiles[0].file, cardfiles[0].link
+        file = cardfiles[0].file
     else:
         existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file
-        link: Optional[WindowsLink] = get_link(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, link=link, file=file)
+        mklink(targetd, colnote, deckd, card, file)
+    cardfile = CardFile(card, file=file)
     return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
 
 
@@ -1727,12 +1718,12 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 
 
 @beartype
-def get_link(
+def mklink(
     targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -&gt; Optional[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Return a windows link for a card if one is necessary.&#34;&#34;&#34;
     note_path: NoFile = get_note_path(colnote, deckd, card.template()[&#34;name&#34;])
-    return M.winlink(targetd, PlannedLink(link=note_path, tgt=file))
+    M.link(targetd, PlannedLink(link=note_path, tgt=file))
 
 
 @beartype
@@ -1768,7 +1759,7 @@ def symlink_deck_media(
     media: Dict[int, Set[File]],
     parents: Dict[str, Union[Root, Deck]],
     deck: Deck,
-) -&gt; Iterable[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Create chained symlinks for a single deck.&#34;&#34;&#34;
     # Get nids for all descendant notes with media.
     descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
@@ -1778,7 +1769,7 @@ def symlink_deck_media(
     # Get link path and target for each media file, and create the links.
     files = F.cat(map(lambda nid: media[nid], filter(lambda nid: nid in media, nids)))
     plinks = filter(None, map(planned_link(parents, deck), files))
-    return filter(None, map(M.winlink(targetd), plinks))
+    do(M.link(targetd), plinks)
 
 
 @beartype
@@ -1787,11 +1778,11 @@ def symlink_media(
     root: Root,
     targetd: Dir,
     media: Dict[int, Set[File]],
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Chain symlinks up the deck tree into top-level `&lt;collection&gt;/_media/`.&#34;&#34;&#34;
     decks: List[Deck] = preorder(root)
     parents: Dict[str, Union[Root, Deck]] = parentmap(root)
-    return set(F.cat(map(symlink_deck_media(col, targetd, media, parents), decks)))
+    return do(symlink_deck_media(col, targetd, media, parents), decks)
 
 
 @beartype
@@ -1997,152 +1988,6 @@ def mediadata(col: Collection, fname: str) -&gt; bytes:
 
 
 @beartype
-def unquote_diff_path(path: str) -&gt; str:
-    &#34;&#34;&#34;Unquote a diff/patch path.&#34;&#34;&#34;
-    if len(path) &lt;= 4:
-        return path
-    if path[0] == &#39;&#34;&#39; and path[-1] == &#39;&#34;&#39;:
-        path = path.lstrip(&#39;&#34;&#39;).rstrip(&#39;&#34;&#39;)
-    if path[:2] in (&#34;a/&#34;, &#34;b/&#34;):
-        path = path[2:]
-    return path
-
-
-@beartype
-def get_patches(unsub_repo: git.Repo) -&gt; Iterable[Patch]:
-    &#34;&#34;&#34;Get all patches from HEAD to FETCH_HEAD in a flattened git repository.&#34;&#34;&#34;
-    raw_unified_patch = unsub_repo.git.diff([&#34;HEAD&#34;, &#34;FETCH_HEAD&#34;], binary=True)
-
-    # Construct patches for every file in the flattenened/unsubmoduled checkout
-    # of the revision of the last successful `ki push`. Each patch is the diff
-    # between the relevant file in the flattened (all submodules converted to
-    # ordinary directories) repository and the same file in the Anki remote (a
-    # fresh `ki clone` of the current database).
-    patches: List[Patch] = []
-    f = io.StringIO()
-    with redirect_stdout(f):
-        for diff in whatthepatch.parse_patch(raw_unified_patch):
-            a_path = unquote_diff_path(diff.header.old_path)
-            b_path = unquote_diff_path(diff.header.new_path)
-            if a_path == DEV_NULL:
-                a_path = b_path
-            if b_path == DEV_NULL:
-                b_path = a_path
-            patch = Patch(Path(a_path), Path(b_path), diff)
-            patches.append(patch)
-    return patches
-
-
-@curried
-@beartype
-def rm_remote_sm(repo: git.Repo, sub: Submodule) -&gt; Submodule:
-    &#34;&#34;&#34;Remove submodule directory from given repo.&#34;&#34;&#34;
-    if os.path.isdir(F.root(repo) / sub.rel_root):
-        repo.git.rm([&#34;-r&#34;, str(sub.rel_root)])
-    return sub
-
-
-@beartype
-def has_patch(patch: Patch, sm_rel_root: Path) -&gt; bool:
-    &#34;&#34;&#34;Check if patch path is relative to the given root.&#34;&#34;&#34;
-    # TODO: We must also treat case where we moved a file into or out of a
-    # submodule, but we just do this for now. In this case, we may have
-    # `patch.a` not be relative to the submodule root (if we moved a file into
-    # the sm dir), or vice-versa.
-    a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
-    b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
-    return a_in_submodule and b_in_submodule
-
-
-@curried
-@beartype
-def apply(subrepos: Dict[Path, Submodule], patch: Patch) -&gt; Iterable[Path]:
-    &#34;&#34;&#34;Apply a patch within the relevant submodule repositories.&#34;&#34;&#34;
-    # Consider only repos containing patch, ignore submodule &#39;file&#39; itself.
-    subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
-    subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
-    patch_dir: Dir = F.mkdtemp()
-    return map(apply_in_subrepo(patch_dir, patch), subs)
-
-
-@curried
-@beartype
-def apply_in_subrepo(
-    patch_dir: Dir,
-    patch: Patch,
-    sub: Submodule,
-) -&gt; Path:
-    &#34;&#34;&#34;Apply a patch within a submodule.&#34;&#34;&#34;
-    # Hash the patch to use as a filename.
-    blake2 = hashlib.blake2s()
-    blake2.update(patch.diff.text.encode())
-    patch_hash: str = blake2.hexdigest()
-    patch_path: NoFile = F.chk(patch_dir / patch_hash)
-
-    # We write as bytes so that it is not necessary to strip trailing linefeeds
-    # from each line so that `git apply` is happy on Windows (equivalent to
-    # running `dos2unix`).
-    patch_b: bytes = patch.diff.text.encode(&#34;UTF-8&#34;)
-    F.writeb(patch_path, patch_b)
-
-    # Number of leading path components to drop from diff paths.
-    parts: str = str(len(sub.rel_root.parts) + 1)
-
-    # TODO: More tests are needed to make sure that the `git apply` call is not
-    # flaky. In particular, we must treat new and deleted files.
-    #
-    # Note that it is unnecessary to use `--3way` here, because this submodule
-    # is supposed to represent a fast-forward from the last successful push to
-    # the current state of the remote.  There should be no nontrivial merging
-    # involved.
-    #
-    # Then -p&lt;n&gt; flag tells `git apply` to drop the first n leading path
-    # components from both diff paths. So if n is 2, we map `a/dog/cat` -&gt;
-    # `cat`.
-    sub.sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
-    return patch.a
-
-
-@curried
-@beartype
-def pull_sm(
-    subrepos: Dict[Path, git.Repo],
-    sub: Submodule,
-) -&gt; Submodule:
-    &#34;&#34;&#34;
-    Safely pull changes within a submodule.
-
-    New commits in submodules within `lca_repo` are be pulled into the
-    submodules within `kirepo.repo`. This is done by adding a remote pointing
-    to the patched submodule in each corresponding submodule in the main
-    repository, and then pulling from that remote. Then the remote is deleted.
-    &#34;&#34;&#34;
-    # TODO: What if a submodule was deleted entirely? (Note that we treat the
-    # case where submodules are added in the caller.)
-    sm_repo = sub.sm_repo
-    sm_rel_root = sub.rel_root
-    remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
-    branch: str = sub.branch
-
-    # TODO: What&#39;s in `upstream` that isn&#39;t already in `branch`?
-    remote_sm.git.branch(&#34;upstream&#34;)
-
-    # Simulate a `git merge --strategy=theirs upstream`.
-    remote_sm.git.checkout([&#34;-b&#34;, &#34;tmp&#34;, &#34;upstream&#34;])
-    remote_sm.git.merge([&#34;-s&#34;, &#34;ours&#34;, branch])
-    remote_sm.git.checkout(branch)
-    remote_sm.git.merge(&#34;tmp&#34;)
-    remote_sm.git.branch([&#34;-D&#34;, &#34;tmp&#34;])
-
-    sm_remote = sm_repo.create_remote(REMOTE_NAME, F.gitd(remote_sm))
-    echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
-    sm_repo.delete_remote(sm_remote)
-    remote_sm.close()
-    sm_repo.close()
-    return sub
-
-
-@beartype
 def get_note_metadata(col: Collection) -&gt; Dict[str, NoteMetadata]:
     &#34;&#34;&#34;
     Construct a map from guid -&gt; (nid, mod, mid), adapted from
@@ -2178,38 +2023,18 @@ def commit_hashes_file(kirepo: KiRepo) -&gt; None:
     kirepo.repo.index.commit(&#34;Update collection hashes file.&#34;)
 
 
-@curried
 @beartype
-def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -&gt; None:
-    &#34;&#34;&#34;Use `git update-index` to set 120000 file mode on a windows symlink.&#34;&#34;&#34;
-    # Convert to POSIX pathseps since that&#39;s what `git` wants.
-    link: str = abslink.relative_to(root).as_posix()
-    githash = repo.git.hash_object([&#34;-w&#34;, f&#34;{link}&#34;])
-    target = f&#34;120000,{githash},{link}&#34;
-    repo.git.update_index(target, add=True, cacheinfo=True)
-
-
-@curried
-@beartype
-def backupd(tmpdir: Dir, lca_repo: git.Repo, p: Path) -&gt; Dir:
-    &#34;&#34;&#34;Move a relative directory to a temporary location.&#34;&#34;&#34;
-    return F.movetree(F.chk(F.root(lca_repo) / p), F.chk(tmpdir / p))
-
-
-@curried
-@beartype
-def merge_new_sm(x: Tuple[Dir, Submodule]) -&gt; None:
-    &#34;&#34;&#34;Merge backed-up files into a new submodule.&#34;&#34;&#34;
-    sm_dir, sm = x
-    sm_backup_repo, branch = F.init(sm_dir)
-    sm_backup_repo.git.add(all=True)
-    sm_backup_repo.index.commit(&#34;Submodule merge&#34;)
-    remote = sm.sm_repo.create_remote(&#34;sm-back&#34;, sm_backup_repo.git_dir)
-    sm.sm_repo.git.fetch(&#34;sm-back&#34;)
-    sm.sm_repo.git.merge(
-        [f&#34;sm-back/{branch}&#34;], no_edit=True, allow_unrelated_histories=True
-    )
-    sm.sm_repo.delete_remote(remote)
+def cleanup(targetdir: Dir, new: bool) -&gt; Union[Dir, EmptyDir, NoPath]:
+    &#34;&#34;&#34;Cleans up after failed clone operations.&#34;&#34;&#34;
+    try:
+        if new:
+            return F.rmtree(targetdir)
+        _, dirs, files = F.shallow_walk(targetdir)
+        do(F.rmtree, dirs)
+        do(os.remove, files)
+    except PermissionError as _:
+        pass
+    return F.chk(targetdir)
 
 
 @click.group()
@@ -2228,47 +2053,30 @@ def ki() -&gt; None:
 @click.argument(&#34;collection&#34;)
 @click.argument(&#34;directory&#34;, required=False, default=&#34;&#34;)
 def clone(collection: str, directory: str = &#34;&#34;) -&gt; None:
-    &#34;&#34;&#34;
-    Clone an Anki collection into a directory.
+    &#34;&#34;&#34;Clone an Anki collection into a directory.&#34;&#34;&#34;
+    _clone1(collection, directory)
 
-    Parameters
-    ----------
-    collection : str
-        The path to an `.anki2` collection file.
-    directory : str, default=&#34;&#34;
-        An optional path to a directory to clone the collection into.
-        Note: we check that this directory does not yet exist.
-    &#34;&#34;&#34;
+
+@beartype
+def _clone1(collection: str, directory: str = &#34;&#34;) -&gt; git.Repo:
+    &#34;&#34;&#34;Execute a clone op.&#34;&#34;&#34;
     col_file: File = M.xfile(Path(collection))
-
-    @beartype
-    def cleanup(targetdir: Dir, new: bool) -&gt; Union[Dir, EmptyDir, NoPath]:
-        &#34;&#34;&#34;Cleans up after failed clone operations.&#34;&#34;&#34;
-        try:
-            if new:
-                return F.rmtree(targetdir)
-            _, dirs, files = F.shallow_walk(targetdir)
-            do(F.rmtree, dirs)
-            do(os.remove, files)
-        except PermissionError as _:
-            pass
-        return F.chk(targetdir)
-
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone(col_file, targetdir, msg=&#34;Initial commit&#34;, silent=False)
+        _, _ = _clone2(col_file, targetdir, msg=&#34;Initial commit&#34;, silent=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
         gc.collect()
+        return kirepo.repo
     except Exception as err:
         cleanup(targetdir, new)
         raise err
 
 
 @beartype
-def _clone(
+def _clone2(
     col_file: File,
     targetdir: EmptyDir,
     msg: str,
@@ -2305,41 +2113,31 @@ def _clone(
     md5sum = F.md5(col_file)
     echo(f&#34;Cloning into &#39;{targetdir}&#39;...&#34;, silent=silent)
     (targetdir / GITIGNORE_FILE).write_text(f&#34;{KI}/{BACKUPS_DIR}\n&#34;)
+    (targetdir / GITATTRS_FILE).write_text(&#34;*.md linguist-detectable\n&#34;)
 
-    # Write note files to disk and commit.
-    windows_links = write_repository(col_file, targetdir, dotki, mediadir)
+    # Write note files to disk.
+    write_repository(col_file, targetdir, dotki, mediadir)
     repo, branch = F.init(targetdir)
-    F.commitall(repo, msg)
-    do(set_120000(repo, F.root(repo)), windows_links)
-
-    # We do *not* call `git.add()` here since we call `git.update_index()` above.
-    repo.index.commit(msg)
-
-    # On Windows, there are changes left in the working tree at this point
-    # (because git sees that the mode of the actual underlying file is 100644),
-    # so we must stash them in order to ensure the repo is not left dirty.
-    repo.git.stash(&#34;save&#34;)
-    if repo.is_dirty():
-        raise NonEmptyWorkingTreeError(repo)
 
     # Store a checksum of the Anki collection file in the hashes file.
     append_md5sum(kidir, col_file.name, md5sum)
 
-    # Squash last two commits together.
-    repo.git.add([KI])
-    repo.git.reset([&#34;--soft&#34;, &#34;HEAD~1&#34;])
-    repo.git.commit(message=msg, amend=True)
-
+    F.commitall(repo, msg)
+    if repo.is_dirty():
+        raise NonEmptyWorkingTreeError(repo)
     return repo, branch
 
 
 @ki.command()
 @beartype
 def pull() -&gt; None:
-    &#34;&#34;&#34;
-    Pull from a preconfigured remote Anki collection into an existing ki
-    repository.
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;Pull changes into the current ki repository from an Anki collection.&#34;&#34;&#34;
+    _pull1()
+
+
+@beartype
+def _pull1() -&gt; None:
+    &#34;&#34;&#34;Execute a pull op.&#34;&#34;&#34;
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
     con: sqlite3.Connection = lock(kirepo.col_file)
@@ -2348,14 +2146,15 @@ def pull() -&gt; None:
     hashes = list(filter(lambda l: l != &#34;&#34;, hashes))
     if md5sum in hashes[-1]:
         echo(&#34;ki pull: up to date.&#34;)
+        unlock(con)
         return
 
-    _pull(kirepo)
+    _pull2(kirepo)
     unlock(con)
 
 
 @beartype
-def _pull(kirepo: KiRepo) -&gt; None:
+def _pull2(kirepo: KiRepo) -&gt; None:
     &#34;&#34;&#34;
     Pull into `kirepo` without checking if we are already up-to-date.
 
@@ -2397,55 +2196,16 @@ def _pull(kirepo: KiRepo) -&gt; None:
     head: Rev = M.head(kirepo.repo)
     rev: Rev = M.rev(kirepo.repo, sha=kirepo.repo.tag(LCA).commit.hexsha)
     lca_repo: git.Repo = cp_repo(rev, f&#34;{LOCAL_SUFFIX}-{md5sum}&#34;)
-    unsub_repo: git.Repo = cp_repo(rev, f&#34;unsub-{LOCAL_SUFFIX}-{md5sum}&#34;)
 
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f&#34;Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`&#34;
-    remote_repo, branch = _clone(kirepo.col_file, anki_remote_root, msg, silent=False)
+    remote_repo, branch = _clone2(kirepo.col_file, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
     anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-    unsub_remote = unsub_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
-
-    # =================== NEW PULL ARCHITECTURE ====================
-    # Update all submodules in `unsub_repo`. This is critically important,
-    # because it essentially &#39;rolls-back&#39; commits made in submodules since the
-    # last successful ki push in the main repository. Our `cp_repo()` call does
-    # a `reset --hard` to the commit of the last push, but this does *not* do
-    # an equivalent rollback for submodules. So they may contain new local
-    # changes that we don&#39;t want. Calling `git submodule update` here checks
-    # out the commit that *was* recorded in the submodule file at the rev of
-    # the last push.
-    unsub_repo.git.submodule(&#34;update&#34;)
-    lca_repo.git.submodule(&#34;update&#34;)
-    unsub_repo = F.unsubmodule(unsub_repo)
     anki_remote.fetch()
-    unsub_remote.fetch()
-    patches: Iterable[Patch] = get_patches(unsub_repo)
-
-    # Remove submodules from `remote_repo` and map the roots of each submodule
-    # (relative to the working directory of `lca_repo`) to the submodule repos
-    # themselves.
-    subrepos: Dict[Path, Submodule] = M.submodules(lca_repo)
-    do(rm_remote_sm(remote_repo), subrepos.values())
-    if len(lca_repo.submodules) &gt; 0:
-        F.commitall(remote_repo, msg=&#34;Remove submodule directories.&#34;)
-
-    # Apply and commit patches within submodules.
-    patch_paths = set(F.cat(map(apply(subrepos), patches)))
-    msg = &#34;Applying patches:\n\n&#34; + &#34;&#34;.join(map(lambda p: f&#34;  `{p}`\n&#34;, patch_paths))
-    do(lambda s: F.commitall(s.sm_repo, msg), subrepos.values())
-
-    # Pull changes from remote into each submodule.
-    sms: Dict[Path, Submodule] = M.submodules(kirepo.repo)
-    subs = filter(lambda s: s.rel_root in subrepos, sms.values())
-    do(pull_sm(subrepos), subs)
-
-    # Commit new submodules commits in `lca_repo`.
-    if len(patch_paths) &gt; 0:
-        F.commitall(lca_repo, msg=msg)
 
     # Handle deleted files, preferring `theirs`.
     diffidx = lca_repo.commit(&#34;HEAD&#34;).diff(lca_repo.commit(&#34;FETCH_HEAD&#34;))
@@ -2458,25 +2218,9 @@ def _pull(kirepo: KiRepo) -&gt; None:
         details: str = &#34;&#34;.join(map(lambda a: f&#34;Remove &#39;{a}&#39;\n&#34;, a_paths))
         F.commitall(lca_repo, msg=f&#34;Remove files deleted in remote.\n\n{details}&#34;)
 
-    # =================== NEW PULL ARCHITECTURE ====================
-
-    # TODO: There is an unsub-like process above performed on `remote_repo`,
-    # can we just pass unsub=True here instead?
     remote_root: Dir = F.root(remote_repo)
     lca_repo = M.gitcopy(lca_repo, remote_root, unsub=False)
     F.commitall(lca_repo, f&#34;Pull changes from repository at `{remote_root}`&#34;)
-
-    # For each submodule that is new, `deinit` it.
-    new_sms = {k: v for k, v in sms.items() if v.rel_root not in subrepos}
-    do(lambda p: kirepo.repo.git.submodule([&#34;deinit&#34;, str(p)]), new_sms.keys())
-
-    # Move all files in the LCA repo that reside in directories corresponding
-    # to new submodules into temporary locations, and commit the removals.
-    sm_backup_dir: Dir = F.mkdtemp()
-    tmps: Set[Dir] = set(map(backupd(sm_backup_dir, lca_repo), new_sms.keys()))
-    msg = &#34;&#39;Remove new submodule directories from LCA repo&#39;&#34;
-    lca_repo.git.add(all=True)
-    lca_repo.git.commit([&#34;--allow-empty&#34;, &#34;-m&#34;, msg])
 
     # Create remote pointing to `lca_repo` and pull into `repo`. Note
     # that this `git pull` may not always create a merge commit, because a
@@ -2486,13 +2230,6 @@ def _pull(kirepo: KiRepo) -&gt; None:
     out = git_pull(REMOTE_NAME, branch, kirepo.root)
     echo(out)
     kirepo.repo.delete_remote(lca_remote)
-
-    # Submodule sync, `update --init`, and merge backup files.
-    sync = lambda p: kirepo.repo.git.submodule([&#34;sync&#34;, str(p)])
-    update = lambda p: kirepo.repo.git.submodule([&#34;update&#34;, &#34;--init&#34;, str(p)])
-    do(sync, new_sms.keys())
-    do(update, new_sms.keys())
-    do(merge_new_sm, zip(tmps, new_sms.values()))
 
     # The merge will have overwritten the hashes file with only the collection
     # hash from the fresh clone of the remote, so we checkout its state from
@@ -2514,30 +2251,14 @@ def _pull(kirepo: KiRepo) -&gt; None:
 
 @ki.command()
 @beartype
-def push() -&gt; PushResult:
-    &#34;&#34;&#34;
-    Push a ki repository into a .anki2 file.
+def push() -&gt; None:
+    &#34;&#34;&#34;Push commits from the currrent ki repository into an Anki collection.&#34;&#34;&#34;
+    _push()
 
-    Consists of the following operations:
 
-        - Clone collection into a temp directory
-        - Delete all files and folders except `.git/`
-        - Copy into this temp directory all files and folders from the current
-          repository checked out at HEAD (excluding `.git*` stuff).
-        - Unsubmodule repo
-        - Add and commit everything
-        - Take diff from `HEAD~1` to `HEAD`.
-
-    Returns
-    -------
-    PushResult
-        An `Enum` indicating whether the push was nontrivial.
-
-    Raises
-    ------
-    UpdatesRejectedError
-        If the user needs to pull remote changes first.
-    &#34;&#34;&#34;
+@beartype
+def _push() -&gt; PushResult:
+    &#34;&#34;&#34;Execute a push op.&#34;&#34;&#34;
     # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
@@ -2549,16 +2270,14 @@ def push() -&gt; PushResult:
     if md5sum not in hashes[-1]:
         raise UpdatesRejectedError(kirepo.col_file)
 
-    # =================== NEW PUSH ARCHITECTURE ====================
     head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f&#34;{HEAD_SUFFIX}-{md5sum}&#34;)
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f&#34;Fetch changes from collection &#39;{kirepo.col_file}&#39; with md5sum &#39;{md5sum}&#39;&#34;
-    remote_repo, _ = _clone(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
 
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f&#34;Pull changes from repository at `{kirepo.root}`&#34;)
-    # =================== NEW PUSH ARCHITECTURE ====================
 
     parse: Callable[[Delta], DeckNote] = parse_note(*M.parser_and_transformer())
     deltas, warnings = F.part(lambda x: isinstance(x, Delta), diff2(remote_repo, parse))
@@ -2567,6 +2286,7 @@ def push() -&gt; PushResult:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo(&#34;ki push: up to date.&#34;)
+        unlock(con)
         return PushResult.UP_TO_DATE
 
     echo(f&#34;Pushing to &#39;{kirepo.col_file}&#39;&#34;)
@@ -2631,10 +2351,9 @@ def write_collection(
     F.copyfile(new_col_file, kirepo.col_file)
     echo(f&#34;Overwrote &#39;{kirepo.col_file}&#39;&#34;)
 
-    # Add media files to collection and follow windows symlinks.
+    # Add media files to collection.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
-    media_files = map(M.linktarget, media_files)
     mbytes: Iterable[MediaBytes] = map(mediabytes(col), media_files)
 
     # Skip media files whose twin in collection has same name and same data.
@@ -2824,73 +2543,6 @@ def append_md5sum(dotki: Dir, tag: str, md5sum: str) -&gt; None:
         hashes_f.write(f&#34;{md5sum}  {tag}\n&#34;)</code></pre>
 </details>
 </dd>
-<dt id="ki.apply"><code class="name flex">
-<span>def <span class="ident">apply</span></span>(<span>subrepos: dict[pathlib.Path, <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a>], patch: <a title="ki.types.Patch" href="types.html#ki.types.Patch">Patch</a>) ‑> collections.abc.Iterable[pathlib.Path]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Apply a patch within the relevant submodule repositories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def apply(subrepos: Dict[Path, Submodule], patch: Patch) -&gt; Iterable[Path]:
-    &#34;&#34;&#34;Apply a patch within the relevant submodule repositories.&#34;&#34;&#34;
-    # Consider only repos containing patch, ignore submodule &#39;file&#39; itself.
-    subs = filter(lambda s: has_patch(patch, s.rel_root), subrepos.values())
-    subs = filter(lambda s: s.rel_root not in (patch.a, patch.b), subs)
-    patch_dir: Dir = F.mkdtemp()
-    return map(apply_in_subrepo(patch_dir, patch), subs)</code></pre>
-</details>
-</dd>
-<dt id="ki.apply_in_subrepo"><code class="name flex">
-<span>def <span class="ident">apply_in_subrepo</span></span>(<span>patch_dir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, patch: <a title="ki.types.Patch" href="types.html#ki.types.Patch">Patch</a>, sub: <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a>) ‑> pathlib.Path</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Apply a patch within a submodule.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def apply_in_subrepo(
-    patch_dir: Dir,
-    patch: Patch,
-    sub: Submodule,
-) -&gt; Path:
-    &#34;&#34;&#34;Apply a patch within a submodule.&#34;&#34;&#34;
-    # Hash the patch to use as a filename.
-    blake2 = hashlib.blake2s()
-    blake2.update(patch.diff.text.encode())
-    patch_hash: str = blake2.hexdigest()
-    patch_path: NoFile = F.chk(patch_dir / patch_hash)
-
-    # We write as bytes so that it is not necessary to strip trailing linefeeds
-    # from each line so that `git apply` is happy on Windows (equivalent to
-    # running `dos2unix`).
-    patch_b: bytes = patch.diff.text.encode(&#34;UTF-8&#34;)
-    F.writeb(patch_path, patch_b)
-
-    # Number of leading path components to drop from diff paths.
-    parts: str = str(len(sub.rel_root.parts) + 1)
-
-    # TODO: More tests are needed to make sure that the `git apply` call is not
-    # flaky. In particular, we must treat new and deleted files.
-    #
-    # Note that it is unnecessary to use `--3way` here, because this submodule
-    # is supposed to represent a fast-forward from the last successful push to
-    # the current state of the remote.  There should be no nontrivial merging
-    # involved.
-    #
-    # Then -p&lt;n&gt; flag tells `git apply` to drop the first n leading path
-    # components from both diff paths. So if n is 2, we map `a/dog/cat` -&gt;
-    # `cat`.
-    sub.sm_repo.git.apply(patch_path, p=parts, allow_empty=True, verbose=True)
-    return patch.a</code></pre>
-</details>
-</dd>
 <dt id="ki.backup"><code class="name flex">
 <span>def <span class="ident">backup</span></span>(<span>kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>) ‑> int</span>
 </code></dt>
@@ -2903,8 +2555,9 @@ def apply_in_subrepo(
 <pre><code class="python">@beartype
 def backup(kirepo: KiRepo) -&gt; int:
     &#34;&#34;&#34;Backup collection to `.ki/backups`.&#34;&#34;&#34;
+    timestamp = datetime.datetime.now().strftime(&#34;%Y-%m-%d--%Hh-%Mm-%Ss&#34;)
     md5sum = F.md5(kirepo.col_file)
-    name = f&#34;{md5sum}.anki2&#34;
+    name = f&#34;{timestamp}--{md5sum}.anki2&#34;
     backup_file = F.chk(kirepo.backups_dir / name)
 
     # We assume here that no one would ever make e.g. a directory called
@@ -2917,22 +2570,6 @@ def backup(kirepo: KiRepo) -&gt; int:
 
     F.copyfile(kirepo.col_file, F.chk(kirepo.backups_dir / name))
     return 0</code></pre>
-</details>
-</dd>
-<dt id="ki.backupd"><code class="name flex">
-<span>def <span class="ident">backupd</span></span>(<span>tmpdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, lca_repo: git.repo.base.Repo, p: pathlib.Path) ‑> <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Move a relative directory to a temporary location.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def backupd(tmpdir: Dir, lca_repo: git.Repo, p: Path) -&gt; Dir:
-    &#34;&#34;&#34;Move a relative directory to a temporary location.&#34;&#34;&#34;
-    return F.movetree(F.chk(F.root(lca_repo) / p), F.chk(tmpdir / p))</code></pre>
 </details>
 </dd>
 <dt id="ki.check_fields_health"><code class="name flex">
@@ -2955,6 +2592,29 @@ def check_fields_health(note: Note) -&gt; List[Warning]:
     if health != 0:
         return [UnhealthyNoteWarning(note, health)]
     return []</code></pre>
+</details>
+</dd>
+<dt id="ki.cleanup"><code class="name flex">
+<span>def <span class="ident">cleanup</span></span>(<span>targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, new: bool) ‑> Union[<a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, <a title="ki.types.NoPath" href="types.html#ki.types.NoPath">NoPath</a>]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Cleans up after failed clone operations.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def cleanup(targetdir: Dir, new: bool) -&gt; Union[Dir, EmptyDir, NoPath]:
+    &#34;&#34;&#34;Cleans up after failed clone operations.&#34;&#34;&#34;
+    try:
+        if new:
+            return F.rmtree(targetdir)
+        _, dirs, files = F.shallow_walk(targetdir)
+        do(F.rmtree, dirs)
+        do(os.remove, files)
+    except PermissionError as _:
+        pass
+    return F.chk(targetdir)</code></pre>
 </details>
 </dd>
 <dt id="ki.commit_hashes_file"><code class="name flex">
@@ -3222,7 +2882,7 @@ def diff2(
 <pre><code class="python">@beartype
 def do(f: Callable[[Any], Any], xs: Iterable[Any]) -&gt; None:
     &#34;&#34;&#34;Perform some action on an iterable.&#34;&#34;&#34;
-    set(map(f, xs))</code></pre>
+    list(map(f, xs))</code></pre>
 </details>
 </dd>
 <dt id="ki.echo"><code class="name flex">
@@ -3342,24 +3002,6 @@ def get_header_lines(colnote) -&gt; List[str]:
     lines += colnote.n.tags
     lines += [&#34;```&#34;, &#34;&#34;]
     return lines</code></pre>
-</details>
-</dd>
-<dt id="ki.get_link"><code class="name flex">
-<span>def <span class="ident">get_link</span></span>(<span>targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, deckd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, card: anki.cards.Card, file: <a title="ki.types.File" href="types.html#ki.types.File">File</a>) ‑> Optional[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Return a windows link for a card if one is necessary.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def get_link(
-    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -&gt; Optional[WindowsLink]:
-    &#34;&#34;&#34;Return a windows link for a card if one is necessary.&#34;&#34;&#34;
-    note_path: NoFile = get_note_path(colnote, deckd, card.template()[&#34;name&#34;])
-    return M.winlink(targetd, PlannedLink(link=note_path, tgt=file))</code></pre>
 </details>
 </dd>
 <dt id="ki.get_models_recursively"><code class="name flex">
@@ -3535,40 +3177,6 @@ def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -&gt; 
     return &#34;\n&#34;.join(lines)</code></pre>
 </details>
 </dd>
-<dt id="ki.get_patches"><code class="name flex">
-<span>def <span class="ident">get_patches</span></span>(<span>unsub_repo: git.repo.base.Repo) ‑> collections.abc.Iterable[<a title="ki.types.Patch" href="types.html#ki.types.Patch">Patch</a>]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Get all patches from HEAD to FETCH_HEAD in a flattened git repository.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def get_patches(unsub_repo: git.Repo) -&gt; Iterable[Patch]:
-    &#34;&#34;&#34;Get all patches from HEAD to FETCH_HEAD in a flattened git repository.&#34;&#34;&#34;
-    raw_unified_patch = unsub_repo.git.diff([&#34;HEAD&#34;, &#34;FETCH_HEAD&#34;], binary=True)
-
-    # Construct patches for every file in the flattenened/unsubmoduled checkout
-    # of the revision of the last successful `ki push`. Each patch is the diff
-    # between the relevant file in the flattened (all submodules converted to
-    # ordinary directories) repository and the same file in the Anki remote (a
-    # fresh `ki clone` of the current database).
-    patches: List[Patch] = []
-    f = io.StringIO()
-    with redirect_stdout(f):
-        for diff in whatthepatch.parse_patch(raw_unified_patch):
-            a_path = unquote_diff_path(diff.header.old_path)
-            b_path = unquote_diff_path(diff.header.new_path)
-            if a_path == DEV_NULL:
-                a_path = b_path
-            if b_path == DEV_NULL:
-                b_path = a_path
-            patch = Patch(Path(a_path), Path(b_path), diff)
-            patches.append(patch)
-    return patches</code></pre>
-</details>
-</dd>
 <dt id="ki.get_target"><code class="name flex">
 <span>def <span class="ident">get_target</span></span>(<span>cwd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, col_file: <a title="ki.types.File" href="types.html#ki.types.File">File</a>, directory: str) ‑> tuple[<a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>, bool]</span>
 </code></dt>
@@ -3607,27 +3215,6 @@ def git_pull(remote: str, branch: str, cwd: Dir) -&gt; str:
     args = [&#34;git&#34;, &#34;pull&#34;, &#34;-v&#34;, remote, branch]
     p = subprocess.run(args, check=False, cwd=cwd, capture_output=True)
     return f&#34;{p.stdout.decode()}\n{p.stderr.decode()}&#34;</code></pre>
-</details>
-</dd>
-<dt id="ki.has_patch"><code class="name flex">
-<span>def <span class="ident">has_patch</span></span>(<span>patch: <a title="ki.types.Patch" href="types.html#ki.types.Patch">Patch</a>, sm_rel_root: pathlib.Path) ‑> bool</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Check if patch path is relative to the given root.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def has_patch(patch: Patch, sm_rel_root: Path) -&gt; bool:
-    &#34;&#34;&#34;Check if patch path is relative to the given root.&#34;&#34;&#34;
-    # TODO: We must also treat case where we moved a file into or out of a
-    # submodule, but we just do this for now. In this case, we may have
-    # `patch.a` not be relative to the submodule root (if we moved a file into
-    # the sm dir), or vice-versa.
-    a_in_submodule: bool = patch.a.is_relative_to(sm_rel_root)
-    b_in_submodule: bool = patch.b.is_relative_to(sm_rel_root)
-    return a_in_submodule and b_in_submodule</code></pre>
 </details>
 </dd>
 <dt id="ki.hasmedia"><code class="name flex">
@@ -3869,29 +3456,22 @@ def mediadata(col: Collection, fname: str) -&gt; bytes:
         return b&#34;&#34;</code></pre>
 </details>
 </dd>
-<dt id="ki.merge_new_sm"><code class="name flex">
-<span>def <span class="ident">merge_new_sm</span></span>(<span>x: tuple[<a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a>]) ‑> None</span>
+<dt id="ki.mklink"><code class="name flex">
+<span>def <span class="ident">mklink</span></span>(<span>targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, deckd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, card: anki.cards.Card, file: <a title="ki.types.File" href="types.html#ki.types.File">File</a>) ‑> None</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Merge backed-up files into a new submodule.</p></div>
+<div class="desc"><p>Return a windows link for a card if one is necessary.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">@curried
-@beartype
-def merge_new_sm(x: Tuple[Dir, Submodule]) -&gt; None:
-    &#34;&#34;&#34;Merge backed-up files into a new submodule.&#34;&#34;&#34;
-    sm_dir, sm = x
-    sm_backup_repo, branch = F.init(sm_dir)
-    sm_backup_repo.git.add(all=True)
-    sm_backup_repo.index.commit(&#34;Submodule merge&#34;)
-    remote = sm.sm_repo.create_remote(&#34;sm-back&#34;, sm_backup_repo.git_dir)
-    sm.sm_repo.git.fetch(&#34;sm-back&#34;)
-    sm.sm_repo.git.merge(
-        [f&#34;sm-back/{branch}&#34;], no_edit=True, allow_unrelated_histories=True
-    )
-    sm.sm_repo.delete_remote(remote)</code></pre>
+<pre><code class="python">@beartype
+def mklink(
+    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
+) -&gt; None:
+    &#34;&#34;&#34;Return a windows link for a card if one is necessary.&#34;&#34;&#34;
+    note_path: NoFile = get_note_path(colnote, deckd, card.template()[&#34;name&#34;])
+    M.link(targetd, PlannedLink(link=note_path, tgt=file))</code></pre>
 </details>
 </dd>
 <dt id="ki.mungediff"><code class="name flex">
@@ -4078,58 +3658,6 @@ def preorder(node: Union[Root, Deck]) -&gt; List[Deck]:
     return descendants if isinstance(node, Root) else [node] + descendants</code></pre>
 </details>
 </dd>
-<dt id="ki.pull_sm"><code class="name flex">
-<span>def <span class="ident">pull_sm</span></span>(<span>subrepos: dict[pathlib.Path, git.repo.base.Repo], sub: <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a>) ‑> <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Safely pull changes within a submodule.</p>
-<p>New commits in submodules within <code>lca_repo</code> are be pulled into the
-submodules within <code>kirepo.repo</code>. This is done by adding a remote pointing
-to the patched submodule in each corresponding submodule in the main
-repository, and then pulling from that remote. Then the remote is deleted.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def pull_sm(
-    subrepos: Dict[Path, git.Repo],
-    sub: Submodule,
-) -&gt; Submodule:
-    &#34;&#34;&#34;
-    Safely pull changes within a submodule.
-
-    New commits in submodules within `lca_repo` are be pulled into the
-    submodules within `kirepo.repo`. This is done by adding a remote pointing
-    to the patched submodule in each corresponding submodule in the main
-    repository, and then pulling from that remote. Then the remote is deleted.
-    &#34;&#34;&#34;
-    # TODO: What if a submodule was deleted entirely? (Note that we treat the
-    # case where submodules are added in the caller.)
-    sm_repo = sub.sm_repo
-    sm_rel_root = sub.rel_root
-    remote_sm: git.Repo = subrepos[sm_rel_root].sm_repo
-    branch: str = sub.branch
-
-    # TODO: What&#39;s in `upstream` that isn&#39;t already in `branch`?
-    remote_sm.git.branch(&#34;upstream&#34;)
-
-    # Simulate a `git merge --strategy=theirs upstream`.
-    remote_sm.git.checkout([&#34;-b&#34;, &#34;tmp&#34;, &#34;upstream&#34;])
-    remote_sm.git.merge([&#34;-s&#34;, &#34;ours&#34;, branch])
-    remote_sm.git.checkout(branch)
-    remote_sm.git.merge(&#34;tmp&#34;)
-    remote_sm.git.branch([&#34;-D&#34;, &#34;tmp&#34;])
-
-    sm_remote = sm_repo.create_remote(REMOTE_NAME, F.gitd(remote_sm))
-    echo(git_pull(REMOTE_NAME, branch, F.root(sm_repo)))
-    sm_repo.delete_remote(sm_remote)
-    remote_sm.close()
-    sm_repo.close()
-    return sub</code></pre>
-</details>
-</dd>
 <dt id="ki.push_note"><code class="name flex">
 <span>def <span class="ident">push_note</span></span>(<span>col: anki.collection.Collection, timestamp_ns: int, guids: dict[str, <a title="ki.types.NoteMetadata" href="types.html#ki.types.NoteMetadata">NoteMetadata</a>], new_nids: collections.abc.Iterator[int], decknote: <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>) ‑> collections.abc.Iterable[Warning]</span>
 </code></dt>
@@ -4202,44 +3730,6 @@ def push_note(
     return update_note(note, decknote, old_notetype, new_notetype)</code></pre>
 </details>
 </dd>
-<dt id="ki.rm_remote_sm"><code class="name flex">
-<span>def <span class="ident">rm_remote_sm</span></span>(<span>repo: git.repo.base.Repo, sub: <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a>) ‑> <a title="ki.types.Submodule" href="types.html#ki.types.Submodule">Submodule</a></span>
-</code></dt>
-<dd>
-<div class="desc"><p>Remove submodule directory from given repo.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def rm_remote_sm(repo: git.Repo, sub: Submodule) -&gt; Submodule:
-    &#34;&#34;&#34;Remove submodule directory from given repo.&#34;&#34;&#34;
-    if os.path.isdir(F.root(repo) / sub.rel_root):
-        repo.git.rm([&#34;-r&#34;, str(sub.rel_root)])
-    return sub</code></pre>
-</details>
-</dd>
-<dt id="ki.set_120000"><code class="name flex">
-<span>def <span class="ident">set_120000</span></span>(<span>repo: git.repo.base.Repo, root: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, abslink: <a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Use <code>git update-index</code> to set 120000 file mode on a windows symlink.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -&gt; None:
-    &#34;&#34;&#34;Use `git update-index` to set 120000 file mode on a windows symlink.&#34;&#34;&#34;
-    # Convert to POSIX pathseps since that&#39;s what `git` wants.
-    link: str = abslink.relative_to(root).as_posix()
-    githash = repo.git.hash_object([&#34;-w&#34;, f&#34;{link}&#34;])
-    target = f&#34;120000,{githash},{link}&#34;
-    repo.git.update_index(target, add=True, cacheinfo=True)</code></pre>
-</details>
-</dd>
 <dt id="ki.stardo"><code class="name flex">
 <span>def <span class="ident">stardo</span></span>(<span>f: collections.abc.Callable[[typing.Any], typing.Any], xs: collections.abc.Iterable[typing.Any]) ‑> None</span>
 </code></dt>
@@ -4252,11 +3742,11 @@ def set_120000(repo: git.Repo, root: Dir, abslink: WindowsLink) -&gt; None:
 <pre><code class="python">@beartype
 def stardo(f: Callable[[Any], Any], xs: Iterable[Any]) -&gt; None:
     &#34;&#34;&#34;Perform some action on an iterable of tuples, unpacking arguments.&#34;&#34;&#34;
-    set(starmap(f, xs))</code></pre>
+    list(starmap(f, xs))</code></pre>
 </details>
 </dd>
 <dt id="ki.symlink_deck_media"><code class="name flex">
-<span>def <span class="ident">symlink_deck_media</span></span>(<span>col: anki.collection.Collection, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]], parents: dict[str, typing.Union[<a title="ki.types.Root" href="types.html#ki.types.Root">Root</a>, <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>]], deck: <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>) ‑> collections.abc.Iterable[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
+<span>def <span class="ident">symlink_deck_media</span></span>(<span>col: anki.collection.Collection, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]], parents: dict[str, typing.Union[<a title="ki.types.Root" href="types.html#ki.types.Root">Root</a>, <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>]], deck: <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Create chained symlinks for a single deck.</p></div>
@@ -4272,7 +3762,7 @@ def symlink_deck_media(
     media: Dict[int, Set[File]],
     parents: Dict[str, Union[Root, Deck]],
     deck: Deck,
-) -&gt; Iterable[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Create chained symlinks for a single deck.&#34;&#34;&#34;
     # Get nids for all descendant notes with media.
     descendants: List[CardId] = col.decks.cids(did=deck.did, children=True)
@@ -4282,11 +3772,11 @@ def symlink_deck_media(
     # Get link path and target for each media file, and create the links.
     files = F.cat(map(lambda nid: media[nid], filter(lambda nid: nid in media, nids)))
     plinks = filter(None, map(planned_link(parents, deck), files))
-    return filter(None, map(M.winlink(targetd), plinks))</code></pre>
+    do(M.link(targetd), plinks)</code></pre>
 </details>
 </dd>
 <dt id="ki.symlink_media"><code class="name flex">
-<span>def <span class="ident">symlink_media</span></span>(<span>col: anki.collection.Collection, root: <a title="ki.types.Root" href="types.html#ki.types.Root">Root</a>, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]]) ‑> set[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
+<span>def <span class="ident">symlink_media</span></span>(<span>col: anki.collection.Collection, root: <a title="ki.types.Root" href="types.html#ki.types.Root">Root</a>, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Chain symlinks up the deck tree into top-level <code>&lt;collection&gt;/_media/</code>.</p></div>
@@ -4300,11 +3790,11 @@ def symlink_media(
     root: Root,
     targetd: Dir,
     media: Dict[int, Set[File]],
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Chain symlinks up the deck tree into top-level `&lt;collection&gt;/_media/`.&#34;&#34;&#34;
     decks: List[Deck] = preorder(root)
     parents: Dict[str, Union[Root, Deck]] = parentmap(root)
-    return set(F.cat(map(symlink_deck_media(col, targetd, media, parents), decks)))</code></pre>
+    return do(symlink_deck_media(col, targetd, media, parents), decks)</code></pre>
 </details>
 </dd>
 <dt id="ki.tidy_html_recursively"><code class="name flex">
@@ -4344,27 +3834,6 @@ def unlock(con: sqlite3.Connection) -&gt; None:
         return
     con.commit()
     con.close()</code></pre>
-</details>
-</dd>
-<dt id="ki.unquote_diff_path"><code class="name flex">
-<span>def <span class="ident">unquote_diff_path</span></span>(<span>path: str) ‑> str</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Unquote a diff/patch path.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def unquote_diff_path(path: str) -&gt; str:
-    &#34;&#34;&#34;Unquote a diff/patch path.&#34;&#34;&#34;
-    if len(path) &lt;= 4:
-        return path
-    if path[0] == &#39;&#34;&#39; and path[-1] == &#39;&#34;&#39;:
-        path = path.lstrip(&#39;&#34;&#39;).rstrip(&#39;&#34;&#39;)
-    if path[:2] in (&#34;a/&#34;, &#34;b/&#34;):
-        path = path[2:]
-    return path</code></pre>
 </details>
 </dd>
 <dt id="ki.update_field"><code class="name flex">
@@ -4544,14 +4013,14 @@ def write_card(
     if len(cardfile_map) == 0:
         payload: str = get_note_payload(colnote, fieldfiles)
         note_path: NoFile = get_note_path(colnote, deckd)
-        file, link = F.write(note_path, payload), None
+        file = F.write(note_path, payload)
     elif len(cardfiles) &gt; 0:
-        file, link = cardfiles[0].file, cardfiles[0].link
+        file = cardfiles[0].file
     else:
         existing: CardFile = list(cardfile_map.values())[0][0]
         file: File = existing.file
-        link: Optional[WindowsLink] = get_link(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, link=link, file=file)
+        mklink(targetd, colnote, deckd, card, file)
+    cardfile = CardFile(card, file=file)
     return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}</code></pre>
 </details>
 </dd>
@@ -4621,10 +4090,9 @@ def write_collection(
     F.copyfile(new_col_file, kirepo.col_file)
     echo(f&#34;Overwrote &#39;{kirepo.col_file}&#39;&#34;)
 
-    # Add media files to collection and follow windows symlinks.
+    # Add media files to collection.
     col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
-    media_files = map(M.linktarget, media_files)
     mbytes: Iterable[MediaBytes] = map(mediabytes(col), media_files)
 
     # Skip media files whose twin in collection has same name and same data.
@@ -4674,7 +4142,7 @@ def write_deck(
 </details>
 </dd>
 <dt id="ki.write_decks"><code class="name flex">
-<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]], tidy_field_files: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]) ‑> set[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
+<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]], tidy_field_files: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -4699,8 +4167,7 @@ cards are spread across multiple decks, in which case we must create a
 symlink.</p>
 <p>And actually, both of these cases are nicely taken care of for us by the
 <code>DeckManager.cids()</code> function, which has a <code>children: bool</code> parameter
-which toggles whether or not to get the card ids of subdecks or not.</p>
-<p>Return all windows symlinks created on Windows whose file modes we must set.</p></div>
+which toggles whether or not to get the card ids of subdecks or not.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -4712,7 +4179,7 @@ def write_decks(
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
     tidy_field_files: Dict[str, File],
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
     will make it easier to keep things purely functional, accumulating the
@@ -4742,11 +4209,7 @@ def write_decks(
     And actually, both of these cases are nicely taken care of for us by the
     `DeckManager.cids()` function, which has a `children: bool` parameter
     which toggles whether or not to get the card ids of subdecks or not.
-
-    Return all windows symlinks created on Windows whose file modes we must set.
     &#34;&#34;&#34;
-    # pylint: disable=too-many-locals
-    #
     # Accumulate pairs of model ids and notetype maps. The return type of the
     # `ModelManager.get()` call below indicates that it may return `None`,
     # but we know it will not because we are getting the notetype id straight
@@ -4766,14 +4229,10 @@ def write_decks(
 
     # Write cards and models to disk for each deck.
     write = write_deck(col, targetdir, colnotes, tidy_field_files)
-    notefiles: Dict[NoteId, CardFileMap] = reduce(write, decks, {})
+    reduce(write, decks, {})
     do(write_models(col, models), decks)
 
-    # Get all POSIX-style symlinks created on Windows.
-    cardfiles = F.cat(F.cat(map(lambda x: x.values(), notefiles.values())))
-    links: Iterable[WindowsLink] = set(filter(None, map(lambda c: c.link, cardfiles)))
-
-    return links | symlink_media(col, root, targetdir, media)</code></pre>
+    symlink_media(col, root, targetdir, media)</code></pre>
 </details>
 </dd>
 <dt id="ki.write_field"><code class="name flex">
@@ -4840,7 +4299,7 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 </details>
 </dd>
 <dt id="ki.write_repository"><code class="name flex">
-<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.types.File" href="types.html#ki.types.File">File</a>, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, dotki: <a title="ki.types.DotKi" href="types.html#ki.types.DotKi">DotKi</a>, media_target_dir: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>) ‑> set[<a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
+<span>def <span class="ident">write_repository</span></span>(<span>col_file: <a title="ki.types.File" href="types.html#ki.types.File">File</a>, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, dotki: <a title="ki.types.DotKi" href="types.html#ki.types.DotKi">DotKi</a>, media_target_dir: <a title="ki.types.EmptyDir" href="types.html#ki.types.EmptyDir">EmptyDir</a>) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Write notes to appropriate directories in <code>targetdir</code>.</p></div>
@@ -4854,7 +4313,7 @@ def write_repository(
     targetdir: Dir,
     dotki: DotKi,
     media_target_dir: EmptyDir,
-) -&gt; Set[WindowsLink]:
+) -&gt; None:
     &#34;&#34;&#34;Write notes to appropriate directories in `targetdir`.&#34;&#34;&#34;
     # Create config file.
     config = configparser.ConfigParser()
@@ -4875,7 +4334,7 @@ def write_repository(
     fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, &#34;Fields&#34;))))
     tidy_html_recursively(root)
 
-    windows_links: Set[WindowsLink] = write_decks(
+    write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
@@ -4884,9 +4343,7 @@ def write_repository(
     )
 
     F.rmtree(root)
-    col.close(save=False)
-
-    return windows_links</code></pre>
+    col.close(save=False)</code></pre>
 </details>
 </dd>
 </dl>
@@ -4962,11 +4419,9 @@ def write_repository(
 <li><code><a title="ki.add_model" href="#ki.add_model">add_model</a></code></li>
 <li><code><a title="ki.addmedia" href="#ki.addmedia">addmedia</a></code></li>
 <li><code><a title="ki.append_md5sum" href="#ki.append_md5sum">append_md5sum</a></code></li>
-<li><code><a title="ki.apply" href="#ki.apply">apply</a></code></li>
-<li><code><a title="ki.apply_in_subrepo" href="#ki.apply_in_subrepo">apply_in_subrepo</a></code></li>
 <li><code><a title="ki.backup" href="#ki.backup">backup</a></code></li>
-<li><code><a title="ki.backupd" href="#ki.backupd">backupd</a></code></li>
 <li><code><a title="ki.check_fields_health" href="#ki.check_fields_health">check_fields_health</a></code></li>
+<li><code><a title="ki.cleanup" href="#ki.cleanup">cleanup</a></code></li>
 <li><code><a title="ki.commit_hashes_file" href="#ki.commit_hashes_file">commit_hashes_file</a></code></li>
 <li><code><a title="ki.copy_media_files" href="#ki.copy_media_files">copy_media_files</a></code></li>
 <li><code><a title="ki.copy_note_media" href="#ki.copy_note_media">copy_note_media</a></code></li>
@@ -4980,15 +4435,12 @@ def write_repository(
 <li><code><a title="ki.get_field_note_id" href="#ki.get_field_note_id">get_field_note_id</a></code></li>
 <li><code><a title="ki.get_guid" href="#ki.get_guid">get_guid</a></code></li>
 <li><code><a title="ki.get_header_lines" href="#ki.get_header_lines">get_header_lines</a></code></li>
-<li><code><a title="ki.get_link" href="#ki.get_link">get_link</a></code></li>
 <li><code><a title="ki.get_models_recursively" href="#ki.get_models_recursively">get_models_recursively</a></code></li>
 <li><code><a title="ki.get_note_metadata" href="#ki.get_note_metadata">get_note_metadata</a></code></li>
 <li><code><a title="ki.get_note_path" href="#ki.get_note_path">get_note_path</a></code></li>
 <li><code><a title="ki.get_note_payload" href="#ki.get_note_payload">get_note_payload</a></code></li>
-<li><code><a title="ki.get_patches" href="#ki.get_patches">get_patches</a></code></li>
 <li><code><a title="ki.get_target" href="#ki.get_target">get_target</a></code></li>
 <li><code><a title="ki.git_pull" href="#ki.git_pull">git_pull</a></code></li>
-<li><code><a title="ki.has_patch" href="#ki.has_patch">has_patch</a></code></li>
 <li><code><a title="ki.hasmedia" href="#ki.hasmedia">hasmedia</a></code></li>
 <li><code><a title="ki.html_to_screen" href="#ki.html_to_screen">html_to_screen</a></code></li>
 <li><code><a title="ki.is_anki_note" href="#ki.is_anki_note">is_anki_note</a></code></li>
@@ -4998,7 +4450,7 @@ def write_repository(
 <li><code><a title="ki.media_filenames_in_field" href="#ki.media_filenames_in_field">media_filenames_in_field</a></code></li>
 <li><code><a title="ki.mediabytes" href="#ki.mediabytes">mediabytes</a></code></li>
 <li><code><a title="ki.mediadata" href="#ki.mediadata">mediadata</a></code></li>
-<li><code><a title="ki.merge_new_sm" href="#ki.merge_new_sm">merge_new_sm</a></code></li>
+<li><code><a title="ki.mklink" href="#ki.mklink">mklink</a></code></li>
 <li><code><a title="ki.mungediff" href="#ki.mungediff">mungediff</a></code></li>
 <li><code><a title="ki.parentmap" href="#ki.parentmap">parentmap</a></code></li>
 <li><code><a title="ki.parse_note" href="#ki.parse_note">parse_note</a></code></li>
@@ -5006,16 +4458,12 @@ def write_repository(
 <li><code><a title="ki.planned_link" href="#ki.planned_link">planned_link</a></code></li>
 <li><code><a title="ki.postorder" href="#ki.postorder">postorder</a></code></li>
 <li><code><a title="ki.preorder" href="#ki.preorder">preorder</a></code></li>
-<li><code><a title="ki.pull_sm" href="#ki.pull_sm">pull_sm</a></code></li>
 <li><code><a title="ki.push_note" href="#ki.push_note">push_note</a></code></li>
-<li><code><a title="ki.rm_remote_sm" href="#ki.rm_remote_sm">rm_remote_sm</a></code></li>
-<li><code><a title="ki.set_120000" href="#ki.set_120000">set_120000</a></code></li>
 <li><code><a title="ki.stardo" href="#ki.stardo">stardo</a></code></li>
 <li><code><a title="ki.symlink_deck_media" href="#ki.symlink_deck_media">symlink_deck_media</a></code></li>
 <li><code><a title="ki.symlink_media" href="#ki.symlink_media">symlink_media</a></code></li>
 <li><code><a title="ki.tidy_html_recursively" href="#ki.tidy_html_recursively">tidy_html_recursively</a></code></li>
 <li><code><a title="ki.unlock" href="#ki.unlock">unlock</a></code></li>
-<li><code><a title="ki.unquote_diff_path" href="#ki.unquote_diff_path">unquote_diff_path</a></code></li>
 <li><code><a title="ki.update_field" href="#ki.update_field">update_field</a></code></li>
 <li><code><a title="ki.update_note" href="#ki.update_note">update_note</a></code></li>
 <li><code><a title="ki.validate_decknote_fields" href="#ki.validate_decknote_fields">validate_decknote_fields</a></code></li>

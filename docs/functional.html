@@ -39,15 +39,12 @@
 import os
 import re
 import sys
-import stat
-import errno
 import shutil
 import hashlib
 import tempfile
 import functools
 import subprocess
 import unicodedata
-from types import TracebackType
 from pathlib import Path
 from itertools import chain
 from functools import reduce, partial, update_wrapper, wraps
@@ -64,7 +61,6 @@ from beartype.typing import (
     Tuple,
     Callable,
     Any,
-    Type,
     FrozenSet,
     Iterable,
     TypeVar,
@@ -78,7 +74,6 @@ from ki.types import (
     NoPath,
     NoFile,
     Link,
-    WindowsLink,
     Singleton,
     PseudoFile,
     KiRev,
@@ -169,29 +164,10 @@ def curried(func: Callable[[Any, ...], T]) -&gt; Callable[[Any, ...], T]:
     return _curried
 
 
-def rmtree2(path: str) -&gt; None:
-    &#34;&#34;&#34;On windows, rmtree fails for readonly dirs.&#34;&#34;&#34;
-
-    def handle_remove_readonly(
-        func: Callable[..., Any],
-        path: str,
-        exc: Tuple[Type[OSError], OSError, TracebackType],
-    ) -&gt; None:
-        excvalue = exc[1]
-        if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
-            for p in (path, os.path.dirname(path)):
-                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
-            func(path)
-        else:
-            raise excvalue
-
-    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)
-
-
 @beartype
 def rmtree(target: Dir) -&gt; NoFile:
-    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows.&#34;&#34;&#34;
-    rmtree2(str(target))
+    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`.&#34;&#34;&#34;
+    shutil.rmtree(target)
     return NoFile(target)
 
 
@@ -300,14 +276,8 @@ def writeb(path: Union[File, NoFile], bs: bytes) -&gt; File:
 
 
 @beartype
-def symlink(path: NoFile, target: Path) -&gt; Union[Link, WindowsLink]:
+def symlink(path: NoFile, target: Path) -&gt; Link:
     &#34;&#34;&#34;Link `path` to `target`.&#34;&#34;&#34;
-    if sys.platform == &#34;win32&#34;:
-        with open(path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
-            f.write(str(target.as_posix()))
-            return WindowsLink(path)
-
-    # Treat POSIX systems.
     os.symlink(target, path)
     return Link(path)
 
@@ -454,7 +424,7 @@ def mkdir(path: NoPath) -&gt; EmptyDir:
 
 
 @beartype
-def unlink(file: Union[File, Link, WindowsLink]) -&gt; NoFile:
+def unlink(file: Union[File, Link]) -&gt; NoFile:
     &#34;&#34;&#34;Safely unlink a file.&#34;&#34;&#34;
     os.unlink(file)
     return NoFile(file)
@@ -1159,44 +1129,16 @@ def rmsm(repo: git.Repo, sm: git.Submodule) -&gt; git.Commit:
 <span>def <span class="ident">rmtree</span></span>(<span>target: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
 </code></dt>
 <dd>
-<div class="desc"><p>Equivalent to <code>shutil.rmtree()</code>, but annihilates read-only files on Windows.</p></div>
+<div class="desc"><p>Equivalent to <code>shutil.rmtree()</code>.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
 def rmtree(target: Dir) -&gt; NoFile:
-    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`, but annihilates read-only files on Windows.&#34;&#34;&#34;
-    rmtree2(str(target))
+    &#34;&#34;&#34;Equivalent to `shutil.rmtree()`.&#34;&#34;&#34;
+    shutil.rmtree(target)
     return NoFile(target)</code></pre>
-</details>
-</dd>
-<dt id="ki.functional.rmtree2"><code class="name flex">
-<span>def <span class="ident">rmtree2</span></span>(<span>path: str) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"><p>On windows, rmtree fails for readonly dirs.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def rmtree2(path: str) -&gt; None:
-    &#34;&#34;&#34;On windows, rmtree fails for readonly dirs.&#34;&#34;&#34;
-
-    def handle_remove_readonly(
-        func: Callable[..., Any],
-        path: str,
-        exc: Tuple[Type[OSError], OSError, TracebackType],
-    ) -&gt; None:
-        excvalue = exc[1]
-        if func in (os.rmdir, os.remove, os.unlink) and excvalue.errno == errno.EACCES:
-            for p in (path, os.path.dirname(path)):
-                os.chmod(p, os.stat(p).st_mode | stat.S_IWUSR)
-            func(path)
-        else:
-            raise excvalue
-
-    shutil.rmtree(path, ignore_errors=False, onerror=handle_remove_readonly)</code></pre>
 </details>
 </dd>
 <dt id="ki.functional.root"><code class="name flex">
@@ -1299,7 +1241,7 @@ def starfilter(
 </details>
 </dd>
 <dt id="ki.functional.symlink"><code class="name flex">
-<span>def <span class="ident">symlink</span></span>(<span>path: <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>, target: pathlib.Path) ‑> Union[<a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>, <a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]</span>
+<span>def <span class="ident">symlink</span></span>(<span>path: <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a>, target: pathlib.Path) ‑> <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Link <code>path</code> to <code>target</code>.</p></div>
@@ -1308,14 +1250,8 @@ def starfilter(
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def symlink(path: NoFile, target: Path) -&gt; Union[Link, WindowsLink]:
+def symlink(path: NoFile, target: Path) -&gt; Link:
     &#34;&#34;&#34;Link `path` to `target`.&#34;&#34;&#34;
-    if sys.platform == &#34;win32&#34;:
-        with open(path, &#34;w&#34;, encoding=&#34;UTF-8&#34;) as f:
-            f.write(str(target.as_posix()))
-            return WindowsLink(path)
-
-    # Treat POSIX systems.
     os.symlink(target, path)
     return Link(path)</code></pre>
 </details>
@@ -1338,7 +1274,7 @@ def touch(directory: Dir, name: str) -&gt; File:
 </details>
 </dd>
 <dt id="ki.functional.unlink"><code class="name flex">
-<span>def <span class="ident">unlink</span></span>(<span>file: Union[<a title="ki.types.File" href="types.html#ki.types.File">File</a>, <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>, <a title="ki.types.WindowsLink" href="types.html#ki.types.WindowsLink">WindowsLink</a>]) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
+<span>def <span class="ident">unlink</span></span>(<span>file: Union[<a title="ki.types.File" href="types.html#ki.types.File">File</a>, <a title="ki.types.Link" href="types.html#ki.types.Link">Link</a>]) ‑> <a title="ki.types.NoFile" href="types.html#ki.types.NoFile">NoFile</a></span>
 </code></dt>
 <dd>
 <div class="desc"><p>Safely unlink a file.</p></div>
@@ -1347,7 +1283,7 @@ def touch(directory: Dir, name: str) -&gt; File:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def unlink(file: Union[File, Link, WindowsLink]) -&gt; NoFile:
+def unlink(file: Union[File, Link]) -&gt; NoFile:
     &#34;&#34;&#34;Safely unlink a file.&#34;&#34;&#34;
     os.unlink(file)
     return NoFile(file)</code></pre>
@@ -1501,7 +1437,6 @@ def yellow(s: str) -&gt; None:
 <li><code><a title="ki.functional.rglob" href="#ki.functional.rglob">rglob</a></code></li>
 <li><code><a title="ki.functional.rmsm" href="#ki.functional.rmsm">rmsm</a></code></li>
 <li><code><a title="ki.functional.rmtree" href="#ki.functional.rmtree">rmtree</a></code></li>
-<li><code><a title="ki.functional.rmtree2" href="#ki.functional.rmtree2">rmtree2</a></code></li>
 <li><code><a title="ki.functional.root" href="#ki.functional.root">root</a></code></li>
 <li><code><a title="ki.functional.shallow_walk" href="#ki.functional.shallow_walk">shallow_walk</a></code></li>
 <li><code><a title="ki.functional.singleton" href="#ki.functional.singleton">singleton</a></code></li>

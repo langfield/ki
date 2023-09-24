@@ -96,10 +96,6 @@ class Link(type(Path())):
     &#34;&#34;&#34;UNSAFE: Indicates that this path was a symlink when tested.&#34;&#34;&#34;
 
 
-class WindowsLink(type(Path())):
-    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;
-
-
 class NoFile(NoPath):
     &#34;&#34;&#34;A nonexistent file in an extant directory.&#34;&#34;&#34;
 
@@ -287,7 +283,6 @@ class CardFile:
     &#34;&#34;&#34;A card written to disk, either as a link or a file.&#34;&#34;&#34;
 
     card: Card
-    link: Optional[WindowsLink]
     file: File
 
 
@@ -533,7 +528,6 @@ class MissingNotetypeError(RuntimeError):
 
 # TODO: We should also print which field ordinals *are* valid.
 class MissingFieldOrdinalError(RuntimeError):
-
     # pylint: disable=redefined-builtin
 
     @beartype
@@ -693,24 +687,6 @@ class NonEmptyWorkingTreeError(RuntimeError):
         super().__init__(f&#34;{top}\n\n{errwrap(msg)}\n{details}&#34;)
 
 
-class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
-    @beartype
-    def __init__(self, orig: File, depth: int):
-        top = f&#34;Maximum windows symlink depth exceeded while resolving &#39;{orig}&#39;&#34;
-        msg = f&#34;&#34;&#34;
-        Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another windows symlink). They are used to
-        implement POSIX-compatible symlinks on Win32 systems where Developer
-        Mode is not enabled. This error means that we tried to resolve this
-        link, and recursively followed subsequent windows symlinks to a
-        ludicrous depth (&#39;{depth}&#39;). There is possibly a cycle within the link
-        graph, which indicates that the links were written incorrectly. In
-        practice, this should never happen. Please report this bug on GitHub at
-        https://github.com/langfield/ki/issues.
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
-
-
 # WARNINGS
 
 
@@ -792,20 +768,6 @@ class RenamedMediaFileWarning(Warning):
         This happens when we push a media file to a collection that already
         contains another media file with the same name. In this case, Anki does
         some deduplication by renaming the new one.
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
-
-
-class MissingWindowsLinkTarget(Warning):
-    @beartype
-    def __init__(self, link: File, tgt: str):
-        top = f&#34;Failed to locate target &#39;{tgt}&#39; of windows symlink &#39;{link}&#39;&#34;
-        msg = &#34;&#34;&#34;
-        Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another windows symlink). They are used to
-        implement POSIX-compatible symlinks on Win32 systems where Developer
-        Mode is not enabled. This warning means that the target of a windows
-        symlink is not extant, and thus the link could not be resolved.
         &#34;&#34;&#34;
         super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)
 
@@ -1009,7 +971,7 @@ class AddedMedia:
 </dd>
 <dt id="ki.types.CardFile"><code class="flex name class">
 <span>class <span class="ident">CardFile</span></span>
-<span>(</span><span>card: anki.cards.Card, link: Optional[<a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a>], file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
+<span>(</span><span>card: anki.cards.Card, file: <a title="ki.types.File" href="#ki.types.File">File</a>)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>A card written to disk, either as a link or a file.</p></div>
@@ -1023,7 +985,6 @@ class CardFile:
     &#34;&#34;&#34;A card written to disk, either as a link or a file.&#34;&#34;&#34;
 
     card: Card
-    link: Optional[WindowsLink]
     file: File</code></pre>
 </details>
 <h3>Class variables</h3>
@@ -1033,10 +994,6 @@ class CardFile:
 <div class="desc"></div>
 </dd>
 <dt id="ki.types.CardFile.file"><code class="name">var <span class="ident">file</span> : <a title="ki.types.File" href="#ki.types.File">File</a></code></dt>
-<dd>
-<div class="desc"></div>
-</dd>
-<dt id="ki.types.CardFile.link"><code class="name">var <span class="ident">link</span> : Optional[<a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -1142,7 +1099,7 @@ class Deck:
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="ki.types.Deck.children"><code class="name">var <span class="ident">children</span> : list['<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>']</code></dt>
+<dt id="ki.types.Deck.children"><code class="name">var <span class="ident">children</span> : list[<a title="ki.types.Deck" href="#ki.types.Deck">Deck</a>]</code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
@@ -1619,7 +1576,7 @@ class Field:
 </dd>
 <dt id="ki.types.GitChangeType"><code class="flex name class">
 <span>class <span class="ident">GitChangeType</span></span>
-<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
+<span>(</span><span>*args, **kwds)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Enum for git file change types.</p></div>
@@ -1901,40 +1858,6 @@ class KiRev:
 <li>pathlib.PurePath</li>
 </ul>
 </dd>
-<dt id="ki.types.MaximumWindowsLinkChainingDepthExceededError"><code class="flex name class">
-<span>class <span class="ident">MaximumWindowsLinkChainingDepthExceededError</span></span>
-<span>(</span><span>orig: <a title="ki.types.File" href="#ki.types.File">File</a>, depth: int)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Unspecified run-time error.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MaximumWindowsLinkChainingDepthExceededError(RuntimeError):
-    @beartype
-    def __init__(self, orig: File, depth: int):
-        top = f&#34;Maximum windows symlink depth exceeded while resolving &#39;{orig}&#39;&#34;
-        msg = f&#34;&#34;&#34;
-        Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another windows symlink). They are used to
-        implement POSIX-compatible symlinks on Win32 systems where Developer
-        Mode is not enabled. This error means that we tried to resolve this
-        link, and recursively followed subsequent windows symlinks to a
-        ludicrous depth (&#39;{depth}&#39;). There is possibly a cycle within the link
-        graph, which indicates that the links were written incorrectly. In
-        practice, this should never happen. Please report this bug on GitHub at
-        https://github.com/langfield/ki/issues.
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.RuntimeError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
 <dt id="ki.types.MediaBytes"><code class="flex name class">
 <span>class <span class="ident">MediaBytes</span></span>
 <span>(</span><span>file: <a title="ki.types.File" href="#ki.types.File">File</a>, old: bytes, new: bytes)</span>
@@ -2026,7 +1949,6 @@ class MediaBytes:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class MissingFieldOrdinalError(RuntimeError):
-
     # pylint: disable=redefined-builtin
 
     @beartype
@@ -2169,36 +2091,6 @@ class MediaBytes:
 <ul class="hlist">
 <li>builtins.FileNotFoundError</li>
 <li>builtins.OSError</li>
-<li>builtins.Exception</li>
-<li>builtins.BaseException</li>
-</ul>
-</dd>
-<dt id="ki.types.MissingWindowsLinkTarget"><code class="flex name class">
-<span>class <span class="ident">MissingWindowsLinkTarget</span></span>
-<span>(</span><span>link: <a title="ki.types.File" href="#ki.types.File">File</a>, tgt: str)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Base class for warning categories.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class MissingWindowsLinkTarget(Warning):
-    @beartype
-    def __init__(self, link: File, tgt: str):
-        top = f&#34;Failed to locate target &#39;{tgt}&#39; of windows symlink &#39;{link}&#39;&#34;
-        msg = &#34;&#34;&#34;
-        Latent symlinks are regular files whose only contents are a path to
-        some other file, (possibly another windows symlink). They are used to
-        implement POSIX-compatible symlinks on Win32 systems where Developer
-        Mode is not enabled. This warning means that the target of a windows
-        symlink is not extant, and thus the link could not be resolved.
-        &#34;&#34;&#34;
-        super().__init__(f&#34;{top}\n{errwrap(msg)}&#34;)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>builtins.Warning</li>
 <li>builtins.Exception</li>
 <li>builtins.BaseException</li>
 </ul>
@@ -2726,7 +2618,7 @@ when it was resolved.</p></div>
 </dd>
 <dt id="ki.types.PushResult"><code class="flex name class">
 <span>class <span class="ident">PushResult</span></span>
-<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
+<span>(</span><span>*args, **kwds)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Enum for <code>push()</code> return codes.</p></div>
@@ -3126,27 +3018,6 @@ class Template:
 <li>builtins.BaseException</li>
 </ul>
 </dd>
-<dt id="ki.types.WindowsLink"><code class="flex name class">
-<span>class <span class="ident">WindowsLink</span></span>
-<span>(</span><span>*args, **kwargs)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>UNSAFE: A POSIX-style symlink created on Windows with mode 100644.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class WindowsLink(type(Path())):
-    &#34;&#34;&#34;UNSAFE: A POSIX-style symlink created on Windows with mode 100644.&#34;&#34;&#34;</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>pathlib.PosixPath</li>
-<li>pathlib.Path</li>
-<li>pathlib.PurePosixPath</li>
-<li>pathlib.PurePath</li>
-</ul>
-</dd>
 <dt id="ki.types.WrongFieldCountWarning"><code class="flex name class">
 <span>class <span class="ident">WrongFieldCountWarning</span></span>
 <span>(</span><span>decknote: <a title="ki.types.DeckNote" href="#ki.types.DeckNote">DeckNote</a>, names: list[str])</span>
@@ -3220,7 +3091,6 @@ class Template:
 <ul class="">
 <li><code><a title="ki.types.CardFile.card" href="#ki.types.CardFile.card">card</a></code></li>
 <li><code><a title="ki.types.CardFile.file" href="#ki.types.CardFile.file">file</a></code></li>
-<li><code><a title="ki.types.CardFile.link" href="#ki.types.CardFile.link">link</a></code></li>
 </ul>
 </li>
 <li>
@@ -3361,9 +3231,6 @@ class Template:
 <h4><code><a title="ki.types.Link" href="#ki.types.Link">Link</a></code></h4>
 </li>
 <li>
-<h4><code><a title="ki.types.MaximumWindowsLinkChainingDepthExceededError" href="#ki.types.MaximumWindowsLinkChainingDepthExceededError">MaximumWindowsLinkChainingDepthExceededError</a></code></h4>
-</li>
-<li>
 <h4><code><a title="ki.types.MediaBytes" href="#ki.types.MediaBytes">MediaBytes</a></code></h4>
 <ul class="">
 <li><code><a title="ki.types.MediaBytes.file" href="#ki.types.MediaBytes.file">file</a></code></li>
@@ -3394,9 +3261,6 @@ class Template:
 </li>
 <li>
 <h4><code><a title="ki.types.MissingTidyExecutableError" href="#ki.types.MissingTidyExecutableError">MissingTidyExecutableError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.types.MissingWindowsLinkTarget" href="#ki.types.MissingWindowsLinkTarget">MissingWindowsLinkTarget</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.NoFile" href="#ki.types.NoFile">NoFile</a></code></h4>
@@ -3548,9 +3412,6 @@ class Template:
 </li>
 <li>
 <h4><code><a title="ki.types.UpdatesRejectedError" href="#ki.types.UpdatesRejectedError">UpdatesRejectedError</a></code></h4>
-</li>
-<li>
-<h4><code><a title="ki.types.WindowsLink" href="#ki.types.WindowsLink">WindowsLink</a></code></h4>
 </li>
 <li>
 <h4><code><a title="ki.types.WrongFieldCountWarning" href="#ki.types.WrongFieldCountWarning">WrongFieldCountWarning</a></code></h4>
