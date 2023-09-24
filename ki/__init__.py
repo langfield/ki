@@ -1064,9 +1064,7 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 
 
 @beartype
-def mklink(
-    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -> None:
+def mklink(targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File) -> None:
     """Return a windows link for a card if one is necessary."""
     note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
     M.link(targetd, PlannedLink(link=note_path, tgt=file))
