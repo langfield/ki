@@ -42,10 +42,7 @@ from ki.types import (
 )
 from ki.functional import curried
 from tests.test_ki import (
-    open_collection,
     GITREPO_PATH,
-    NOTE_2_PATH,
-    NOTE_3_PATH,
     invoke,
     clone,
     pull,
@@ -381,7 +378,7 @@ def test_clone_fails_if_collection_is_already_open():
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     os.remove(a)
-    _ = open_collection(a)
+    _ = opencol(a)
     with pytest.raises(AnkiAlreadyOpenError):
         clone(a)
 
@@ -615,7 +612,7 @@ def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
 
 
 def test_clone_url_decodes_media_src_attributes():
-    back = "<img src=\"Screenshot%202019-05-01%20at%2014.40.56.png\">"
+    back = '<img src="Screenshot%202019-05-01%20at%2014.40.56.png">'
     a: File = mkcol([("Basic", ["Default"], 1, ["a", back])])
     clone(a)
     contents = read("Default/a.md")
@@ -826,8 +823,7 @@ def test_push_writes_changes_correctly():
     os.remove("Default/c.md")
 
     # Add a note.
-    guid = "ed85e553fd0a6de8a58512acd265e76e13eb4303"
-    write("Default/note1234.md", mkbasic(guid, ("r", "s")))
+    write_basic("Default", ("r", "s"))
 
     # Commit and push.
     F.commitall(repo, ".")
@@ -901,24 +897,23 @@ def test_push_doesnt_fail_after_pull():
     pull()
     assert os.path.isfile("Default/f.md")
 
-    # Modify local file.
+    # Modify local file (pulled from EDITED).
     assert os.path.isfile("Default/aa.md")
     append("Default/aa.md", "e\n")
 
-    # Add new file.
-    shutil.copyfile(NOTE_2_PATH, "note123412341234.md")
-    # Add new file.
-    shutil.copyfile(NOTE_3_PATH, "note 3.md")
-
-    # Commit.
-    repo.git.add(all=True)
-    repo.index.commit("Added 'e'.")
+    # Add two new files.
+    write_basic("Default", ("r", "s"))
+    write_basic("Default", ("s", "t"))
+    F.commitall(repo, ".")
     repo.close()
     del repo
     gc.collect()
 
     # Push changes.
-    push()
+    out = push()
+    assert "ADD                    2" in out
+    assert "DELETE                 0" in out
+    assert "MODIFY                 1" in out
 
 
 def test_no_op_push_is_idempotent():
@@ -983,38 +978,30 @@ def test_push_deletes_added_notes():
     repo, _ = clone(a)
 
     # Add new files.
-    contents = os.listdir("Default")
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
-    shutil.copyfile(NOTE_3_PATH, os.path.join("Default", "note 3.md"))
-
-    # Commit/push the additions.
-    repo.git.add(all=True)
-    repo.index.commit("Added 'e'.")
-    push()
+    origs = os.listdir("Default")
+    write_basic("Default", ("r", "s"))
+    write_basic("Default", ("s", "t"))
+    F.commitall(repo, ".")
+    out = push()
+    assert "ADD                    2" in out
 
     # Make sure 2 new files actually got added.
     os.chdir("Default")
-    post_push_contents = os.listdir()
-    notes = [path for path in post_push_contents if path[-3:] == ".md"]
+    paths = os.listdir()
+    notes = [path for path in paths if path[-3:] == ".md"]
     assert len(notes) == 4
 
-    # Delete added files.
-    for file in post_push_contents:
-        if file not in contents:
-            os.remove(file)
-
-    # Commit the deletions.
-    repo.git.add(all=True)
-    repo.index.commit("Added 'e'.")
-
-    # Push changes.
-    push()
+    # Delete new files in `Default/`.
+    do(os.remove, filter(lambda f: f not in origs, paths))
+    F.commitall(repo, ".")
+    out = push()
+    assert "DELETE                 2" in out
 
     # Check that notes are gone.
     clone(a)
     contents = os.listdir("Default")
     notes = [path for path in contents if path[-3:] == ".md"]
-    assert len(notes) == 2
+    assert notes == ["c.md", "a.md"]
 
 
 def test_push_honors_ignore_patterns():
@@ -1044,9 +1031,8 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
-    repo.git.add(all=True)
-    repo.index.commit(".")
+    write_basic("Default", ("r", "s"))
+    F.commitall(repo, ".")
 
     mocker.patch(
         "ki.M.head_ki",
@@ -1063,9 +1049,8 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
-    repo.git.add(all=True)
-    repo.index.commit(".")
+    write_basic("Default", ("r", "s"))
+    F.commitall(repo, ".")
 
     mocker.patch(
         "ki.M.head_ki",
@@ -1087,11 +1072,10 @@ def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_m
     # Clone, edit, and commit.
     repo, _ = clone(a)
 
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
-    repo.git.add(all=True)
-    repo.index.commit(".")
+    write_basic("Default", ("r", "s"))
+    F.commitall(repo, ".")
 
-    col = open_collection(a)
+    col = opencol(a)
     note = col.get_note(set(col.find_notes("")).pop())
     _: Notetype = ki.M.notetype(note.note_type())
     col.close()
@@ -1113,11 +1097,10 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
 
     # Clone, edit, and commit.
     repo, _ = clone(a)
-    shutil.copyfile(NOTE_2_PATH, os.path.join("Default", "note123412341234.md"))
-    repo.git.add(all=True)
-    repo.index.commit(".")
+    write_basic("Default", ("r", "s"))
+    F.commitall(repo, ".")
 
-    col = open_collection(a)
+    col = opencol(a)
     note = col.get_note(set(col.find_notes("")).pop())
     notetype: Notetype = ki.M.notetype(note.note_type())
     col.close()
@@ -1136,7 +1119,7 @@ def test_push_writes_media():
     repo, _ = clone(a)
 
     # Add a new note file containing media, and the corresponding media file.
-    write_basic("Default", ("air", "<img src=\"bullhorn-lg.png\">"))
+    write_basic("Default", ("air", '<img src="bullhorn-lg.png">'))
     col = opencol(a)
     col.media.add_file(DATA / "media/bullhorn-lg.png")
     col.close(save=True)
