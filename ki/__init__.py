@@ -176,9 +176,6 @@ REMOTE_SUFFIX = Path("ki-remote")
 FIELD_HTML_SUFFIX = Path("ki-fieldhtml")
 LCA = "last-successful-ki-push"
 
-TIDY_CMD = "tidy -q -m -i -omit -utf8"
-TIDY_OPTS = "--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes"
-
 MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 
 # This is the key for media files associated with notetypes instead of the
@@ -890,26 +887,6 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
     return any(map(lambda t: fname in t["qfmt"] or fname in t["afmt"], model["tmpls"]))
 
 
-@curried
-@beartype
-def write_fields(root: Dir, n: Note) -> Iterable[Tuple[str, File]]:
-    """Write a note's fields to be tidied."""
-    return filter(None, starmap(write_field(root, n.id), n.items()))
-
-
-@curried
-@beartype
-def write_field(
-    root: Dir, nid: int, name: str, text: str
-) -> Optional[Tuple[str, File]]:
-    """Write a field to a file (if tidying is needed) given its name and text."""
-    text: str = html_to_screen(text)
-    if re.search(HTML_REGEX, text):
-        fid: str = get_field_note_id(nid, name)
-        return fid, F.write(F.chk(root / fid), text)
-    return None
-
-
 @beartype
 def write_repository(
     col_file: File,
@@ -933,16 +910,12 @@ def write_repository(
     nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
-    ns: Iterable[Note] = map(lambda c: c.n, colnotes.values())
-    fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, "Fields"))))
-    tidy_html_recursively(root)
 
     write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
         media=media,
-        tidy_field_files=fieldfiles,
     )
 
     F.rmtree(root)
@@ -975,7 +948,6 @@ def write_decks(
     targetdir: Dir,
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
-    tidy_field_files: Dict[str, File],
 ) -> None:
     """
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -1025,7 +997,7 @@ def write_decks(
     decks = TQ(list(decks), "Decks")
 
     # Write cards and models to disk for each deck.
-    write = write_deck(col, targetdir, colnotes, tidy_field_files)
+    write = write_deck(col, targetdir, colnotes)
     reduce(write, decks, {})
     do(write_models(col, models), decks)
 
@@ -1038,14 +1010,13 @@ def write_deck(
     col: Collection,
     targetd: Dir,
     colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
     notefiles: Dict[NoteId, CardFileMap],
     deck: Deck,
 ) -> Dict[NoteId, CardFileMap]:
     """Write all the cards to disk for a single deck."""
     did: DeckId = deck.did
     cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = write_card(colnotes, fieldfiles, targetd, deck.deckd)
+    write = write_card(colnotes, targetd, deck.deckd)
     return reduce(write, cards, notefiles)
 
 
@@ -1053,7 +1024,6 @@ def write_deck(
 @beartype
 def write_card(
     colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
     targetd: Dir,
     deckd: Dir,
     notefiles: Dict[NoteId, CardFileMap],
@@ -1064,7 +1034,7 @@ def write_card(
     cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
     cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
     if len(cardfile_map) == 0:
-        payload: str = get_note_payload(colnote, fieldfiles)
+        payload: str = get_note_payload(colnote)
         note_path: NoFile = get_note_path(colnote, deckd)
         file = F.write(note_path, payload)
     elif len(cardfiles) > 0:
@@ -1195,46 +1165,25 @@ def html_to_screen(html: str) -> str:
     return plain.strip()
 
 
+@curried
 @beartype
-def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -> str:
+def get_field_payload(col: Collection, name: str, content: str) -> List[str]:
+    """Get the lines of a markdown snippet for some Anki note field."""
+    text = col.media.escape_media_filenames(html_to_screen(content), unescape=True)
+    return [f"## {name}", text, ""]
+
+
+@beartype
+def get_note_payload(colnote: ColNote) -> str:
     """
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
 
-    Given a `ColNote`, which is a dataclass wrapper around a `Note` object
-    which has been loaded from the DB, and a mapping from `fid`s (unique
-    identifiers of field-note pairs) to paths, we check for each field of each
-    note whether that field's `fid` is contained in `tidy_field_files`. If so,
-    that means that the caller dumped the contents of this field to a file (the
-    file with this path, in fact) in order to autoformat the HTML source. If
-    this field was tidied/autoformatted, we read from that path to get the
-    tidied source, otherwise, we use the field content present in the
-    `ColNote`.
+    A `ColNote` is a dataclass wrapper around a `Note` object which has been
+    loaded from the DB.
     """
-    # Get tidied html if it exists.
-    tidy_fields = {}
-    for field_name, field_text in colnote.n.items():
-        fid = get_field_note_id(colnote.n.id, field_name)
-        if fid in tidy_field_files:
-            # HTML5-tidy adds a newline after `<br>` in indent mode, so we
-            # remove these, because `html_to_screen()` converts `<br>` tags to
-            # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=UTF8)
-            tidied_field_text = tidied_field_text.replace("<br>\n", "\n")
-            tidied_field_text = tidied_field_text.replace("<br/>\n", "\n")
-            tidied_field_text = tidied_field_text.replace("<br />\n", "\n")
-            tidy_fields[field_name] = tidied_field_text
-        else:
-            tidy_fields[field_name] = field_text
-
     lines = get_header_lines(colnote)
-    for field_name, field_text in tidy_fields.items():
-        lines.append("## " + field_name)
-        screen_text = html_to_screen(field_text)
-        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
-        lines.append(text)
-        lines.append("")
-
+    lines += F.cat(starmap(get_field_payload(colnote.n.col), colnote.n.items()))
     return "\n".join(lines)
 
 
@@ -1257,18 +1206,6 @@ def echo(string: str, silent: bool = False) -> None:
 def warn(w: Warning) -> None:
     """Call `click.secho()` with formatting (yellow)."""
     click.secho(f"WARNING: {str(w)}", bold=True, fg="yellow")
-
-
-@beartype
-def tidy_html_recursively(root: Dir) -> None:
-    """Call html5-tidy on each file in `root`, editing in-place."""
-    # Spin up subprocesses for tidying field HTML in-place.
-    for batch in F.get_batches(F.rglob(root, "*"), BATCH_SIZE):
-        command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
-        try:
-            subprocess.run(command, check=False, capture_output=True)
-        except FileNotFoundError as err:
-            raise MissingTidyExecutableError(err) from err
 
 
 @beartype
