@@ -592,7 +592,9 @@ def test_push_writes_changes_correctly():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
-    assert len(get_notes(a)) == 2
+    col = opencol(a)
+    assert len(get_notes(col)) == 2
+    col.close(save=False)
     repo, _ = clone(a)
 
     # Edit a note.
@@ -610,13 +612,15 @@ def test_push_writes_changes_correctly():
     assert "ADD                    1" in out
     assert "DELETE                 1" in out
     assert "MODIFY                 1" in out
-    notes = get_notes(a)
+    col = opencol(a)
+    notes = get_notes(col)
     assert len(notes) == 2
 
     # Check c.md was deleted.
     nids = [note.n.id for note in notes]
     assert 1 in nids
     assert 2 not in nids
+    col.close(save=False)
 
 
 def test_push_verifies_md5sum():
@@ -946,9 +950,11 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
 
     # Push changes.
     out = push()
-    notes = get_notes(a)
-    notes = [colnote.n["Front"] for colnote in notes]
-    assert notes == ["c"]
+    col = opencol(a)
+    notes = get_notes(col)
+    fronts = [colnote.n["Front"] for colnote in notes]
+    col.close(save=False)
+    assert fronts == ["c"]
 
     # Revert the collection.
     os.remove(a)
@@ -964,8 +970,10 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
 
     # Push changes.
     out = push()
-    notes = get_notes(a)
+    col = opencol(a)
+    notes = get_notes(col)
     fronts = [colnote.n["Front"] for colnote in notes]
+    col.close(save=False)
     assert fronts == ["c"]
     assert "DELETE                 1" in out
 
@@ -1049,10 +1057,12 @@ def test_push_changes_deck_for_moved_notes():
     push()
 
     # Check that deck has changed.
-    notes: List[ColNote] = get_notes(a)
+    col = opencol(a)
+    notes: List[ColNote] = get_notes(col)
     notes = list(filter(lambda colnote: colnote.n.id == 1, notes))
     assert len(notes) == 1
     assert notes[0].deck == "aa::dd"
+    col.close(save=False)
 
 
 def test_push_handles_tags_containing_trailing_commas():
@@ -1086,12 +1096,12 @@ def test_push_correctly_encodes_quotes_in_html_tags():
     repo.close()
     push()
 
-    notes = get_notes(BROKEN.col_file)
+    col = opencol(BROKEN.col_file)
+    notes = get_notes(col)
     colnote = notes.pop()
     back: str = colnote.n["Back"]
-    col = Collection(BROKEN.col_file)
     escaped: str = col.media.escape_media_filenames(back)
-    col.close()
+    col.close(save=False)
     assert '<img src="paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg">' in escaped
 
 
@@ -1120,3 +1130,22 @@ def test_push_leaves_working_tree_clean():
     out = push()
     assert "DELETE                 1" in out
     assert not repo.is_dirty()
+
+
+def test_push_doesnt_collapse_cards_into_a_single_deck():
+    n1 = ("Basic (and reversed card)", ["top::a", "top::b"], 1, ["aa", "bb"])
+    a: File = mkcol([n1])
+    repo, _ = clone(a)
+    s = read("top/a/aa.md")
+    s = s.replace("aa", "cc")
+    write("top/a/aa.md", s)
+    F.commitall(repo, ".")
+    out = push()
+    assert "up to date" not in out
+    assert "MODIFY                 1" in out
+    col = opencol(a)
+    ns = get_notes(col)
+    assert len(ns) == 1
+    decks = list(map(lambda c: col.decks.get(c.did)["name"], ns[0].n.cards()))
+    col.close(save=False)
+    assert decks == ["top::a", "top::b"]

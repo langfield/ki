@@ -387,10 +387,9 @@ def checksum_git_repository(path: str) -> str:
 
 
 @beartype
-def get_notes(collection: File) -> List[ColNote]:
+def get_notes(col: Collection) -> List[ColNote]:
     """Get a list of notes from a path."""
     cwd: Dir = F.cwd()
-    col = Collection(collection)
     F.chdir(cwd)
 
     notes: List[ColNote] = []
@@ -1054,7 +1053,6 @@ def test_get_note_payload(tmpfs: None):
     assert "a" in result
     # The `back` field content.
     assert "\nb\n" in result
-
 
 
 def test_write_repository_handles_html(tmpfs: None):
