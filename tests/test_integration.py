@@ -1268,30 +1268,23 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     Does push refrain from adding a new notetype if the requested notetype
     already exists in the collection?
     """
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    COPY: SampleCollection = get_test_collection("original")
+    n1 = ("Basic", ["Default"], 1, ["a", "b"])
+    n2 = ("Basic", ["Default"], 2, ["c", "d"])
+    a: File = mkcol([n1, n2])
+    b: File = mkcol([n1, n2])
+    repo, _ = clone(a)
 
-    # Clone collection in cwd.
-    repo, _ = clone(ORIGINAL.col_file)
-
-    col = open_collection(ORIGINAL.col_file)
-    orig_models = col.models.all_names_and_ids()
+    col = opencol(a)
+    models = col.models.all_names_and_ids()
     col.close(save=False)
 
-    # Remove a note file.
+    # Remove a note.
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
-
-    # Commit the deletion.
-    repo.git.add(all=True)
-    repo.index.commit("Deleted.")
-
-    # Push changes.
-    push()
-
-    # Revert the collection.
-    os.remove(ORIGINAL.col_file)
-    shutil.copyfile(COPY.col_file, ORIGINAL.col_file)
+    F.commitall(repo, ".")
+    out = push()
+    assert "DELETE                 1" in out
+    shutil.copyfile(b, a)
 
     # Pull again.
     pull()
@@ -1299,15 +1292,15 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     # Remove again.
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
-    repo.git.add(all=True)
-    repo.index.commit("Deleted.")
+    F.commitall(repo, ".")
+    out = push()
+    assert "DELETE                 1" in out
 
     # Push changes.
     push()
 
-    col = open_collection(ORIGINAL.col_file)
-    models = col.models.all_names_and_ids()
-    assert len(orig_models) == len(models)
+    col = opencol(a)
+    assert len(models) == len(col.models.all_names_and_ids())
     col.close(save=False)
 
 
@@ -1349,7 +1342,7 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
 
     # Push again.
     out = push()
-    assert "ki push: up to date." not in out
+    assert "ADD                    1" in out
 
 
 def test_push_changes_deck_for_moved_notes():
@@ -1388,6 +1381,7 @@ def test_push_handles_tags_containing_trailing_commas():
 
 
 def test_push_correctly_encodes_quotes_in_html_tags():
+    """This is a weird test, not sure it can be refactored."""
     BROKEN: SampleCollection = get_test_collection("broken_media_links")
 
     # Clone collection in cwd.
@@ -1416,13 +1410,11 @@ def test_push_correctly_encodes_quotes_in_html_tags():
 
 def test_push_rejects_updates_on_reset_to_prior_commit():
     """Does ki correctly verify md5sum?"""
-    KOREAN: SampleCollection = get_test_collection("tiny_korean")
-
-    # Clone collection in cwd.
-    repo, _ = clone(KOREAN.col_file)
-    shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
-    F.commitall(repo, "msg")
-    push()
+    repo, _ = clone(mkcol([("Basic", ["Default"], 1, ["a", "b"])]))
+    shutil.rmtree("Default")
+    F.commitall(repo, ".")
+    out = push()
+    assert "DELETE                 1" in out
 
     # This actually *should* fail, because when we reset to the previous
     # commit, we annihilate the record of the latest collection hash. Thus
@@ -1435,11 +1427,9 @@ def test_push_rejects_updates_on_reset_to_prior_commit():
 
 def test_push_leaves_working_tree_clean():
     """Does the push command commit the hashes file?"""
-    KOREAN: SampleCollection = get_test_collection("tiny_korean")
-
-    # Clone collection in cwd.
-    repo, _ = clone(KOREAN.col_file)
-    shutil.rmtree(Path("TTMIK Supplement") / "TTMIK Level 3")
-    F.commitall(repo, "msg")
-    push()
+    repo, _ = clone(mkcol([("Basic", ["Default"], 1, ["a", "b"])]))
+    shutil.rmtree("Default")
+    F.commitall(repo, ".")
+    out = push()
+    assert "DELETE                 1" in out
     assert not repo.is_dirty()
