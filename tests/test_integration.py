@@ -895,22 +895,16 @@ def test_push_deletes_notes():
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-
+    a: File = mkcol([n1])
     repo, _ = clone(a)
 
     # Remove a note file.
     assert os.path.isfile("Default/a.md")
     os.remove("Default/a.md")
-
-    # Commit the deletion.
-    repo.git.add(all=True)
-    repo.index.commit("Added 'e'.")
-
-    # Push changes.
+    F.commitall(repo, ".")
     os.chdir("Default")
-    push()
+    out = push()
+    assert "DELETE                 1" in out
 
 
 def test_push_deletes_added_notes():
@@ -948,32 +942,20 @@ def test_push_deletes_added_notes():
 
 
 def test_push_honors_ignore_patterns():
-    n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-
-    # Clone collection in cwd.
-    repo, _ = clone(a)
+    repo, _ = clone(mkcol([]))
 
     # Add and commit a new file that is not a note.
     Path("dummy_file").touch()
-
-    repo.git.add(all=True)
-    repo.index.commit(".")
-
-    # Since the output is currently very verbose, we should print a warning
-    # for every such file.
+    F.commitall(repo, ".")
     out = push()
+
+    # Since the output is currently very verbose, we should print a warning for
+    # every such file.
     assert "up to date" in out
 
 
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
-    n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-
-    # Clone, edit, and commit.
-    repo, _ = clone(a)
+    repo, _ = clone(mkcol([]))
     write_basic("Default", ("r", "s"))
     F.commitall(repo, ".")
 
@@ -986,12 +968,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
 
 
 def test_push_displays_errors_from_head(mocker: MockerFixture):
-    n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
-
-    # Clone, edit, and commit.
-    repo, _ = clone(a)
+    repo, _ = clone(mkcol([]))
     write_basic("Default", ("r", "s"))
     F.commitall(repo, ".")
 
@@ -1090,8 +1067,7 @@ def test_push_writes_media():
 def test_push_handles_foreign_models():
     """Just check that we don't return an exception from `push()`."""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
-    n2 = ("Basic", ["Default"], 2, ["c", "d"])
-    a: File = mkcol([n1, n2])
+    a: File = mkcol([n1])
     repo, _ = clone(a)
     shutil.copytree(DATA / "repos/japanese-core-2000", "Default/japan")
     F.commitall(repo, ".")
