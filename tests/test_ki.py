@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import tempfile
 import itertools
+import subprocess
 import contextlib
 from pathlib import Path
 from functools import partial
@@ -39,11 +40,13 @@ from beartype.typing import (
     Iterable,
     Dict,
     Any,
+    Optional,
 )
 
 import ki
 import ki.maybes as M
 import ki.functional as F
+from ki.functional import curried
 from ki import (
     BRANCH_NAME,
     KI,
@@ -88,13 +91,15 @@ from ki import (
     diff2,
     _clone2,
     add_db_note,
-    tidy_html_recursively,
     media_filenames_in_field,
     write_decks,
     write_collection,
     _clone1,
     _pull1,
     _push,
+    get_guid,
+    do,
+    stardo,
 )
 from ki.types import (
     NoFile,
@@ -117,6 +122,7 @@ from ki.types import (
     UpdatesRejectedError,
     MediaDirectoryDeckNameCollisionWarning,
     EmptyNoteWarning,
+    AnkiAlreadyOpenError,
 )
 from ki.transformer import NoteTransformer
 
@@ -124,6 +130,7 @@ from ki.transformer import NoteTransformer
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name
 # pylint: disable=missing-function-docstring, too-many-instance-attributes
 # pylint: disable=too-many-statements, redefined-outer-name, unused-argument
+# pylint: disable=no-value-for-parameter
 
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -143,30 +150,13 @@ MEDIA_PATH = os.path.abspath(os.path.join(TEST_DATA_PATH, "media/"))
 MEDIA_FILENAME = "bullhorn-lg.png"
 MEDIA_FILE_PATH = os.path.join(MEDIA_PATH, MEDIA_FILENAME)
 
-NOTE_0 = "Default/a.md"
-NOTE_1 = "Default/f.md"
 NOTE_2 = "note123412341234.md"
-NOTE_3 = "note 3.md"
-NOTE_4 = "Default/c.md"
-NOTE_5 = "alpha_guid.md"
 NOTE_6 = "no_guid.md"
-NOTE_7 = "Default/aa.md"
-MEDIA_NOTE = "air.md"
 NO_GUID_NOTE_2 = "no_guid2.md"
 
-NOTE_0_PATH = os.path.join(NOTES_PATH, NOTE_0)
-NOTE_1_PATH = os.path.join(NOTES_PATH, NOTE_1)
 NOTE_2_PATH = os.path.join(NOTES_PATH, NOTE_2)
-NOTE_3_PATH = os.path.join(NOTES_PATH, NOTE_3)
-NOTE_4_PATH = os.path.join(NOTES_PATH, NOTE_4)
-NOTE_5_PATH = os.path.join(NOTES_PATH, NOTE_5)
 NOTE_6_PATH = os.path.join(NOTES_PATH, NOTE_6)
-MEDIA_NOTE_PATH = os.path.join(NOTES_PATH, MEDIA_NOTE)
 NO_GUID_2_NOTE_PATH = os.path.join(NOTES_PATH, NO_GUID_NOTE_2)
-
-NOTE_0_ID = 1645010162168
-NOTE_4_ID = 1645027705329
-MULTI_NOTE_ID = 1645985861853
 
 # A models dictionary mapping model ids to notetype dictionaries.
 # Note that the `flds` field has been removed.
@@ -418,6 +408,178 @@ def tmpfs() -> None:
     os.chdir(d)
     yield None
     os.chdir(Path(TESTS_DIR).parent)
+
+
+# DSL
+
+
+DATA = Path(__file__).parent / "data"
+
+
+Deck = str
+Nid = int
+Field = str
+Model = str
+NoteSpec = Tuple[Model, List[Deck], Nid, List[Field]]
+
+
+@beartype
+def read(path: Union[str, Path]) -> str:
+    return Path(path).read_text(encoding="UTF-8")
+
+
+@beartype
+def write(path: Union[str, Path], s: str) -> None:
+    Path(path).write_text(s, encoding="UTF-8")
+
+
+@beartype
+def append(path: Union[str, Path], s: str) -> None:
+    with Path(path).open("a", encoding="UTF-8") as f:
+        f.write(s)
+
+
+@curried
+@beartype
+def addnote(col: Collection, spec: NoteSpec) -> None:
+    model, fullnames, nid, fields = spec
+    dids = list(map(col.decks.id, fullnames))
+    guid = get_guid(list(fields))
+    mid = col.models.id_for_name(model)
+    timestamp_ns: int = time.time_ns()
+    note: Note = add_db_note(
+        col=col,
+        nid=nid,
+        guid=guid,
+        mid=mid,
+        mod=int(timestamp_ns // 1e9),
+        usn=-1,
+        tags=[],
+        fields=list(fields),
+        sfld="",
+        csum=0,
+        flags=0,
+        data="",
+    )
+    cids = [c.id for c in note.cards()]
+    assert len(dids) == len(cids)
+    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
+
+
+@beartype
+def opencol(f: File) -> Collection:
+    cwd: Dir = F.cwd()
+    try:
+        col = Collection(f)
+    except anki.errors.DBError as err:
+        raise AnkiAlreadyOpenError(str(err)) from err
+    F.chdir(cwd)
+    return col
+
+
+@beartype
+def mkcol(ns: List[NoteSpec]) -> File:
+    file = F.touch(F.mkdtemp(), "a.anki2")
+    col = opencol(file)
+    do(addnote(col), ns)
+    col.close(save=True)
+    return F.chk(file)
+
+
+@beartype
+def rm(f: File, nid: int) -> File:
+    """Remove note with given `nid`."""
+    col = opencol(f)
+    col.remove_notes([nid])
+    col.close(save=True)
+    return f
+
+
+@curried
+@beartype
+def editnote(col: Collection, spec: NoteSpec) -> None:
+    _, fullnames, nid, fields = spec
+    note = col.get_note(nid)
+    assert len(note.keys()) == len(fields)
+    stardo(note.__setitem__, zip(note.keys(), fields))
+    dids = list(map(col.decks.id, fullnames))
+    cids = [c.id for c in note.cards()]
+    assert len(dids) == len(cids)
+    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
+    note.flush()
+
+
+@beartype
+def edit(f: File, spec: NoteSpec) -> File:
+    """Edit a note with specified nid."""
+    col = opencol(f)
+    editnote(col, spec)
+    col.close(save=True)
+    return f
+
+
+@beartype
+def editcol(
+    f: File,
+    adds: Optional[List[NoteSpec]] = None,
+    edits: Optional[List[NoteSpec]] = None,
+    deletes: Optional[List[int]] = None,
+) -> File:
+    """Edit an existing collection file."""
+    col = opencol(f)
+    adds, edits, deletes = adds or [], edits or [], deletes or []
+    do(addnote(col), adds)
+    do(editnote(col), edits)
+    col.remove_notes(deletes)
+    col.close(save=True)
+    return f
+
+
+def mkbasic(guid: str, fields: Tuple[str, str]) -> str:
+    front, back = fields
+    return f"""# Note
+```
+guid: {guid}
+notetype: Basic
+```
+
+### Tags
+```
+```
+
+## Front
+{front}
+
+## Back
+{back}
+"""
+
+
+@beartype
+def write_basic(deck: str, fields: Tuple[str, str]) -> File:
+    """Write a markdown note to a deck from the root of a ki repository."""
+    front = fields[0]
+    path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
+    write(path, mkbasic(get_guid(list(fields)), fields))
+    return F.chk(path)
+
+
+@beartype
+def runcmd(c: str) -> str:
+    out = subprocess.run(
+        c,
+        text=True,
+        check=True,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    ).stdout
+    return f"\n>>> {c}\n{out}"
+
+
+@beartype
+def runcmds(cs: List[str]) -> Tuple[str, str]:
+    return "\n".join(cs), "".join(map(runcmd, cs))
 
 
 # UTILS
@@ -866,21 +1028,6 @@ def test_get_note_path(tmpfs: None):
     assert str(note_path.name) == "a_1.md"
 
 
-def test_tidy_html_recursively(tmpfs: None):
-    """Does tidy wrapper print a nice error when tidy is missing?"""
-    root = F.cwd()
-    file = root / "a.html"
-    file.write_text("ay")
-    old_path = os.environ["PATH"]
-    try:
-        os.environ["PATH"] = ""
-        with pytest.raises(FileNotFoundError) as error:
-            tidy_html_recursively(root)
-        assert "'tidy'" in str(error.exconly())
-    finally:
-        os.environ["PATH"] = old_path
-
-
 def test_create_deck_dir(tmpfs: None):
     deckname = "aa::bb::cc"
     root = F.cwd()
@@ -898,55 +1045,16 @@ def test_create_deck_dir_strips_leading_periods(tmpfs: None):
 
 
 def test_get_note_payload(tmpfs: None):
-    ORIGINAL: SampleCollection = get_test_collection("original")
-    col = open_collection(ORIGINAL.col_file)
+    n1 = ("Basic", ["Default"], 1, ["a", "b"])
+    col = opencol(mkcol([n1]))
     note = col.get_note(set(col.find_notes("")).pop())
     colnote: ColNote = M.colnote(col, note.id)
-
-    # Field-note content id for the note returned by our `col.get_note()`
-    # call above. Perhaps this should not be hardcoded.
-    fid = "1645010162168front"
-
-    # We use the fid as the filename as well for convenience, but there is
-    # no reason this must be the case.
-    path = Path(fid)
-
-    # Dump content to the file. This represents our tidied HTML source.
-    heyoo = "HEYOOOOO"
-    path.write_text(heyoo, encoding="UTF-8")
-
-    result = get_note_payload(colnote, {fid: path})
-
+    result = get_note_payload(colnote)
     # Check that the dumped `front` field content is there.
-    assert heyoo in result
-
+    assert "a" in result
     # The `back` field content.
     assert "\nb\n" in result
 
-
-def test_write_repository_generates_deck_tree_correctly(tmpfs: None):
-    """Does generated FS tree match example collection?"""
-    MULTIDECK: SampleCollection = get_test_collection("multideck")
-    true_note_path = os.path.abspath(os.path.join(MULTI_GITREPO_PATH, MULTI_NOTE_PATH))
-    cloned_note_path = os.path.join(MULTIDECK.repodir, MULTI_NOTE_PATH)
-
-    targetdir = F.chk(Path(MULTIDECK.repodir))
-    targetdir = F.mkdir(targetdir)
-
-    kidir, mediadir = M.empty_kirepo(targetdir)
-    dotki: DotKi = M.dotki(kidir)
-    _ = write_repository(MULTIDECK.col_file, targetdir, dotki, mediadir)
-
-    # Check that deck directory is created and all subdirectories.
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "Default"))
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/bb/cc"))
-    assert os.path.isdir(os.path.join(MULTIDECK.repodir, "aa/dd"))
-
-    # Compute hashes.
-    cloned_md5 = F.md5(File(cloned_note_path))
-    true_md5 = F.md5(File(true_note_path))
-
-    assert cloned_md5 == true_md5
 
 
 def test_write_repository_handles_html(tmpfs: None):
@@ -962,7 +1070,7 @@ def test_write_repository_handles_html(tmpfs: None):
     note_file = targetdir / "Default" / "あだ名.md"
     contents: str = note_file.read_text(encoding="UTF-8")
 
-    assert '<div class="word-card">\n  <table class="kanji-match">' in contents
+    assert '<div class="word-card"> <table class="kanji-match">' in contents
 
 
 @beartype
@@ -1494,7 +1602,7 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     col = open_collection(ORIGINAL.col_file)
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
-    write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    write_decks(col, Dir(tmp_path), colnotes, {})
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
@@ -1557,7 +1665,7 @@ def test_write_decks_warns_about_media_deck_name_collisions(
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     mock = mocker.patch("ki.warn")
-    write_decks(col, Dir(tmp_path), colnotes, {}, {})
+    write_decks(col, Dir(tmp_path), colnotes, {})
 
     mock.assert_called_once()
     args = mock.call_args

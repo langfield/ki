@@ -2,8 +2,6 @@
 """Tests for ki command line interface (CLI)."""
 import os
 import gc
-import sys
-import time
 import shutil
 import sqlite3
 import tempfile
@@ -18,18 +16,16 @@ from loguru import logger
 from pytest_mock import MockerFixture
 
 import anki
-from anki.collection import Note, Collection
+from anki.collection import Collection
 
-from beartype import beartype
-from beartype.typing import List, Tuple, Optional, Union
+from beartype.typing import List
 
 import ki
 import ki.functional as F
-from ki import MEDIA, LCA, _clone1, do, stardo, get_guid, add_db_note
+from ki import MEDIA, LCA, _clone1, do
 from ki.types import (
     Notetype,
     ColNote,
-    Dir,
     File,
     TargetExistsError,
     NotKiRepoError,
@@ -40,7 +36,6 @@ from ki.types import (
     MissingFieldOrdinalError,
     AnkiAlreadyOpenError,
 )
-from ki.functional import curried
 from tests.test_ki import (
     GITREPO_PATH,
     invoke,
@@ -53,181 +48,24 @@ from tests.test_ki import (
     get_notes,
     get_test_collection,
     SampleCollection,
+    DATA,
+    read,
+    write,
+    append,
+    opencol,
+    mkcol,
+    edit,
+    editcol,
+    mkbasic,
+    write_basic,
 )
 
-
-DATA = Path(__file__).parent / "data"
-PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 
 # pylint: disable=unnecessary-pass, too-many-lines, invalid-name, duplicate-code
 # pylint: disable=missing-function-docstring, too-many-locals, no-value-for-parameter
 # pylint: disable=unused-argument
 
-
-Deck = str
-Nid = int
-Field = str
-Model = str
-NoteSpec = Tuple[Model, List[Deck], Nid, List[Field]]
-
-
-@beartype
-def read(path: Union[str, Path]) -> str:
-    return Path(path).read_text(encoding="UTF-8")
-
-
-@beartype
-def write(path: Union[str, Path], s: str) -> None:
-    Path(path).write_text(s, encoding="UTF-8")
-
-
-@beartype
-def append(path: Union[str, Path], s: str) -> None:
-    with Path(path).open("a", encoding="UTF-8") as f:
-        f.write(s)
-
-
-@curried
-@beartype
-def addnote(col: Collection, spec: NoteSpec) -> None:
-    model, fullnames, nid, fields = spec
-    dids = list(map(col.decks.id, fullnames))
-    guid = get_guid(list(fields))
-    mid = col.models.id_for_name(model)
-    timestamp_ns: int = time.time_ns()
-    note: Note = add_db_note(
-        col=col,
-        nid=nid,
-        guid=guid,
-        mid=mid,
-        mod=int(timestamp_ns // 1e9),
-        usn=-1,
-        tags=[],
-        fields=list(fields),
-        sfld="",
-        csum=0,
-        flags=0,
-        data="",
-    )
-    cids = [c.id for c in note.cards()]
-    assert len(dids) == len(cids)
-    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
-
-
-@beartype
-def opencol(f: File) -> Collection:
-    cwd: Dir = F.cwd()
-    try:
-        col = Collection(f)
-    except anki.errors.DBError as err:
-        raise AnkiAlreadyOpenError(str(err)) from err
-    F.chdir(cwd)
-    return col
-
-
-@beartype
-def mkcol(ns: List[NoteSpec]) -> File:
-    file = F.touch(F.mkdtemp(), "a.anki2")
-    col = opencol(file)
-    do(addnote(col), ns)
-    col.close(save=True)
-    return F.chk(file)
-
-
-@beartype
-def rm(f: File, nid: int) -> File:
-    """Remove note with given `nid`."""
-    col = opencol(f)
-    col.remove_notes([nid])
-    col.close(save=True)
-    return f
-
-
-@curried
-@beartype
-def editnote(col: Collection, spec: NoteSpec) -> None:
-    model, fullnames, nid, fields = spec
-    note = col.get_note(nid)
-    assert len(note.keys()) == len(fields)
-    stardo(lambda k, fld: note.__setitem__(k, fld), zip(note.keys(), fields))
-    dids = list(map(col.decks.id, fullnames))
-    cids = [c.id for c in note.cards()]
-    assert len(dids) == len(cids)
-    stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
-    note.flush()
-
-
-@beartype
-def edit(f: File, spec: NoteSpec) -> File:
-    """Edit a note with specified nid."""
-    col = opencol(f)
-    editnote(col, spec)
-    col.close(save=True)
-    return f
-
-
-@beartype
-def editcol(
-    f: File,
-    adds: Optional[List[NoteSpec]] = None,
-    edits: Optional[List[NoteSpec]] = None,
-    deletes: Optional[List[int]] = None,
-) -> File:
-    """Edit an existing collection file."""
-    col = opencol(f)
-    adds, edits, deletes = adds or [], edits or [], deletes or []
-    do(addnote(col), adds)
-    do(editnote(col), edits)
-    col.remove_notes(deletes)
-    col.close(save=True)
-    return f
-
-
-def mkbasic(guid: str, fields: Tuple[str, str]) -> str:
-    front, back = fields
-    return f"""# Note
-```
-guid: {guid}
-notetype: Basic
-```
-
-### Tags
-```
-```
-
-## Front
-{front}
-
-## Back
-{back}
-"""
-
-
-@beartype
-def write_basic(deck: str, fields: Tuple[str, str]) -> File:
-    """Write a markdown note to a deck from the root of a ki repository."""
-    front = fields[0]
-    path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
-    write(path, mkbasic(get_guid(list(fields)), fields))
-    return F.chk(path)
-
-
-@beartype
-def runcmd(c: str) -> str:
-    out = subprocess.run(
-        c,
-        text=True,
-        check=True,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    ).stdout
-    return f"\n>>> {c}\n{out}"
-
-
-@beartype
-def runcmds(cs: List[str]) -> Tuple[str, str]:
-    return "\n".join(cs), "".join(map(runcmd, cs))
+PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 
 
 # CLI
