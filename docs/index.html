@@ -639,45 +639,34 @@ decks in exactly the same way they work on large, complex software projects.
 
 import os
 import re
-import io
 import gc
 import sys
 import time
 import json
 import copy
-import shutil
 import random
 import logging
-import secrets
 import sqlite3
 import hashlib
 import datetime
 import itertools
-import traceback
-import functools
 import subprocess
-import dataclasses
 import configparser
 from pathlib import Path
 from itertools import chain, starmap, tee
 from functools import reduce
-from contextlib import redirect_stdout
-from dataclasses import dataclass
 from collections import namedtuple
 
 import git
 import click
-import whatthepatch
 from lark import Lark
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, TemplateDict
-from anki.decks import DeckTreeNode
+from anki.cards import Card
 from anki.utils import ids2str
-from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
+from anki.models import NotetypeDict
 from anki.errors import NotFoundError
-from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
 from anki.importing.noteimp import NoteImporter
 
@@ -691,7 +680,6 @@ from beartype.typing import (
     Callable,
     Union,
     TypeVar,
-    Sequence,
     Tuple,
     Iterator,
     Iterable,
@@ -707,14 +695,9 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
-    Link,
-    PseudoFile,
     GitChangeType,
-    Patch,
     Delta,
     KiRepo,
-    Field,
-    Template,
     Notetype,
     ColNote,
     KiRev,
@@ -728,29 +711,21 @@ from ki.types import (
     NoteMetadata,
     PushResult,
     PlannedLink,
-    Submodule,
     MediaBytes,
     AddedMedia,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
     MissingNotetypeError,
-    MissingFieldOrdinalError,
-    MissingNoteIdError,
     NotetypeMismatchError,
     NoteFieldValidationWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeCollisionWarning,
-    NotetypeKeyError,
-    UnnamedNotetypeError,
     SQLiteLockError,
-    NoteFieldKeyError,
     MissingMediaDirectoryError,
-    ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
-    MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
@@ -765,7 +740,6 @@ from ki.maybes import (
     GITIGNORE_FILE,
     GITMODULES_FILE,
     KI,
-    CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
 )
@@ -799,9 +773,6 @@ LOCAL_SUFFIX = Path(&#34;ki-local&#34;)
 REMOTE_SUFFIX = Path(&#34;ki-remote&#34;)
 FIELD_HTML_SUFFIX = Path(&#34;ki-fieldhtml&#34;)
 LCA = &#34;last-successful-ki-push&#34;
-
-TIDY_CMD = &#34;tidy -q -m -i -omit -utf8&#34;
-TIDY_OPTS = &#34;--tidy-mark no --show-body-only yes --wrap 68 --wrap-attributes yes&#34;
 
 MEDIA_FILE_RECURSIVE_PATTERN = f&#34;**/{MEDIA}/*&#34;
 
@@ -1514,26 +1485,6 @@ def hasmedia(model: NotetypeDict, fname: str) -&gt; bool:
     return any(map(lambda t: fname in t[&#34;qfmt&#34;] or fname in t[&#34;afmt&#34;], model[&#34;tmpls&#34;]))
 
 
-@curried
-@beartype
-def write_fields(root: Dir, n: Note) -&gt; Iterable[Tuple[str, File]]:
-    &#34;&#34;&#34;Write a note&#39;s fields to be tidied.&#34;&#34;&#34;
-    return filter(None, starmap(write_field(root, n.id), n.items()))
-
-
-@curried
-@beartype
-def write_field(
-    root: Dir, nid: int, name: str, text: str
-) -&gt; Optional[Tuple[str, File]]:
-    &#34;&#34;&#34;Write a field to a file (if tidying is needed) given its name and text.&#34;&#34;&#34;
-    text: str = html_to_screen(text)
-    if re.search(HTML_REGEX, text):
-        fid: str = get_field_note_id(nid, name)
-        return fid, F.write(F.chk(root / fid), text)
-    return None
-
-
 @beartype
 def write_repository(
     col_file: File,
@@ -1557,16 +1508,12 @@ def write_repository(
     nids: Iterable[int] = TQ(col.find_notes(query=&#34;&#34;), &#34;Notes&#34;)
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
-    ns: Iterable[Note] = map(lambda c: c.n, colnotes.values())
-    fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, &#34;Fields&#34;))))
-    tidy_html_recursively(root)
 
     write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
         media=media,
-        tidy_field_files=fieldfiles,
     )
 
     F.rmtree(root)
@@ -1599,7 +1546,6 @@ def write_decks(
     targetdir: Dir,
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
-    tidy_field_files: Dict[str, File],
 ) -&gt; None:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -1646,59 +1592,36 @@ def write_decks(
     collisions, decks = F.part(lambda d: MEDIA in d.fullname, postorder(root))
     if any(True for _ in collisions):
         warn(MediaDirectoryDeckNameCollisionWarning())
-    decks = TQ(list(decks), &#34;Decks&#34;)
+    decks = list(decks)
+    deckmap = {d.fullname: d for d in decks}
 
-    # Write cards and models to disk for each deck.
-    write = write_deck(col, targetdir, colnotes, tidy_field_files)
-    reduce(write, decks, {})
-    do(write_models(col, models), decks)
-
+    # Write cards, models, and media to filesystem.
+    do(write_note(col, targetdir, deckmap), TQ(colnotes.values(), &#34;Notes&#34;))
+    do(write_models(col, models), TQ(decks, &#34;Notetypes&#34;))
     symlink_media(col, root, targetdir, media)
 
 
 @curried
 @beartype
-def write_deck(
+def write_note(
     col: Collection,
     targetd: Dir,
-    colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
-    notefiles: Dict[NoteId, CardFileMap],
-    deck: Deck,
-) -&gt; Dict[NoteId, CardFileMap]:
-    &#34;&#34;&#34;Write all the cards to disk for a single deck.&#34;&#34;&#34;
-    did: DeckId = deck.did
-    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = write_card(colnotes, fieldfiles, targetd, deck.deckd)
-    return reduce(write, cards, notefiles)
-
-
-@curried
-@beartype
-def write_card(
-    colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
-    targetd: Dir,
-    deckd: Dir,
-    notefiles: Dict[NoteId, CardFileMap],
-    card: Card,
-) -&gt; Dict[NoteId, CardFileMap]:
-    &#34;&#34;&#34;Write a single card to disk.&#34;&#34;&#34;
-    colnote: ColNote = colnotes[card.nid]
-    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
-    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
-    if len(cardfile_map) == 0:
-        payload: str = get_note_payload(colnote, fieldfiles)
-        note_path: NoFile = get_note_path(colnote, deckd)
-        file = F.write(note_path, payload)
-    elif len(cardfiles) &gt; 0:
-        file = cardfiles[0].file
-    else:
-        existing: CardFile = list(cardfile_map.values())[0][0]
-        file: File = existing.file
-        mklink(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, file=file)
-    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
+    deckmap: Dict[str, Deck],
+    colnote: ColNote,
+) -&gt; File:
+    decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    if len(decknames) == 0:
+        raise ValueError(f&#34;No cards for note: {colnote}&#34;)
+    if len(decknames) &gt; 1:
+        raise ValueError(f&#34;Cards for note {colnote} are in distinct decks: {decknames}&#34;)
+    fullname = decknames.pop()
+    parts = fullname.split(&#34;::&#34;)
+    if &#34;_media&#34; in parts:
+        raise ValueError(f&#34;Bad deck name &#39;{fullname}&#39; (cannot contain &#39;_media&#39;)&#34;)
+    deck: Deck = deckmap[fullname]
+    payload: str = get_note_payload(colnote)
+    note_path: NoFile = get_note_path(colnote, deck.deckd)
+    return F.write(note_path, payload)
 
 
 @curried
@@ -1718,9 +1641,7 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 
 
 @beartype
-def mklink(
-    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -&gt; None:
+def mklink(targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File) -&gt; None:
     &#34;&#34;&#34;Return a windows link for a card if one is necessary.&#34;&#34;&#34;
     note_path: NoFile = get_note_path(colnote, deckd, card.template()[&#34;name&#34;])
     M.link(targetd, PlannedLink(link=note_path, tgt=file))
@@ -1819,46 +1740,25 @@ def html_to_screen(html: str) -&gt; str:
     return plain.strip()
 
 
+@curried
 @beartype
-def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -&gt; str:
+def get_field_payload(col: Collection, name: str, content: str) -&gt; List[str]:
+    &#34;&#34;&#34;Get the lines of a markdown snippet for some Anki note field.&#34;&#34;&#34;
+    text = col.media.escape_media_filenames(html_to_screen(content), unescape=True)
+    return [f&#34;## {name}&#34;, text, &#34;&#34;]
+
+
+@beartype
+def get_note_payload(colnote: ColNote) -&gt; str:
     &#34;&#34;&#34;
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
 
-    Given a `ColNote`, which is a dataclass wrapper around a `Note` object
-    which has been loaded from the DB, and a mapping from `fid`s (unique
-    identifiers of field-note pairs) to paths, we check for each field of each
-    note whether that field&#39;s `fid` is contained in `tidy_field_files`. If so,
-    that means that the caller dumped the contents of this field to a file (the
-    file with this path, in fact) in order to autoformat the HTML source. If
-    this field was tidied/autoformatted, we read from that path to get the
-    tidied source, otherwise, we use the field content present in the
-    `ColNote`.
+    A `ColNote` is a dataclass wrapper around a `Note` object which has been
+    loaded from the DB.
     &#34;&#34;&#34;
-    # Get tidied html if it exists.
-    tidy_fields = {}
-    for field_name, field_text in colnote.n.items():
-        fid = get_field_note_id(colnote.n.id, field_name)
-        if fid in tidy_field_files:
-            # HTML5-tidy adds a newline after `&lt;br&gt;` in indent mode, so we
-            # remove these, because `html_to_screen()` converts `&lt;br&gt;` tags to
-            # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=UTF8)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br&gt;\n&#34;, &#34;\n&#34;)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br/&gt;\n&#34;, &#34;\n&#34;)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br /&gt;\n&#34;, &#34;\n&#34;)
-            tidy_fields[field_name] = tidied_field_text
-        else:
-            tidy_fields[field_name] = field_text
-
     lines = get_header_lines(colnote)
-    for field_name, field_text in tidy_fields.items():
-        lines.append(&#34;## &#34; + field_name)
-        screen_text = html_to_screen(field_text)
-        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
-        lines.append(text)
-        lines.append(&#34;&#34;)
-
+    lines += F.cat(starmap(get_field_payload(colnote.n.col), colnote.n.items()))
     return &#34;\n&#34;.join(lines)
 
 
@@ -1881,18 +1781,6 @@ def echo(string: str, silent: bool = False) -&gt; None:
 def warn(w: Warning) -&gt; None:
     &#34;&#34;&#34;Call `click.secho()` with formatting (yellow).&#34;&#34;&#34;
     click.secho(f&#34;WARNING: {str(w)}&#34;, bold=True, fg=&#34;yellow&#34;)
-
-
-@beartype
-def tidy_html_recursively(root: Dir) -&gt; None:
-    &#34;&#34;&#34;Call html5-tidy on each file in `root`, editing in-place.&#34;&#34;&#34;
-    # Spin up subprocesses for tidying field HTML in-place.
-    for batch in F.get_batches(F.rglob(root, &#34;*&#34;), BATCH_SIZE):
-        command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
-        try:
-            subprocess.run(command, check=False, capture_output=True)
-        except FileNotFoundError as err:
-            raise MissingTidyExecutableError(err) from err
 
 
 @beartype
@@ -2952,6 +2840,23 @@ def get_field_note_id(nid: int, fieldname: str) -&gt; str:
     return f&#34;{nid}{F.slugify(fieldname)}&#34;</code></pre>
 </details>
 </dd>
+<dt id="ki.get_field_payload"><code class="name flex">
+<span>def <span class="ident">get_field_payload</span></span>(<span>col: anki.collection.Collection, name: str, content: str) ‑> list[str]</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get the lines of a markdown snippet for some Anki note field.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@curried
+@beartype
+def get_field_payload(col: Collection, name: str, content: str) -&gt; List[str]:
+    &#34;&#34;&#34;Get the lines of a markdown snippet for some Anki note field.&#34;&#34;&#34;
+    text = col.media.escape_media_filenames(html_to_screen(content), unescape=True)
+    return [f&#34;## {name}&#34;, text, &#34;&#34;]</code></pre>
+</details>
+</dd>
 <dt id="ki.get_guid"><code class="name flex">
 <span>def <span class="ident">get_guid</span></span>(<span>fields: list[str]) ‑> str</span>
 </code></dt>
@@ -3116,64 +3021,28 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
 </details>
 </dd>
 <dt id="ki.get_note_payload"><code class="name flex">
-<span>def <span class="ident">get_note_payload</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>, tidy_field_files: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]) ‑> str</span>
+<span>def <span class="ident">get_note_payload</span></span>(<span>colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>) ‑> str</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Return the markdown-converted contents of the Anki note represented by
 <code>colnote</code> as a string.</p>
-<p>Given a <code>ColNote</code>, which is a dataclass wrapper around a <code>Note</code> object
-which has been loaded from the DB, and a mapping from <code>fid</code>s (unique
-identifiers of field-note pairs) to paths, we check for each field of each
-note whether that field's <code>fid</code> is contained in <code>tidy_field_files</code>. If so,
-that means that the caller dumped the contents of this field to a file (the
-file with this path, in fact) in order to autoformat the HTML source. If
-this field was tidied/autoformatted, we read from that path to get the
-tidied source, otherwise, we use the field content present in the
-<code>ColNote</code>.</p></div>
+<p>A <code>ColNote</code> is a dataclass wrapper around a <code>Note</code> object which has been
+loaded from the DB.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def get_note_payload(colnote: ColNote, tidy_field_files: Dict[str, File]) -&gt; str:
+def get_note_payload(colnote: ColNote) -&gt; str:
     &#34;&#34;&#34;
     Return the markdown-converted contents of the Anki note represented by
     `colnote` as a string.
 
-    Given a `ColNote`, which is a dataclass wrapper around a `Note` object
-    which has been loaded from the DB, and a mapping from `fid`s (unique
-    identifiers of field-note pairs) to paths, we check for each field of each
-    note whether that field&#39;s `fid` is contained in `tidy_field_files`. If so,
-    that means that the caller dumped the contents of this field to a file (the
-    file with this path, in fact) in order to autoformat the HTML source. If
-    this field was tidied/autoformatted, we read from that path to get the
-    tidied source, otherwise, we use the field content present in the
-    `ColNote`.
+    A `ColNote` is a dataclass wrapper around a `Note` object which has been
+    loaded from the DB.
     &#34;&#34;&#34;
-    # Get tidied html if it exists.
-    tidy_fields = {}
-    for field_name, field_text in colnote.n.items():
-        fid = get_field_note_id(colnote.n.id, field_name)
-        if fid in tidy_field_files:
-            # HTML5-tidy adds a newline after `&lt;br&gt;` in indent mode, so we
-            # remove these, because `html_to_screen()` converts `&lt;br&gt;` tags to
-            # newlines anyway.
-            tidied_field_text: str = tidy_field_files[fid].read_text(encoding=UTF8)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br&gt;\n&#34;, &#34;\n&#34;)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br/&gt;\n&#34;, &#34;\n&#34;)
-            tidied_field_text = tidied_field_text.replace(&#34;&lt;br /&gt;\n&#34;, &#34;\n&#34;)
-            tidy_fields[field_name] = tidied_field_text
-        else:
-            tidy_fields[field_name] = field_text
-
     lines = get_header_lines(colnote)
-    for field_name, field_text in tidy_fields.items():
-        lines.append(&#34;## &#34; + field_name)
-        screen_text = html_to_screen(field_text)
-        text = colnote.n.col.media.escape_media_filenames(screen_text, unescape=True)
-        lines.append(text)
-        lines.append(&#34;&#34;)
-
+    lines += F.cat(starmap(get_field_payload(colnote.n.col), colnote.n.items()))
     return &#34;\n&#34;.join(lines)</code></pre>
 </details>
 </dd>
@@ -3466,9 +3335,7 @@ def mediadata(col: Collection, fname: str) -&gt; bytes:
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@beartype
-def mklink(
-    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -&gt; None:
+def mklink(targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File) -&gt; None:
     &#34;&#34;&#34;Return a windows link for a card if one is necessary.&#34;&#34;&#34;
     note_path: NoFile = get_note_path(colnote, deckd, card.template()[&#34;name&#34;])
     M.link(targetd, PlannedLink(link=note_path, tgt=file))</code></pre>
@@ -3797,27 +3664,6 @@ def symlink_media(
     return do(symlink_deck_media(col, targetd, media, parents), decks)</code></pre>
 </details>
 </dd>
-<dt id="ki.tidy_html_recursively"><code class="name flex">
-<span>def <span class="ident">tidy_html_recursively</span></span>(<span>root: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>) ‑> None</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Call html5-tidy on each file in <code>root</code>, editing in-place.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def tidy_html_recursively(root: Dir) -&gt; None:
-    &#34;&#34;&#34;Call html5-tidy on each file in `root`, editing in-place.&#34;&#34;&#34;
-    # Spin up subprocesses for tidying field HTML in-place.
-    for batch in F.get_batches(F.rglob(root, &#34;*&#34;), BATCH_SIZE):
-        command: List[str] = TIDY_CMD.split() + TIDY_OPTS.split() + batch
-        try:
-            subprocess.run(command, check=False, capture_output=True)
-        except FileNotFoundError as err:
-            raise MissingTidyExecutableError(err) from err</code></pre>
-</details>
-</dd>
 <dt id="ki.unlock"><code class="name flex">
 <span>def <span class="ident">unlock</span></span>(<span>con: sqlite3.Connection) ‑> None</span>
 </code></dt>
@@ -3987,43 +3833,6 @@ def warn(w: Warning) -&gt; None:
     click.secho(f&#34;WARNING: {str(w)}&#34;, bold=True, fg=&#34;yellow&#34;)</code></pre>
 </details>
 </dd>
-<dt id="ki.write_card"><code class="name flex">
-<span>def <span class="ident">write_card</span></span>(<span>colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], fieldfiles: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>], targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, deckd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, notefiles: dict[int, dict[int, list[<a title="ki.types.CardFile" href="types.html#ki.types.CardFile">CardFile</a>]]], card: anki.cards.Card) ‑> dict[int, dict[int, list[<a title="ki.types.CardFile" href="types.html#ki.types.CardFile">CardFile</a>]]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write a single card to disk.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def write_card(
-    colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
-    targetd: Dir,
-    deckd: Dir,
-    notefiles: Dict[NoteId, CardFileMap],
-    card: Card,
-) -&gt; Dict[NoteId, CardFileMap]:
-    &#34;&#34;&#34;Write a single card to disk.&#34;&#34;&#34;
-    colnote: ColNote = colnotes[card.nid]
-    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
-    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
-    if len(cardfile_map) == 0:
-        payload: str = get_note_payload(colnote, fieldfiles)
-        note_path: NoFile = get_note_path(colnote, deckd)
-        file = F.write(note_path, payload)
-    elif len(cardfiles) &gt; 0:
-        file = cardfiles[0].file
-    else:
-        existing: CardFile = list(cardfile_map.values())[0][0]
-        file: File = existing.file
-        mklink(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, file=file)
-    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}</code></pre>
-</details>
-</dd>
 <dt id="ki.write_collection"><code class="name flex">
 <span>def <span class="ident">write_collection</span></span>(<span>deltas: collections.abc.Iterable[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>], models: dict[str, <a title="ki.types.Notetype" href="types.html#ki.types.Notetype">Notetype</a>], kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, parse: collections.abc.Callable[[<a title="ki.types.Delta" href="types.html#ki.types.Delta">Delta</a>], <a title="ki.types.DeckNote" href="types.html#ki.types.DeckNote">DeckNote</a>], head_kirepo: <a title="ki.types.KiRepo" href="types.html#ki.types.KiRepo">KiRepo</a>, con: sqlite3.Connection) ‑> <a title="ki.types.PushResult" href="types.html#ki.types.PushResult">PushResult</a></span>
 </code></dt>
@@ -4115,34 +3924,8 @@ def write_collection(
     return PushResult.NONTRIVIAL</code></pre>
 </details>
 </dd>
-<dt id="ki.write_deck"><code class="name flex">
-<span>def <span class="ident">write_deck</span></span>(<span>col: anki.collection.Collection, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], fieldfiles: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>], notefiles: dict[int, dict[int, list[<a title="ki.types.CardFile" href="types.html#ki.types.CardFile">CardFile</a>]]], deck: <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>) ‑> dict[int, dict[int, list[<a title="ki.types.CardFile" href="types.html#ki.types.CardFile">CardFile</a>]]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write all the cards to disk for a single deck.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def write_deck(
-    col: Collection,
-    targetd: Dir,
-    colnotes: Dict[int, ColNote],
-    fieldfiles: Dict[str, File],
-    notefiles: Dict[NoteId, CardFileMap],
-    deck: Deck,
-) -&gt; Dict[NoteId, CardFileMap]:
-    &#34;&#34;&#34;Write all the cards to disk for a single deck.&#34;&#34;&#34;
-    did: DeckId = deck.did
-    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = write_card(colnotes, fieldfiles, targetd, deck.deckd)
-    return reduce(write, cards, notefiles)</code></pre>
-</details>
-</dd>
 <dt id="ki.write_decks"><code class="name flex">
-<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]], tidy_field_files: dict[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]) ‑> None</span>
+<span>def <span class="ident">write_decks</span></span>(<span>col: anki.collection.Collection, targetdir: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, colnotes: dict[int, <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>], media: dict[int, set[<a title="ki.types.File" href="types.html#ki.types.File">File</a>]]) ‑> None</span>
 </code></dt>
 <dd>
 <div class="desc"><p>The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -4178,7 +3961,6 @@ def write_decks(
     targetdir: Dir,
     colnotes: Dict[int, ColNote],
     media: Dict[int, Set[File]],
-    tidy_field_files: Dict[str, File],
 ) -&gt; None:
     &#34;&#34;&#34;
     The proper way to do this is a DFS traversal, perhaps recursively, which
@@ -4225,52 +4007,13 @@ def write_decks(
     collisions, decks = F.part(lambda d: MEDIA in d.fullname, postorder(root))
     if any(True for _ in collisions):
         warn(MediaDirectoryDeckNameCollisionWarning())
-    decks = TQ(list(decks), &#34;Decks&#34;)
+    decks = list(decks)
+    deckmap = {d.fullname: d for d in decks}
 
-    # Write cards and models to disk for each deck.
-    write = write_deck(col, targetdir, colnotes, tidy_field_files)
-    reduce(write, decks, {})
-    do(write_models(col, models), decks)
-
+    # Write cards, models, and media to filesystem.
+    do(write_note(col, targetdir, deckmap), TQ(colnotes.values(), &#34;Notes&#34;))
+    do(write_models(col, models), TQ(decks, &#34;Notetypes&#34;))
     symlink_media(col, root, targetdir, media)</code></pre>
-</details>
-</dd>
-<dt id="ki.write_field"><code class="name flex">
-<span>def <span class="ident">write_field</span></span>(<span>root: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, nid: int, name: str, text: str) ‑> Optional[tuple[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write a field to a file (if tidying is needed) given its name and text.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def write_field(
-    root: Dir, nid: int, name: str, text: str
-) -&gt; Optional[Tuple[str, File]]:
-    &#34;&#34;&#34;Write a field to a file (if tidying is needed) given its name and text.&#34;&#34;&#34;
-    text: str = html_to_screen(text)
-    if re.search(HTML_REGEX, text):
-        fid: str = get_field_note_id(nid, name)
-        return fid, F.write(F.chk(root / fid), text)
-    return None</code></pre>
-</details>
-</dd>
-<dt id="ki.write_fields"><code class="name flex">
-<span>def <span class="ident">write_fields</span></span>(<span>root: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, n: anki.notes.Note) ‑> collections.abc.Iterable[tuple[str, <a title="ki.types.File" href="types.html#ki.types.File">File</a>]]</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Write a note's fields to be tidied.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@curried
-@beartype
-def write_fields(root: Dir, n: Note) -&gt; Iterable[Tuple[str, File]]:
-    &#34;&#34;&#34;Write a note&#39;s fields to be tidied.&#34;&#34;&#34;
-    return filter(None, starmap(write_field(root, n.id), n.items()))</code></pre>
 </details>
 </dd>
 <dt id="ki.write_models"><code class="name flex">
@@ -4296,6 +4039,38 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
     deck_models = {mid: models[mid] for mid in descendant_mids}
     with open(deckd / MODELS_FILE, &#34;w&#34;, encoding=UTF8) as f:
         json.dump(deck_models, f, ensure_ascii=False, indent=4, sort_keys=True)</code></pre>
+</details>
+</dd>
+<dt id="ki.write_note"><code class="name flex">
+<span>def <span class="ident">write_note</span></span>(<span>col: anki.collection.Collection, targetd: <a title="ki.types.Dir" href="types.html#ki.types.Dir">Dir</a>, deckmap: dict[str, <a title="ki.types.Deck" href="types.html#ki.types.Deck">Deck</a>], colnote: <a title="ki.types.ColNote" href="types.html#ki.types.ColNote">ColNote</a>) ‑> <a title="ki.types.File" href="types.html#ki.types.File">File</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@curried
+@beartype
+def write_note(
+    col: Collection,
+    targetd: Dir,
+    deckmap: Dict[str, Deck],
+    colnote: ColNote,
+) -&gt; File:
+    decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    if len(decknames) == 0:
+        raise ValueError(f&#34;No cards for note: {colnote}&#34;)
+    if len(decknames) &gt; 1:
+        raise ValueError(f&#34;Cards for note {colnote} are in distinct decks: {decknames}&#34;)
+    fullname = decknames.pop()
+    parts = fullname.split(&#34;::&#34;)
+    if &#34;_media&#34; in parts:
+        raise ValueError(f&#34;Bad deck name &#39;{fullname}&#39; (cannot contain &#39;_media&#39;)&#34;)
+    deck: Deck = deckmap[fullname]
+    payload: str = get_note_payload(colnote)
+    note_path: NoFile = get_note_path(colnote, deck.deckd)
+    return F.write(note_path, payload)</code></pre>
 </details>
 </dd>
 <dt id="ki.write_repository"><code class="name flex">
@@ -4330,16 +4105,12 @@ def write_repository(
     nids: Iterable[int] = TQ(col.find_notes(query=&#34;&#34;), &#34;Notes&#34;)
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
-    ns: Iterable[Note] = map(lambda c: c.n, colnotes.values())
-    fieldfiles = dict(F.cat(map(write_fields(root), TQ(ns, &#34;Fields&#34;))))
-    tidy_html_recursively(root)
 
     write_decks(
         col=col,
         targetdir=targetdir,
         colnotes=colnotes,
         media=media,
-        tidy_field_files=fieldfiles,
     )
 
     F.rmtree(root)
@@ -4433,6 +4204,7 @@ def write_repository(
 <li><code><a title="ki.echo" href="#ki.echo">echo</a></code></li>
 <li><code><a title="ki.echo_note_change_types" href="#ki.echo_note_change_types">echo_note_change_types</a></code></li>
 <li><code><a title="ki.get_field_note_id" href="#ki.get_field_note_id">get_field_note_id</a></code></li>
+<li><code><a title="ki.get_field_payload" href="#ki.get_field_payload">get_field_payload</a></code></li>
 <li><code><a title="ki.get_guid" href="#ki.get_guid">get_guid</a></code></li>
 <li><code><a title="ki.get_header_lines" href="#ki.get_header_lines">get_header_lines</a></code></li>
 <li><code><a title="ki.get_models_recursively" href="#ki.get_models_recursively">get_models_recursively</a></code></li>
@@ -4462,19 +4234,15 @@ def write_repository(
 <li><code><a title="ki.stardo" href="#ki.stardo">stardo</a></code></li>
 <li><code><a title="ki.symlink_deck_media" href="#ki.symlink_deck_media">symlink_deck_media</a></code></li>
 <li><code><a title="ki.symlink_media" href="#ki.symlink_media">symlink_media</a></code></li>
-<li><code><a title="ki.tidy_html_recursively" href="#ki.tidy_html_recursively">tidy_html_recursively</a></code></li>
 <li><code><a title="ki.unlock" href="#ki.unlock">unlock</a></code></li>
 <li><code><a title="ki.update_field" href="#ki.update_field">update_field</a></code></li>
 <li><code><a title="ki.update_note" href="#ki.update_note">update_note</a></code></li>
 <li><code><a title="ki.validate_decknote_fields" href="#ki.validate_decknote_fields">validate_decknote_fields</a></code></li>
 <li><code><a title="ki.warn" href="#ki.warn">warn</a></code></li>
-<li><code><a title="ki.write_card" href="#ki.write_card">write_card</a></code></li>
 <li><code><a title="ki.write_collection" href="#ki.write_collection">write_collection</a></code></li>
-<li><code><a title="ki.write_deck" href="#ki.write_deck">write_deck</a></code></li>
 <li><code><a title="ki.write_decks" href="#ki.write_decks">write_decks</a></code></li>
-<li><code><a title="ki.write_field" href="#ki.write_field">write_field</a></code></li>
-<li><code><a title="ki.write_fields" href="#ki.write_fields">write_fields</a></code></li>
 <li><code><a title="ki.write_models" href="#ki.write_models">write_models</a></code></li>
+<li><code><a title="ki.write_note" href="#ki.write_note">write_note</a></code></li>
 <li><code><a title="ki.write_repository" href="#ki.write_repository">write_repository</a></code></li>
 </ul>
 </li>
