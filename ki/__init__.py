@@ -9,36 +9,24 @@ decks in exactly the same way they work on large, complex software projects.
 .. include:: ./DOCUMENTATION.md
 """
 
-# pylint: disable=invalid-name, missing-class-docstring, broad-except
-# pylint: disable=too-many-return-statements, too-many-lines, too-many-arguments
-# pylint: disable=no-value-for-parameter, not-callable, unnecessary-lambda-assignment
-
 import os
 import re
-import io
 import gc
 import sys
 import time
 import json
 import copy
-import shutil
 import random
 import logging
-import secrets
 import sqlite3
 import hashlib
 import datetime
 import itertools
-import traceback
-import functools
 import subprocess
-import dataclasses
 import configparser
 from pathlib import Path
 from itertools import chain, starmap, tee
 from functools import reduce
-from contextlib import redirect_stdout
-from dataclasses import dataclass
 from collections import namedtuple
 
 import git
@@ -48,12 +36,10 @@ from lark import Lark
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, TemplateDict
-from anki.decks import DeckTreeNode
+from anki.cards import Card
 from anki.utils import ids2str
-from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
+from anki.models import NotetypeDict
 from anki.errors import NotFoundError
-from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
 from anki.importing.noteimp import NoteImporter
 
@@ -67,7 +53,6 @@ from beartype.typing import (
     Callable,
     Union,
     TypeVar,
-    Sequence,
     Tuple,
     Iterator,
     Iterable,
@@ -83,14 +68,9 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
-    Link,
-    PseudoFile,
     GitChangeType,
-    Patch,
     Delta,
     KiRepo,
-    Field,
-    Template,
     Notetype,
     ColNote,
     KiRev,
@@ -100,33 +80,24 @@ from ki.types import (
     DotKi,
     CardFile,
     NoteDBRow,
-    DeckNote,
     NoteMetadata,
     PushResult,
     PlannedLink,
-    Submodule,
     MediaBytes,
     AddedMedia,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
     MissingNotetypeError,
-    MissingFieldOrdinalError,
-    MissingNoteIdError,
     NotetypeMismatchError,
     NoteFieldValidationWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeCollisionWarning,
-    NotetypeKeyError,
-    UnnamedNotetypeError,
     SQLiteLockError,
-    NoteFieldKeyError,
     MissingMediaDirectoryError,
-    ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
-    MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
@@ -141,9 +112,9 @@ from ki.maybes import (
     GITIGNORE_FILE,
     GITMODULES_FILE,
     KI,
-    CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
+    NOTES_DIR,
 )
 from ki.transformer import NoteTransformer, FlatNote
 
@@ -168,7 +139,7 @@ HTML_REGEX = r"</?\s*[a-z-][^>]*\s*>|(\&(?:[\w\d]+|#\d+|#x[a-f\d]+);)"
 REMOTE_NAME = "anki"
 BRANCH_NAME = F.BRANCH_NAME
 MAX_FILENAME_LEN = 60
-IGNORE_DIRS = set([GIT, KI, MEDIA])
+IGNORE_DIRS = set([GIT, MEDIA])
 IGNORE_FILES = set([GITIGNORE_FILE, GITMODULES_FILE, MODELS_FILE])
 HEAD_SUFFIX = Path("ki-head")
 LOCAL_SUFFIX = Path("ki-local")
@@ -181,8 +152,6 @@ MEDIA_FILE_RECURSIVE_PATTERN = f"**/{MEDIA}/*"
 # This is the key for media files associated with notetypes instead of the
 # contents of a specific note.
 NOTETYPE_NID = -57
-
-MD = ".md"
 
 ALHPANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 SYMBOLS = "!#$%&()*+,-./:;<=>?@[]^_`{|}~"
@@ -320,8 +289,7 @@ def is_ignorable(root: Dir, path: Path) -> bool:
 @curried
 @beartype
 def mungediff(
-    parse: Callable[[Delta], DeckNote], a_root: Dir, b_root: Dir, d: git.Diff
-) -> Iterable[Union[Delta, Warning]]:
+    a_root: Dir, b_root: Dir, d: git.Diff) -> Iterable[Union[Delta, Warning]]:
     """Extract deltas and warnings from a collection of diffs."""
     a, b = d.a_path, d.b_path
     a, b = a if a else b, b if b else a
@@ -329,7 +297,7 @@ def mungediff(
         return []
 
     # Get absolute and relative paths to 'a' and 'b'.
-    AB = namedtuple("AB", "a b")
+    AB = namedtuple("AB", ["a", "b"])
     files = AB(F.chk(a_root / a), F.chk(b_root / b))
     rels = AB(Path(a), Path(b))
 
@@ -340,29 +308,25 @@ def mungediff(
     if not F.isfile(files.b):
         return [DiffTargetFileNotFoundWarning(rels.b)]
     if d.change_type == RENAMED.value:
-        a_delta = Delta(GitChangeType.DELETED, files.a, rels.a)
-        b_delta = Delta(GitChangeType.ADDED, files.b, rels.b)
-        a_decknote, b_decknote = parse(a_delta), parse(b_delta)
-        if a_decknote.guid != b_decknote.guid:
-            return [a_delta, b_delta]
+        raise ValueError("Renames should be disabled")
     return [Delta(GitChangeType(d.change_type), files.b, rels.b)]
 
 
 @beartype
 def diff2(
-    repo: git.Repo,
-    parse: Callable[[Delta], DeckNote],
-) -> Iterable[Union[Delta, Warning]]:
+    repo: git.Repo) -> Iterable[Union[Delta, Warning]]:
     """Diff `repo` from `HEAD~1` to `HEAD`."""
     # We diff from A~B.
     head1: Rev = M.rev(repo, repo.commit("HEAD~1").hexsha)
     uuid = hex(random.randrange(16**4))[2:]
     head1_repo = cp_repo(head1, suffix=f"HEAD~1-{uuid}")
     a_root, b_root = F.root(head1_repo), F.root(repo)
-    diffidx = repo.commit("HEAD~1").diff(repo.commit("HEAD"))
+    diffidx = repo.git.diff(["HEAD~1", "HEAD", "--", ".ki/notes"], no_renames=True)
+    from loguru import logger
+    logger.debug(diffidx)
 
     # Get the diffs for each change type (e.g. 'DELETED').
-    return chain(*map(mungediff(parse, a_root, b_root), diffidx))
+    return chain(*map(mungediff(a_root, b_root), diffidx))
 
 
 @beartype
@@ -413,22 +377,19 @@ def get_guid(fields: List[str]) -> str:
 
 @curried
 @beartype
-def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> DeckNote:
+def parse_note(parser: Lark, transformer: NoteTransformer, delta: Delta) -> FlatNote:
     """Parse with lark."""
     tree = parser.parse(delta.path.read_text(encoding=UTF8))
     flatnote: FlatNote = transformer.transform(tree)
-    parts: Tuple[str, ...] = delta.relpath.parent.parts
-    deck: str = "::".join(parts)
 
     # Generate a GUID from the hash of the field contents if the `guid` field
     # in the note file was left blank.
     fields = list(flatnote.fields.values())
     guid = flatnote.guid if flatnote.guid != "" else get_guid(fields)
 
-    return DeckNote(
+    return FlatNote(
         title=flatnote.title,
         guid=guid,
-        deck=deck,
         model=flatnote.model,
         tags=flatnote.tags,
         fields=flatnote.fields,
@@ -456,52 +417,42 @@ def plain_to_html(plain: str) -> str:
 
 @curried
 @beartype
-def update_field(decknote: DeckNote, note: Note, key: str, field: str) -> None:
+def update_field(flatnote: FlatNote, note: Note, key: str, field: str) -> None:
     """Update a field contained in `note`."""
     try:
         note[key] = plain_to_html(field)
     except IndexError as err:
-        raise AnkiDBNoteMissingFieldsError(decknote, note.id, key) from err
+        raise AnkiDBNoteMissingFieldsError(flatnote, note.id, key) from err
 
 
 @beartype
 def update_note(
-    note: Note, decknote: DeckNote, old_notetype: Notetype, new_notetype: Notetype
+    note: Note, flatnote: FlatNote, old_notetype: Notetype, new_notetype: Notetype
 ) -> Iterable[Warning]:
     """
-    Change all the data of `note` to that given in `decknote`.
+    Change all the data of `note` to that given in `flatnote`.
 
     This is only to be called on notes whose nid already exists in the
-    database.  Creates a new deck if `decknote.deck` doesn't exist.  Assumes
-    that the model has already been added to the collection, and raises an
-    exception if it finds otherwise.  Changes notetype to that specified by
-    `decknote.model`.  Overwrites all fields with `decknote.fields`.
+    database. Assumes that the model has already been added to the collection,
+    and raises an exception if it finds otherwise.  Changes notetype to that
+    specified by `flatnote.model`.  Overwrites all fields with
+    `flatnote.fields`.
 
     Updates:
     - tags
-    - deck
     - model
     - fields
     """
 
     # Check that the passed argument `new_notetype` has a name consistent with
-    # the model specified in `decknote`. The former should be derived from the
+    # the model specified in `flatnote`. The former should be derived from the
     # latter, and if they don't match, there is a bug in the caller.
-    if decknote.model != new_notetype.name:
-        raise NotetypeMismatchError(decknote, new_notetype)
+    if flatnote.model != new_notetype.name:
+        raise NotetypeMismatchError(flatnote, new_notetype)
 
     nid = note.id
-    note.tags = decknote.tags
+    note.tags = flatnote.tags
     note.flush()
-
-    # Set the deck of the given note, as well as all its cards, and create a
-    # deck with this name if it doesn't already exist. See the
-    # comments/docstrings in the implementation of the
-    # `anki.decks.DeckManager.id()` method.
-    newdid: int = note.col.decks.id(decknote.deck, create=True)
-    cids = [c.id for c in note.cards()]
-    if cids:
-        note.col.set_deck(cids, newdid)
 
     # Set notetype (also clears all fields).
     if old_notetype.id != new_notetype.id:
@@ -510,18 +461,18 @@ def update_note(
         note.load()
 
     # Validate field keys against notetype.
-    warnings: List[Warning] = validate_decknote_fields(new_notetype, decknote)
+    warnings: List[Warning] = validate_flatnote_fields(new_notetype, flatnote)
     if len(warnings) > 0:
         return warnings
 
     # Set field values and flush to collection database. This is correct
     # because every field name that appears in `new_notetype` is contained in
-    # `decknote.fields`, or else we would have printed a warning and returned
+    # `flatnote.fields`, or else we would have printed a warning and returned
     # above.
-    missing = {key for key in decknote.fields if key not in note}
+    missing = {key for key in flatnote.fields if key not in note}
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
-    fields = [(key, field) for key, field in decknote.fields.items() if key in note]
-    stardo(update_field(decknote, note), fields)
+    fields = [(key, field) for key, field in flatnote.fields.items() if key in note]
+    stardo(update_field(flatnote, note), fields)
     note.flush()
 
     # Remove if unhealthy.
@@ -532,26 +483,26 @@ def update_note(
 
 
 @beartype
-def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[Warning]:
+def validate_flatnote_fields(notetype: Notetype, flatnote: FlatNote) -> List[Warning]:
     """Validate that the fields given in the note match the notetype."""
     warnings: List[Warning] = []
     names: List[str] = [field.name for field in notetype.flds]
 
     # TODO: It might also be nice to print the path of the note in the
-    # repository. This would have to be added to the `DeckNote` spec.
-    if len(decknote.fields.keys()) != len(names):
-        warnings.append(WrongFieldCountWarning(decknote, names))
+    # repository. This would have to be added to the `FlatNote` spec.
+    if len(flatnote.fields.keys()) != len(names):
+        warnings.append(WrongFieldCountWarning(flatnote, names))
 
-    mk_warning = lambda n, k: InconsistentFieldNamesWarning(n, k, decknote)
+    mk_warning = lambda n, k: InconsistentFieldNamesWarning(n, k, flatnote)
     names_and_keys = F.starfilter(
-        lambda n, k: n != k, zip(names, decknote.fields.keys())
+        lambda n, k: n != k, zip(names, flatnote.fields.keys())
     )
     return warnings + list(starmap(mk_warning, names_and_keys))
 
 
 @beartype
-def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFile:
-    """Get note path from sort field text."""
+def get_card_path(colnote: ColNote, deckd: Dir, card_name) -> NoFile:
+    """Get card path from sort field text."""
     field_text = colnote.sortf_text
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
@@ -576,28 +527,16 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # a `Path('.')` which is a bug, and causes a runtime exception. If all else
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
-        blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode(UTF8))
-        slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
+        hexguid: str = colnote.n.guid.encode("ascii").hex()
+        slug: str = f"{colnote.notetype.name}--{hexguid}"
 
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
         F.yellow(f"Slug for note with guid '{colnote.n.guid}' is empty...")
-        F.yellow(f"Using blake2 hash of guid as filename: '{slug}'")
+        F.yellow(f"Using hex representation of guid as filename: '{slug}'")
 
-    if card_name != "":
-        slug = f"{slug}_{card_name}"
-    filename: str = f"{slug}{MD}"
-    note_path = F.chk(deck_dir / filename, resolve=False)
-
-    i = 1
-    while not isinstance(note_path, NoFile):
-        filename = f"{slug}_{i}{MD}"
-        note_path = F.chk(deck_dir / filename, resolve=False)
-        i += 1
-
-    return note_path
+    return F.chk(deckd / f"{slug}.{card_name}.md", resolve=False)
 
 
 @beartype
@@ -693,42 +632,42 @@ def push_note(
     timestamp_ns: int,
     guids: Dict[str, NoteMetadata],
     new_nids: Iterator[int],
-    decknote: DeckNote,
+    flatnote: FlatNote,
 ) -> Iterable[Warning]:
     """
-    Update the Anki `Note` object in `col` corresponding to `decknote`,
+    Update the Anki `Note` object in `col` corresponding to `flatnote`,
     creating it if it does not already exist.
 
     Raises
     ------
     MissingNotetypeError
-        If we can't find a notetype with the name provided in `decknote`.
+        If we can't find a notetype with the name provided in `flatnote`.
     """
     # Notetype/model names are privileged in Anki, so if we don't find the
     # right name, we raise an error.
-    model_id: Optional[int] = col.models.id_for_name(decknote.model)
+    model_id: Optional[int] = col.models.id_for_name(flatnote.model)
     if model_id is None:
-        raise MissingNotetypeError(decknote.model)
+        raise MissingNotetypeError(flatnote.model)
 
-    if decknote.guid in guids:
-        nid: int = guids[decknote.guid].nid
+    if flatnote.guid in guids:
+        nid: int = guids[flatnote.guid].nid
         try:
             note: Note = col.get_note(nid)
         except NotFoundError as err:
             print(f"{nid = }")
-            print(f"{decknote.guid = }")
+            print(f"{flatnote.guid = }")
             raise err
     else:
         nid: int = next(new_nids)
         note: Note = add_db_note(
             col,
             nid,
-            decknote.guid,
+            flatnote.guid,
             model_id,
             mod=int(timestamp_ns // 1e9),
             usn=-1,
-            tags=decknote.tags,
-            fields=list(decknote.fields.values()),
+            tags=flatnote.tags,
+            fields=list(flatnote.fields.values()),
             sfld="",
             csum=0,
             flags=0,
@@ -740,7 +679,7 @@ def push_note(
     # accordingly.
     old_notetype: Notetype = M.notetype(note.note_type())
     new_notetype: Notetype = M.notetype(col.models.get(model_id))
-    return update_note(note, decknote, old_notetype, new_notetype)
+    return update_note(note, flatnote, old_notetype, new_notetype)
 
 
 @beartype
@@ -901,10 +840,6 @@ def write_repository(
     with open(dotki.config, "w", encoding=UTF8) as config_f:
         config.write(config_f)
 
-    # Create temp directory for htmlfield text files.
-    tempdir: EmptyDir = F.mkdtemp()
-    root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
-
     # ColNote-containing data structure, to be passed to `write_decks()`.
     col: Collection = M.collection(col_file)
     nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
@@ -918,7 +853,6 @@ def write_repository(
         media=media,
     )
 
-    F.rmtree(root)
     col.close(save=False)
 
 
@@ -996,11 +930,10 @@ def write_decks(
         warn(MediaDirectoryDeckNameCollisionWarning())
     decks = TQ(list(decks), "Decks")
 
-    # Write cards and models to disk for each deck.
-    write = write_deck(col, targetdir, colnotes)
-    reduce(write, decks, {})
+    # Write notes, cards (for each deck), models, and media to disk.
+    notefiles = reduce(write_note(targetdir), colnotes.values(), {})
+    do(write_deck(col, targetdir, notefiles), decks)
     do(write_models(col, models), decks)
-
     symlink_media(col, root, targetdir, media)
 
 
@@ -1009,42 +942,39 @@ def write_decks(
 def write_deck(
     col: Collection,
     targetd: Dir,
-    colnotes: Dict[int, ColNote],
-    notefiles: Dict[NoteId, CardFileMap],
+    notefiles: Dict[int, Tuple[ColNote, File]],
     deck: Deck,
-) -> Dict[NoteId, CardFileMap]:
+) -> None:
     """Write all the cards to disk for a single deck."""
-    did: DeckId = deck.did
-    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = write_card(colnotes, targetd, deck.deckd)
-    return reduce(write, cards, notefiles)
+    cards = map(col.get_card, col.decks.cids(did=deck.did, children=False))
+    do(write_card(notefiles, targetd, deck.deckd), cards)
+
+
+@curried
+@beartype
+def write_note(
+    targetd: Dir,
+    notefiles: Dict[int, Tuple[ColNote, File]],
+    colnote: ColNote,
+) -> Dict[int, Tuple[ColNote, File]]:
+    hexguid: str = colnote.n.guid.encode("ascii").hex()
+    path: Path = F.chk(targetd / KI / NOTES_DIR / f"{hexguid}.md")
+    nid: int = colnote.n.id
+    return notefiles | {nid: (colnote, F.write(path, get_note_payload(colnote)))}
 
 
 @curried
 @beartype
 def write_card(
-    colnotes: Dict[int, ColNote],
+    notefiles: Dict[int, Tuple[ColNote, File]],
     targetd: Dir,
     deckd: Dir,
-    notefiles: Dict[NoteId, CardFileMap],
     card: Card,
-) -> Dict[NoteId, CardFileMap]:
-    """Write a single card to disk."""
-    colnote: ColNote = colnotes[card.nid]
-    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
-    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
-    if len(cardfile_map) == 0:
-        payload: str = get_note_payload(colnote)
-        note_path: NoFile = get_note_path(colnote, deckd)
-        file = F.write(note_path, payload)
-    elif len(cardfiles) > 0:
-        file = cardfiles[0].file
-    else:
-        existing: CardFile = list(cardfile_map.values())[0][0]
-        file: File = existing.file
-        mklink(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, file=file)
-    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
+) -> None:
+    """Write a single card (symlink) to disk."""
+    colnote, file = notefiles[card.nid]
+    card_path: NoFile = get_card_path(colnote, deckd, card.template()["name"])
+    M.link(targetd, PlannedLink(link=card_path, tgt=file))
 
 
 @curried
@@ -1061,13 +991,6 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
     deck_models = {mid: models[mid] for mid in descendant_mids}
     with open(deckd / MODELS_FILE, "w", encoding=UTF8) as f:
         json.dump(deck_models, f, ensure_ascii=False, indent=4, sort_keys=True)
-
-
-@beartype
-def mklink(targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File) -> None:
-    """Return a windows link for a card if one is necessary."""
-    note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
-    M.link(targetd, PlannedLink(link=note_path, tgt=file))
 
 
 @beartype
@@ -1274,7 +1197,7 @@ def add_model(col: Collection, model: Notetype) -> None:
             return
 
         # If the hashes don't match, then we somehow need to update
-        # `decknote.model` for the relevant notes.
+        # `flatnote.model` for the relevant notes.
         warn(NotetypeCollisionWarning(model, existing))
 
     nt_copy: NotetypeDict = copy.deepcopy(model.dict)
@@ -1590,8 +1513,7 @@ def _push() -> PushResult:
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
 
-    parse: Callable[[Delta], DeckNote] = parse_note(*M.parser_and_transformer())
-    deltas, warnings = F.part(lambda x: isinstance(x, Delta), diff2(remote_repo, parse))
+    deltas, warnings = F.part(lambda x: isinstance(x, Delta), diff2(remote_repo))
     do(warn, warnings)
 
     # If there are no changes, quit.
@@ -1602,7 +1524,7 @@ def _push() -> PushResult:
 
     echo(f"Pushing to '{kirepo.col_file}'")
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
-    return write_collection(deltas, models, kirepo, parse, head_kirepo, con)
+    return write_collection(deltas, models, kirepo, head_kirepo, con)
 
 
 @beartype
@@ -1610,12 +1532,13 @@ def write_collection(
     deltas: Iterable[Delta],
     models: Dict[str, Notetype],
     kirepo: KiRepo,
-    parse: Callable[[Delta], DeckNote],
     head_kirepo: KiRepo,
     con: sqlite3.Connection,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     # pylint: disable=too-many-locals
+    parse: Callable[[Delta], FlatNote] = parse_note(*M.parser_and_transformer())
+
     # Copy collection to a temp directory.
     temp_col_dir: Dir = F.mkdtemp()
     new_col_file = temp_col_dir / kirepo.col_file.name
@@ -1630,6 +1553,8 @@ def write_collection(
     # Stash both unstaged and staged files (including untracked).
     head_kirepo.repo.git.stash(include_untracked=True, keep_index=True)
     head_kirepo.repo.git.reset("HEAD", hard=True)
+
+    from loguru import logger; import pprint as pp; logger.debug("\n" + pp.pformat(deltas))
 
     # Display table of note change type counts and partition deltas into
     # 'deletes' and 'not deletes'.
@@ -1651,8 +1576,8 @@ def write_collection(
     guids = {k: v for k, v in guids.items() if k not in del_guids}
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
-    decknotes: Iterable[DeckNote] = map(parse, deltas)
-    do(warn, F.cat(map(push_note(col, timestamp_ns, guids, new_nids), decknotes)))
+    flatnotes: Iterable[FlatNote] = map(parse, deltas)
+    do(warn, F.cat(map(push_note(col, timestamp_ns, guids, new_nids), flatnotes)))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
     col.close(save=True)

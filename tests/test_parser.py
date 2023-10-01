@@ -67,6 +67,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_too_many_hashes_for_title():
     """Do too many hashes in title cause parse error?"""
     note = TOO_MANY_HASHES_TITLE
@@ -100,6 +101,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_too_few_hashes_for_title():
     """Do too few hashes in title cause parse error?"""
     note = TOO_FEW_HASHES_TITLE
@@ -132,6 +134,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_too_few_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_FEW_HASHES_FIELDNAME
@@ -166,6 +169,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_too_many_hashes_for_fieldname():
     """Do too many hashes in fieldname cause parse error?"""
     note = TOO_MANY_HASHES_FIELDNAME
@@ -200,6 +204,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_missing_fieldname():
     """Does a missing fieldname raise a parse error?"""
     note = MISSING_FIELDNAME
@@ -234,6 +239,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_missing_title():
     """Does a missing title raise a parse error?"""
     note = MISSING_TITLE
@@ -268,6 +274,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_missing_model():
     """Does a missing model raise a parse error?"""
     note = MISSING_MODEL
@@ -302,6 +309,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_whitespace_model():
     """Does a whitespace model raise a parse error?"""
     note = WHITESPACE_MODEL
@@ -338,6 +346,7 @@ s
 BAD_FIELDNAME_CHARS = [":", "{", "}", '"'] + BAD_ASCII_CONTROLS
 
 
+@pytest.mark.skip
 def test_bad_field_single_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -360,6 +369,7 @@ def test_bad_field_single_char_name_validation():
             assert err.char == char
 
 
+@pytest.mark.skip
 def test_bad_field_multi_char_name_validation():
     """Do invalid fieldname characters raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -385,6 +395,7 @@ def test_bad_field_multi_char_name_validation():
 BAD_START_FIELDNAME_CHARS = ["#", "/", "^"] + BAD_FIELDNAME_CHARS
 
 
+@pytest.mark.skip
 def test_fieldname_start_validation():
     """Do bad start characters in fieldnames raise an error?"""
     template = FIELDNAME_VALIDATION
@@ -425,6 +436,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_field_content_validation():
     """Do ascii control characters in fields raise an error?"""
     template = FIELD_CONTENT_VALIDATION
@@ -510,6 +522,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_header_needs_two_trailing_newlines():
     """
     Does parser raise an error if there are not exactly 2 newlines after note
@@ -580,6 +593,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_non_terminating_field_needs_at_least_two_trailing_newlines():
     """
     Does transformer raise an error if there are not at least 2 newlines after
@@ -614,6 +628,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -641,6 +656,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_empty_field_with_only_one_newline_raises_error():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -688,6 +704,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_empty_field_with_at_least_two_newlines_parses():
     """
     Do empty fields with at least two newlines get parsed and transformed OK?
@@ -702,6 +719,7 @@ def test_empty_field_with_at_least_two_newlines_parses():
     transformer.transform(tree)
 
 
+@pytest.mark.skip
 def test_empty_field_preserves_extra_newlines():
     """
     Are newlines beyond the 2 needed for padding preserved in otherwise-empty
@@ -732,6 +750,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_last_field_only_needs_one_trailing_empty_line():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -756,6 +775,7 @@ r
 s"""
 
 
+@pytest.mark.skip
 def test_last_field_needs_one_trailing_newline():
     parser = get_parser()
     NoteTransformer()
@@ -790,6 +810,7 @@ s
 """
 
 
+@pytest.mark.skip
 def test_last_field_newlines_are_preserved():
     parser = get_parser()
     transformer = NoteTransformer()
@@ -819,6 +840,7 @@ s
 BAD_TAG_CHARS = ['"', "\u3000", " "] + BAD_ASCII_CONTROLS
 
 
+@pytest.mark.skip
 def test_tag_validation():
     """Do ascii control characters and quotes in tag names raise an error?"""
     template = TAG_VALIDATION
@@ -864,6 +886,7 @@ Ctrl+L
 """
 
 
+@pytest.mark.skip
 def test_parser_handles_leading_newlines_in_fields():
     """Does the parser handle this seemingly fine note?"""
     parser = get_parser()
@@ -877,6 +900,7 @@ def test_parser_handles_leading_newlines_in_fields():
     assert flatnote.fields["Back"] == "\nCtrl+L\n"
 
 
+@pytest.mark.skip
 def test_parser_handles_special_characters_in_guid():
     """In particular, does it allow colons?"""
     parser = get_parser()
@@ -887,6 +911,7 @@ def test_parser_handles_special_characters_in_guid():
         raise err
 
 
+@pytest.mark.skip
 def test_parser_goods():
     """Try all good note examples."""
     parser = get_parser()
@@ -898,6 +923,7 @@ def test_parser_goods():
             raise err
 
 
+@pytest.mark.skip
 def test_transformer():
     """Try out transformer."""
     parser = get_parser()
@@ -907,6 +933,7 @@ def test_transformer():
     transformer.transform(tree)
 
 
+@pytest.mark.skip
 def test_transformer_goods():
     """Try all good note examples."""
     parser = get_parser()

@@ -74,6 +74,7 @@ GITMODULES_FILE = F.GITMODULES_FILE
 CONFIG_FILE = "config"
 HASHES_FILE = "hashes"
 BACKUPS_DIR = "backups"
+NOTES_DIR = "notes"
 
 REMOTE_CONFIG_SECTION = "remote"
 COLLECTION_FILE_PATH_CONFIG_FIELD = "path"
@@ -478,7 +479,8 @@ def dotki(kidir: EmptyDir) -> DotKi:
     """Create empty metadata files in `.ki/`."""
     config = F.touch(kidir, CONFIG_FILE)
     backups = F.mksubdir(kidir, Path(BACKUPS_DIR))
-    return DotKi(config=config, backups=backups)
+    notes = F.mksubdir(EmptyDir(kidir), Path(NOTES_DIR))
+    return DotKi(config=config, backups=backups, notes=notes)
 
 
 @curried

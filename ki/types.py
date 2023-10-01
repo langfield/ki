@@ -112,7 +112,7 @@ class DeckNote:
 
     title: str
     guid: str
-    deck: str
+    deck: List[str]
     model: str
     tags: List[str]
     fields: Dict[str, str]
@@ -290,6 +290,7 @@ class PlannedLink:
 class DotKi:
     config: File
     backups: EmptyDir
+    notes: EmptyDir
 
 
 @beartype

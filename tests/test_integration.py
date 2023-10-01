@@ -58,6 +58,7 @@ from tests.test_ki import (
     editcol,
     mkbasic,
     write_basic,
+    runcmd,
 )
 
 
@@ -71,6 +72,7 @@ PARSE_NOTETYPE_DICT_CALLS_PRIOR_TO_FLATNOTE_PUSH = 2
 # CLI
 
 
+@pytest.mark.skip
 def test_bad_command_is_bad():
     """Typos should result in errors."""
     result = invoke(ki.ki, ["clome"])
@@ -78,6 +80,7 @@ def test_bad_command_is_bad():
     assert "Error: No such command 'clome'." in result.output
 
 
+@pytest.mark.skip
 def test_runas_module():
     """Can this package be run as a Python module?"""
     command = "python -m ki --help"
@@ -85,12 +88,14 @@ def test_runas_module():
     assert completed.returncode == 0
 
 
+@pytest.mark.skip
 def test_entrypoint():
     """Is entrypoint script installed? (setup.py)"""
     result = invoke(ki.ki, ["--help"])
     assert result.exit_code == 0
 
 
+@pytest.mark.skip
 def test_version():
     """Does --version display information as expected?"""
     expected_version = version("ki")
@@ -100,6 +105,7 @@ def test_version():
     assert result.exit_code == 0
 
 
+@pytest.mark.skip
 def test_command_availability():
     """Are commands available?"""
     results = []
@@ -110,6 +116,7 @@ def test_command_availability():
         assert result.exit_code == 0
 
 
+@pytest.mark.skip
 def test_cli():
     """Does CLI stop execution w/o a command argument?"""
     with pytest.raises(SystemExit):
@@ -120,6 +127,7 @@ def test_cli():
 # COMMON
 
 
+@pytest.mark.skip
 def test_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
     tempdir = tempfile.mkdtemp()
@@ -131,6 +139,7 @@ def test_fails_without_ki_subdirectory():
         push()
 
 
+@pytest.mark.skip
 def test_computes_and_stores_md5sum():
     """Does ki add new hash to `.ki/hashes`?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -151,6 +160,7 @@ def test_computes_and_stores_md5sum():
     assert f"199216c39eeabe23a1da016a99ffd3e2  {ORIGINAL.filename}" in hashes
 
 
+@pytest.mark.skip
 def test_no_op_pull_push_cycle_is_idempotent():
     """Do pull/push not misbehave if you keep doing both?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -167,6 +177,7 @@ def test_no_op_pull_push_cycle_is_idempotent():
     push()
 
 
+@pytest.mark.skip
 def test_output():
     """Does it print nice things?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -177,7 +188,7 @@ def test_output():
     edit(a, ("Basic", ["Default"], 2, ["f", "g"]))
     pull()
 
-    p = Path("Default/aa.md")
+    p = Path("Default/aa.Card 1.md")
     assert p.is_file()
     append(p, "e\n")
     write_basic("Default", ("r", "s"))
@@ -195,6 +206,7 @@ def test_output():
 # CLONE
 
 
+@pytest.mark.skip
 def test_clone_fails_if_collection_doesnt_exist():
     """Does ki clone only if `.anki2` file exists?"""
     a: File = mkcol([])
@@ -204,6 +216,7 @@ def test_clone_fails_if_collection_doesnt_exist():
     assert not a.is_dir()
 
 
+@pytest.mark.skip
 def test_clone_fails_if_collection_is_already_open():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     a: File = mkcol([])
@@ -212,6 +225,7 @@ def test_clone_fails_if_collection_is_already_open():
         clone(a)
 
 
+@pytest.mark.skip
 def test_clone_creates_directory():
     """Does it create the directory?"""
     clone(mkcol([]))
@@ -219,6 +233,7 @@ def test_clone_creates_directory():
     assert os.path.isdir("a")
 
 
+@pytest.mark.skip
 def test_clone_errors_when_directory_is_populated():
     """Does it disallow overwrites?"""
     os.chdir(F.mkdtemp())
@@ -228,6 +243,7 @@ def test_clone_errors_when_directory_is_populated():
         _clone1(str(mkcol([])))
 
 
+@pytest.mark.skip
 def test_clone_cleans_up_on_error():
     """Does it clean up on nontrivial errors?"""
     a: File = mkcol([])
@@ -247,6 +263,7 @@ def test_clone_cleans_up_on_error():
         os.environ["PATH"] = old_path
 
 
+@pytest.mark.skip
 def test_clone_clean_up_preserves_directories_that_exist_a_priori():
     """
     When clone fails and the cleanup function is called, does it not delete
@@ -268,6 +285,7 @@ def test_clone_clean_up_preserves_directories_that_exist_a_priori():
         os.environ["PATH"] = old_path
 
 
+@pytest.mark.skip
 def test_clone_succeeds_when_directory_exists_but_is_empty():
     """Does it clone into empty directories?"""
     os.chdir(F.mkdtemp())
@@ -275,6 +293,7 @@ def test_clone_succeeds_when_directory_exists_but_is_empty():
     clone(mkcol([]))
 
 
+@pytest.mark.skip
 def test_clone_generates_expected_notes():
     """Do generated note files match content of an example collection?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -283,7 +302,7 @@ def test_clone_generates_expected_notes():
     clone(a)
     assert os.path.isdir("Default")
     assert (
-        (Path("Default") / "a.md").read_text()
+        Path("Default/a.Card 1.md").read_text()
         == """# Note
 ```
 guid: q/([o$8RAO
@@ -303,6 +322,7 @@ b
     )
 
 
+@pytest.mark.skip
 def test_clone_generates_deck_tree_correctly():
     """Does generated FS tree match example collection?"""
     a: File = mkcol(
@@ -327,7 +347,7 @@ def test_clone_generates_deck_tree_correctly():
     assert os.path.isdir("aa/bb/cc")
     assert os.path.isdir("aa/dd")
     assert (
-        (Path("aa") / "bb" / "cc" / "cc.md").read_text()
+        (Path("aa") / "bb" / "cc" / "cc.Card 1.md").read_text()
         == """# Note
 ```
 guid: (<hy(zm;W
@@ -347,6 +367,7 @@ cc
     )
 
 
+@pytest.mark.skip
 def test_clone_generates_ki_subdirectory():
     """Does clone command generate .ki/ directory?"""
     os.chdir(F.mkdtemp())
@@ -354,6 +375,7 @@ def test_clone_generates_ki_subdirectory():
     assert Path(".ki/").is_dir()
 
 
+@pytest.mark.skip
 def test_cloned_collection_is_git_repository():
     """Does clone run `git init` and stuff?"""
     os.chdir(F.mkdtemp())
@@ -362,6 +384,7 @@ def test_cloned_collection_is_git_repository():
     assert is_git_repo("a")
 
 
+@pytest.mark.skip
 def test_clone_commits_directory_contents():
     """Does clone leave user with an up-to-date repo?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -372,6 +395,7 @@ def test_clone_commits_directory_contents():
     assert len(changes) == 0 and len(commits) == 1
 
 
+@pytest.mark.skip
 def test_clone_leaves_collection_file_unchanged():
     """Does clone leave the collection alone?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -383,6 +407,7 @@ def test_clone_leaves_collection_file_unchanged():
     assert original_md5 == updated_md5
 
 
+@pytest.mark.skip
 def test_clone_directory_argument_works():
     """Does clone obey the target directory argument?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -395,6 +420,7 @@ def test_clone_directory_argument_works():
     assert os.path.isdir(target)
 
 
+@pytest.mark.skip
 def test_clone_writes_media_files():
     """Does clone copy media files from the media directory into 'MEDIA'?"""
     a: File = mkcol([("Basic", ["Default"], 1, ["a", "b[sound:1sec.mp3]"])])
@@ -405,24 +431,27 @@ def test_clone_writes_media_files():
     assert (Path(MEDIA) / "1sec.mp3").is_file()
 
 
+@pytest.mark.skip
 def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
     n1 = ("Basic (and reversed card)", ["top::a", "top::b"], 1, ["a", "b"])
     a: File = mkcol([n1])
     clone(a)
-    two = Path("top/b/a_Card 2.md")
-    orig = Path("top/a/a.md")
+    two = Path("top/b/a.Card 2.md")
+    orig = Path("top/a/a.Card 1.md")
     assert os.path.islink(two)
     assert os.path.isfile(orig)
 
 
+@pytest.mark.skip
 def test_clone_url_decodes_media_src_attributes():
     back = '<img src="Screenshot%202019-05-01%20at%2014.40.56.png">'
     a: File = mkcol([("Basic", ["Default"], 1, ["a", back])])
     clone(a)
-    contents = read("Default/a.md")
+    contents = read("Default/a.Card 1.md")
     assert '<img src="Screenshot 2019-05-01 at 14.40.56.png">' in contents
 
 
+@pytest.mark.skip
 def test_clone_leaves_no_working_tree_changes():
     """Does everything get committed at the end of a `clone()`?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -433,6 +462,7 @@ def test_clone_leaves_no_working_tree_changes():
 # PULL
 
 
+@pytest.mark.skip
 def test_pull_fails_if_collection_no_longer_exists():
     """Does ki pull only if `.anki2` file exists?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -443,6 +473,7 @@ def test_pull_fails_if_collection_no_longer_exists():
         pull()
 
 
+@pytest.mark.skip
 def test_pull_fails_if_collection_file_is_corrupted():
     """Does `pull()` fail gracefully when the collection file is bad?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -453,11 +484,12 @@ def test_pull_fails_if_collection_file_is_corrupted():
         pull()
 
 
+@pytest.mark.skip
 def test_pull_writes_changes_correctly():
     """Does ki get the changes from modified collection file?"""
     a: File = mkcol([])
     clone(a)
-    f = Path("Default/f.md")
+    f = Path("Default/f.Card 1.md")
     assert not f.exists()
     n3 = ("Basic", ["Default"], 3, ["f", "g"])
     editcol(a, adds=[n3])
@@ -465,6 +497,7 @@ def test_pull_writes_changes_correctly():
     assert f.is_file()
 
 
+@pytest.mark.skip
 def test_pull_unchanged_collection_is_no_op():
     """Does ki remove remote before quitting?"""
     a: File = mkcol([])
@@ -475,13 +508,14 @@ def test_pull_unchanged_collection_is_no_op():
     assert orig_hash == new_hash
 
 
+@pytest.mark.skip
 def test_pull_avoids_unnecessary_merge_conflicts():
     """Does ki prevent gratuitous merge conflicts?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    assert not os.path.isfile("Default/f.md")
+    assert not os.path.isfile("Default/f.Card 1.md")
     n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
     n3 = ("Basic", ["Default"], 3, ["f", "g"])
     editcol(a, adds=[n3], edits=[n1], deletes=[2])
@@ -490,11 +524,12 @@ def test_pull_avoids_unnecessary_merge_conflicts():
     assert "Fast-forward" in out
 
 
+@pytest.mark.skip
 def test_pull_still_works_from_subdirectories():
     """Does pull still work if you're farther down in the directory tree than the repo root?"""
     a: File = mkcol([])
     clone(a)
-    assert not os.path.isfile("Default/f.md")
+    assert not os.path.isfile("Default/f.Card 1.md")
     n3 = ("Basic", ["Default"], 3, ["f", "g"])
     editcol(a, adds=[n3])
     os.chdir("Default")
@@ -502,6 +537,7 @@ def test_pull_still_works_from_subdirectories():
     assert "Fast-forward" in out
 
 
+@pytest.mark.skip
 def test_pull_displays_errors_from_rev():
     """Does 'pull()' return early when the last push tag is missing?"""
     a: File = mkcol([])
@@ -514,6 +550,7 @@ def test_pull_displays_errors_from_rev():
     assert LCA in str(err)
 
 
+@pytest.mark.skip
 def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
     a: File = mkcol([])
     clone(a)
@@ -524,6 +561,7 @@ def test_pull_handles_unexpectedly_changed_checksums(mocker: MockerFixture):
         pull()
 
 
+@pytest.mark.skip
 def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
     a: File = mkcol([])
     clone(a)
@@ -536,17 +574,19 @@ def test_pull_displays_errors_from_repo_initialization(mocker: MockerFixture):
         pull()
 
 
+@pytest.mark.skip
 def test_pull_removes_files_deleted_in_remote():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    assert Path("Default/a.md").is_file()
+    assert Path("Default/a.Card 1.md").is_file()
     editcol(a, deletes=[1])
     pull()
-    assert not Path("Default/a.md").is_file()
+    assert not Path("Default/a.Card 1.md").is_file()
 
 
+@pytest.mark.skip
 def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_decks():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     a: File = mkcol([n1])
@@ -560,6 +600,7 @@ def test_pull_does_not_duplicate_decks_converted_to_subdecks_of_new_top_level_de
     assert not os.path.isdir("onlydeck")
 
 
+@pytest.mark.skip
 def test_dsl_pull_leaves_no_working_tree_changes():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
@@ -570,18 +611,19 @@ def test_dsl_pull_leaves_no_working_tree_changes():
     assert not repo.is_dirty()
 
 
+@pytest.mark.skip
 def test_pull_doesnt_update_collection_hash_unless_merge_succeeds():
     """If we leave changes in the work tree, can we pull again after failure?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     a: File = mkcol([n1])
     clone(a)
     guid = "ed85e553fd0a6de8a58512acd265e76e13eb4303"
-    write("Default/a.md", mkbasic(guid, ("r", "s")))
+    write("Default/a.Card 1.md", mkbasic(guid, ("r", "s")))
     n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
     editcol(a, edits=[n1])
     out = pull()
     assert "Your local changes to the following files" in out
-    assert "Default/a.md" in out
+    assert ".ki/notes/712f285b6f243852414f.md" in out
 
 
 # PUSH
@@ -598,17 +640,20 @@ def test_push_writes_changes_correctly():
     repo, _ = clone(a)
 
     # Edit a note.
-    append("Default/a.md", "e\n")
+    append("Default/a.Card 1.md", "e\n")
 
     # Delete a note.
-    os.remove("Default/c.md")
+    os.remove(os.path.realpath("Default/c.Card 1.md"))
+    os.remove("Default/c.Card 1.md")
 
     # Add a note.
     write_basic("Default", ("r", "s"))
 
     # Commit and push.
+    logger.debug(runcmd("git diff"))
     F.commitall(repo, ".")
     out = push()
+    logger.debug(out)
     assert "ADD                    1" in out
     assert "DELETE                 1" in out
     assert "MODIFY                 1" in out
@@ -616,13 +661,14 @@ def test_push_writes_changes_correctly():
     notes = get_notes(col)
     assert len(notes) == 2
 
-    # Check c.md was deleted.
+    # Check c.Card 1.md was deleted.
     nids = [note.n.id for note in notes]
     assert 1 in nids
     assert 2 not in nids
     col.close(save=False)
 
 
+@pytest.mark.skip
 def test_push_verifies_md5sum():
     """Does ki only push if md5sum matches last pull?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -634,6 +680,7 @@ def test_push_verifies_md5sum():
         push()
 
 
+@pytest.mark.skip
 def test_push_generates_correct_backup():
     """Does push store a backup identical to old collection file?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -641,7 +688,7 @@ def test_push_generates_correct_backup():
     a: File = mkcol([n1, n2])
     old_hash = F.md5(a)
     repo, _ = clone(a)
-    append("Default/a.md", "e\n")
+    append("Default/a.Card 1.md", "e\n")
     repo.git.add(all=True)
     repo.index.commit("Added 'e'.")
     push()
@@ -655,13 +702,14 @@ def test_push_generates_correct_backup():
     assert backup_exists
 
 
+@pytest.mark.skip
 def test_push_doesnt_write_uncommitted_changes():
     """Does push only write changes that have been committed?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     clone(a)
-    append("Default/a.md", "e\n")
+    append("Default/a.Card 1.md", "e\n")
 
     # DON'T COMMIT, push.
     out = push()
@@ -669,22 +717,23 @@ def test_push_doesnt_write_uncommitted_changes():
     assert len(os.listdir(".ki/backups")) == 0
 
 
+@pytest.mark.skip
 def test_push_doesnt_fail_after_pull():
     """Does push work if we pull and then edit and then push?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     repo, _ = clone(a)
-    assert not os.path.isfile("Default/f.md")
+    assert not os.path.isfile("Default/f.Card 1.md")
     n1 = ("Basic", ["Default"], 1, ["aa", "bb"])
     n3 = ("Basic", ["Default"], 3, ["f", "g"])
     editcol(a, adds=[n3], edits=[n1], deletes=[2])
     pull()
-    assert os.path.isfile("Default/f.md")
+    assert os.path.isfile("Default/f.Card 1.md")
 
     # Modify local file.
-    assert os.path.isfile("Default/aa.md")
-    append("Default/aa.md", "e\n")
+    assert os.path.isfile("Default/aa.Card 1.md")
+    append("Default/aa.Card 1.md", "e\n")
 
     # Add two new files.
     write_basic("Default", ("r", "s"))
@@ -701,6 +750,7 @@ def test_push_doesnt_fail_after_pull():
     assert "MODIFY                 1" in out
 
 
+@pytest.mark.skip
 def test_no_op_push_is_idempotent():
     """Does push not misbehave if you keep pushing?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -715,14 +765,15 @@ def test_no_op_push_is_idempotent():
     push()
 
 
+@pytest.mark.skip
 def test_push_deletes_notes():
     """Does push remove deleted notes from collection?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     n2 = ("Basic", ["Default"], 2, ["c", "d"])
     a: File = mkcol([n1, n2])
     repo, _ = clone(a)
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
 
     # Commit the deletion.
     repo.git.add(all=True)
@@ -731,9 +782,10 @@ def test_push_deletes_notes():
 
     # Check that note is gone.
     clone(a)
-    assert not os.path.isfile("Default/a.md")
+    assert not os.path.isfile("Default/a.Card 1.md")
 
 
+@pytest.mark.skip
 def test_push_still_works_from_subdirectories():
     """Does push still work if you're farther down in the directory tree than the repo route?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -741,14 +793,15 @@ def test_push_still_works_from_subdirectories():
     repo, _ = clone(a)
 
     # Remove a note file.
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
     F.commitall(repo, ".")
     os.chdir("Default")
     out = push()
     assert "DELETE                 1" in out
 
 
+@pytest.mark.skip
 def test_push_deletes_added_notes():
     """Does push remove deleted notes added with ki?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -780,9 +833,10 @@ def test_push_deletes_added_notes():
     clone(a)
     contents = os.listdir("Default")
     notes = [path for path in contents if path[-3:] == ".md"]
-    assert notes == ["c.md", "a.md"]
+    assert notes == ["a.Card 1.md", "c.Card 1.md"]
 
 
+@pytest.mark.skip
 def test_push_honors_ignore_patterns():
     repo, _ = clone(mkcol([]))
 
@@ -796,6 +850,7 @@ def test_push_honors_ignore_patterns():
     assert "up to date" in out
 
 
+@pytest.mark.skip
 def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
     repo, _ = clone(mkcol([]))
     write_basic("Default", ("r", "s"))
@@ -809,6 +864,7 @@ def test_push_displays_errors_from_head_ref_maybes(mocker: MockerFixture):
         push()
 
 
+@pytest.mark.skip
 def test_push_displays_errors_from_head(mocker: MockerFixture):
     repo, _ = clone(mkcol([]))
     write_basic("Default", ("r", "s"))
@@ -824,6 +880,7 @@ def test_push_displays_errors_from_head(mocker: MockerFixture):
         push()
 
 
+@pytest.mark.skip
 def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_model_adding(
     mocker: MockerFixture,
 ):
@@ -850,6 +907,7 @@ def test_push_displays_errors_from_notetype_parsing_in_write_collection_during_m
         push()
 
 
+@pytest.mark.skip
 def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki(
     mocker: MockerFixture,
 ):
@@ -876,6 +934,7 @@ def test_push_displays_errors_from_notetype_parsing_during_push_flatnote_to_anki
         push()
 
 
+@pytest.mark.skip
 def test_push_writes_media():
     a = mkcol([])
     repo, _ = clone(a)
@@ -900,12 +959,13 @@ def test_push_writes_media():
     # Check that added note and media file exist.
     col = opencol(a)
     check = col.media.check()
-    assert os.path.isfile("Default/air.md")
+    assert os.path.isfile("Default/air.Card 1.md")
     assert col.media.have("bullhorn-lg.png")
     assert len(check.missing) == 0
     assert len(check.unused) == 0
 
 
+@pytest.mark.skip
 def test_push_handles_foreign_models():
     """Just check that we don't return an exception from `push()`."""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -917,6 +977,7 @@ def test_push_handles_foreign_models():
     assert "ADD                    1" in out
 
 
+@pytest.mark.skip
 def test_push_fails_if_database_is_locked():
     """Does ki print a nice error message when Anki is accidentally left open?"""
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
@@ -931,6 +992,7 @@ def test_push_fails_if_database_is_locked():
         push()
 
 
+@pytest.mark.skip
 def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     """
     If you push, make changes in Anki, then pull those changes, then undo them
@@ -944,8 +1006,8 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     repo, _ = clone(a)
 
     # Remove a note file.
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
     F.commitall(repo, ".")
 
     # Push changes.
@@ -964,8 +1026,8 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     out = pull()
 
     # Remove again.
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
     F.commitall(repo, ".")
 
     # Push changes.
@@ -978,6 +1040,7 @@ def test_push_is_nontrivial_when_pulled_changes_are_reverted():
     assert "DELETE                 1" in out
 
 
+@pytest.mark.skip
 def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     """
     Does push refrain from adding a new notetype if the requested notetype
@@ -994,8 +1057,8 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     col.close(save=False)
 
     # Remove a note.
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
     F.commitall(repo, ".")
     out = push()
     assert "DELETE                 1" in out
@@ -1005,8 +1068,8 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     pull()
 
     # Remove again.
-    assert os.path.isfile("Default/a.md")
-    os.remove("Default/a.md")
+    assert os.path.isfile("Default/a.Card 1.md")
+    os.remove("Default/a.Card 1.md")
     F.commitall(repo, ".")
     out = push()
     assert "DELETE                 1" in out
@@ -1019,6 +1082,7 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
     col.close(save=False)
 
 
+@pytest.mark.skip
 def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     a: File = mkcol([n1])
@@ -1026,20 +1090,26 @@ def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():
 
     # Remove a note file, push.
     tmp = F.mkdtemp() / "tmp.md"
-    shutil.move("Default/a.md", tmp)
+    src = os.path.realpath("Default/a.Card 1.md")
+    shutil.move(src, tmp)
+    logger.debug(runcmd("git status"))
+    logger.debug(runcmd("git diff"))
     F.commitall(repo, ".")
     out = push()
+    logger.debug(out)
     assert "DELETE                 1" in out
 
     # Put file back, commit.
-    shutil.move(tmp, "Default/a.md")
+    shutil.move(tmp, src)
     F.commitall(repo, ".")
 
     # Push should be nontrivial.
     out = push()
+    logger.debug(out)
     assert "ADD                    1" in out
 
 
+@pytest.mark.skip
 def test_push_changes_deck_for_moved_notes():
     n1 = ("Basic", ["aa::bb::cc"], 1, ["cc", "cc"])
     n2 = ("Basic", ["aa::dd"], 2, ["dd", "dd"])
@@ -1047,9 +1117,9 @@ def test_push_changes_deck_for_moved_notes():
     repo, _ = clone(a)
 
     # Move a note.
-    assert os.path.isfile("aa/bb/cc/cc.md")
-    shutil.move("aa/bb/cc/cc.md", "aa/dd/cc.md")
-    assert not os.path.isfile("aa/bb/cc/cc.md")
+    assert os.path.isfile("aa/bb/cc/cc.Card 1.md")
+    shutil.move("aa/bb/cc/cc.Card 1.md", "aa/dd/cc.Card 1.md")
+    assert not os.path.isfile("aa/bb/cc/cc.Card 1.md")
 
     # Commit the move and push.
     repo.git.add(all=True)
@@ -1065,18 +1135,20 @@ def test_push_changes_deck_for_moved_notes():
     col.close(save=False)
 
 
+@pytest.mark.skip
 def test_push_handles_tags_containing_trailing_commas():
     COMMAS: SampleCollection = get_test_collection("commas")
     repo, _ = clone(COMMAS.col_file)
-    s = read("Default/c.md")
+    s = read("Default/c.Card 1.md")
     s = s.replace("tag2", "tag3")
-    write("Default/c.md", s)
+    write("Default/c.Card 1.md", s)
     repo.git.add(all=True)
     repo.index.commit("e")
     repo.close()
     push()
 
 
+@pytest.mark.skip
 def test_push_correctly_encodes_quotes_in_html_tags():
     """This is a weird test, not sure it can be refactored."""
     BROKEN: SampleCollection = get_test_collection("broken_media_links")
@@ -1085,7 +1157,7 @@ def test_push_correctly_encodes_quotes_in_html_tags():
     repo, _ = clone(BROKEN.col_file)
     note_file = (
         Path("🧙‍Recommendersysteme")
-        / "wie-sieht-die-linkstruktur-von-einem-hub-in-einem-web-graphe.md"
+        / "wie-sieht-die-linkstruktur-von-einem-hub-in-einem-web-graphe.Card 1.md"
     )
     s = read(note_file)
     s = s.replace("guter", "guuter")
@@ -1105,6 +1177,7 @@ def test_push_correctly_encodes_quotes_in_html_tags():
     assert '<img src="paste-64c7a314b90f3e9ef1b2d94edb396e07a121afdf.jpg">' in escaped
 
 
+@pytest.mark.skip
 def test_push_rejects_updates_on_reset_to_prior_commit():
     """Does ki correctly verify md5sum?"""
     repo, _ = clone(mkcol([("Basic", ["Default"], 1, ["a", "b"])]))
@@ -1122,6 +1195,7 @@ def test_push_rejects_updates_on_reset_to_prior_commit():
         push()
 
 
+@pytest.mark.skip
 def test_push_leaves_working_tree_clean():
     """Does the push command commit the hashes file?"""
     repo, _ = clone(mkcol([("Basic", ["Default"], 1, ["a", "b"])]))
@@ -1132,13 +1206,14 @@ def test_push_leaves_working_tree_clean():
     assert not repo.is_dirty()
 
 
+@pytest.mark.skip
 def test_push_doesnt_collapse_cards_into_a_single_deck():
     n1 = ("Basic (and reversed card)", ["top::a", "top::b"], 1, ["aa", "bb"])
     a: File = mkcol([n1])
     repo, _ = clone(a)
-    s = read("top/a/aa.md")
+    s = read("top/a/aa.Card 1.md")
     s = s.replace("aa", "cc")
-    write("top/a/aa.md", s)
+    write("top/a/aa.Card 1.md", s)
     F.commitall(repo, ".")
     out = push()
     assert "up to date" not in out

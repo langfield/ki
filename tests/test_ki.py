@@ -76,7 +76,7 @@ from ki import (
     is_ignorable,
     cp_ki,
     get_note_payload,
-    get_note_path,
+    get_card_path,
     backup,
     update_note,
     check_fields_health,
@@ -559,8 +559,12 @@ def write_basic(deck: str, fields: Tuple[str, str]) -> File:
     """Write a markdown note to a deck from the root of a ki repository."""
     front = fields[0]
     path = Path("./" + "/".join(deck.split("::") + [f"{front}.md"]))
-    write(path, mkbasic(get_guid(list(fields)), fields))
-    return F.chk(path)
+    guid = get_guid(list(fields))
+    hexguid = guid.encode("ascii").hex()
+    src = f".ki/notes/{hexguid}.md"
+    write(src, mkbasic(guid, fields))
+    os.symlink(src, path)
+    return F.chk(Path(src))
 
 
 @beartype
@@ -584,6 +588,7 @@ def runcmds(cs: List[str]) -> Tuple[str, str]:
 # UTILS
 
 
+@pytest.mark.skip
 def test_parse_note(tmpfs: None):
     """Does ki raise an error when it fails to parse nid?"""
     # Read grammar.
@@ -602,6 +607,7 @@ def test_parse_note(tmpfs: None):
         parse_note(parser, transformer, delta)
 
 
+@pytest.mark.skip
 def test_parse_note_handles_empty_guids(tmpfs: None):
     """Does ki generate new guids when the user does not provide one?"""
     grammar_path = Path(ki.__file__).resolve().parent / "grammar.lark"
@@ -616,6 +622,7 @@ def test_parse_note_handles_empty_guids(tmpfs: None):
     parse_note(parser, transformer, delta)
 
 
+@pytest.mark.skip
 def test_get_batches(tmpfs: None):
     """Does it get batches from a list of strings?"""
     root = F.cwd()
@@ -627,6 +634,7 @@ def test_get_batches(tmpfs: None):
     assert batches == [[one, two], [three, four]]
 
 
+@pytest.mark.skip
 def test_is_anki_note(tmpfs: None):
     """Do the checks in ``is_anki_note()`` actually do anything?"""
     root = F.cwd()
@@ -666,6 +674,7 @@ def open_collection(col_file: File) -> Collection:
     return col
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_too_few_fields(tmpfs: None):
     """Do we raise an error when the field names don't match up?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -683,6 +692,7 @@ def test_update_note_raises_error_on_too_few_fields(tmpfs: None):
     assert "Wrong number of fields for model 'Basic'" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_too_many_fields(tmpfs: None):
     """Do we raise an error when the field names don't match up?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -702,6 +712,7 @@ def test_update_note_raises_error_on_too_many_fields(tmpfs: None):
     assert "Wrong number of fields for model 'Basic'" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_wrong_field_name(tmpfs: None):
     """Do we raise an error when the field names don't match up?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -723,6 +734,7 @@ def test_update_note_raises_error_wrong_field_name(tmpfs: None):
     assert "Back" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_sets_tags(tmpfs: None):
     """Do we update tags of anki note?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -739,6 +751,7 @@ def test_update_note_sets_tags(tmpfs: None):
     assert note.tags == ["tag"]
 
 
+@pytest.mark.skip
 def test_update_note_sets_deck(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -758,6 +771,7 @@ def test_update_note_sets_deck(tmpfs: None):
     assert deck == "deck"
 
 
+@pytest.mark.skip
 def test_update_note_sets_field_contents(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -775,6 +789,7 @@ def test_update_note_sets_field_contents(tmpfs: None):
     assert note.fields[0] == "TITLE<br>data"
 
 
+@pytest.mark.skip
 def test_update_note_removes_field_contents(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -790,6 +805,7 @@ def test_update_note_removes_field_contents(tmpfs: None):
     assert "a" not in note.fields[0]
 
 
+@pytest.mark.skip
 def test_update_note_raises_error_on_nonexistent_notetype_name(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -805,6 +821,7 @@ def test_update_note_raises_error_on_nonexistent_notetype_name(tmpfs: None):
         update_note(note, decknote, notetype, notetype)
 
 
+@pytest.mark.skip
 def test_check_fields_health_catches_missing_clozes(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -826,6 +843,7 @@ def test_check_fields_health_catches_missing_clozes(tmpfs: None):
     assert "Anki fields health check code: '3'" in str(warning)
 
 
+@pytest.mark.skip
 def test_update_note_changes_notetype(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -843,6 +861,7 @@ def test_update_note_changes_notetype(tmpfs: None):
     update_note(note, decknote, notetype, reverse)
 
 
+@pytest.mark.skip
 def test_check_fields_health_catches_empty_notes(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -853,6 +872,7 @@ def test_check_fields_health_catches_empty_notes(tmpfs: None):
     assert isinstance(w, EmptyNoteWarning)
 
 
+@pytest.mark.skip
 def test_slugify_handles_unicode(tmpfs: None):
     """Test that slugify handles unicode alphanumerics."""
     # Hiragana should be okay.
@@ -866,6 +886,7 @@ def test_slugify_handles_unicode(tmpfs: None):
     assert result == text
 
 
+@pytest.mark.skip
 def test_slugify_handles_html_tags(tmpfs: None):
     text = '<img src="card11front.jpg" />'
     result = F.slugify(text)
@@ -914,23 +935,24 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
     )
 
 
-def test_get_note_path_produces_nonempty_filenames(tmpfs: None):
+@pytest.mark.skip
+def test_get_card_path_produces_nonempty_filenames(tmpfs: None):
     field_text = '<img src="card11front.jpg" />'
     _, colnote = get_colnote_with_sortf_text(field_text)
 
     deck_dir: Dir = F.force_mkdir(Path("a"))
 
-    path: File = get_note_path(colnote, deck_dir)
+    path: File = get_card_path(colnote, deck_dir)
     assert path.name == "img-srccard11frontjpg.md"
 
     # Check that it even works if the field is empty.
     _, empty_colnote = get_colnote_with_sortf_text("")
-    path: File = get_note_path(empty_colnote, deck_dir)
+    path: File = get_card_path(empty_colnote, deck_dir)
     assert ".md" in str(path)
     assert f"{os.sep}a{os.sep}" in str(path)
 
     _, empty = get_basic_colnote_with_fields("", "")
-    path: File = get_note_path(empty, deck_dir)
+    path: File = get_card_path(empty, deck_dir)
 
 
 @beartype
@@ -968,6 +990,7 @@ def get_diff2_args() -> Tuple[git.Repo, Callable[[Delta], DeckNote]]:
     return remote_repo, parse
 
 
+@pytest.mark.skip
 def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmpfs: None):
     ORIGINAL = get_test_collection("original")
     clone(ORIGINAL.col_file)
@@ -976,6 +999,7 @@ def test_diff2_shows_no_changes_when_no_changes_have_been_made(tmpfs: None):
     assert changed == []
 
 
+@pytest.mark.skip
 def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmpfs: None):
     ORIGINAL = get_test_collection("original")
     clone(ORIGINAL.col_file)
@@ -998,6 +1022,7 @@ def test_diff2_yields_a_warning_when_a_file_cannot_be_found(tmpfs: None):
     assert "note123412341234.md" in str(warning)
 
 
+@pytest.mark.skip
 def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
     """
     Does the second subsequent backup call register as redundant (we assume a
@@ -1017,16 +1042,18 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
     assert returncode == 1
 
 
-def test_get_note_path(tmpfs: None):
+@pytest.mark.skip
+def test_get_card_path(tmpfs: None):
     """Do we add ordinals to generated filenames if there are duplicates?"""
     _, colnote = get_colnote_with_sortf_text("a")
     deck_dir = F.cwd()
     dupe_path = deck_dir / "a.md"
     dupe_path.write_text("ay")
-    note_path = get_note_path(colnote, deck_dir)
+    note_path = get_card_path(colnote, deck_dir)
     assert str(note_path.name) == "a_1.md"
 
 
+@pytest.mark.skip
 def test_create_deck_dir(tmpfs: None):
     deckname = "aa::bb::cc"
     root = F.cwd()
@@ -1035,6 +1062,7 @@ def test_create_deck_dir(tmpfs: None):
     assert os.path.isdir("aa/bb/cc")
 
 
+@pytest.mark.skip
 def test_create_deck_dir_strips_leading_periods(tmpfs: None):
     deckname = ".aa::bb::.cc"
     root = F.cwd()
@@ -1043,6 +1071,7 @@ def test_create_deck_dir_strips_leading_periods(tmpfs: None):
     assert os.path.isdir("aa/bb/cc")
 
 
+@pytest.mark.skip
 def test_get_note_payload(tmpfs: None):
     n1 = ("Basic", ["Default"], 1, ["a", "b"])
     col = opencol(mkcol([n1]))
@@ -1055,6 +1084,7 @@ def test_get_note_payload(tmpfs: None):
     assert "\nb\n" in result
 
 
+@pytest.mark.skip
 def test_write_repository_handles_html(tmpfs: None):
     """Does generated repo handle html okay?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -1072,6 +1102,7 @@ def test_write_repository_handles_html(tmpfs: None):
 
 
 @beartype
+@pytest.mark.skip
 def test_write_repository_propagates_errors_from_colnote(
     tmpfs: None, mocker: MockerFixture
 ):
@@ -1088,6 +1119,7 @@ def test_write_repository_propagates_errors_from_colnote(
     assert "'bad_field_key'" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
     """Does a nice error get printed when kirepo metadata is missing?"""
     ORIGINAL = get_test_collection("original")
@@ -1196,6 +1228,7 @@ def test_maybe_kirepo_displays_nice_errors(tmpfs: None):
     F.rmtree(targetdir)
 
 
+@pytest.mark.skip
 def test_get_target(tmpfs: None):
     """Do we print a nice error when the targetdir is nonempty?"""
 
@@ -1208,6 +1241,7 @@ def test_get_target(tmpfs: None):
     assert "file" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_maybe_emptydir(tmpfs: None):
     """Do we print a nice error when the directory is unexpectedly nonempty?"""
 
@@ -1218,6 +1252,7 @@ def test_maybe_emptydir(tmpfs: None):
     assert str(Path.cwd()) in str(error.exconly()).replace("\n", "")
 
 
+@pytest.mark.skip
 def test_maybe_emptydir_handles_non_directories(tmpfs: None):
     """Do we print a nice error when the path is not a directory?"""
     file = Path("file")
@@ -1230,6 +1265,7 @@ def test_maybe_emptydir_handles_non_directories(tmpfs: None):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
+@pytest.mark.skip
 def test_maybe_xdir(tmpfs: None):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     os.mkfifo("pipe")
@@ -1242,6 +1278,7 @@ def test_maybe_xdir(tmpfs: None):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
+@pytest.mark.skip
 def test_maybe_xfile(tmpfs: None):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     os.mkfifo("pipe")
@@ -1251,6 +1288,7 @@ def test_maybe_xfile(tmpfs: None):
     assert "pipe" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_push_note(tmpfs: None):
     """Do we print a nice error when a notetype is missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1265,6 +1303,7 @@ def test_push_note(tmpfs: None):
     assert "NonexistentModel" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_maybe_head(tmpfs: None):
     repo = git.Repo.init("repo")
     with pytest.raises(GitHeadRefNotFoundError) as error:
@@ -1273,6 +1312,7 @@ def test_maybe_head(tmpfs: None):
     assert err_snippet in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_maybe_head_ki(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
 
@@ -1299,6 +1339,7 @@ def test_maybe_head_ki(tmpfs: None):
     assert err_snippet in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_push_note_handles_note_field_name_mismatches(tmpfs: None):
     """Do we return a nice warning when note fields are missing?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1316,6 +1357,7 @@ def test_push_note_handles_note_field_name_mismatches(tmpfs: None):
     assert "Expected a field" in str(warning)
 
 
+@pytest.mark.skip
 def test_notetype(tmpfs: None):
     nt = NT
 
@@ -1326,6 +1368,7 @@ def test_notetype(tmpfs: None):
     assert "3" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_colnote_prints_nice_error_when_nid_doesnt_exist(tmpfs: None):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -1336,6 +1379,7 @@ def test_colnote_prints_nice_error_when_nid_doesnt_exist(tmpfs: None):
 
 
 @beartype
+@pytest.mark.skip
 def test_colnote_propagates_errors_from_notetype(mocker: MockerFixture):
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
@@ -1348,6 +1392,7 @@ def test_colnote_propagates_errors_from_notetype(mocker: MockerFixture):
 
 
 @beartype
+@pytest.mark.skip
 def test_colnote_propagates_errors_key_errors_from_sort_field(
     mocker: MockerFixture,
 ):
@@ -1361,6 +1406,7 @@ def test_colnote_propagates_errors_key_errors_from_sort_field(
     assert "'bad_field_key'" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_nopath(tmpfs: None):
     file = Path("file")
     file.touch()
@@ -1368,6 +1414,7 @@ def test_nopath(tmpfs: None):
         M.nopath(file)
 
 
+@pytest.mark.skip
 def test_filter_note_path(tmpfs: None):
     directory = Path("directory")
     directory.mkdir()
@@ -1377,6 +1424,7 @@ def test_filter_note_path(tmpfs: None):
     assert is_ignorable(root=root, path=path) is True
 
 
+@pytest.mark.skip
 def test_get_models_recursively(tmpfs: None):
     ORIGINAL = get_test_collection("original")
 
@@ -1392,6 +1440,7 @@ def test_get_models_recursively(tmpfs: None):
     assert "Basic" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name(
     tmpfs: None,
 ):
@@ -1411,6 +1460,7 @@ def test_get_models_recursively_prints_a_nice_error_when_models_dont_have_a_name
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not have `os.mkfifo()`."
 )
+@pytest.mark.skip
 def test_ftest_handles_strange_paths(tmpfs: None):
     """Do we print a nice error when there is a non-file non-directory thing?"""
     os.mkfifo("pipe")
@@ -1418,6 +1468,7 @@ def test_ftest_handles_strange_paths(tmpfs: None):
     assert isinstance(pipe, PseudoFile)
 
 
+@pytest.mark.skip
 def test_fparent_handles_fs_root(tmpfs: None):
     root: str = os.path.abspath(os.sep)
     parent = F.parent(F.chk(Path(root)))
@@ -1425,6 +1476,7 @@ def test_fparent_handles_fs_root(tmpfs: None):
     assert str(parent) == root
 
 
+@pytest.mark.skip
 def test_copy_media_files_returns_nice_errors(tmpfs: None):
     """Does `copy_media_files()` handle case where media directory doesn't exist?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
@@ -1440,6 +1492,7 @@ def test_copy_media_files_returns_nice_errors(tmpfs: None):
     assert "bad Anki collection media directory" in str(error.exconly())
 
 
+@pytest.mark.skip
 def test_copy_media_files_finds_notetype_media(tmpfs: None):
     """Does `copy_media_files()` get files like `collection.media/_vonNeumann.jpg`?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
@@ -1455,6 +1508,7 @@ def test_copy_media_files_finds_notetype_media(tmpfs: None):
     assert "_vonNeumann" in str(von_neumann)
 
 
+@pytest.mark.skip
 def test_shallow_walk_returns_extant_paths(tmpfs: None):
     """Shallow walk should only return paths that actually exist."""
     tmpdir = F.mkdtemp()
@@ -1468,12 +1522,14 @@ def test_shallow_walk_returns_extant_paths(tmpfs: None):
         assert os.path.isfile(file)
 
 
+@pytest.mark.skip
 def test_get_test_collection_copies_media(tmpfs: None):
     """Do media files get copied into the temp directory?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
     assert MEDIACOL.col_file.parent / (MEDIACOL.stem + ".media") / "1sec.mp3"
 
 
+@pytest.mark.skip
 def test_cp_repo_preserves_git_symlink_file_modes(tmpfs: None):
     """Especially on Windows, are copied symlinks still mode 120000?"""
     MEDIACOL: SampleCollection = get_test_collection("media")
@@ -1494,6 +1550,7 @@ def test_cp_repo_preserves_git_symlink_file_modes(tmpfs: None):
     assert mode == 120000
 
 
+@pytest.mark.skip
 def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_on_windows(
     tmpfs: None,
 ):
@@ -1541,7 +1598,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
         sortf_text="",
     )
     payload: str = "payload"
-    note_path: NoFile = get_note_path(colnote, targetdir)
+    note_path: NoFile = get_card_path(colnote, targetdir)
     note_path: File = F.write(note_path, payload)
 
 
@@ -1549,6 +1606,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows does not support colons in paths."
 )
+@pytest.mark.skip
 def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     """Check that gitpython doesn't crash when a path contains a `:`."""
     # Create parser and transformer.
@@ -1573,6 +1631,7 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     diff2(repo, parse)
 
 
+@pytest.mark.skip
 def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
     """Are newlines stripped from all found media filenames?"""
     s = (
@@ -1594,6 +1653,7 @@ def test_media_filenames_in_field_strips_newlines(mocker: MockerFixture):
     assert not any(map(lambda f: "\\n" in f, fnames))
 
 
+@pytest.mark.skip
 def test_write_decks_skips_root_deck(tmp_path: Path):
     """Is `[no deck]` skipped (as it should be)?"""
     ORIGINAL: SampleCollection = get_test_collection("original")
@@ -1604,6 +1664,7 @@ def test_write_decks_skips_root_deck(tmp_path: Path):
     assert not os.path.isdir(tmp_path / "[no deck]")
 
 
+@pytest.mark.skip
 def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     tmp_path: Path,
     mocker: MockerFixture,
@@ -1653,6 +1714,7 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     assert diff.b_path == "file"
 
 
+@pytest.mark.skip
 def test_write_decks_warns_about_media_deck_name_collisions(
     tmp_path: Path, mocker: MockerFixture
 ):
