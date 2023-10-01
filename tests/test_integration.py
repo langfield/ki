@@ -405,16 +405,6 @@ def test_clone_writes_media_files():
     assert (Path(MEDIA) / "1sec.mp3").is_file()
 
 
-def test_clone_handles_cards_from_a_single_note_in_distinct_decks():
-    n1 = ("Basic (and reversed card)", ["top::a", "top::b"], 1, ["a", "b"])
-    a: File = mkcol([n1])
-    clone(a)
-    two = Path("top/b/a_Card 2.md")
-    orig = Path("top/a/a.md")
-    assert os.path.islink(two)
-    assert os.path.isfile(orig)
-
-
 def test_clone_url_decodes_media_src_attributes():
     back = '<img src="Screenshot%202019-05-01%20at%2014.40.56.png">'
     a: File = mkcol([("Basic", ["Default"], 1, ["a", back])])

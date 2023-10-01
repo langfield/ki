@@ -147,6 +147,10 @@ sentence:247153
 sentence
 ````
 
+### Explicitly unsupported
+
+* Sibling cards in different decks
+
 
 ### Credits
 

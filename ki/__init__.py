@@ -15,45 +15,34 @@ decks in exactly the same way they work on large, complex software projects.
 
 import os
 import re
-import io
 import gc
 import sys
 import time
 import json
 import copy
-import shutil
 import random
 import logging
-import secrets
 import sqlite3
 import hashlib
 import datetime
 import itertools
-import traceback
-import functools
 import subprocess
-import dataclasses
 import configparser
 from pathlib import Path
 from itertools import chain, starmap, tee
 from functools import reduce
-from contextlib import redirect_stdout
-from dataclasses import dataclass
 from collections import namedtuple
 
 import git
 import click
-import whatthepatch
 from lark import Lark
 
 # Required to avoid circular imports because the Anki pylib codebase is gross.
 import anki.collection
-from anki.cards import Card, TemplateDict
-from anki.decks import DeckTreeNode
+from anki.cards import Card
 from anki.utils import ids2str
-from anki.models import ChangeNotetypeInfo, ChangeNotetypeRequest, NotetypeDict
+from anki.models import NotetypeDict
 from anki.errors import NotFoundError
-from anki.exporting import AnkiExporter
 from anki.collection import Collection, Note, OpChangesWithId
 from anki.importing.noteimp import NoteImporter
 
@@ -67,7 +56,6 @@ from beartype.typing import (
     Callable,
     Union,
     TypeVar,
-    Sequence,
     Tuple,
     Iterator,
     Iterable,
@@ -83,14 +71,9 @@ from ki.types import (
     EmptyDir,
     NoPath,
     NoFile,
-    Link,
-    PseudoFile,
     GitChangeType,
-    Patch,
     Delta,
     KiRepo,
-    Field,
-    Template,
     Notetype,
     ColNote,
     KiRev,
@@ -104,29 +87,21 @@ from ki.types import (
     NoteMetadata,
     PushResult,
     PlannedLink,
-    Submodule,
     MediaBytes,
     AddedMedia,
     UpdatesRejectedError,
     TargetExistsError,
     CollectionChecksumError,
     MissingNotetypeError,
-    MissingFieldOrdinalError,
-    MissingNoteIdError,
     NotetypeMismatchError,
     NoteFieldValidationWarning,
     DeletedFileNotFoundWarning,
     DiffTargetFileNotFoundWarning,
     NotetypeCollisionWarning,
-    NotetypeKeyError,
-    UnnamedNotetypeError,
     SQLiteLockError,
-    NoteFieldKeyError,
     MissingMediaDirectoryError,
-    ExpectedNonexistentPathError,
     WrongFieldCountWarning,
     InconsistentFieldNamesWarning,
-    MissingTidyExecutableError,
     AnkiDBNoteMissingFieldsError,
     RenamedMediaFileWarning,
     NonEmptyWorkingTreeError,
@@ -141,7 +116,6 @@ from ki.maybes import (
     GITIGNORE_FILE,
     GITMODULES_FILE,
     KI,
-    CONFIG_FILE,
     HASHES_FILE,
     BACKUPS_DIR,
 )
@@ -994,57 +968,36 @@ def write_decks(
     collisions, decks = F.part(lambda d: MEDIA in d.fullname, postorder(root))
     if any(True for _ in collisions):
         warn(MediaDirectoryDeckNameCollisionWarning())
-    decks = TQ(list(decks), "Decks")
+    decks = list(decks)
+    deckmap = {d.fullname: d for d in decks}
 
-    # Write cards and models to disk for each deck.
-    write = write_deck(col, targetdir, colnotes)
-    reduce(write, decks, {})
-    do(write_models(col, models), decks)
-
+    # Write cards, models, and media to filesystem.
+    do(write_note(col, targetdir, deckmap), TQ(colnotes.values(), "Notes"))
+    do(write_models(col, models), TQ(decks, "Notetypes"))
     symlink_media(col, root, targetdir, media)
 
 
 @curried
 @beartype
-def write_deck(
+def write_note(
     col: Collection,
     targetd: Dir,
-    colnotes: Dict[int, ColNote],
-    notefiles: Dict[NoteId, CardFileMap],
-    deck: Deck,
-) -> Dict[NoteId, CardFileMap]:
-    """Write all the cards to disk for a single deck."""
-    did: DeckId = deck.did
-    cards: Iterable[Card] = map(col.get_card, col.decks.cids(did=did, children=False))
-    write = write_card(colnotes, targetd, deck.deckd)
-    return reduce(write, cards, notefiles)
-
-
-@curried
-@beartype
-def write_card(
-    colnotes: Dict[int, ColNote],
-    targetd: Dir,
-    deckd: Dir,
-    notefiles: Dict[NoteId, CardFileMap],
-    card: Card,
-) -> Dict[NoteId, CardFileMap]:
-    """Write a single card to disk."""
-    colnote: ColNote = colnotes[card.nid]
-    cardfile_map: Dict[DeckId, List[CardFile]] = notefiles.get(card.nid, {})
-    cardfiles: List[CardFile] = cardfile_map.get(card.did, [])
-    if len(cardfile_map) == 0:
-        payload: str = get_note_payload(colnote)
-        note_path: NoFile = get_note_path(colnote, deckd)
-        file = F.write(note_path, payload)
-    elif len(cardfiles) > 0:
-        file = cardfiles[0].file
-    else:
-        existing: CardFile = list(cardfile_map.values())[0][0]
-        file: File = existing.file
-        mklink(targetd, colnote, deckd, card, file)
-    cardfile = CardFile(card, file=file)
-    return notefiles | {card.nid: cardfile_map | {card.did: cardfiles + [cardfile]}}
+    deckmap: Dict[str, Deck],
+    colnote: ColNote,
+) -> File:
+    decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    if len(decknames) == 0:
+        raise ValueError(f"No cards for note: {colnote}")
+    if len(decknames) > 1:
+        raise ValueError(f"Cards for note {colnote} are in distinct decks: {decknames}")
+    fullname = decknames.pop()
+    parts = fullname.split("::")
+    if "_media" in parts:
+        raise ValueError(f"Bad deck name '{fullname}' (cannot contain '_media')")
+    deck: Deck = deckmap[fullname]
+    payload: str = get_note_payload(colnote)
+    note_path: NoFile = get_note_path(colnote, deck.deckd)
+    return F.write(note_path, payload)
 
 
 @curried
@@ -1064,9 +1017,7 @@ def write_models(col: Collection, models: Dict[int, NotetypeDict], deck: Deck) -
 
 
 @beartype
-def mklink(
-    targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File
-) -> None:
+def mklink(targetd: Dir, colnote: ColNote, deckd: Dir, card: Card, file: File) -> None:
     """Return a windows link for a card if one is necessary."""
     note_path: NoFile = get_note_path(colnote, deckd, card.template()["name"])
     M.link(targetd, PlannedLink(link=note_path, tgt=file))

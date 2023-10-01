@@ -57,7 +57,6 @@ from ki import (
     REMOTE_SUFFIX,
     HASHES_FILE,
     MODELS_FILE,
-    CONFIG_FILE,
     GITIGNORE_FILE,
     BACKUPS_DIR,
     NotetypeDict,
@@ -101,6 +100,7 @@ from ki import (
     do,
     stardo,
 )
+from ki.maybes import CONFIG_FILE
 from ki.types import (
     NoFile,
     PseudoFile,
@@ -1056,7 +1056,6 @@ def test_get_note_payload(tmpfs: None):
     assert "\nb\n" in result
 
 
-
 def test_write_repository_handles_html(tmpfs: None):
     """Does generated repo handle html okay?"""
     HTML: SampleCollection = get_test_collection("html")
@@ -1665,9 +1664,6 @@ def test_write_decks_warns_about_media_deck_name_collisions(
     nids: Iterable[int] = col.find_notes(query="")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     mock = mocker.patch("ki.warn")
-    write_decks(col, Dir(tmp_path), colnotes, {})
-
-    mock.assert_called_once()
-    args = mock.call_args
-    w = args.args[0]
-    assert isinstance(w, MediaDirectoryDeckNameCollisionWarning)
+    with pytest.raises(ValueError) as err:
+        write_decks(col, Dir(tmp_path), colnotes, {})
+    assert "_media" in str(err)
