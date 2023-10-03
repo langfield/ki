@@ -1,6 +1,7 @@
 module Main (main) where
 
-import Ki (clone, getArgs)
+import System.Environment (getArgs)
+import Ki (clone)
 
 main :: IO ()
 main = do

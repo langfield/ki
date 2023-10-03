@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Ki (clone, getArgs, getDir, castDir, maxFilenameSize) where
+module Ki where
 
 import Control.Applicative ((<|>), many)
 import Control.Monad (foldM_, forM_, when)
@@ -20,7 +20,6 @@ import Numeric (showHex)
 import Path ((</>), Abs, Dir, File, Path, Rel, parent, toFilePath)
 import Path.IO (createFileLink, doesFileExist, ensureDir, listDir, resolveDir', resolveFile')
 import Replace.Attoparsec.Text (streamEdit)
-import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath (takeBaseName)
 import System.ProgressBar

@@ -6,7 +6,7 @@ import Test.Hspec (describe, hspec, it, shouldBe, shouldNotBe, shouldReturn)
 
 import qualified Path.Internal
 
-mport Ki (Extant, getDir, castDir, ensureEmpty)
+import Ki
 
 main :: IO ()
 main = hspec $ do
