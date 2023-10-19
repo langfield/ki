@@ -58,6 +58,7 @@ from tests.test_ki import (
     editcol,
     mkbasic,
     write_basic,
+    runcmd,
 )
 
 
@@ -420,6 +421,17 @@ def test_clone_leaves_no_working_tree_changes():
     assert not repo.is_dirty()
 
 
+def test_clone_preserves_leading_newlines():
+    n1 = ("Basic", ["Default"], 1, ["a", "<br>b"])
+    a = mkcol([n1])
+    colnotes = get_notes(a)
+    assert len(colnotes) == 1
+    assert "<br>b" == colnotes[0].n["Back"]
+    repo, _ = clone(a)
+    contents = read("Default/a.md")
+    assert "\n\nb\n" in contents
+
+
 # PULL
 
 
@@ -766,7 +778,7 @@ def test_push_deletes_added_notes():
     clone(a)
     contents = os.listdir("Default")
     notes = [path for path in contents if path[-3:] == ".md"]
-    assert notes == ["c.md", "a.md"]
+    assert sorted(notes) == ["a.md", "c.md"]
 
 
 def test_push_honors_ignore_patterns():
@@ -1110,3 +1122,30 @@ def test_push_leaves_working_tree_clean():
     out = push()
     assert "DELETE                 1" in out
     assert not repo.is_dirty()
+
+
+def test_push_handles_no_trailing_newlines():
+    n1 = ("Basic", ["Default"], 1, ["a", "<br>b"])
+    repo, _ = clone(mkcol([n1]))
+    append("Default/a.md", "c")
+    F.commitall(repo, ".")
+    out = push()
+    assert "MODIFY                 1" in out
+
+
+def test_push_doesnt_remove_newlines():
+    n1 = ("Basic", ["Default"], 1, ["a", "<br>b"])
+    a = mkcol([n1])
+    colnotes = get_notes(a)
+    assert len(colnotes) == 1
+    assert "<br>b" == colnotes[0].n["Back"]
+    repo, _ = clone(a)
+    append("Default/a.md", "c")
+    contents = read("Default/a.md")
+    assert "\n\nb\nc" in contents
+    F.commitall(repo, ".")
+    out = push()
+    assert "MODIFY                 1" in out
+    colnotes = get_notes(a)
+    assert len(colnotes) == 1
+    assert "<br>b<br>c" == colnotes[0].n["Back"]

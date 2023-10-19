@@ -1610,18 +1610,19 @@ def write_note(
     colnote: ColNote,
 ) -&gt; File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    sortf = colnote.sortf_text
     if len(decknames) == 0:
-        raise ValueError(f&#34;No cards for note: {colnote}&#34;)
+        raise ValueError(f&#34;No cards for note: {sortf}&#34;)
     if len(decknames) &gt; 1:
-        raise ValueError(f&#34;Cards for note {colnote} are in distinct decks: {decknames}&#34;)
+        raise ValueError(f&#34;Cards for note {sortf} are in distinct decks: {decknames}&#34;)
     fullname = decknames.pop()
     parts = fullname.split(&#34;::&#34;)
     if &#34;_media&#34; in parts:
         raise ValueError(f&#34;Bad deck name &#39;{fullname}&#39; (cannot contain &#39;_media&#39;)&#34;)
     deck: Deck = deckmap[fullname]
+    path: NoFile = get_note_path(colnote, deck.deckd)
     payload: str = get_note_payload(colnote)
-    note_path: NoFile = get_note_path(colnote, deck.deckd)
-    return F.write(note_path, payload)
+    return F.write(path, payload)
 
 
 @curried
@@ -1737,7 +1738,7 @@ def html_to_screen(html: str) -&gt; str:
     plain = re.sub(&#39;src= ?\n&#34;&#39;, &#39;src=&#34;&#39;, plain)
 
     plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
-    return plain.strip()
+    return plain
 
 
 @curried
@@ -3157,7 +3158,7 @@ def html_to_screen(html: str) -&gt; str:
     plain = re.sub(&#39;src= ?\n&#34;&#39;, &#39;src=&#34;&#39;, plain)
 
     plain = re.sub(r&#34;\&lt;b\&gt;\s*\&lt;\/b\&gt;&#34;, &#34;&#34;, plain)
-    return plain.strip()</code></pre>
+    return plain</code></pre>
 </details>
 </dd>
 <dt id="ki.is_anki_note"><code class="name flex">
@@ -4059,18 +4060,19 @@ def write_note(
     colnote: ColNote,
 ) -&gt; File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    sortf = colnote.sortf_text
     if len(decknames) == 0:
-        raise ValueError(f&#34;No cards for note: {colnote}&#34;)
+        raise ValueError(f&#34;No cards for note: {sortf}&#34;)
     if len(decknames) &gt; 1:
-        raise ValueError(f&#34;Cards for note {colnote} are in distinct decks: {decknames}&#34;)
+        raise ValueError(f&#34;Cards for note {sortf} are in distinct decks: {decknames}&#34;)
     fullname = decknames.pop()
     parts = fullname.split(&#34;::&#34;)
     if &#34;_media&#34; in parts:
         raise ValueError(f&#34;Bad deck name &#39;{fullname}&#39; (cannot contain &#39;_media&#39;)&#34;)
     deck: Deck = deckmap[fullname]
+    path: NoFile = get_note_path(colnote, deck.deckd)
     payload: str = get_note_payload(colnote)
-    note_path: NoFile = get_note_path(colnote, deck.deckd)
-    return F.write(note_path, payload)</code></pre>
+    return F.write(path, payload)</code></pre>
 </details>
 </dd>
 <dt id="ki.write_repository"><code class="name flex">

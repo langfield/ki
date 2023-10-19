@@ -87,9 +87,10 @@ class NoteTransformer(Transformer):
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
+        # We drop the first character because it is a newline.
         fieldmap: Dict[str, str] = {}
         for field in fields:
-            fieldmap[field.title] = field.content
+            fieldmap[field.title] = field.content[1:]
 
         return FlatNote(
             title=header.title,
@@ -122,25 +123,26 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         content = "".join(lines)
         if content[-2:] != "\n\n":
-            print(lines)
             raise RuntimeError(
                 f"Nonterminating fields must have >= 1 trailing empty line:\n{content}"
             )
-        return Field(fheader, content[:-2])
+        return Field(fheader, content[:-1])
 
     @beartype
-    def terminalfield(self, f: List[str]) -> Field:
+    def lastfield(self, f: List[str]) -> Field:
         assert len(f) >= 1
         fheader = f[0]
         lines = f[1:]
         content = "".join(lines)
-        return Field(fheader, content[:-1])
+        if len(content) > 0 and content[-1] == "\n":
+            content = content[:-1]
+        return Field(fheader, content)
 
     @beartype
     def fieldheader(self, f: List[str]) -> str:
-        """``fieldheader: FIELDSENTINEL " "* ANKINAME "\n"+``"""
-        assert len(f) == 2
-        return f[1]
+        """``fieldheader: "##" " "* ANKINAME "\n"+``"""
+        assert len(f) == 1
+        return f[0]
 
     @beartype
     def GUID(self, t: Token) -> str:

@@ -76,7 +76,7 @@ def test_too_many_hashes_for_title():
     err = exc.value
     assert err.line == 1
     assert err.column == 2
-    assert err.token == "# Note\n"
+    assert err.token == "#"
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "#"
@@ -141,8 +141,8 @@ def test_too_few_hashes_for_fieldname():
     err = exc.value
     assert err.line == 11
     assert err.column == 1
-    assert err.token == "# Front\n"
-    assert err.expected == set(["FIELDSENTINEL"])
+    assert err.token == "#"
+    assert "* \"##\"" in err._format_expected(err.expected)
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
     assert str(prev) == "\n"
@@ -175,7 +175,7 @@ def test_too_many_hashes_for_fieldname():
     err = exc.value
     assert err.line == 11
     assert err.column == 3
-    assert err.token == "# Front\n"
+    assert err.token == "#"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -209,7 +209,7 @@ def test_missing_fieldname():
     err = exc.value
     assert err.line == 11
     assert err.column == 7
-    assert err.token == "\n"
+    assert err.token == "\nr"
     assert err.expected == set(["ANKINAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -243,7 +243,7 @@ def test_missing_title():
     err = exc.value
     assert err.line == 1
     assert err.column == 2
-    assert err.token == "\n"
+    assert err.token == "\n```"
     assert err.expected == set(["TITLENAME"])
     assert len(err.token_history) == 1
     prev = err.token_history.pop()
@@ -377,7 +377,8 @@ def test_bad_field_multi_char_name_validation():
         assert str(prev) == fieldname[:2]
         if isinstance(err, UnexpectedToken):
             assert err.token in fieldname[2:] + "\n"
-            assert err.expected == set(["NEWLINE"])
+            assert "* \"##\"" in err._format_expected(err.expected)
+            assert "* FIELDLINE" in err._format_expected(err.expected)
         if isinstance(err, UnexpectedCharacters):
             assert err.char == char
 
@@ -543,7 +544,7 @@ def test_header_needs_two_trailing_newlines():
     assert err.line == 11
     assert err.column == 1
     assert err.token == "\n"
-    assert err.expected == {"FIELDSENTINEL"}
+    assert "* \"##\"" in err._format_expected(err.expected)
 
 
 ONE_POST_NON_TERMINATING_FIELD_NEWLINE = r"""# a
@@ -577,6 +578,10 @@ r
 
 ## b
 s
+s
+s
+s
+s
 """
 
 
@@ -594,8 +599,12 @@ def test_non_terminating_field_needs_at_least_two_trailing_newlines():
     err = exc.value.orig_exc
     assert "Nonterminating fields" in str(err)
 
-    tree = parser.parse(TWO_POST_NON_TERMINATING_FIELD_NEWLINES)
-    transformer.transform(tree)
+    try:
+        tree2 = parser.parse(TWO_POST_NON_TERMINATING_FIELD_NEWLINES)
+    except UnexpectedToken as err:
+        debug_lark_error(TWO_POST_NON_TERMINATING_FIELD_NEWLINES, err)
+        raise err
+    transformer.transform(tree2)
 
 
 EMPTY_FIELD_ZERO_NEWLINES = r"""# a
@@ -618,34 +627,6 @@ def test_empty_field_is_still_checked_for_newline_count():
     parser = get_parser()
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_ZERO_NEWLINES)
-    with pytest.raises(VisitError) as exc:
-        transformer.transform(tree)
-    err = exc.value.orig_exc
-    assert "Nonterminating fields" in str(err)
-
-
-EMPTY_FIELD_ONE_NEWLINE = r"""# a
-```
-guid: 123412341234
-notetype: a
-```
-
-### Tags
-```
-```
-
-## a
-
-## b
-s
-"""
-
-
-def test_empty_field_with_only_one_newline_raises_error():
-    parser = get_parser()
-    transformer = NoteTransformer()
-
-    tree = parser.parse(EMPTY_FIELD_ONE_NEWLINE)
     with pytest.raises(VisitError) as exc:
         transformer.transform(tree)
     err = exc.value.orig_exc
@@ -711,7 +692,7 @@ def test_empty_field_preserves_extra_newlines():
     transformer = NoteTransformer()
     tree = parser.parse(EMPTY_FIELD_THREE_NEWLINES)
     flatnote = transformer.transform(tree)
-    assert flatnote.fields["a"] == "\n"
+    assert flatnote.fields["a"] == "\n\n"
 
 
 LAST_FIELD_SINGLE_TRAILING_NEWLINE = r"""# a
@@ -756,16 +737,11 @@ r
 s"""
 
 
-def test_last_field_needs_one_trailing_newline():
+def test_missing_trailing_newline_ok():
     parser = get_parser()
-    NoteTransformer()
-    with pytest.raises(UnexpectedToken) as exc:
-        parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
-    err = exc.value
-    assert err.line == 15
-    assert err.column == 1
-    assert err.token == "s"
-    assert err.expected == {"LF", "FIELDSENTINEL", "FIELDLINE"}
+    transformer = NoteTransformer()
+    tree = parser.parse(LAST_FIELD_NO_TRAILING_NEWLINE)
+    transformer.transform(tree)
 
 
 LAST_FIELD_FIVE_TRAILING_NEWLINES = r"""# a
@@ -872,7 +848,7 @@ def test_parser_handles_leading_newlines_in_fields():
     flatnote = transformer.transform(tree)
     assert (
         flatnote.fields["Front"]
-        == "\nEdit the layout/card types from the editor or browser\n"
+        == "\nEdit the layout/card types from the editor or browser\n\n"
     )
     assert flatnote.fields["Back"] == "\nCtrl+L\n"
 
