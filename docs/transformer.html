@@ -119,9 +119,10 @@ class NoteTransformer(Transformer):
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
+        # We drop the first character because it is a newline.
         fieldmap: Dict[str, str] = {}
         for field in fields:
-            fieldmap[field.title] = field.content
+            fieldmap[field.title] = field.content[1:]
 
         return FlatNote(
             title=header.title,
@@ -154,25 +155,26 @@ class NoteTransformer(Transformer):
         lines = f[1:]
         content = &#34;&#34;.join(lines)
         if content[-2:] != &#34;\n\n&#34;:
-            print(lines)
             raise RuntimeError(
                 f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
             )
-        return Field(fheader, content[:-2])
+        return Field(fheader, content[:-1])
 
     @beartype
-    def terminalfield(self, f: List[str]) -&gt; Field:
+    def lastfield(self, f: List[str]) -&gt; Field:
         assert len(f) &gt;= 1
         fheader = f[0]
         lines = f[1:]
         content = &#34;&#34;.join(lines)
-        return Field(fheader, content[:-1])
+        if len(content) &gt; 0 and content[-1] == &#34;\n&#34;:
+            content = content[:-1]
+        return Field(fheader, content)
 
     @beartype
     def fieldheader(self, f: List[str]) -&gt; str:
-        &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
-        assert len(f) == 2
-        return f[1]
+        &#34;&#34;&#34;``fieldheader: &#34;##&#34; &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(f) == 1
+        return f[0]
 
     @beartype
     def GUID(self, t: Token) -&gt; str:
@@ -389,9 +391,10 @@ s</p></div>
         assert isinstance(header, Header)
         assert isinstance(fields[0], Field)
 
+        # We drop the first character because it is a newline.
         fieldmap: Dict[str, str] = {}
         for field in fields:
-            fieldmap[field.title] = field.content
+            fieldmap[field.title] = field.content[1:]
 
         return FlatNote(
             title=header.title,
@@ -424,25 +427,26 @@ s</p></div>
         lines = f[1:]
         content = &#34;&#34;.join(lines)
         if content[-2:] != &#34;\n\n&#34;:
-            print(lines)
             raise RuntimeError(
                 f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
             )
-        return Field(fheader, content[:-2])
+        return Field(fheader, content[:-1])
 
     @beartype
-    def terminalfield(self, f: List[str]) -&gt; Field:
+    def lastfield(self, f: List[str]) -&gt; Field:
         assert len(f) &gt;= 1
         fheader = f[0]
         lines = f[1:]
         content = &#34;&#34;.join(lines)
-        return Field(fheader, content[:-1])
+        if len(content) &gt; 0 and content[-1] == &#34;\n&#34;:
+            content = content[:-1]
+        return Field(fheader, content)
 
     @beartype
     def fieldheader(self, f: List[str]) -&gt; str:
-        &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
-        assert len(f) == 2
-        return f[1]
+        &#34;&#34;&#34;``fieldheader: &#34;##&#34; &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+        assert len(f) == 1
+        return f[0]
 
     @beartype
     def GUID(self, t: Token) -&gt; str:
@@ -599,18 +603,17 @@ def field(self, f: List[str]) -&gt; Field:
     lines = f[1:]
     content = &#34;&#34;.join(lines)
     if content[-2:] != &#34;\n\n&#34;:
-        print(lines)
         raise RuntimeError(
             f&#34;Nonterminating fields must have &gt;= 1 trailing empty line:\n{content}&#34;
         )
-    return Field(fheader, content[:-2])</code></pre>
+    return Field(fheader, content[:-1])</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.fieldheader"><code class="name flex">
 <span>def <span class="ident">fieldheader</span></span>(<span>self, f: list[str]) ‑> str</span>
 </code></dt>
 <dd>
-<div class="desc"><p><code>fieldheader: FIELDSENTINEL " "* ANKINAME "
+<div class="desc"><p><code>fieldheader: "##" " "* ANKINAME "
 "+</code></p></div>
 <details class="source">
 <summary>
@@ -618,9 +621,9 @@ def field(self, f: List[str]) -&gt; Field:
 </summary>
 <pre><code class="python">@beartype
 def fieldheader(self, f: List[str]) -&gt; str:
-    &#34;&#34;&#34;``fieldheader: FIELDSENTINEL &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
-    assert len(f) == 2
-    return f[1]</code></pre>
+    &#34;&#34;&#34;``fieldheader: &#34;##&#34; &#34; &#34;* ANKINAME &#34;\n&#34;+``&#34;&#34;&#34;
+    assert len(f) == 1
+    return f[0]</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.header"><code class="name flex">
@@ -636,6 +639,26 @@ def fieldheader(self, f: List[str]) -&gt; str:
 def header(self, h: List[str]) -&gt; Header:
     h = filter(lambda s: s != BACKTICKS, h)
     return Header(*h)</code></pre>
+</details>
+</dd>
+<dt id="ki.transformer.NoteTransformer.lastfield"><code class="name flex">
+<span>def <span class="ident">lastfield</span></span>(<span>self, f: list[str]) ‑> <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@beartype
+def lastfield(self, f: List[str]) -&gt; Field:
+    assert len(f) &gt;= 1
+    fheader = f[0]
+    lines = f[1:]
+    content = &#34;&#34;.join(lines)
+    if len(content) &gt; 0 and content[-1] == &#34;\n&#34;:
+        content = content[:-1]
+    return Field(fheader, content)</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.note"><code class="name flex">
@@ -657,9 +680,10 @@ def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
     assert isinstance(header, Header)
     assert isinstance(fields[0], Field)
 
+    # We drop the first character because it is a newline.
     fieldmap: Dict[str, str] = {}
     for field in fields:
-        fieldmap[field.title] = field.content
+        fieldmap[field.title] = field.content[1:]
 
     return FlatNote(
         title=header.title,
@@ -683,24 +707,6 @@ def note(self, n: List[Union[Header, List[str], Field]]) -&gt; FlatNote:
 def tags(self, tags: List[Optional[str]]) -&gt; List[str]:
     tags = filter(lambda t: t != BACKTICKS, tags)
     return [tag for tag in tags if tag is not None]</code></pre>
-</details>
-</dd>
-<dt id="ki.transformer.NoteTransformer.terminalfield"><code class="name flex">
-<span>def <span class="ident">terminalfield</span></span>(<span>self, f: list[str]) ‑> <a title="ki.transformer.Field" href="#ki.transformer.Field">Field</a></span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">@beartype
-def terminalfield(self, f: List[str]) -&gt; Field:
-    assert len(f) &gt;= 1
-    fheader = f[0]
-    lines = f[1:]
-    content = &#34;&#34;.join(lines)
-    return Field(fheader, content[:-1])</code></pre>
 </details>
 </dd>
 <dt id="ki.transformer.NoteTransformer.title"><code class="name flex">
@@ -781,9 +787,9 @@ def title(self, t: List[str]) -&gt; str:
 <li><code><a title="ki.transformer.NoteTransformer.field" href="#ki.transformer.NoteTransformer.field">field</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.fieldheader" href="#ki.transformer.NoteTransformer.fieldheader">fieldheader</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.header" href="#ki.transformer.NoteTransformer.header">header</a></code></li>
+<li><code><a title="ki.transformer.NoteTransformer.lastfield" href="#ki.transformer.NoteTransformer.lastfield">lastfield</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.note" href="#ki.transformer.NoteTransformer.note">note</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.tags" href="#ki.transformer.NoteTransformer.tags">tags</a></code></li>
-<li><code><a title="ki.transformer.NoteTransformer.terminalfield" href="#ki.transformer.NoteTransformer.terminalfield">terminalfield</a></code></li>
 <li><code><a title="ki.transformer.NoteTransformer.title" href="#ki.transformer.NoteTransformer.title">title</a></code></li>
 </ul>
 </li>

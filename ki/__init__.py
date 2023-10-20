@@ -986,18 +986,19 @@ def write_note(
     colnote: ColNote,
 ) -> File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
+    sortf = colnote.sortf_text
     if len(decknames) == 0:
-        raise ValueError(f"No cards for note: {colnote}")
+        raise ValueError(f"No cards for note: {sortf}")
     if len(decknames) > 1:
-        raise ValueError(f"Cards for note {colnote} are in distinct decks: {decknames}")
+        raise ValueError(f"Cards for note {sortf} are in distinct decks: {decknames}")
     fullname = decknames.pop()
     parts = fullname.split("::")
     if "_media" in parts:
         raise ValueError(f"Bad deck name '{fullname}' (cannot contain '_media')")
     deck: Deck = deckmap[fullname]
+    path: NoFile = get_note_path(colnote, deck.deckd)
     payload: str = get_note_payload(colnote)
-    note_path: NoFile = get_note_path(colnote, deck.deckd)
-    return F.write(note_path, payload)
+    return F.write(path, payload)
 
 
 @curried
@@ -1113,7 +1114,7 @@ def html_to_screen(html: str) -> str:
     plain = re.sub('src= ?\n"', 'src="', plain)
 
     plain = re.sub(r"\<b\>\s*\<\/b\>", "", plain)
-    return plain.strip()
+    return plain
 
 
 @curried
