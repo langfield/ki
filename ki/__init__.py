@@ -550,15 +550,14 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # a `Path('.')` which is a bug, and causes a runtime exception. If all else
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
-        blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode(UTF8))
-        slug: str = f"{colnote.notetype.name}--{blake2.hexdigest()}"
+        guidhex = colnote.n.guid.encode(UTF8).hex()
+        slug: str = f"{colnote.notetype.name}--{guidhex}"
 
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += "--" + dt.strftime("%Y-%m-%d--%Hh-%Mm-%Ss")
         F.yellow(f"Slug for note with guid '{colnote.n.guid}' is empty...")
-        F.yellow(f"Using blake2 hash of guid as filename: '{slug}'")
+        F.yellow(f"Using hex representation of guid in filename: '{slug}'")
 
     if card_name != "":
         slug = f"{slug}_{card_name}"
