@@ -384,7 +384,7 @@ def colnote(col: Collection, nid: int) -> ColNote:
     # Get sort field content. See comment where we subscript in the same way in
     # `push_note()`.
     try:
-        sortf_text: str = note[nt.sortf.name]
+        sfld: str = note[nt.sortf.name]
     except KeyError as err:
         raise NoteFieldKeyError(str(err), nid) from err
 
@@ -404,7 +404,7 @@ def colnote(col: Collection, nid: int) -> ColNote:
         title="",
         markdown=False,
         notetype=nt,
-        sortf_text=sortf_text,
+        sfld=sfld,
     )
 
 

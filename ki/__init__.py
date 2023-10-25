@@ -526,7 +526,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -> List[War
 @beartype
 def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFile:
     """Get note path from sort field text."""
-    field_text = colnote.sortf_text
+    field_text = colnote.sfld
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -535,7 +535,7 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = "") -> NoFil
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = colnote.sortf_text
+        field_text = colnote.sfld
 
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
@@ -682,6 +682,7 @@ def push_note(
     model_id: Optional[int] = col.models.id_for_name(decknote.model)
     if model_id is None:
         raise MissingNotetypeError(decknote.model)
+    new_notetype: Notetype = M.notetype(col.models.get(model_id))
 
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
@@ -702,7 +703,7 @@ def push_note(
             usn=-1,
             tags=decknote.tags,
             fields=list(decknote.fields.values()),
-            sfld="",
+            sfld=decknote.fields[new_notetype.sortf.name],
             csum=0,
             flags=0,
             data="",
@@ -712,7 +713,6 @@ def push_note(
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
     old_notetype: Notetype = M.notetype(note.note_type())
-    new_notetype: Notetype = M.notetype(col.models.get(model_id))
     return update_note(note, decknote, old_notetype, new_notetype)
 
 
@@ -985,7 +985,7 @@ def write_note(
     colnote: ColNote,
 ) -> File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
-    sortf = colnote.sortf_text
+    sortf = colnote.sfld
     if len(decknames) == 0:
         raise ValueError(f"No cards for note: {sortf}")
     if len(decknames) > 1:

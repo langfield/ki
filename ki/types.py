@@ -218,7 +218,7 @@ class ColNote:
     title: str
     markdown: bool
     notetype: Notetype
-    sortf_text: str
+    sfld: str
 
 
 @beartype

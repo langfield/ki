@@ -875,7 +875,7 @@ def test_slugify_handles_html_tags(tmpfs: None):
 
 
 @beartype
-def get_colnote_with_sortf_text(sortf_text: str) -> Tuple[Collection, ColNote]:
+def get_colnote_with_sfld(sfld: str) -> Tuple[Collection, ColNote]:
     ORIGINAL: SampleCollection = get_test_collection("original")
     col = open_collection(ORIGINAL.col_file)
     note = col.get_note(set(col.find_notes("")).pop())
@@ -889,7 +889,7 @@ def get_colnote_with_sortf_text(sortf_text: str) -> Tuple[Collection, ColNote]:
         title="",
         markdown=False,
         notetype=notetype,
-        sortf_text=sortf_text,
+        sfld=sfld,
     )
 
 
@@ -911,13 +911,13 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
         title="",
         markdown=False,
         notetype=notetype,
-        sortf_text=note[notetype.sortf.name],
+        sfld=note[notetype.sortf.name],
     )
 
 
 def test_get_note_path_produces_nonempty_filenames(tmpfs: None):
     field_text = '<img src="card11front.jpg" />'
-    _, colnote = get_colnote_with_sortf_text(field_text)
+    _, colnote = get_colnote_with_sfld(field_text)
 
     deck_dir: Dir = F.force_mkdir(Path("a"))
 
@@ -925,7 +925,7 @@ def test_get_note_path_produces_nonempty_filenames(tmpfs: None):
     assert path.name == "img-srccard11frontjpg.md"
 
     # Check that it even works if the field is empty.
-    _, empty_colnote = get_colnote_with_sortf_text("")
+    _, empty_colnote = get_colnote_with_sfld("")
     path: File = get_note_path(empty_colnote, deck_dir)
     assert ".md" in str(path)
     assert f"{os.sep}a{os.sep}" in str(path)
@@ -1020,7 +1020,7 @@ def test_backup_is_no_op_when_backup_already_exists(mocker: MockerFixture):
 
 def test_get_note_path(tmpfs: None):
     """Do we add ordinals to generated filenames if there are duplicates?"""
-    _, colnote = get_colnote_with_sortf_text("a")
+    _, colnote = get_colnote_with_sfld("a")
     deck_dir = F.cwd()
     dupe_path = deck_dir / "a.md"
     dupe_path.write_text("ay")
@@ -1539,7 +1539,7 @@ def test_write_deck_node_cards_does_not_fail_due_to_special_characters_in_paths_
         title="None",
         markdown=False,
         notetype=notetype,
-        sortf_text="",
+        sfld="",
     )
     payload: str = "payload"
     note_path: NoFile = get_note_path(colnote, targetdir)
