@@ -22,7 +22,6 @@ repositories](https://git-scm.com/). Check out the
 Install the following dependencies:
 
 * [Python 3.9+](https://www.python.org/downloads/)
-* [Tidy](https://www.html-tidy.org/)
 * [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 
 Then open a terminal or command-line window, and install with the following
@@ -68,13 +67,12 @@ It also supports:
 * Full version history of all your media files.
 * Private fields for collaborative decks (so you can make your own notes and
   edits, and still get updates from deck maintainers without losing any data).
-* Auto-indentation and tidying of HTML in note fields and notetype templates.
 * Human-readable filenames (the filename is generated from a note's sort field
   content).
-* Meaningful card file locations. If you move a card file to a different deck
-  folder, it will move that card to that deck.
-* Meaningful card file deletions. If you delete a card file in your repository,
-  the card is deleted from your collection (but only if you *commit* the
+* Meaningful note file locations. If you move a note file to a different deck
+  folder, it will move that note to that deck.
+* Meaningful note file deletions. If you delete a note file in your repository,
+  the note is deleted from your collection (but only if you *commit* the
   deletion, and because everything is version-controlled, you can always get it
   back).
 * Manually adding new notes. You can write a markdown file in the [ki note format](#note-grammar)
@@ -94,8 +92,6 @@ It also supports:
   `shutil.copyfile()` call).
 * Changes are only pulled when the hash of the database has changed.
 * Warnings for duplicate notes, unhealthy notes, etc.
-* Cards for a single note split across multiple decks (these are represented
-  with symlinks).
 * Potential interoperation with mobile apps. The note grammar is programming
   language-agnostic, and so a parser could be written in e.g. Kotlin to import
   decks from GitHub right on your phone, but this would take a nontrivial
