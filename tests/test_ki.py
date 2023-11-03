@@ -961,7 +961,8 @@ def get_diff2_args() -> Tuple[git.Repo, Callable[[Delta], DeckNote]]:
     head_kirepo: KiRepo = cp_ki(M.head_ki(kirepo), f"{HEAD_SUFFIX}-{md5sum}")
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
+    col = M.collection(kirepo.col_file)
+    remote_repo, _ = _clone2(col, remote_root, msg, silent=True)
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
     parser, transformer = M.parser_and_transformer()
@@ -1064,7 +1065,8 @@ def test_write_repository_handles_html(tmpfs: None):
 
     kidir, mediadir = M.empty_kirepo(targetdir)
     dotki: DotKi = M.dotki(kidir)
-    _ = write_repository(HTML.col_file, targetdir, dotki, mediadir)
+    col = M.collection(HTML.col_file)
+    _ = write_repository(col, targetdir, dotki, mediadir)
 
     note_file = targetdir / "Default" / "あだ名.md"
     contents: str = note_file.read_text(encoding="UTF-8")
@@ -1085,7 +1087,8 @@ def test_write_repository_propagates_errors_from_colnote(
 
     mocker.patch("ki.M.colnote", side_effect=NoteFieldKeyError("'bad_field_key'", 0))
     with pytest.raises(NoteFieldKeyError) as error:
-        _ = write_repository(HTML.col_file, targetdir, dotki, mediadir)
+        col = M.collection(HTML.col_file)
+        _ = write_repository(col, targetdir, dotki, mediadir)
     assert "'bad_field_key'" in str(error.exconly())
 
 
@@ -1287,7 +1290,8 @@ def test_maybe_head_ki(tmpfs: None):
     (targetdir / GITIGNORE_FILE).write_text(KI + "\n")
 
     # Write notes to disk.
-    _ = write_repository(ORIGINAL.col_file, targetdir, dotki, mediadir)
+    col = M.collection(ORIGINAL.col_file)
+    _ = write_repository(col, targetdir, dotki, mediadir)
 
     repo = git.Repo.init(targetdir, initial_branch=BRANCH_NAME)
     append_md5sum(kidir, ORIGINAL.col_file.name, md5sum)
@@ -1629,12 +1633,12 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     kirepo.col_file = col_file
     parse = mocker.MagicMock()
     head_kirepo = mocker.MagicMock()
-    con = mocker.MagicMock()
+    col = mocker.MagicMock()
 
     # Set class properties to fool @beartype.
     head_kirepo.__class__ = KiRepo
     kirepo.__class__ = KiRepo
-    con.__class__ = sqlite3.Connection
+    col.__class__ = Collection
 
     # Patch some irrelevant functions.
     mocker.patch("ki.backup")
@@ -1643,7 +1647,7 @@ def test_unstaged_working_tree_changes_are_not_stashed_in_write_collection(
     mocker.patch("ki.commit_hashes_file")
 
     # Write collection.
-    _ = write_collection([], {}, kirepo, parse, head_kirepo, con)
+    _ = write_collection([], {}, kirepo, parse, head_kirepo, col)
 
     # Check that unstaged working tree changes are still there.
     diffs = set(r.index.diff(None))
