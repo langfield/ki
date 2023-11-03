@@ -862,24 +862,19 @@ def hasmedia(model: NotetypeDict, fname: str) -> bool:
 
 @beartype
 def write_repository(
-    col_file: File,
+    col: Collection,
     targetdir: Dir,
     dotki: DotKi,
     media_target_dir: EmptyDir,
-) -> None:
+) -> Collection:
     """Write notes to appropriate directories in `targetdir`."""
     # Create config file.
     config = configparser.ConfigParser()
-    config["remote"] = {"path": col_file}
+    config["remote"] = {"path": col.path}
     with open(dotki.config, "w", encoding=UTF8) as config_f:
         config.write(config_f)
 
-    # Create temp directory for htmlfield text files.
-    tempdir: EmptyDir = F.mkdtemp()
-    root: EmptyDir = F.mksubdir(tempdir, FIELD_HTML_SUFFIX)
-
     # ColNote-containing data structure, to be passed to `write_decks()`.
-    col: Collection = M.collection(col_file)
     nids: Iterable[int] = TQ(col.find_notes(query=""), "Notes")
     colnotes: Dict[int, ColNote] = {nid: M.colnote(col, nid) for nid in nids}
     media: Dict[int, Set[File]] = copy_media_files(col, media_target_dir)
@@ -890,9 +885,7 @@ def write_repository(
         colnotes=colnotes,
         media=media,
     )
-
-    F.rmtree(root)
-    col.close(save=False)
+    return col
 
 
 @beartype
@@ -971,7 +964,7 @@ def write_decks(
     deckmap = {d.fullname: d for d in decks}
 
     # Write cards, models, and media to filesystem.
-    do(write_note(col, targetdir, deckmap), TQ(colnotes.values(), "Notes"))
+    do(write_note(deckmap), TQ(colnotes.values(), "Notes"))
     do(write_models(col, models), TQ(decks, "Notetypes"))
     symlink_media(col, root, targetdir, media)
 
@@ -979,8 +972,6 @@ def write_decks(
 @curried
 @beartype
 def write_note(
-    col: Collection,
-    targetd: Dir,
     deckmap: Dict[str, Deck],
     colnote: ColNote,
 ) -> File:
@@ -1328,7 +1319,9 @@ def _clone1(collection: str, directory: str = "") -> git.Repo:
     # Write all files to `targetdir`, and instantiate a `KiRepo` object.
     targetdir, new = get_target(F.cwd(), col_file, directory)
     try:
-        _, _ = _clone2(col_file, targetdir, msg="Initial commit", silent=False)
+        col = M.collection(col_file)
+        _, _ = _clone2(col, targetdir, msg="Initial commit", silent=False)
+        col.close(save=False)
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
@@ -1341,7 +1334,7 @@ def _clone1(collection: str, directory: str = "") -> git.Repo:
 
 @beartype
 def _clone2(
-    col_file: File,
+    col: Collection,
     targetdir: EmptyDir,
     msg: str,
     silent: bool,
@@ -1355,8 +1348,8 @@ def _clone2(
 
     Parameters
     ----------
-    col_file : pathlib.Path
-        The path to an `.anki2` collection file.
+    col : Collection
+        An anki collection object.
     targetdir : pathlib.Path
         A path to a directory to clone the collection into.
         Note: we check that this directory is empty.
@@ -1372,6 +1365,7 @@ def _clone2(
     branch_name : str
         The name of the default branch.
     """
+    col_file: File = M.xfile(Path(col.path))
     kidir, mediadir = M.empty_kirepo(targetdir)
     dotki: DotKi = M.dotki(kidir)
     md5sum = F.md5(col_file)
@@ -1380,7 +1374,7 @@ def _clone2(
     (targetdir / GITATTRS_FILE).write_text("*.md linguist-detectable\n")
 
     # Write note files to disk.
-    write_repository(col_file, targetdir, dotki, mediadir)
+    write_repository(col, targetdir, dotki, mediadir)
     repo, branch = F.init(targetdir)
 
     # Store a checksum of the Anki collection file in the hashes file.
@@ -1404,21 +1398,21 @@ def _pull1() -> None:
     """Execute a pull op."""
     # Check that we are inside a ki repository, and get the associated collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
-    con: sqlite3.Connection = lock(kirepo.col_file)
+    col = M.collection(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
-        unlock(con)
+        col.close(save=False)
         return
 
-    _pull2(kirepo)
-    unlock(con)
+    col = _pull2(kirepo, col)
+    col.close(save=False)
 
 
 @beartype
-def _pull2(kirepo: KiRepo) -> None:
+def _pull2(kirepo: KiRepo, col: Collection) -> Collection:
     """
     Pull into `kirepo` without checking if we are already up-to-date.
 
@@ -1464,7 +1458,7 @@ def _pull2(kirepo: KiRepo) -> None:
     # Clone collection into a temp directory at `anki_remote_root`.
     anki_remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
     msg = f"Fetch changes from DB at `{kirepo.col_file}` with md5sum `{md5sum}`"
-    remote_repo, branch = _clone2(kirepo.col_file, anki_remote_root, msg, silent=False)
+    remote_repo, branch = _clone2(col, anki_remote_root, msg, silent=False)
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
@@ -1509,6 +1503,8 @@ def _pull2(kirepo: KiRepo) -> None:
         append_md5sum(kirepo.ki, kirepo.col_file.name, md5sum)
         commit_hashes_file(kirepo)
 
+    return col
+
 
 # PUSH
 
@@ -1526,8 +1522,7 @@ def _push() -> PushResult:
     # pylint: disable=too-many-locals
     # Check that we are inside a ki repository, and load collection.
     kirepo: KiRepo = M.kirepo(F.cwd())
-    con: sqlite3.Connection = lock(kirepo.col_file)
-
+    col = M.collection(kirepo.col_file)
     md5sum: str = F.md5(kirepo.col_file)
     hashes: List[str] = kirepo.hashes_file.read_text(encoding=UTF8).split("\n")
     hashes = list(filter(lambda l: l != "", hashes))
@@ -1538,7 +1533,7 @@ def _push() -> PushResult:
     remote_root: EmptyDir = F.mksubdir(F.mkdtemp(), REMOTE_SUFFIX / md5sum)
 
     msg = f"Fetch changes from collection '{kirepo.col_file}' with md5sum '{md5sum}'"
-    remote_repo, _ = _clone2(kirepo.col_file, remote_root, msg, silent=True)
+    remote_repo, _ = _clone2(col, remote_root, msg, silent=True)
 
     remote_repo = M.gitcopy(remote_repo, head_kirepo.root, unsub=True)
     F.commitall(remote_repo, f"Pull changes from repository at `{kirepo.root}`")
@@ -1550,12 +1545,12 @@ def _push() -> PushResult:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
-        unlock(con)
+        col.close(save=False)
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
     models: Dict[str, Notetype] = get_models_recursively(head_kirepo)
-    return write_collection(deltas, models, kirepo, parse, head_kirepo, con)
+    return write_collection(deltas, models, kirepo, parse, head_kirepo, col)
 
 
 @beartype
@@ -1565,7 +1560,7 @@ def write_collection(
     kirepo: KiRepo,
     parse: Callable[[Delta], DeckNote],
     head_kirepo: KiRepo,
-    con: sqlite3.Connection,
+    col: Collection,
 ) -> PushResult:
     """Push a list of `Delta`s to an Anki collection."""
     # pylint: disable=too-many-locals
@@ -1577,8 +1572,8 @@ def write_collection(
     new_col_file: File = F.copyfile(kirepo.col_file, new_col_file)
 
     # Open collection and add new models to root `models.json` file.
-    col: Collection = M.collection(new_col_file)
-    do(add_model(col), models.values())
+    tempcol: Collection = M.collection(new_col_file)
+    do(add_model(tempcol), models.values())
 
     # Stash both unstaged and staged files (including untracked).
     head_kirepo.repo.git.stash(include_untracked=True, keep_index=True)
@@ -1592,23 +1587,23 @@ def write_collection(
     deltas: Iterable[Delta] = filter(lambda d: d.status != DELETED, zs)
 
     # Map guid -> (nid, mod, mid).
-    guids: Dict[str, NoteMetadata] = get_note_metadata(col)
+    guids: Dict[str, NoteMetadata] = get_note_metadata(tempcol)
 
     # Parse to-be-deleted notes and remove them from collection.
     del_guids: Iterable[str] = map(lambda dd: dd.guid, map(parse, dels))
     del_guids = set(filter(lambda g: g in guids, del_guids))
     del_nids: Iterable[NoteId] = map(lambda g: guids[g].nid, del_guids)
-    col.remove_notes(list(del_nids))
+    tempcol.remove_notes(list(del_nids))
 
     # Push changes for all other notes.
     guids = {k: v for k, v in guids.items() if k not in del_guids}
     timestamp_ns: int = time.time_ns()
     new_nids: Iterator[int] = itertools.count(int(timestamp_ns / 1e6))
     decknotes: Iterable[DeckNote] = map(parse, deltas)
-    do(warn, F.cat(map(push_note(col, timestamp_ns, guids, new_nids), decknotes)))
+    do(warn, F.cat(map(push_note(tempcol, timestamp_ns, guids, new_nids), decknotes)))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
-    col.close(save=True)
+    tempcol.close(save=True)
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
@@ -1616,7 +1611,6 @@ def write_collection(
     echo(f"Overwrote '{kirepo.col_file}'")
 
     # Add media files to collection.
-    col: Collection = M.collection(kirepo.col_file)
     media_files = F.rglob(head_kirepo.root, MEDIA_FILE_RECURSIVE_PATTERN)
     mbytes: Iterable[MediaBytes] = map(mediabytes(col), media_files)
 
@@ -1636,5 +1630,4 @@ def write_collection(
     # Update commit SHA of most recent successful PUSH and unlock SQLite DB.
     kirepo.repo.delete_tag(LCA)
     kirepo.repo.create_tag(LCA)
-    unlock(con)
     return PushResult.NONTRIVIAL
