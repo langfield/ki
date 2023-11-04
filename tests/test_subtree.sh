@@ -48,4 +48,7 @@ git config pull.rebase false
 git pull --no-edit
 git push origin main
 cd /tmp/subtree/multideck
-git subtree pull -m "Merge" --prefix aa /tmp/subtree/github main
+git subtree pull -m "Merge branch 'main' of /tmp/subtree/github" --prefix aa /tmp/subtree/github main
+
+echo ""
+git log --oneline -n 20
