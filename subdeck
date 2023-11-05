@@ -17,5 +17,6 @@ git push -u origin main
 cd $root
 git rm -r $subdeck
 git commit -m "Remove \`$subdeck\`"
-git subtree add --prefix $subdeck $remote main --squash
+rm -rf $subdeck
+git subtree add --prefix $subdeck $remote main
 echo "commits for deck '$subdeck' pushed to '$remote'"
