@@ -15,6 +15,9 @@ mkdir /tmp/subtree/github
 cd /tmp/subtree/github
 git init --initial-branch main
 git checkout -b alt
+echo 'a' > a
+git add a
+git commit -m "Initial commit for branch 'alt'"
 
 # Convert `aa` to a subdeck with remote `/tmp/subtree/github`
 # and clone subdeck repo to `tmp/ki/aa`.
@@ -49,4 +52,11 @@ cd /tmp/subtree/multideck
 git subtree pull -m "Merge branch 'main' of /tmp/subtree/github" --prefix aa /tmp/subtree/github main
 
 echo ""
-git log --oneline -n 20
+git log --oneline -n 20 | grep "Add b"
+git log --oneline -n 20 | grep "Add c"
+
+cd /tmp/subtree/github
+git checkout main
+git log --oneline -n 20 | grep "Add b"
+git log --oneline -n 20 | grep "Add c"
+git checkout -
