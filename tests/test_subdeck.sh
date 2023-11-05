@@ -20,7 +20,7 @@ git checkout -b alt
 # and clone subdeck repo to `tmp/ki/aa`.
 echo ""
 cd /tmp/subtree/multideck
-subtree aa /tmp/subtree/github
+subdeck aa /tmp/subtree/github
 git clone -b main /tmp/subtree/github /tmp/subtree/aa
 
 # Check that cloned subdeck repo has a remote pointing to `/tmp/subtree/github` as well.
