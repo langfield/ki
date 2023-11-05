@@ -12,6 +12,7 @@ clean:
 	rm -rf htmlcov/
 test:
 	KITEST=1 coverage run -m pytest -W ignore::DeprecationWarning -vv -s tests/
+	./tests/test_subtree.sh
 unit:
 	KITEST=1 coverage run -m pytest -W ignore::DeprecationWarning -vv -s tests/test_ki.py tests/test_parser.py
 integration:

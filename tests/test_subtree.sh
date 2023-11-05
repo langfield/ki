@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-root=$(pwd)
-
 # Create root repository.
 rm -rf /tmp/subtree
 mkdir -p /tmp/subtree
@@ -22,7 +20,7 @@ git checkout -b alt
 # and clone subdeck repo to `tmp/ki/aa`.
 echo ""
 cd /tmp/subtree/multideck
-"$root/subtree.sh" aa /tmp/subtree/github
+subtree aa /tmp/subtree/github
 git clone -b main /tmp/subtree/github /tmp/subtree/aa
 
 # Check that cloned subdeck repo has a remote pointing to `/tmp/subtree/github` as well.

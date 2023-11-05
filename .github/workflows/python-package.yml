@@ -37,6 +37,7 @@ jobs:
       - name: Test package
         run: |
           pytest -vv tests/test_package.py
+          ./tests/test_subtree.sh
 
       - name: Install test dependencies
         run: |
