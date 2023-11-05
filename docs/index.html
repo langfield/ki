@@ -1150,7 +1150,7 @@ def validate_decknote_fields(notetype: Notetype, decknote: DeckNote) -&gt; List[
 @beartype
 def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) -&gt; NoFile:
     &#34;&#34;&#34;Get note path from sort field text.&#34;&#34;&#34;
-    field_text = colnote.sortf_text
+    field_text = colnote.sfld
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -1159,7 +1159,7 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = colnote.sortf_text
+        field_text = colnote.sfld
 
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
@@ -1174,15 +1174,14 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception. If all else
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
-        blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode(UTF8))
-        slug: str = f&#34;{colnote.notetype.name}--{blake2.hexdigest()}&#34;
+        guidhex = colnote.n.guid.encode(UTF8).hex()
+        slug: str = f&#34;{colnote.notetype.name}--{guidhex}&#34;
 
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += &#34;--&#34; + dt.strftime(&#34;%Y-%m-%d--%Hh-%Mm-%Ss&#34;)
         F.yellow(f&#34;Slug for note with guid &#39;{colnote.n.guid}&#39; is empty...&#34;)
-        F.yellow(f&#34;Using blake2 hash of guid as filename: &#39;{slug}&#39;&#34;)
+        F.yellow(f&#34;Using hex representation of guid in filename: &#39;{slug}&#39;&#34;)
 
     if card_name != &#34;&#34;:
         slug = f&#34;{slug}_{card_name}&#34;
@@ -1307,6 +1306,7 @@ def push_note(
     model_id: Optional[int] = col.models.id_for_name(decknote.model)
     if model_id is None:
         raise MissingNotetypeError(decknote.model)
+    new_notetype: Notetype = M.notetype(col.models.get(model_id))
 
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
@@ -1327,7 +1327,7 @@ def push_note(
             usn=-1,
             tags=decknote.tags,
             fields=list(decknote.fields.values()),
-            sfld=&#34;&#34;,
+            sfld=decknote.fields[new_notetype.sortf.name],
             csum=0,
             flags=0,
             data=&#34;&#34;,
@@ -1337,7 +1337,6 @@ def push_note(
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
     old_notetype: Notetype = M.notetype(note.note_type())
-    new_notetype: Notetype = M.notetype(col.models.get(model_id))
     return update_note(note, decknote, old_notetype, new_notetype)
 
 
@@ -1610,7 +1609,7 @@ def write_note(
     colnote: ColNote,
 ) -&gt; File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
-    sortf = colnote.sortf_text
+    sortf = colnote.sfld
     if len(decknames) == 0:
         raise ValueError(f&#34;No cards for note: {sortf}&#34;)
     if len(decknames) &gt; 1:
@@ -2973,7 +2972,7 @@ def get_note_metadata(col: Collection) -&gt; Dict[str, NoteMetadata]:
 <pre><code class="python">@beartype
 def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) -&gt; NoFile:
     &#34;&#34;&#34;Get note path from sort field text.&#34;&#34;&#34;
-    field_text = colnote.sortf_text
+    field_text = colnote.sfld
 
     # Construct filename, stripping HTML tags and sanitizing (quickly).
     field_text = plain_to_html(field_text)
@@ -2982,7 +2981,7 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
     # If the HTML stripping removed all text, we just slugify the raw sort
     # field text.
     if len(field_text) == 0:
-        field_text = colnote.sortf_text
+        field_text = colnote.sfld
 
     name = field_text[:MAX_FILENAME_LEN]
     slug = F.slugify(name)
@@ -2997,15 +2996,14 @@ def get_note_path(colnote: ColNote, deck_dir: Dir, card_name: str = &#34;&#34;) 
     # a `Path(&#39;.&#39;)` which is a bug, and causes a runtime exception. If all else
     # fails, use the notetype name, hash of the payload, and creation date.
     if len(slug) == 0:
-        blake2 = hashlib.blake2s()
-        blake2.update(colnote.n.guid.encode(UTF8))
-        slug: str = f&#34;{colnote.notetype.name}--{blake2.hexdigest()}&#34;
+        guidhex = colnote.n.guid.encode(UTF8).hex()
+        slug: str = f&#34;{colnote.notetype.name}--{guidhex}&#34;
 
         # Note IDs are in milliseconds.
         dt = datetime.datetime.fromtimestamp(colnote.n.id / 1000.0)
         slug += &#34;--&#34; + dt.strftime(&#34;%Y-%m-%d--%Hh-%Mm-%Ss&#34;)
         F.yellow(f&#34;Slug for note with guid &#39;{colnote.n.guid}&#39; is empty...&#34;)
-        F.yellow(f&#34;Using blake2 hash of guid as filename: &#39;{slug}&#39;&#34;)
+        F.yellow(f&#34;Using hex representation of guid in filename: &#39;{slug}&#39;&#34;)
 
     if card_name != &#34;&#34;:
         slug = f&#34;{slug}_{card_name}&#34;
@@ -3564,6 +3562,7 @@ def push_note(
     model_id: Optional[int] = col.models.id_for_name(decknote.model)
     if model_id is None:
         raise MissingNotetypeError(decknote.model)
+    new_notetype: Notetype = M.notetype(col.models.get(model_id))
 
     if decknote.guid in guids:
         nid: int = guids[decknote.guid].nid
@@ -3584,7 +3583,7 @@ def push_note(
             usn=-1,
             tags=decknote.tags,
             fields=list(decknote.fields.values()),
-            sfld=&#34;&#34;,
+            sfld=decknote.fields[new_notetype.sortf.name],
             csum=0,
             flags=0,
             data=&#34;&#34;,
@@ -3594,7 +3593,6 @@ def push_note(
     # notetypes, and then update the notetype (and the rest of the note data)
     # accordingly.
     old_notetype: Notetype = M.notetype(note.note_type())
-    new_notetype: Notetype = M.notetype(col.models.get(model_id))
     return update_note(note, decknote, old_notetype, new_notetype)</code></pre>
 </details>
 </dd>
@@ -4060,7 +4058,7 @@ def write_note(
     colnote: ColNote,
 ) -&gt; File:
     decknames = set(map(lambda c: c.col.decks.name(c.did), colnote.n.cards()))
-    sortf = colnote.sortf_text
+    sortf = colnote.sfld
     if len(decknames) == 0:
         raise ValueError(f&#34;No cards for note: {sortf}&#34;)
     if len(decknames) &gt; 1:

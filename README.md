@@ -49,7 +49,7 @@ Ki provides three high-level features:
 
 It also supports:
 
-* **Collaborative decks on GitHub** via git submodules, which means you can
+* **Collaborative decks on GitHub** via git subtrees, which means you can
   download shared decks, upload your own, contribute changes to others' decks,
   and review/merge others' contributions to your own decks.
 * **Full version history of your decks**, with the ability to **roll-back** to

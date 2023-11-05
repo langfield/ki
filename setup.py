@@ -10,7 +10,7 @@ def read_file(filename):
 
 setuptools.setup(
     name="ki",
-    version="0.0.16a",
+    version="0.0.17a",
     description="",
     url="",
     author="",
@@ -20,6 +20,7 @@ setuptools.setup(
     package_data={"ki": ["grammar.lark"]},
     include_package_data=True,
     install_requires=read_file("requirements.txt"),
+    scripts=["subdeck"],
     entry_points={
         "console_scripts": [
             "ki = ki:ki",
