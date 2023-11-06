@@ -9,14 +9,10 @@ mkdir -p /tmp/ki
 cd /tmp/ki
 git clone $root $subdeck
 cd $subdeck
-git filter-repo --force --subdirectory-filter $subdeck --path-rename $subdeck/:
+git subtree split --prefix $subdeck
 cd $(git rev-parse --show-toplevel)
+git remote rm origin
 git remote add origin $remote
 git push -u origin main
 
-cd $root
-git rm -r $subdeck
-git commit -m "Remove \`$subdeck\`"
-rm -rf $subdeck
-git subtree add --prefix $subdeck $remote main
 echo "commits for deck '$subdeck' pushed to '$remote'"

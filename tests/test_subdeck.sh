@@ -20,7 +20,7 @@ git add a
 git commit -m "Initial commit for branch 'alt'"
 
 # Convert `aa` to a subdeck with remote `/tmp/subtree/github`
-# and clone subdeck repo to `tmp/ki/aa`.
+# and clone subdeck repo to `/tmp/subtree/aa`.
 echo ""
 cd /tmp/subtree/multideck
 subdeck aa /tmp/subtree/github
@@ -30,6 +30,9 @@ git clone -b main /tmp/subtree/github /tmp/subtree/aa
 echo ""
 cd /tmp/subtree/aa
 git remote -v
+
+echo ""
+git log --oneline -n 20
 
 # Commit in the root and push to subdeck.
 echo ""
@@ -49,14 +52,23 @@ git config pull.rebase false
 git pull --no-edit
 git push origin main
 cd /tmp/subtree/multideck
-git subtree pull -m "Merge branch 'main' of /tmp/subtree/github" --prefix aa /tmp/subtree/github main
+
+# Convention here is that we squash when pulling into the root repository.
+git subtree pull -m "Merge branch 'main' of /tmp/subtree/github" --prefix aa /tmp/subtree/github main --squash
+
+echo ""
+git log --oneline -n 20
 
 echo ""
 git log --oneline -n 20 | grep "Add b"
-git log --oneline -n 20 | grep "Add c"
+cat aa/c | grep 'c'
+
 
 echo ""
 cd /tmp/subtree/github
+git log --oneline -n 20
+
+echo ""
 git checkout main
 git log --oneline -n 20 | grep "Add b"
 git log --oneline -n 20 | grep "Add c"
