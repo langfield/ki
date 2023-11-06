@@ -16,5 +16,5 @@ git remote add origin $remote
 git push -u origin main
 
 cd $root
-git subtree add --prefix aa $remote main --rejoin
+git subtree add --prefix aa $remote main
 echo "commits for deck '$subdeck' pushed to '$remote'"
