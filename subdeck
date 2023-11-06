@@ -9,10 +9,12 @@ mkdir -p /tmp/ki
 cd /tmp/ki
 git clone $root $subdeck
 cd $subdeck
-git subtree split --prefix $subdeck
+git subtree split --prefix $subdeck --rejoin
 cd $(git rev-parse --show-toplevel)
 git remote rm origin
 git remote add origin $remote
 git push -u origin main
 
+cd $root
+git subtree add --prefix aa $remote main --rejoin
 echo "commits for deck '$subdeck' pushed to '$remote'"
