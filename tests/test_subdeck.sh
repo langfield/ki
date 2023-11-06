@@ -41,7 +41,7 @@ echo 'b' > b
 git add b
 git commit -m "Add b"
 cd /tmp/subtree/multideck
-git subtree push --prefix aa /tmp/subtree/github main
+git subtree push --prefix aa --annotate="(aa) " /tmp/subtree/github main
 
 # Commit in the subdeck repo, push to remote, and pull into root.
 cd /tmp/subtree/aa
