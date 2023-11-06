@@ -9,14 +9,21 @@ mkdir -p /tmp/ki
 cd /tmp/ki
 git clone $root $subdeck
 cd $subdeck
+echo "About to filter repo"
 git filter-repo --force --subdirectory-filter $subdeck --path-rename $subdeck/:
 cd $(git rev-parse --show-toplevel)
 git remote add origin $remote
+echo "Just added origin"
+mkdir -p .github/workflows
+cp $root/.github/workflows/jekyll-gh-pages.yml.example .github/workflows/jekyll-gh-pages.yml
+git add .github
+git commit -m "Add github pages CI workflow"
 git push -u origin main
 
 cd $root
 git rm -r $subdeck
 git commit -m "Remove \`$subdeck\`"
 rm -rf $subdeck
+echo "Just deleted prefix"
 git subtree add --prefix $subdeck $remote main
 echo "commits for deck '$subdeck' pushed to '$remote'"
