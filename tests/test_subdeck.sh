@@ -55,6 +55,7 @@ echo ""
 git log --oneline -n 20 | grep "Add b"
 git log --oneline -n 20 | grep "Add c"
 
+echo ""
 cd /tmp/subtree/github
 git checkout main
 git log --oneline -n 20 | grep "Add b"
