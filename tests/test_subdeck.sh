@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
+pip install -e .
+
 # Create root repository.
 rm -rf /tmp/subtree
+rm -rf /tmp/collections
 mkdir -p /tmp/subtree
-cp -r tests/data/repos/multideck /tmp/subtree/multideck
+mkdir -p /tmp/collections
+cp tests/data/collections/multideck.anki2 /tmp/collections/multideck.anki2
+cd /tmp/subtree
+ki clone /tmp/collections/multideck.anki2
 cd /tmp/subtree/multideck
-git init --initial-branch main
-git add .
-git commit -m "Initial commit"
 
 # Create subtree (local) remote.
 mkdir /tmp/subtree/github
@@ -38,7 +41,7 @@ echo 'b' > b
 git add b
 git commit -m "Add b"
 cd /tmp/subtree/multideck
-git subtree push --prefix aa /tmp/subtree/github main
+git subtree push --prefix aa --annotate="(aa) " /tmp/subtree/github main
 
 # Commit in the subdeck repo, push to remote, and pull into root.
 cd /tmp/subtree/aa
@@ -52,12 +55,14 @@ cd /tmp/subtree/multideck
 git subtree pull -m "Merge branch 'main' of /tmp/subtree/github" --prefix aa /tmp/subtree/github main
 
 echo ""
+git log --oneline -n 20
 git log --oneline -n 20 | grep "Add b"
 git log --oneline -n 20 | grep "Add c"
 
 echo ""
 cd /tmp/subtree/github
 git checkout main
+git log --oneline -n 20
 git log --oneline -n 20 | grep "Add b"
 git log --oneline -n 20 | grep "Add c"
 git checkout -
