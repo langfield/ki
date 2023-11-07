@@ -5,6 +5,7 @@ install:
 documentation:
 	pdoc --html ki --template-dir docs/template/ --force
 	cp html/ki/* docs/
+	cd docs && ./a.sh
 	rm -rf html/
 clean:
 	rm -rf docs/*.html

@@ -34,7 +34,7 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v3
       - name: Make docs
-        run: make documentation
+        run: pip install pdoc3 && pip install -e . && make documentation
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
