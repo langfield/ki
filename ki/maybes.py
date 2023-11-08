@@ -471,7 +471,7 @@ def empty_kirepo(root: EmptyDir) -> Tuple[EmptyDir, EmptyDir]:
     kidir = F.mksubdir(root, Path(KI))
     mediadir = F.mksubdir(EmptyDir(root), Path(MEDIA))
     workflowsdir = F.mksubdir(EmptyDir(root), Path(".github/workflows"))
-    _ = F.copyfile(F.chk(Path(__file__).parent.parent / ".github/workflows/jekyll-gh-pages.yml.example"), F.chk(workflowsdir / "jekyll-gh-pages.yml.example"))
+    _ = F.copyfile(F.chk(Path(__file__).parent / "jekyll-gh-pages.yml"), F.chk(workflowsdir / "jekyll-gh-pages.yml.example"))
     return kidir, mediadir
 
 
