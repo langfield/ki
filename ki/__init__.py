@@ -1321,7 +1321,7 @@ def _clone1(collection: str, directory: str = "") -> git.Repo:
     try:
         col = M.collection(col_file)
         _, _ = _clone2(col, targetdir, msg="Initial commit", silent=False)
-        col.close(save=False)
+        col.close()
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
@@ -1404,11 +1404,11 @@ def _pull1() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
-        col.close(save=False)
+        col.close()
         return
 
     col = _pull2(kirepo, col)
-    col.close(save=False)
+    col.close()
 
 
 @beartype
@@ -1545,7 +1545,7 @@ def _push() -> PushResult:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
-        col.close(save=False)
+        col.close()
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
@@ -1603,7 +1603,7 @@ def write_collection(
     do(warn, F.cat(map(push_note(tempcol, timestamp_ns, guids, new_nids), decknotes)))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
-    tempcol.close(save=True)
+    tempcol.close()
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
@@ -1621,7 +1621,7 @@ def write_collection(
     renames = filter(lambda a: a.file.name != a.new_name, map(addmedia(col), mbytes))
     warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
     do(warn, warnings)
-    col.close(save=True)
+    col.close()
 
     # Append and commit collection checksum to hashes file.
     append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))

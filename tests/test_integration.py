@@ -320,7 +320,7 @@ def test_clone_generates_deck_tree_correctly():
     # Create empty decks.
     col = opencol(a)
     do(col.decks.id, [":a:::b:", "blank::blank", "blank::Hello"])
-    col.close(save=True)
+    col.close()
 
     os.chdir(F.mkdtemp())
     clone(a)
@@ -401,7 +401,7 @@ def test_clone_writes_media_files():
     a: File = mkcol([("Basic", ["Default"], 1, ["a", "b[sound:1sec.mp3]"])])
     col = opencol(a)
     col.media.add_file(DATA / "media/1sec.mp3")
-    col.close(save=True)
+    col.close()
     clone(a)
     assert (Path(MEDIA) / "1sec.mp3").is_file()
 
@@ -883,7 +883,7 @@ def test_push_writes_media():
     write_basic("Default", ("air", '<img src="bullhorn-lg.png">'))
     col = opencol(a)
     col.media.add_file(DATA / "media/bullhorn-lg.png")
-    col.close(save=True)
+    col.close()
     F.commitall(repo, ".")
     repo.close()
     out = push()
@@ -987,7 +987,7 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
 
     col = opencol(a)
     models = col.models.all_names_and_ids()
-    col.close(save=False)
+    col.close()
 
     # Remove a note.
     assert os.path.isfile("Default/a.md")
@@ -1012,7 +1012,7 @@ def test_push_doesnt_unnecessarily_deduplicate_notetypes():
 
     col = opencol(a)
     assert len(models) == len(col.models.all_names_and_ids())
-    col.close(save=False)
+    col.close()
 
 
 def test_push_is_nontrivial_when_pushed_changes_are_reverted_in_repository():

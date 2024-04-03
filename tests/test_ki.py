@@ -482,7 +482,7 @@ def mkcol(ns: List[NoteSpec]) -> File:
     file = F.touch(F.mkdtemp(), "a.anki2")
     col = opencol(file)
     do(addnote(col), ns)
-    col.close(save=True)
+    col.close()
     return F.chk(file)
 
 
@@ -491,7 +491,7 @@ def rm(f: File, nid: int) -> File:
     """Remove note with given `nid`."""
     col = opencol(f)
     col.remove_notes([nid])
-    col.close(save=True)
+    col.close()
     return f
 
 
@@ -514,7 +514,7 @@ def edit(f: File, spec: NoteSpec) -> File:
     """Edit a note with specified nid."""
     col = opencol(f)
     editnote(col, spec)
-    col.close(save=True)
+    col.close()
     return f
 
 
@@ -531,7 +531,7 @@ def editcol(
     do(addnote(col), adds)
     do(editnote(col), edits)
     col.remove_notes(deletes)
-    col.close(save=True)
+    col.close()
     return f
 
 
