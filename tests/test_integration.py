@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import subprocess
 from pathlib import Path
-from distutils.dir_util import copy_tree
+from setuptools._distutils.dir_util import copy_tree
 from importlib.metadata import version
 
 import git
