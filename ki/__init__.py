@@ -752,9 +752,7 @@ def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
 
 @curried
 @beartype
-def copy_note_media(
-    col: Collection, src: Dir, tgt: Dir, row: NoteDBRow
-) -> FrozenSet[File]:
+def copy_note_media(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> Set[File]:
     """
     Copy a single note's media files and return the copies as a set. We do this
     by first filtering for only 'rootfiles', i.e. excluding media files in
@@ -769,7 +767,7 @@ def copy_note_media(
     rootfiles = filter(lambda f: f == os.path.basename(f), files)
     medias: Iterable[File] = filter(F.isfile, map(lambda f: F.chk(src / f), rootfiles))
     srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
-    return frozenset(starmap(F.copyfile, srcdsts))
+    return set(starmap(F.copyfile, srcdsts))
 
 
 @curried
