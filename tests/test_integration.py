@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 import subprocess
 from pathlib import Path
-from setuptools._distutils.dir_util import copy_tree
+from shutil import copytree
 from importlib.metadata import version
 
 import git
@@ -124,7 +124,7 @@ def test_cli():
 def test_fails_without_ki_subdirectory():
     """Do pull and push know whether they're in a ki-generated git repo?"""
     tempdir = tempfile.mkdtemp()
-    copy_tree(GITREPO_PATH, tempdir)
+    copytree(GITREPO_PATH, tempdir, dirs_exist_ok=True)
     os.chdir(tempdir)
     with pytest.raises(NotKiRepoError):
         pull()
