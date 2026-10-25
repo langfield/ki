@@ -506,7 +506,7 @@ def editnote(col: Collection, spec: NoteSpec) -> None:
     cids = [c.id for c in note.cards()]
     assert len(dids) == len(cids)
     stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
 
 @beartype
@@ -900,7 +900,7 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
     note = col.get_note(set(col.find_notes("")).pop())
     note["Front"] = front
     note["Back"] = back
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
     notetype: Notetype = M.notetype(note.note_type())
     deck = col.decks.name(note.cards()[0].did)
