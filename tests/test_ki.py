@@ -482,7 +482,7 @@ def mkcol(ns: List[NoteSpec]) -> File:
     file = F.touch(F.mkdtemp(), "a.anki2")
     col = opencol(file)
     do(addnote(col), ns)
-    col.close(save=True)
+    col.close()
     return F.chk(file)
 
 
@@ -491,7 +491,7 @@ def rm(f: File, nid: int) -> File:
     """Remove note with given `nid`."""
     col = opencol(f)
     col.remove_notes([nid])
-    col.close(save=True)
+    col.close()
     return f
 
 
@@ -506,7 +506,7 @@ def editnote(col: Collection, spec: NoteSpec) -> None:
     cids = [c.id for c in note.cards()]
     assert len(dids) == len(cids)
     stardo(lambda cid, did: note.col.set_deck([cid], did), zip(cids, dids))
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
 
 @beartype
@@ -514,7 +514,7 @@ def edit(f: File, spec: NoteSpec) -> File:
     """Edit a note with specified nid."""
     col = opencol(f)
     editnote(col, spec)
-    col.close(save=True)
+    col.close()
     return f
 
 
@@ -531,7 +531,7 @@ def editcol(
     do(addnote(col), adds)
     do(editnote(col), edits)
     col.remove_notes(deletes)
-    col.close(save=True)
+    col.close()
     return f
 
 
@@ -900,7 +900,7 @@ def get_basic_colnote_with_fields(front: str, back: str) -> Tuple[Collection, Co
     note = col.get_note(set(col.find_notes("")).pop())
     note["Front"] = front
     note["Back"] = back
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
     notetype: Notetype = M.notetype(note.note_type())
     deck = col.decks.name(note.cards()[0].did)
@@ -1566,14 +1566,16 @@ def test_diff2_handles_paths_containing_colons(tmp_path: Path):
     tgt = F.chk(tmp_path / "mwe")
     repodir = F.mkdir(tgt)
     repo = git.Repo.init(repodir, initial_branch=BRANCH_NAME)
+    repo.git.config("user.name", "test")
+    repo.git.config("user.email", "test@test")
     _ = F.mkdir(F.chk(repodir / "a:b"))
     file = F.chk(tgt / "a:b" / "file")
     file.write_text("a", encoding="UTF-8")
     repo.git.add(all=True)
-    repo.index.commit("Initial commit.")
+    repo.git.commit("-m", "Initial commit.")
     file.write_text("b", encoding="UTF-8")
     repo.git.add(all=True)
-    repo.index.commit("Edit file.")
+    repo.git.commit("-m", "Edit file.")
     parse = partial(parse_note, parser, transformer)
     diff2(repo, parse)
 
