@@ -1460,7 +1460,7 @@ def _pull2(kirepo: KiRepo, col: Collection) -> Collection:
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
-    anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
+    anki_remote = lca_repo.create_remote(REMOTE_NAME, str(F.gitd(remote_repo)))
     anki_remote.fetch()
 
     # Handle deleted files, preferring `theirs`.
