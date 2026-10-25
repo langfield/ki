@@ -44,7 +44,6 @@ from anki.utils import ids2str
 from anki.models import NotetypeDict
 from anki.errors import NotFoundError
 from anki.collection import Collection, Note, OpChangesWithId
-from anki.importing.noteimp import NoteImporter
 
 from beartype import beartype
 from beartype.typing import (
@@ -623,8 +622,8 @@ def add_db_note(
     data: str,
 ) -> Note:
     """Add a note to the database directly, with a SQL INSERT."""
-    importer = NoteImporter(col, "")
-    importer.addNew(
+    col.db.executemany(
+        "insert or replace into notes values (?,?,?,?,?,?,?,?,?,?,?)",
         [
             (
                 nid,
