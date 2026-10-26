@@ -8,6 +8,8 @@ on:
         required: false
         default: false
 
+permissions: {}
+
 jobs:
   build:
 
@@ -18,11 +20,12 @@ jobs:
         os: [windows-latest]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - if: matrix.os == 'windows-latest'
@@ -43,6 +46,6 @@ jobs:
           pip install .
       - name: Setup tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.tmate }}
-        uses: mxschmitt/action-tmate@v3
+        uses: mxschmitt/action-tmate@35b54afac29c97fb54faba5b513f8fbd1882f113 # v3.24
         with:
           limit-access-to-actor: true
