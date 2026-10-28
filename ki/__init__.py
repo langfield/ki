@@ -44,7 +44,6 @@ from anki.utils import ids2str
 from anki.models import NotetypeDict
 from anki.errors import NotFoundError
 from anki.collection import Collection, Note, OpChangesWithId
-from anki.importing.noteimp import NoteImporter
 
 from beartype import beartype
 from beartype.typing import (
@@ -466,7 +465,7 @@ def update_note(
 
     nid = note.id
     note.tags = decknote.tags
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
     # Set the deck of the given note, as well as all its cards, and create a
     # deck with this name if it doesn't already exist. See the
@@ -488,7 +487,7 @@ def update_note(
     if len(warnings) > 0:
         return warnings
 
-    # Set field values and flush to collection database. This is correct
+    # Set field values and write to collection database. This is correct
     # because every field name that appears in `new_notetype` is contained in
     # `decknote.fields`, or else we would have printed a warning and returned
     # above.
@@ -496,7 +495,7 @@ def update_note(
     warnings = map(lambda k: NoteFieldValidationWarning(nid, k, new_notetype), missing)
     fields = [(key, field) for key, field in decknote.fields.items() if key in note]
     stardo(update_field(decknote, note), fields)
-    note.flush()
+    note.col.update_note(note, skip_undo_entry=True)
 
     # Remove if unhealthy.
     fwarns: List[Warning] = check_fields_health(note)
@@ -623,8 +622,8 @@ def add_db_note(
     data: str,
 ) -> Note:
     """Add a note to the database directly, with a SQL INSERT."""
-    importer = NoteImporter(col, "")
-    importer.addNew(
+    col.db.executemany(
+        "insert or replace into notes values (?,?,?,?,?,?,?,?,?,?,?)",
         [
             (
                 nid,
@@ -752,9 +751,7 @@ def media_filenames_in_field(col: Collection, s: str) -> Iterable[str]:
 
 @curried
 @beartype
-def copy_note_media(
-    col: Collection, src: Dir, tgt: Dir, row: NoteDBRow
-) -> FrozenSet[File]:
+def copy_note_media(col: Collection, src: Dir, tgt: Dir, row: NoteDBRow) -> Set[File]:
     """
     Copy a single note's media files and return the copies as a set. We do this
     by first filtering for only 'rootfiles', i.e. excluding media files in
@@ -769,7 +766,7 @@ def copy_note_media(
     rootfiles = filter(lambda f: f == os.path.basename(f), files)
     medias: Iterable[File] = filter(F.isfile, map(lambda f: F.chk(src / f), rootfiles))
     srcdsts = map(lambda file: (file, F.chk(tgt / file.name)), medias)
-    return frozenset(starmap(F.copyfile, srcdsts))
+    return set(starmap(F.copyfile, srcdsts))
 
 
 @curried
@@ -1321,7 +1318,7 @@ def _clone1(collection: str, directory: str = "") -> git.Repo:
     try:
         col = M.collection(col_file)
         _, _ = _clone2(col, targetdir, msg="Initial commit", silent=False)
-        col.close(save=False)
+        col.close()
         kirepo: KiRepo = M.kirepo(targetdir)
         kirepo.repo.create_tag(LCA)
         kirepo.repo.close()
@@ -1404,11 +1401,11 @@ def _pull1() -> None:
     hashes = list(filter(lambda l: l != "", hashes))
     if md5sum in hashes[-1]:
         echo("ki pull: up to date.")
-        col.close(save=False)
+        col.close()
         return
 
     col = _pull2(kirepo, col)
-    col.close(save=False)
+    col.close()
 
 
 @beartype
@@ -1462,7 +1459,7 @@ def _pull2(kirepo: KiRepo, col: Collection) -> Collection:
 
     # Create git remote pointing to `remote_repo`, which represents the current
     # state of the Anki SQLite3 database, and pull it into `lca_repo`.
-    anki_remote = lca_repo.create_remote(REMOTE_NAME, F.gitd(remote_repo))
+    anki_remote = lca_repo.create_remote(REMOTE_NAME, str(F.gitd(remote_repo)))
     anki_remote.fetch()
 
     # Handle deleted files, preferring `theirs`.
@@ -1545,7 +1542,7 @@ def _push() -> PushResult:
     # If there are no changes, quit.
     if len(set(deltas)) == 0:
         echo("ki push: up to date.")
-        col.close(save=False)
+        col.close()
         return PushResult.UP_TO_DATE
 
     echo(f"Pushing to '{kirepo.col_file}'")
@@ -1603,7 +1600,7 @@ def write_collection(
     do(warn, F.cat(map(push_note(tempcol, timestamp_ns, guids, new_nids), decknotes)))
 
     # It is always safe to save changes to the DB, since the DB is a copy.
-    tempcol.close(save=True)
+    tempcol.close()
 
     # Backup collection file and overwrite collection.
     backup(kirepo)
@@ -1621,7 +1618,7 @@ def write_collection(
     renames = filter(lambda a: a.file.name != a.new_name, map(addmedia(col), mbytes))
     warnings = map(lambda r: RenamedMediaFileWarning(r.file.name, r.new_name), renames)
     do(warn, warnings)
-    col.close(save=True)
+    col.close()
 
     # Append and commit collection checksum to hashes file.
     append_md5sum(kirepo.ki, kirepo.col_file.name, F.md5(kirepo.col_file))
